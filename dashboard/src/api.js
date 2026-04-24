@@ -73,4 +73,10 @@ export const api = {
   // System
   getHealth: () => client.get('/system/health'),
   getCosts: () => client.get('/system/costs'),
+
+  // Settings
+  saveApiKeys: (provider, key) => client.post('/settings/api-keys', { provider, key }),
+  testProvider: (provider) => client.post('/settings/test-provider', { provider }),
+  getPhaseConfigs: () => client.get('/settings/phases/config'),
+  savePhaseConfig: (phase, config) => client.post(`/settings/phases/${phase}/config`, config),
 };

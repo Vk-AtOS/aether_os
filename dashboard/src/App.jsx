@@ -10,6 +10,7 @@ import PhaseDetail from './pages/PhaseDetail';
 import ClientPortal from './pages/ClientPortal';
 import Settings from './pages/Settings';
 import { api, setNavigate } from './api';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const ProtectedRoute = ({ children }) => {
   const token = api.getToken();
@@ -34,12 +35,12 @@ function App() {
       <Route path="/portal/:id" element={<ClientPortal />} />
       
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Dashboard />} />
-        <Route path="new" element={<NewProject />} />
-        <Route path="projects" element={<ProjectsList />} />
-        <Route path="project/:id" element={<ProjectView />} />
-        <Route path="project/:id/phase/:name" element={<PhaseDetail />} />
-        <Route path="settings" element={<Settings />} />
+        <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+        <Route path="new" element={<ErrorBoundary><NewProject /></ErrorBoundary>} />
+        <Route path="projects" element={<ErrorBoundary><ProjectsList /></ErrorBoundary>} />
+        <Route path="project/:id" element={<ErrorBoundary><ProjectView /></ErrorBoundary>} />
+        <Route path="project/:id/phase/:name" element={<ErrorBoundary><PhaseDetail /></ErrorBoundary>} />
+        <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
       </Route>
       
       <Route path="*" element={<Navigate to="/" replace />} />
