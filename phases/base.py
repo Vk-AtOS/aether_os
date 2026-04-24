@@ -1,0 +1,210 @@
+"""AetherOS — Shared base classes for the 4-agent phase pattern."""
+from __future__ import annotations
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TaskResult:
+    output_path: str
+    confidence: float
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    issues: List[str] = field(default_factory=list)
+    success: bool = True
+
+
+@dataclass
+class GateOutcome:
+    passed: bool
+    issues: List[str] = field(default_factory=list)
+    confidence: float = 1.0
+
+
+class PhaseBase:
+    """
+    Base class for the 4-agent phase pattern.
+    Subclasses implement: run_task(), validate_gate(), phase_name.
+    supervisor_agent orchestrates: memory → task → gate → retry → escalate → comms.
+    """
+    phase_name: str = "base"
+    max_retries: int = 3
+
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(f"aether_os.phases.{self.phase_name}")
+
+    # ── Memory Agent ─────────────────────────────────────────────────────────
+
+    async def memory_before(self, input_hash: str, phase: str,
+                            limit: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve relevant memories before the task."""
+        try:
+            from aether_os.core.memory.store import get_memory_store
+            records = await get_memory_store().retrieve(input_hash, k=limit)
+            return [
+                {"output_text": r.output_text, "confidence": r.confidence,
+                 "success_count": r.success_count}
+                for r in records
+            ]
+        except Exception as e:
+            self.logger.debug("Memory retrieve skipped: %s", e)
+            return []
+
+    async def memory_after(self, phase: str, input_hash: str, output_path: str,
+                           confidence: float, domain: str = "general",
+                           tags: Optional[List[str]] = None) -> None:
+        """Store successful outcome in memory."""
+        try:
+            from aether_os.core.memory.store import get_memory_store
+            summary = f"Phase {phase} output at {output_path} (confidence={confidence:.2f})"
+            await get_memory_store().store(
+                input_hash=input_hash,
+                phase=phase,
+                output_text=summary,
+                confidence=confidence,
+                domain=domain,
+            )
+        except Exception as e:
+            self.logger.debug("Memory store skipped: %s", e)
+
+    # ── Communication Agent ──────────────────────────────────────────────────
+
+    async def communicate(self, run_id: str, phase: str, status: str,
+                          output_path: str, confidence: float,
+                          issues: List[str], next_phase: Optional[str] = None,
+                          upstream_route: Optional[str] = None,
+                          artifacts: Optional[Dict] = None,
+                          failure_context: Optional[Dict] = None,
+                          client_id: Optional[str] = None,
+                          whatsapp_msg: Optional[str] = None) -> None:
+        """Post PhaseResult to message bus and optionally send WhatsApp."""
+        from aether_os.orchestrator.bus import get_bus
+        from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
+        result = PhaseResult(
+            run_id=run_id,
+            phase=phase,
+            status=status,  # type: ignore[arg-type]
+            output_path=output_path,
+            confidence=confidence,
+            issues=issues,
+            next_phase=next_phase,
+            upstream_route=upstream_route,
+            failure_context=failure_context,
+            artifacts=artifacts or {},
+        )
+        msg = PhaseMessage(from_phase=phase, to_phase=next_phase, result=result)
+        await get_bus(run_id).publish(msg)
+
+        if whatsapp_msg and client_id:
+            await self._send_whatsapp(client_id, whatsapp_msg)
+
+    async def _send_whatsapp(self, client_id: str, message: str) -> None:
+        """Send WhatsApp message via WAHA HTTP API."""
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    "http://localhost:3000/api/sendText",
+                    json={"chatId": f"{client_id}@c.us",
+                          "text": message, "session": "default"},
+                )
+        except Exception as e:
+            self.logger.debug("WhatsApp send skipped (WAHA not running): %s", e)
+
+    # ── Supervisor Agent ─────────────────────────────────────────────────────
+
+    async def run(self, phase_input: Any) -> TaskResult:
+        """
+        Supervisor logic: memory → task → gate → retry/escalate → communicate.
+        """
+        from aether_os.core.memory.fingerprinter import fingerprint
+        input_hash = fingerprint(str(phase_input.input_data))
+        memory_ctx = await self.memory_before(input_hash, self.phase_name)
+
+        attempt = 0
+        last_error = ""
+        while attempt < self.max_retries:
+            attempt += 1
+            try:
+                result = await self.run_task(phase_input, memory_ctx)
+                gate = await self.validate_gate(result, phase_input)
+
+                if gate.passed:
+                    await self.memory_after(
+                        self.phase_name, input_hash, result.output_path,
+                        result.confidence, getattr(phase_input, "domain", "general"),
+                    )
+                    await self.communicate(
+                        run_id=phase_input.run_id,
+                        phase=self.phase_name,
+                        status="passed",
+                        output_path=result.output_path,
+                        confidence=result.confidence,
+                        issues=gate.issues,
+                        artifacts=result.metadata,
+                        client_id=getattr(phase_input, "client_id", None),
+                    )
+                    return result
+                else:
+                    last_error = "; ".join(gate.issues)
+                    self.logger.warning(
+                        "[%s] Gate fail attempt %d/%d: %s",
+                        self.phase_name, attempt, self.max_retries, last_error,
+                    )
+                    memory_ctx = [{"failure": last_error}] + memory_ctx
+
+            except Exception as e:
+                last_error = str(e)
+                self.logger.error("[%s] Task error attempt %d: %s",
+                                  self.phase_name, attempt, e)
+
+        # All retries exhausted — escalate
+        await self._escalate(phase_input, last_error)
+        return TaskResult(
+            output_path="",
+            confidence=0.0,
+            success=False,
+            issues=[last_error],
+        )
+
+    async def _escalate(self, phase_input: Any, reason: str) -> None:
+        """Create human approval ticket and pause via bus."""
+        try:
+            from aether_os.core.approval.store import get_approvals_store
+            store = get_approvals_store()
+            ticket_id = store.create_ticket(
+                run_id=phase_input.run_id,
+                phase=self.phase_name,
+                reason=reason,
+                context={"input": str(phase_input.input_data)[:500]},
+            )
+            self.logger.warning("[%s] Escalated: ticket=%s reason=%s",
+                                self.phase_name, ticket_id, reason)
+        except Exception as e:
+            self.logger.error("Escalation ticket creation failed: %s", e)
+
+        await self.communicate(
+            run_id=phase_input.run_id,
+            phase=self.phase_name,
+            status="escalated",
+            output_path="",
+            confidence=0.0,
+            issues=[reason],
+            failure_context={"reason": reason, "phase": self.phase_name},
+            client_id=getattr(phase_input, "client_id", None),
+        )
+
+    # ── Subclass interface ───────────────────────────────────────────────────
+
+    async def run_task(self, phase_input: Any,
+                       memory_ctx: List[Dict]) -> TaskResult:
+        raise NotImplementedError
+
+    async def validate_gate(self, result: TaskResult,
+                            phase_input: Any) -> GateOutcome:
+        return GateOutcome(passed=result.success, issues=result.issues)

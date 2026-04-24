@@ -1,0 +1,110 @@
+# AetherOS — Unified Requirements
+# From audit section 10, consolidated from all three repos
+
+# ── Core Framework ────────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]>=2.0.0
+aiosqlite>=0.20.0
+alembic>=1.13.0
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+
+# ── LLM — Tier 1: Anthropic claude-sonnet-4-6 ────────────────────────────────
+anthropic>=0.30.0
+
+# ── LLM — Tier 2: Google Gemini ──────────────────────────────────────────────
+google-genai>=1.0.0
+
+# ── LLM — FALLBACK (Ollama via HTTP) ─────────────────────────────────────────
+httpx>=0.25.0
+
+# ── CLI / UX ──────────────────────────────────────────────────────────────────
+typer>=0.9.0
+rich>=13.0.0
+
+# ── Config ────────────────────────────────────────────────────────────────────
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# ── Analysis ──────────────────────────────────────────────────────────────────
+networkx>=3.2.0             # call graph (DCSP dfle/call_graph.py)
+whatthepatch>=1.0.0         # Bug 1 fix: replaces broken difflib.patch_from_unified_diff
+
+# ── Async / Files ─────────────────────────────────────────────────────────────
+aiofiles>=23.0.0
+
+# ── Dev / Test ────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0               # TestClient uses httpx
+ruff>=0.1.0
+
+# ── Optional — CI/CD phase (GitHub/GitLab PR API) ────────────────────────────
+requests>=2.31.0
+
+# ── Optional — WebSocket support ─────────────────────────────────────────────
+websockets>=12.0
+
+# ── Optional — File change monitoring ────────────────────────────────────────
+watchdog>=3.0.0
+
+# ── Factory Pipeline — Agent Frameworks ──────────────────────────────────────
+crewai>=0.28.0
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-core>=0.1.0
+langgraph>=0.0.30
+
+# ── Factory Pipeline — Code Generation ───────────────────────────────────────
+cookiecutter>=2.5.0
+aider-chat>=0.38.0
+
+# ── Factory Pipeline — Security / Quality ────────────────────────────────────
+bandit>=1.7.0
+hypothesis>=6.100.0
+semgrep>=1.60.0
+
+# ── Factory Pipeline — Performance / E2E Testing ─────────────────────────────
+locust>=2.20.0
+playwright>=1.40.0
+axe-playwright-python>=0.1.3
+pytest-json-report>=1.5.0
+pytest-timeout>=2.2.0
+
+# ── Factory Pipeline — Documentation ─────────────────────────────────────────
+pdoc>=14.0.0
+diagrams>=0.23.0
+
+# ── Factory Pipeline — Memory ─────────────────────────────────────────────────
+mem0ai>=0.0.20
+chromadb>=0.4.0
+
+# ── Factory Pipeline — Feature Flags / A/B Testing ───────────────────────────
+UnleashClient>=5.11.0
+growthbook>=1.0.0
+
+# ── Factory Pipeline — Analytics / Observability ─────────────────────────────
+posthog>=3.0.0
+sentry-sdk[fastapi]>=1.40.0
+prometheus-client>=0.20.0
+
+# ── Factory Pipeline — Research ───────────────────────────────────────────────
+gpt-researcher>=0.8.0
+
+# ── Optional — Docker sandbox (p08 CI/CD phase) ──────────────────────────────
+# docker>=7.0.0
+
+# ── Optional — Production queue (replace asyncio.Queue for high volume) ───────
+# celery>=5.3.0
+# redis>=5.0.0
+
+# ── Optional — PostgreSQL (replace SQLite for production) ────────────────────
+# asyncpg>=0.29.0
+# psycopg2-binary>=2.9.0
