@@ -874,42 +874,12 @@ def create_app() -> FastAPI:
     # ── Dashboard static files ────────────────────────────────────────────────
 
     if DASHBOARD_DIST.exists():
-        # Mount assets FIRST - this takes priority over routes
+        logger.info("Mounting dashboard from %s", DASHBOARD_DIST)
         app.mount(
-            "/dashboard/assets",
-            StaticFiles(directory=DASHBOARD_DIST / "assets"),
-            name="dashboard_assets"
+            "/dashboard",
+            StaticFiles(directory=str(DASHBOARD_DIST.absolute()), html=True),
+            name="dashboard"
         )
-
-        # Serve specific root-level static files
-        @app.get("/dashboard/vite.svg", include_in_schema=False)
-        async def serve_vite_svg():
-            return FileResponse(DASHBOARD_DIST / "vite.svg")
-
-        @app.get("/dashboard/favicon.svg", include_in_schema=False)
-        async def serve_favicon_svg():
-            return FileResponse(DASHBOARD_DIST / "favicon.svg")
-
-        @app.get("/dashboard/icons.svg", include_in_schema=False)
-        async def serve_icons_svg():
-            return FileResponse(DASHBOARD_DIST / "icons.svg")
-
-        # Catch-all LAST - only for actual page routes (client-side routing)
-        @app.get("/dashboard", include_in_schema=False)
-        @app.get("/dashboard/{path:path}", include_in_schema=False)
-        async def serve_dashboard(path: str = ""):
-            # If the path looks like an asset (has an extension) and wasn't caught by the mount,
-            # it's likely a missing file or a file in the dashboard root.
-            if "." in path:
-                file_path = DASHBOARD_DIST / path
-                if file_path.exists():
-                    return FileResponse(file_path)
-            
-            # Fallback to index.html for SPA routing
-            index_file = DASHBOARD_DIST / "index.html"
-            if index_file.exists():
-                return FileResponse(index_file)
-            return {"error": "Dashboard not built."}
 
     return app
 
