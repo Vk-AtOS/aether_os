@@ -2,6 +2,11 @@ import axios from 'axios';
 
 const BASE = ""; // Use relative paths to stay on same origin
 
+// Module-level navigate reference — set by App.jsx on mount so we can
+// use React Router navigation from outside React components.
+let _navigate = null;
+export const setNavigate = (fn) => { _navigate = fn; };
+
 const client = axios.create({
   baseURL: BASE,
 });
@@ -19,11 +24,11 @@ client.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       sessionStorage.removeItem('aether_token');
-      // Redirect to dashboard root — React Router then navigates to /login
-      // (avoid hard-linking /dashboard/login which is not a file on the server)
-      if (!window.location.pathname.endsWith('/login')) {
-        window.location.href = '/dashboard/';
+      if (_navigate) {
+        // React Router navigation — no hard reload, SPA stays alive
+        _navigate('/login', { replace: true });
       }
+      // (no window.location fallback — hard reloads break SPA routing)
     }
     return Promise.reject(error);
   }

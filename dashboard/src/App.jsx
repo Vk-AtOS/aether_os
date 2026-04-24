@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -9,7 +9,7 @@ import ProjectsList from './pages/ProjectsList';
 import PhaseDetail from './pages/PhaseDetail';
 import ClientPortal from './pages/ClientPortal';
 import Settings from './pages/Settings';
-import { api } from './api';
+import { api, setNavigate } from './api';
 
 const ProtectedRoute = ({ children }) => {
   const token = api.getToken();
@@ -20,9 +20,14 @@ const ProtectedRoute = ({ children }) => {
 };
 
 function App() {
-  // Sync token from sessionStorage on load is handled by api.js initialization
-  // but we can enforce a check here if needed.
-  
+  const navigate = useNavigate();
+
+  // Wire React Router's navigate into api.js so the 401 interceptor
+  // can redirect to /login without a hard page reload.
+  useEffect(() => {
+    setNavigate(navigate);
+  }, [navigate]);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
