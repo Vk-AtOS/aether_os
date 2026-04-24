@@ -19,8 +19,10 @@ client.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       sessionStorage.removeItem('aether_token');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+      // Redirect to dashboard root — React Router then navigates to /login
+      // (avoid hard-linking /dashboard/login which is not a file on the server)
+      if (!window.location.pathname.endsWith('/login')) {
+        window.location.href = '/dashboard/';
       }
     }
     return Promise.reject(error);
