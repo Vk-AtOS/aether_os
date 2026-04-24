@@ -1,11 +1,13 @@
 import React from 'react';
 
-const PhaseBar = ({ phases = [] }) => {
+const PhaseBar = ({ phases }) => {
+  // Normalize: API returns phases as {} dict or array; we need an array for .find()
+  const phaseList = Array.isArray(phases) ? phases : [];
   // Total 26 phases in AetherOS Factory
   const total = 26;
   const blocks = Array.from({ length: total }, (_, i) => {
     const phaseKey = `p${i.toString().padStart(2, '0')}`;
-    const phaseData = phases.find(p => p.id === phaseKey);
+    const phaseData = phaseList.find(p => p.id === phaseKey);
     
     let color = 'bg-border/30';
     if (phaseData) {
