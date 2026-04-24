@@ -5,7 +5,7 @@ import { Shield, Loader2 } from 'lucide-react';
 
 const Login = () => {
   const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin1234');
+  const [password, setPassword] = useState('Velan');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();

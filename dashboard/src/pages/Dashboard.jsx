@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBar from '../components/PhaseBar';
 import PhaseBadge from '../components/PhaseBadge';
-import { Play, Eye, CheckCircle2, Timer, Coins, AlertTriangle, Info } from 'lucide-react';
+import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info } from 'lucide-react';
 
 const Dashboard = () => {
   const [runs, setRuns] = useState([]);
@@ -62,7 +62,7 @@ const Dashboard = () => {
         const today = new Date();
         return started.toDateString() === today.toDateString() && (r.status === 'PASSED' || r.status === 'passed' || r.status === 'completed');
       }).length, icon: CheckCircle2, color: 'text-success' },
-    { label: 'Total Cost Today', value: `$${costs.today_usd?.toFixed(2) || '0.00'}`, icon: Timer, color: 'text-warning' },
+    { label: 'Total Cost Today', value: `$${costs.today_usd?.toFixed(2) || '0.00'}`, icon: Clock, color: 'text-warning' },
     { label: 'Tokens Today', value: costs.tokens_today || '—', icon: Coins, color: 'text-success' },
   ];
 

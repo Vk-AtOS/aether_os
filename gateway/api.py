@@ -515,34 +515,47 @@ def create_app() -> FastAPI:
         total_usd = 0.0
         runs_today = 0
 
-        if db_path.exists():
-            try:
-                conn = _sqlite3.connect(str(db_path))
-                row = conn.execute(
-                    "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls "
-                    "WHERE ts >= strftime('%s','now','-1 day')"
-                ).fetchone()
-                today_usd = round(row[0], 6)
+        try:
+            conn = _sqlite3.connect(str(db_path))
+            # Ensure table exists (Bug fix for missing billing DB)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS llm_calls (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    model TEXT,
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    cost_usd REAL,
+                    ts REAL
+                )
+            """)
+            conn.commit()
 
-                row = conn.execute(
-                    "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls "
-                    "WHERE ts >= strftime('%s','now','-7 days')"
-                ).fetchone()
-                week_usd = round(row[0], 6)
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls "
+                "WHERE ts >= strftime('%s','now','-1 day')"
+            ).fetchone()
+            today_usd = round(row[0], 6)
 
-                row = conn.execute(
-                    "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls"
-                ).fetchone()
-                total_usd = round(row[0], 6)
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls "
+                "WHERE ts >= strftime('%s','now','-7 days')"
+            ).fetchone()
+            week_usd = round(row[0], 6)
 
-                row = conn.execute(
-                    "SELECT COUNT(DISTINCT project_id) FROM llm_calls "
-                    "WHERE ts >= strftime('%s','now','-1 day')"
-                ).fetchone()
-                runs_today = row[0]
-                conn.close()
-            except Exception as exc:
-                logger.warning("Could not query billing DB: %s", exc)
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls"
+            ).fetchone()
+            total_usd = round(row[0], 6)
+
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT project_id) FROM llm_calls "
+                "WHERE ts >= strftime('%s','now','-1 day')"
+            ).fetchone()
+            runs_today = row[0]
+            conn.close()
+        except Exception as exc:
+            logger.warning("Could not query billing DB: %s", exc)
 
         avg_cost = round(today_usd / runs_today, 6) if runs_today > 0 else 0.0
         return {
@@ -871,17 +884,41 @@ def create_app() -> FastAPI:
                         configs[p]["priority"] = row["priority"]
         
         return list(configs.values())
-    # ── Dashboard static files ────────────────────────────────────────────────
-
-    if DASHBOARD_DIST.exists():
-        logger.info("Mounting dashboard from %s", DASHBOARD_DIST)
-        app.mount(
-            "/dashboard",
-            StaticFiles(directory=str(DASHBOARD_DIST.absolute()), html=True),
-            name="dashboard"
-        )
-
     return app
 
 # Module-level app instance for uvicorn
 app = create_app()
+
+# ── Dashboard static files — MUST be last, after all routes ──────────────────
+import os as _os
+from fastapi.responses import FileResponse as _FileResponse
+
+_dist = _os.path.abspath(
+    _os.path.join(_os.path.dirname(__file__), "../dashboard/dist")
+)
+
+if _os.path.isdir(_dist):
+    logger.info("Mounting dashboard SPA from %s", _dist)
+
+    # SPA catch-all: serves static files by exact path, falls back to
+    # index.html for any unknown sub-path (e.g. /dashboard/projects).
+    # This route is registered BEFORE the StaticFiles mount so it takes
+    # priority and always returns HTTP 200 (browsers need 200 for script
+    # module loading to work correctly in all environments).
+    @app.get("/dashboard", include_in_schema=False)
+    @app.get("/dashboard/{path:path}", include_in_schema=False)
+    async def _dashboard_spa(path: str = ""):
+        _index = _os.path.join(_dist, "index.html")
+        if path:
+            candidate = _os.path.normpath(_os.path.join(_dist, path))
+            # Security: stay inside dist/
+            if candidate.startswith(_dist) and _os.path.isfile(candidate):
+                return _FileResponse(candidate)
+        return _FileResponse(_index)
+
+    # StaticFiles mount kept for efficient directory listing / HEAD requests
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=_dist, html=True),
+        name="dashboard"
+    )
