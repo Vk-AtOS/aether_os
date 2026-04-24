@@ -1,0 +1,261 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { api } from '../api';
+import PhaseBadge from '../components/PhaseBadge';
+import { Eye, Search, Clock, Rocket } from 'lucide-react';
+
+// 10-phase list in order
+const PHASES = [
+  'p01_intake_requirements',
+  'p02_architecture',
+  'p03_scaffolding',
+  'p04_backend',
+  'p05_frontend',
+  'p06_review_security',
+  'p07_testing',
+  'p08_cicd_deployment',
+  'p09_observability',
+  'p10_docs_delivery',
+];
+
+// Map run status/phases → number of completed phases for dot strip
+const getCompletedCount = (run) => {
+  if (run.status === 'completed') return 10;
+  const phases = run.phases || {};
+  const completed = PHASES.filter((p) => {
+    const st = phases[p]?.status;
+    return st === 'passed' || st === 'completed' || st === 'timeout';
+  }).length;
+  // If there's a current_phase, count phases before it too
+  if (run.current_phase && run.current_phase !== 'pipeline') {
+    const idx = PHASES.indexOf(run.current_phase);
+    return Math.max(completed, idx >= 0 ? idx : 0);
+  }
+  return completed;
+};
+
+// 10-dot progress strip
+const ProgressDots = ({ run }) => {
+  const completed = getCompletedCount(run);
+  const isRunning = run.status === 'running';
+
+  return (
+    <div className="flex items-center space-x-1">
+      {PHASES.map((_, i) => {
+        const done = i < completed;
+        const active = isRunning && i === completed;
+        return (
+          <span
+            key={i}
+            className={`inline-block rounded-full transition-all ${
+              done
+                ? 'w-2.5 h-2.5 bg-emerald-500'
+                : active
+                ? 'w-2.5 h-2.5 bg-indigo-500 animate-pulse'
+                : 'w-2 h-2 bg-slate-700'
+            }`}
+            title={PHASES[i]}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
+// Hexagon logo for empty state
+const HexLogo = () => (
+  <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="32,4 58,18 58,46 32,60 6,46 6,18" fill="none" stroke="#6366f1" strokeWidth="2" opacity="0.4" />
+    <polygon points="32,14 48,23 48,41 32,50 16,41 16,23" fill="#6366f1" opacity="0.15" />
+    <circle cx="32" cy="32" r="8" fill="#6366f1" opacity="0.6" />
+  </svg>
+);
+
+const EmptyState = ({ onNewProject }) => (
+  <div className="flex flex-col items-center justify-center py-24 space-y-6">
+    <HexLogo />
+    <div className="text-center space-y-2">
+      <h3 className="text-xl font-bold text-bright">No projects yet</h3>
+      <p className="text-muted text-sm max-w-xs">
+        Start your first factory run and AetherOS will generate a complete production-ready codebase.
+      </p>
+    </div>
+    <button
+      onClick={onNewProject}
+      className="flex items-center space-x-2 bg-accent hover:bg-accent/90 transition-colors text-white font-bold px-6 py-3 rounded-lg"
+    >
+      <Rocket className="w-4 h-4" />
+      <span>Start First Project</span>
+    </button>
+  </div>
+);
+
+const ProjectsList = () => {
+  const ctx = useOutletContext() || {};
+  const onNewProject = ctx.openNewProject || (() => {});
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
+
+  const fetchRuns = async () => {
+    try {
+      const res = await api.listRuns();
+      setRuns(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch runs', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRuns();
+    const interval = setInterval(fetchRuns, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const filtered = runs.filter((run) => {
+    const term = searchTerm.toLowerCase();
+    return (
+      run.project_name?.toLowerCase().includes(term) ||
+      (run.run_id || run.id)?.toLowerCase().includes(term)
+    );
+  });
+
+  const truncate = (str, n) =>
+    str && str.length > n ? str.slice(0, n) + '…' : (str || '');
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <header className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-bright">Factory Projects</h1>
+        </header>
+        <div className="panel p-12 flex items-center justify-center text-muted text-sm">
+          Loading projects…
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Page header */}
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-bright">Factory Projects</h1>
+          <p className="text-muted text-sm mt-1">
+            {runs.length} {runs.length === 1 ? 'project' : 'projects'} total
+          </p>
+        </div>
+        <div className="flex items-center space-x-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              placeholder="Search projects…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="bg-panel border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-bright focus:outline-none focus:border-accent w-64 transition-colors"
+            />
+          </div>
+          <button
+            onClick={onNewProject}
+            className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg"
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span>New Project</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Empty state */}
+      {runs.length === 0 ? (
+        <div className="panel">
+          <EmptyState onNewProject={onNewProject} />
+        </div>
+      ) : (
+        <div className="panel overflow-hidden">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-border/20 text-[10px] font-bold text-muted uppercase tracking-widest border-b border-border">
+                <th className="px-6 py-4">Project</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Progress</th>
+                <th className="px-6 py-4">Started</th>
+                <th className="px-6 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filtered.map((run) => (
+                <tr
+                  key={run.run_id || run.id}
+                  onClick={() => navigate(`/project/${run.run_id || run.id}`)}
+                  className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                >
+                  {/* Project name */}
+                  <td className="px-6 py-4">
+                    <div className="font-semibold text-bright group-hover:text-accent transition-colors">
+                      {truncate(run.project_name || 'Untitled Project', 40)}
+                    </div>
+                    <div className="text-[10px] text-muted font-mono mt-0.5">
+                      {(run.run_id || run.id || '').slice(0, 8)}
+                    </div>
+                  </td>
+
+                  {/* Status badge */}
+                  <td className="px-6 py-4">
+                    <PhaseBadge status={run.status} />
+                  </td>
+
+                  {/* 10-dot progress strip */}
+                  <td className="px-6 py-4">
+                    <ProgressDots run={run} />
+                  </td>
+
+                  {/* Started */}
+                  <td className="px-6 py-4">
+                    <div className="flex items-center text-xs text-muted">
+                      <Clock className="w-3 h-3 mr-1.5 shrink-0" />
+                      {run.started_at
+                        ? new Date(run.started_at).toLocaleString(undefined, {
+                            month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })
+                        : '—'}
+                    </div>
+                  </td>
+
+                  {/* Eye action */}
+                  <td className="px-6 py-4 text-right">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/project/${run.run_id || run.id}`);
+                      }}
+                      className="p-2 text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+                      title="View Details"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              {filtered.length === 0 && searchTerm && (
+                <tr>
+                  <td colSpan="5" className="px-6 py-12 text-center text-muted text-sm">
+                    No projects match "<span className="text-bright">{searchTerm}</span>"
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ProjectsList;
