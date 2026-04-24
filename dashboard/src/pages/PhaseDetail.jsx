@@ -22,30 +22,30 @@ const PhaseDetail = () => {
   useEffect(() => {
     const fetchDetail = async () => {
       try {
-        const res = await api.getPortalPhase(id, name);
-        setPhaseData(res.data);
-      } catch (err) {
-        // Mock
+        const res = await api.getRun(id);
+        const run = res.data;
+        // Extract phase-specific data from the run
+        const phases = Array.isArray(run.phases) ? run.phases : Object.values(run.phases || {});
+        const phase = phases.find(p => p.id === name || p.name === name) || {};
         setPhaseData({
-          name: name === 'p01' ? 'Requirement Specification' : 'Phase Output',
-          status: 'passed',
-          confidence: 0.98,
-          duration: '1m 24s',
-          files: {
-            'specification.md': '# Requirement Specification\n\n## Overview\nThe user wants a SaaS HR platform with...\n\n## Features\n- User authentication\n- Dashboard\n- Payroll engine\n',
-            'logic.json': '{\n  "entities": ["User", "Employee", "Department"],\n  "relationships": {\n    "belongs_to": ["Employee", "Department"]\n  }\n}',
-            'architecture.py': 'class HREngine:\n    def __init__(self):\n        self.modules = ["payroll", "auth"]'
-          },
-          gate_result: {
-            passed: true,
-            confidence: 0.98,
-            issues: [],
-            attempts: 1
-          },
-          memories: [
-            { score: 0.92, phase: 'p00', snippet: 'User mentioned PostgreSQL as preferred database.' },
-            { score: 0.85, global: true, snippet: 'Standard SaaS auth pattern used for React apps.' }
-          ]
+          name: phase.name || name,
+          status: phase.status || run.status,
+          confidence: phase.confidence || 0,
+          duration: phase.duration || '—',
+          files: phase.files || {},
+          gate_result: phase.gate_result || { passed: phase.status === 'passed', confidence: phase.confidence || 0, issues: [], attempts: 1 },
+          memories: phase.memories || [],
+        });
+      } catch (err) {
+        console.error('Failed to load phase detail', err);
+        setPhaseData({
+          name: name,
+          status: 'unknown',
+          confidence: 0,
+          duration: '—',
+          files: {},
+          gate_result: { passed: false, confidence: 0, issues: ['Could not load phase data'], attempts: 0 },
+          memories: [],
         });
       }
     };

@@ -20,15 +20,71 @@ import {
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 
+const PhaseConfigPanel = ({ phase, config, onSave }) => {
+  const [status, setStatus] = useState(config.status || 'Enabled');
+  const [priority, setPriority] = useState(config.priority || 'Normal');
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = async () => {
+    await onSave({ status, priority });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <div className="p-6 bg-border/5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-muted uppercase">Execution Status</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+          >
+            <option>Enabled</option>
+            <option>Disabled</option>
+            <option>Required</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-muted uppercase">Priority Level</label>
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+          >
+            <option>Normal</option>
+            <option>High</option>
+            <option>Low</option>
+          </select>
+        </div>
+      </div>
+      <div className="flex items-center space-x-3 pt-2">
+        <button
+          onClick={handleSave}
+          className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-3 py-1 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors"
+        >
+          {saved ? '✓ Saved' : 'Save Config'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const Settings = () => {
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
   const [expandedPhase, setExpandedPhase] = useState(null);
   const [apiKeys, setApiKeys] = useState({ anthropic: '', gemini: '' });
+  const [keyStatus, setKeyStatus] = useState({ anthropic: null, gemini: null }); // null | 'saving' | 'saved' | 'error'
+  const [testStatus, setTestStatus] = useState({ anthropic: null, gemini: null }); // null | 'testing' | 'ok' | 'fail'
+  const [phaseConfigs, setPhaseConfigs] = useState({});
   const [runs, setRuns] = useState([]);
   const [selectedRun, setSelectedRun] = useState('');
+  const [runFiles, setRunFiles] = useState({});
   const [fileContent, setFileContent] = useState('');
   const [selectedFile, setSelectedFile] = useState('');
+  const [loadingFiles, setLoadingFiles] = useState(false);
 
   const PHASES = [
     'p00', 'p01', 'p02', 'p03', 'p04a', 'p04b', 'p04c', 'p04d', 'p04e',
@@ -47,49 +103,89 @@ const Settings = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const hRes = await api.getHealth();
-        setHealth(hRes.data);
-        const cRes = await api.getCosts();
-        setCosts(cRes.data);
-        const rRes = await api.listRuns();
-        setRuns(rRes.data || []);
+        const [hRes, cRes, rRes, pcRes] = await Promise.allSettled([
+          api.getHealth(),
+          api.getCosts(),
+          api.listRuns(),
+          api.getPhaseConfigs(),
+        ]);
+        if (hRes.status === 'fulfilled') setHealth(hRes.value.data);
+        if (cRes.status === 'fulfilled') setCosts(cRes.value.data);
+        if (rRes.status === 'fulfilled') setRuns(rRes.value.data || []);
+        if (pcRes.status === 'fulfilled') setPhaseConfigs(pcRes.value.data || {});
       } catch (err) {
-        setHealth({
-          status: 'ok',
-          llm_provider: 'Gemini 1.5 Pro',
-          anthropic_available: true,
-          gemini_available: true,
-          ollama_available: true,
-          version: '1.0.0'
-        });
+        console.error('Settings fetch error', err);
       }
     };
     fetchData();
   }, []);
 
-  const handleUpdateKey = (provider) => {
-    // TODO: wire to backend endpoint when available
-    // POST /settings/api-keys with {provider: provider, key: apiKeys[provider]}
-    alert(`Settings saved (restart server to apply). Provider: ${provider}`);
+  const handleUpdateKey = async (provider) => {
+    const key = apiKeys[provider];
+    if (!key.trim()) return;
+    setKeyStatus(s => ({ ...s, [provider]: 'saving' }));
+    try {
+      await api.saveApiKeys(provider, key);
+      setKeyStatus(s => ({ ...s, [provider]: 'saved' }));
+      setTimeout(() => setKeyStatus(s => ({ ...s, [provider]: null })), 3000);
+    } catch (err) {
+      setKeyStatus(s => ({ ...s, [provider]: 'error' }));
+    }
   };
 
-  const handleTestKey = (provider) => {
-    // TODO: wire to backend endpoint when available
-    // POST /settings/test-provider with {provider: provider}
-    alert(`Testing ${provider} connection... (✓ Connected)`);
+  const handleTestKey = async (provider) => {
+    setTestStatus(s => ({ ...s, [provider]: 'testing' }));
+    try {
+      await api.testProvider(provider);
+      setTestStatus(s => ({ ...s, [provider]: 'ok' }));
+      setTimeout(() => setTestStatus(s => ({ ...s, [provider]: null })), 4000);
+    } catch (err) {
+      setTestStatus(s => ({ ...s, [provider]: 'fail' }));
+      setTimeout(() => setTestStatus(s => ({ ...s, [provider]: null })), 4000);
+    }
   };
 
-  const mockFiles = {
-    'p00_intake': ['summary.json', 'raw_input.txt'],
-    'p01_requirements': ['requirements.md', 'spec.json'],
-    'p02_architecture': ['blueprints.yaml', 'diagram.svg'],
-    'p03_scaffolding': ['structure.txt'],
-    'p04a_backend': ['main.py', 'models.py', 'routes.py'],
+  const handleSavePhaseConfig = async (phase, config) => {
+    try {
+      await api.savePhaseConfig(phase, config);
+    } catch (err) {
+      console.error('Failed to save phase config', err);
+    }
   };
 
-  const handleFileClick = (phase, file) => {
-    setSelectedFile(`${phase}/${file}`);
-    setFileContent(`/* Content of ${file} for phase ${phase} */\n\n// TODO: add edit capability in next version\n\nfunction example() {\n  console.log("Viewing ${file}");\n}\n\n// Mock content for demonstration\nconst metadata = {\n  run_id: "${selectedRun}",\n  phase: "${phase}",\n  filename: "${file}",\n  status: "finalized"\n};`);
+  const handleRunSelect = async (runId) => {
+    setSelectedRun(runId);
+    setSelectedFile('');
+    setFileContent('');
+    if (!runId) { setRunFiles({}); return; }
+    setLoadingFiles(true);
+    try {
+      const res = await api.getRunFiles(runId);
+      // API returns array of {path, size, phase} — group by phase
+      const files = res.data || [];
+      const grouped = {};
+      files.forEach(f => {
+        const phase = f.phase || f.path.split('/')[0] || 'other';
+        if (!grouped[phase]) grouped[phase] = [];
+        grouped[phase].push(f.path || f.name || f);
+      });
+      setRunFiles(grouped);
+    } catch (err) {
+      setRunFiles({});
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const handleFileClick = async (filePath) => {
+    setSelectedFile(filePath);
+    setFileContent('');
+    try {
+      const res = await api.getFileContent(selectedRun, filePath);
+      setFileContent(typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2));
+    } catch (err) {
+      setFileContent(`// Could not load file: ${filePath}`);
+    }
   };
 
   useEffect(() => {
@@ -142,17 +238,19 @@ const Settings = () => {
                       onChange={(e) => setApiKeys({...apiKeys, [provider]: e.target.value})}
                       className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-sm text-bright focus:outline-none focus:border-accent"
                     />
-                    <button 
+                    <button
                       onClick={() => handleUpdateKey(provider)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
+                      disabled={keyStatus[provider] === 'saving'}
+                      className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors min-w-[80px]"
                     >
-                      UPDATE
+                      {keyStatus[provider] === 'saving' ? '...' : keyStatus[provider] === 'saved' ? '✓ SAVED' : keyStatus[provider] === 'error' ? '✗ ERROR' : 'UPDATE'}
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleTestKey(provider)}
-                      className="bg-border/50 hover:bg-border text-bright text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-border"
+                      disabled={testStatus[provider] === 'testing'}
+                      className="bg-border/50 hover:bg-border disabled:opacity-50 text-bright text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-border min-w-[80px]"
                     >
-                      TEST
+                      {testStatus[provider] === 'testing' ? '...' : testStatus[provider] === 'ok' ? '✓ OK' : testStatus[provider] === 'fail' ? '✗ FAIL' : 'TEST'}
                     </button>
                   </div>
                 </div>
@@ -186,31 +284,11 @@ const Settings = () => {
                     {expandedPhase === p ? <ChevronUp className="w-4 h-4 text-muted" /> : <ChevronDown className="w-4 h-4 text-muted" />}
                   </button>
                   {expandedPhase === p && (
-                    <div className="p-6 bg-border/5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-muted uppercase">Execution Status</label>
-                          <select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent">
-                            <option>Enabled</option>
-                            <option>Disabled</option>
-                            <option>Required</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-muted uppercase">Priority Level</label>
-                          <select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent">
-                            <option>Normal</option>
-                            <option>High</option>
-                            <option>Low</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex space-x-3 pt-2">
-                        <button className="text-[10px] font-bold text-accent uppercase tracking-wider hover:underline">View Gate Criteria</button>
-                        <button className="text-[10px] font-bold text-accent uppercase tracking-wider hover:underline">Reset Config</button>
-                      </div>
-                      {/* TODO: wire to POST /settings/phases/{p}/config */}
-                    </div>
+                    <PhaseConfigPanel
+                      phase={p}
+                      config={phaseConfigs[p] || {}}
+                      onSave={(cfg) => handleSavePhaseConfig(p, cfg)}
+                    />
                   )}
                 </div>
               ))}
@@ -225,9 +303,9 @@ const Settings = () => {
                 <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Project File Browser</h3>
               </div>
               <div className="flex items-center space-x-3">
-                <select 
+                <select
                   value={selectedRun}
-                  onChange={(e) => setSelectedRun(e.target.value)}
+                  onChange={(e) => handleRunSelect(e.target.value)}
                   className="bg-surface border border-border rounded px-3 py-1 text-[10px] font-bold text-muted uppercase focus:outline-none focus:border-accent"
                 >
                   <option value="">Select Run</option>
@@ -244,22 +322,31 @@ const Settings = () => {
                     <Search className="w-8 h-8 text-muted/20 mb-2" />
                     <p className="text-[10px] text-muted uppercase font-bold">Select a factory run to browse files</p>
                   </div>
+                ) : loadingFiles ? (
+                  <div className="h-full flex items-center justify-center text-muted text-[10px] uppercase font-bold">Loading...</div>
+                ) : Object.keys(runFiles).length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                    <p className="text-[10px] text-muted uppercase font-bold">No files found for this run</p>
+                  </div>
                 ) : (
-                  Object.entries(mockFiles).map(([phase, files]) => (
+                  Object.entries(runFiles).map(([phase, files]) => (
                     <div key={phase} className="space-y-1">
                       <div className="text-[10px] font-bold text-muted uppercase tracking-tighter flex items-center">
                         <ChevronDown className="w-3 h-3 mr-1" /> {phase}
                       </div>
                       <div className="pl-4 space-y-1">
-                        {files.map(file => (
-                          <button
-                            key={file}
-                            onClick={() => handleFileClick(phase, file)}
-                            className={`w-full text-left px-2 py-1 rounded text-[11px] flex items-center transition-colors ${selectedFile === `${phase}/${file}` ? 'bg-accent/20 text-accent font-bold' : 'text-bright/70 hover:bg-border/30'}`}
-                          >
-                            <FileCode className="w-3 h-3 mr-2 opacity-50" /> {file}
-                          </button>
-                        ))}
+                        {files.map(filePath => {
+                          const fileName = filePath.split('/').pop();
+                          return (
+                            <button
+                              key={filePath}
+                              onClick={() => handleFileClick(filePath)}
+                              className={`w-full text-left px-2 py-1 rounded text-[11px] flex items-center transition-colors ${selectedFile === filePath ? 'bg-accent/20 text-accent font-bold' : 'text-bright/70 hover:bg-border/30'}`}
+                            >
+                              <FileCode className="w-3 h-3 mr-2 opacity-50" /> {fileName}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   ))
