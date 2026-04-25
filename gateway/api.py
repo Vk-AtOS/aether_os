@@ -32,7 +32,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-load_dotenv()
+load_dotenv(pathlib.Path(__file__).parent.parent / ".env", override=True)
 
 DASHBOARD_DIST = pathlib.Path(__file__).parent.parent / "dashboard" / "dist"
 
