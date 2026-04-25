@@ -62,6 +62,15 @@ export const api = {
   approveAction: (ticketId, decision, reason) =>
     client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
 
+  // Run controls
+  pauseRun: (runId) => client.post(`/factory/runs/${runId}/pause`),
+  resumeRun: (runId) => client.post(`/factory/runs/${runId}/resume`),
+  cancelRun: (runId) => client.post(`/factory/runs/${runId}/cancel`),
+  setRunPriority: (runId, priority) =>
+    client.post(`/factory/runs/${runId}/priority`, { priority }),
+  rerunFromPhase: (runId, fromPhase) =>
+    client.post(`/factory/runs/${runId}/rerun`, { from_phase: fromPhase }),
+
   // Portal (Public)
   getPortalStatus: (projectId) => axios.get(`${BASE}/portal/${projectId}/status`),
   getPortalPhase: (projectId, phase) => axios.get(`${BASE}/portal/${projectId}/phase/${phase}`),

@@ -172,18 +172,40 @@ class FactoryPipeline:
                 # Update state
                 status = "passed" if (phase_result.get("status") == "passed") else "completed"
                 await self._update_state(run_id, phase_name, status)
-                
+
             except asyncio.TimeoutError:
                 logger.warning(f"{phase_name} timed out, continuing")
                 await self._update_state(run_id, phase_name, "timeout")
                 results[phase_name] = {"status": "timeout", "output_path": ""}
-                    
+
             except Exception as e:
                 logger.error(f"{phase_name} failed: {e}")
                 await self._update_state(run_id, phase_name, "failed")
                 results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
                 # Continue to next phase even if this one failed
-        
+
+            # ── Control signal check after each phase ──────────────────────
+            control = PIPELINE_CONTROL.get(run_id)
+            if control == "cancel":
+                logger.info("Pipeline %s cancelled after phase %s", run_id, phase_name)
+                self.ledger.update_run_status(run_id, "cancelled")
+                return {
+                    "run_id": run_id, "status": "cancelled",
+                    "phases": results, "output_dir": str(project_dir),
+                }
+            if control == "pause":
+                logger.info("Pipeline %s paused after phase %s", run_id, phase_name)
+                self.ledger.update_run_status(run_id, "paused")
+                while PIPELINE_CONTROL.get(run_id) == "pause":
+                    await asyncio.sleep(2)
+                if PIPELINE_CONTROL.get(run_id) == "cancel":
+                    self.ledger.update_run_status(run_id, "cancelled")
+                    return {
+                        "run_id": run_id, "status": "cancelled",
+                        "phases": results, "output_dir": str(project_dir),
+                    }
+                self.ledger.update_run_status(run_id, "running")
+
         # Mark run as complete
         await self._update_state(run_id, "pipeline", "complete")
         self.ledger.update_run_status(run_id, "completed")
@@ -262,6 +284,11 @@ class FactoryPipeline:
             raw_input=change_description,
             project_name=f"cr-{project_id[:8]}"
         )
+
+
+# Pipeline control signals — keyed by run_id: "pause" | "cancel" | None
+# Set by API endpoints; checked after each phase in the loop.
+PIPELINE_CONTROL: Dict[str, Optional[str]] = {}
 
 
 _factory: Optional[FactoryPipeline] = None
