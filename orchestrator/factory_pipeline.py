@@ -151,23 +151,32 @@ class FactoryPipeline:
                 accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
                 accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
 
-                # Special case: eagerly load architecture.json so all downstream
-                # phases can read it via data.get("architecture_json", {})
-                if phase_name == "p01_intake_requirements":
-                    # p01 consolidates p02 arch path into intake output; look for it
-                    pass
+                # Eagerly load architecture.json after p02 so all downstream
+                # phases receive it via data.get("architecture_json", {}).
                 if phase_name == "p02_architecture":
-                    arch_path = phase_result.get("output_path", "")
-                    if arch_path:
-                        import json as _json
-                        try:
-                            accumulated_context["architecture_json"] = _json.loads(
-                                Path(arch_path).read_text()
-                            )
-                            accumulated_context["p02_architecture_path"] = arch_path
-                            logger.info("architecture_json loaded into context from %s", arch_path)
-                        except Exception as _e:
-                            logger.warning("Failed to load architecture_json: %s", _e)
+                    import json as _json
+                    # Try the explicit output_path first, then scan the phase dir
+                    _arch_candidates = []
+                    _op = phase_result.get("output_path", "")
+                    if _op:
+                        _arch_candidates.append(Path(_op))
+                    _phase_dir = project_dir / "p02_architecture"
+                    _arch_candidates.append(_phase_dir / "architecture.json")
+                    for _cand in _arch_candidates:
+                        if _cand.exists():
+                            try:
+                                accumulated_context["architecture_json"] = _json.loads(
+                                    _cand.read_text()
+                                )
+                                accumulated_context["p02_architecture_path"] = str(_cand)
+                                logger.info("[pipeline] architecture_json loaded from %s", _cand)
+                                break
+                            except Exception as _e:
+                                logger.warning("[pipeline] Failed to load architecture_json from %s: %s",
+                                               _cand, _e)
+                    else:
+                        logger.warning("[pipeline] architecture.json not found after p02 — "
+                                       "downstream phases will use their own fallbacks")
                 
                 # Update state
                 status = "passed" if (phase_result.get("status") == "passed") else "completed"
@@ -227,10 +236,13 @@ class FactoryPipeline:
         if not supervisor:
              # Default success for unmapped phases to keep pipeline moving in tests
              return {"status": "completed", "output_path": "", "artifacts": {}, "metadata": {}}
-        
+
         start_t = time.time()
         try:
+            logger.info("[pipeline] %s starting (project_id=%s)", phase_name, phase_input.project_id)
             task_result = await supervisor.run(phase_input)
+            dur = round(time.time() - start_t, 2)
+            logger.info("[pipeline] %s done in %.1fs success=%s", phase_name, dur, task_result.success)
             return {
                 "phase": phase_name,
                 "status": "passed" if task_result.success else "failed",
@@ -239,11 +251,22 @@ class FactoryPipeline:
                 "issues": task_result.issues,
                 "metadata": task_result.metadata,
                 "artifacts": task_result.metadata.get("artifacts", {}),
-                "duration_s": round(time.time() - start_t, 2)
+                "duration_s": dur,
             }
-        except Exception as e:
-            logger.error("Phase %s execution error: %s", phase_name, e)
-            return {"status": "failed", "error": str(e)}
+        except asyncio.CancelledError:
+            # CancelledError is BaseException — re-raise so wait_for converts to TimeoutError
+            logger.warning("[pipeline] %s cancelled (likely parent timeout)", phase_name)
+            raise
+        except BaseException as e:
+            dur = round(time.time() - start_t, 2)
+            logger.error("[pipeline] %s crashed after %.1fs: %s: %s",
+                         phase_name, dur, type(e).__name__, e)
+            # Determine a best-guess output_path so downstream phases aren't starved
+            guess_dir = str(
+                Path.home() / ".aether_os" / "projects"
+                / phase_input.run_id / phase_name
+            )
+            return {"status": "failed", "error": str(e), "output_path": "", "guess_dir": guess_dir}
 
     async def _update_state(self, run_id: str, phase: str, status: str):
         """Persist phase status to SQLite for dashboard visibility."""
