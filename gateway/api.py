@@ -698,6 +698,33 @@ def create_app() -> FastAPI:
 
     # ── System Settings (Endpoints 3, 4, 5) ────────────────────────────────────
 
+    @app.get("/settings/api-keys")
+    async def get_api_keys(
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return current API key configuration from .env, masking key values."""
+        env_path = pathlib.Path(__file__).parent.parent / ".env"
+        env_vars: Dict[str, str] = {}
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    env_vars[k.strip()] = v.strip()
+
+        def _mask(val: str) -> str:
+            if not val:
+                return ""
+            return val[:8] + "..." if len(val) > 8 else val[:4] + "..."
+
+        return {
+            "anthropic": _mask(env_vars.get("ANTHROPIC_API_KEY", "")),
+            "google": _mask(env_vars.get("GOOGLE_API_KEY", "")),
+            "openai": _mask(env_vars.get("OPENAI_API_KEY", "")),
+            "primary_llm": env_vars.get("PRIMARY_LLM", "ollama"),
+            "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+        }
+
     @app.post("/settings/api-keys")
     async def update_api_keys(
         req: ApiKeyRequest,
