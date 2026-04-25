@@ -163,6 +163,35 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("Call graph init skipped: %s", exc)
 
+        # ── Crash recovery ────────────────────────────────────────────────────
+        # Any runs/phases still showing "running" when we start up were orphaned
+        # by a previous server crash or restart.  Mark them "interrupted" so the
+        # dashboard shows accurate state and users know they need to re-run.
+        try:
+            _db_path = pathlib.Path.home() / ".aether_os" / "aether_os.db"
+            if _db_path.exists():
+                with sqlite3.connect(str(_db_path)) as _conn:
+                    _ts = time.time()
+                    # Fix orphaned phase_completions
+                    _fixed_phases = _conn.execute(
+                        "UPDATE phase_completions SET status='interrupted', updated_at=? "
+                        "WHERE status='running'", (_ts,)
+                    ).rowcount
+                    # Fix orphaned runs
+                    _fixed_runs = _conn.execute(
+                        "UPDATE runs SET status='interrupted', finished_at=? "
+                        "WHERE status='running'", (_ts,)
+                    ).rowcount
+                    _conn.commit()
+                if _fixed_phases or _fixed_runs:
+                    logger.warning(
+                        "Crash recovery: marked %d orphaned phase(s) and %d run(s) "
+                        "as 'interrupted' (previous server crash/restart)",
+                        _fixed_phases, _fixed_runs,
+                    )
+        except Exception as _exc:
+            logger.warning("Crash recovery cleanup failed: %s", _exc)
+
         yield
 
         # Shutdown
