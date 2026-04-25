@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
-import { Eye, Search, Clock, Rocket } from 'lucide-react';
+import { Eye, Search, Clock, Rocket, Pause, Play, X, RotateCcw, Loader2 } from 'lucide-react';
 
 // 10-phase list in order
 const PHASES = [
@@ -93,10 +93,27 @@ const EmptyState = ({ onNewProject }) => (
 const ProjectsList = () => {
   const ctx = useOutletContext() || {};
   const onNewProject = ctx.openNewProject || (() => {});
-  const [runs, setRuns] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [runs, setRuns]           = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [actionLoading, setActionLoading] = useState({}); // { [runId]: 'pause'|'resume'|'cancel' }
   const navigate = useNavigate();
+
+  const doAction = async (e, runId, action) => {
+    e.stopPropagation();
+    setActionLoading((prev) => ({ ...prev, [runId]: action }));
+    try {
+      if (action === 'pause')  await api.pauseRun(runId);
+      if (action === 'resume') await api.resumeRun(runId);
+      if (action === 'cancel') await api.cancelRun(runId);
+      if (action === 'rerun')  await api.rerunFromPhase(runId, 'p01_intake_requirements');
+      await fetchRuns();
+    } catch {
+      /* silent fail */
+    } finally {
+      setActionLoading((prev) => { const n = { ...prev }; delete n[runId]; return n; });
+    }
+  };
 
   const fetchRuns = async () => {
     try {
@@ -227,18 +244,81 @@ const ProjectsList = () => {
                     </div>
                   </td>
 
-                  {/* Eye action */}
+                  {/* Actions */}
                   <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/project/${run.run_id || run.id}`);
-                      }}
-                      className="p-2 text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
-                      title="View Details"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end space-x-1">
+                      {/* Running → Pause + Cancel */}
+                      {run.status === 'running' && (
+                        <>
+                          <button
+                            onClick={(e) => doAction(e, run.run_id || run.id, 'pause')}
+                            disabled={!!actionLoading[run.run_id || run.id]}
+                            className="p-1.5 rounded text-yellow-400 hover:bg-yellow-400/10 transition-colors"
+                            title="Pause"
+                          >
+                            {actionLoading[run.run_id || run.id] === 'pause'
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <Pause className="w-4 h-4" />}
+                          </button>
+                          <button
+                            onClick={(e) => doAction(e, run.run_id || run.id, 'cancel')}
+                            disabled={!!actionLoading[run.run_id || run.id]}
+                            className="p-1.5 rounded text-red-400 hover:bg-red-400/10 transition-colors"
+                            title="Cancel"
+                          >
+                            {actionLoading[run.run_id || run.id] === 'cancel'
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <X className="w-4 h-4" />}
+                          </button>
+                        </>
+                      )}
+                      {/* Paused → Resume + Cancel */}
+                      {run.status === 'paused' && (
+                        <>
+                          <button
+                            onClick={(e) => doAction(e, run.run_id || run.id, 'resume')}
+                            disabled={!!actionLoading[run.run_id || run.id]}
+                            className="p-1.5 rounded text-green-400 hover:bg-green-400/10 transition-colors"
+                            title="Resume"
+                          >
+                            {actionLoading[run.run_id || run.id] === 'resume'
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <Play className="w-4 h-4" />}
+                          </button>
+                          <button
+                            onClick={(e) => doAction(e, run.run_id || run.id, 'cancel')}
+                            disabled={!!actionLoading[run.run_id || run.id]}
+                            className="p-1.5 rounded text-red-400 hover:bg-red-400/10 transition-colors"
+                            title="Cancel"
+                          >
+                            {actionLoading[run.run_id || run.id] === 'cancel'
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <X className="w-4 h-4" />}
+                          </button>
+                        </>
+                      )}
+                      {/* Completed / failed → Re-run */}
+                      {['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) && (
+                        <button
+                          onClick={(e) => doAction(e, run.run_id || run.id, 'rerun')}
+                          disabled={!!actionLoading[run.run_id || run.id]}
+                          className="p-1.5 rounded text-indigo-400 hover:bg-indigo-400/10 transition-colors"
+                          title="Re-run from start"
+                        >
+                          {actionLoading[run.run_id || run.id] === 'rerun'
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <RotateCcw className="w-4 h-4" />}
+                        </button>
+                      )}
+                      {/* Always show View eye */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/project/${run.run_id || run.id}`); }}
+                        className="p-1.5 rounded text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

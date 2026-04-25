@@ -20,6 +20,7 @@ import {
   Smartphone,
   Monitor,
   ExternalLink as OpenTab,
+  Radio,
 } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -50,10 +51,23 @@ const PHASE_NAMES = {
   p10_docs_delivery:       'Delivery',
 };
 
+const PHASE_LABELS = {
+  p01_intake_requirements: 'Intake & Requirements',
+  p02_architecture:        'Architecture Design',
+  p03_scaffolding:         'Project Scaffolding',
+  p04_backend:             'Backend Codegen',
+  p05_frontend:            'Frontend Codegen',
+  p06_review_security:     'Code Review & Security',
+  p07_testing:             'Testing Suite',
+  p08_cicd_deployment:     'CI/CD & Deployment',
+  p09_observability:       'Observability',
+  p10_docs_delivery:       'Docs & Delivery',
+};
+
 const PRIORITY_CONFIG = {
-  high:   { label: 'High',   color: 'text-red-400',     dot: 'bg-red-400'   },
-  normal: { label: 'Normal', color: 'text-slate-400',   dot: 'bg-slate-400' },
-  low:    { label: 'Low',    color: 'text-blue-400',    dot: 'bg-blue-400'  },
+  high:   { label: 'High',   color: 'text-red-400',   dot: 'bg-red-400'   },
+  normal: { label: 'Normal', color: 'text-slate-400', dot: 'bg-slate-400' },
+  low:    { label: 'Low',    color: 'text-blue-400',  dot: 'bg-blue-400'  },
 };
 const PRIORITY_CYCLE = ['high', 'normal', 'low'];
 
@@ -82,7 +96,6 @@ const formatTime = (seconds) => {
   return `${m}m ${s.toString().padStart(2, '0')}s`;
 };
 
-// Recursively find first index.html in tree
 const findIndexHtml = (items) => {
   for (const item of items) {
     if (item.type === 'file' && item.name === 'index.html') return item;
@@ -92,6 +105,40 @@ const findIndexHtml = (items) => {
     }
   }
   return null;
+};
+
+/** Format a pipeline SSE event into a terminal line string. */
+const formatEvent = (event) => {
+  switch (event.type) {
+    case 'phase_start':
+      return `\x1b[36m▶ [${event.phase}] ${PHASE_LABELS[event.phase] || event.phase}…\x1b[0m`;
+    case 'phase_complete': {
+      const dur   = event.duration ? ` in ${event.duration}s` : '';
+      const icon  = event.status === 'passed'  ? '✓'
+                  : event.status === 'timeout' ? '⏱'
+                  : event.status === 'failed'  ? '✗'
+                  : '✓';
+      const color = event.status === 'passed'  ? '\x1b[32m'
+                  : event.status === 'failed'  ? '\x1b[31m'
+                  : '\x1b[33m';
+      return `${color}${icon} [${event.phase}] ${event.status}${dur}\x1b[0m`;
+    }
+    case 'file_written': {
+      const kb = event.size ? ` (${formatBytes(event.size)})` : '';
+      return `\x1b[90m  → wrote ${event.path}${kb}\x1b[0m`;
+    }
+    case 'llm_chunk':
+      return event.text || '';
+    case 'pipeline_complete':
+      return event.status === 'cancelled'
+        ? '\x1b[33m✕ Pipeline cancelled\x1b[0m'
+        : '\x1b[32m✓ Build complete\x1b[0m';
+    case 'heartbeat':
+    case 'no_stream':
+      return null;
+    default:
+      return null;
+  }
 };
 
 // ── FileTree component ───────────────────────────────────────────────────────
@@ -112,7 +159,7 @@ const FileTree = ({ items, level = 0, onFileClick, selectedPath }) => {
             >
               {openDirs[item.path]
                 ? <FolderOpen className="w-3.5 h-3.5 text-accent shrink-0" />
-                : <Folder className="w-3.5 h-3.5 text-accent shrink-0" />}
+                : <Folder    className="w-3.5 h-3.5 text-accent shrink-0" />}
               <span className="text-bright font-medium truncate">{item.name}</span>
               <ChevronDown className={`w-3 h-3 text-muted ml-auto transition-transform shrink-0 ${openDirs[item.path] ? '' : '-rotate-90'}`} />
             </button>
@@ -140,6 +187,58 @@ const FileTree = ({ items, level = 0, onFileClick, selectedPath }) => {
   );
 };
 
+// ── Toast ────────────────────────────────────────────────────────────────────
+
+const Toast = ({ message, onDone }) => {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2500);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div className="fixed bottom-6 right-6 z-50 bg-panel border border-border rounded-xl px-5 py-3 shadow-2xl text-bright text-sm font-medium animate-fade-in">
+      {message}
+    </div>
+  );
+};
+
+// ── TerminalLine — renders ANSI colour codes ────────────────────────────────
+
+const ANSI_MAP = {
+  '\x1b[32m': 'text-emerald-400',
+  '\x1b[31m': 'text-red-400',
+  '\x1b[33m': 'text-yellow-400',
+  '\x1b[36m': 'text-indigo-400',
+  '\x1b[90m': 'text-slate-500',
+  '\x1b[0m':  '',
+};
+
+const TerminalLine = ({ text }) => {
+  // Split on ANSI codes and render each segment with correct colour class
+  const parts = [];
+  let currentClass = 'text-emerald-300';
+  let remaining = text;
+  const re = /(\x1b\[[0-9;]*m)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) {
+      parts.push({ text: text.slice(last, m.index), cls: currentClass });
+    }
+    currentClass = ANSI_MAP[m[0]] || '';
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), cls: currentClass });
+  if (parts.length === 0) parts.push({ text, cls: currentClass });
+
+  return (
+    <div className="leading-relaxed whitespace-pre-wrap break-all">
+      {parts.map((p, i) => (
+        <span key={i} className={p.cls || 'text-emerald-300/70'}>{p.text}</span>
+      ))}
+    </div>
+  );
+};
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 const ProjectView = () => {
@@ -155,17 +254,25 @@ const ProjectView = () => {
   const [fileContent, setFileContent]   = useState(null);
   const [fileLoading, setFileLoading]   = useState(false);
   const [curlCopied, setCurlCopied]     = useState(false);
+  const [toast, setToast]               = useState(null);
 
   // Controls
-  const [controlLoading, setControlLoading] = useState(null); // 'pause'|'resume'|'cancel'|null
+  const [controlLoading, setControlLoading] = useState(null);
   const [priority, setPriority]             = useState('normal');
 
-  // ARTIFACTS / PREVIEW tabs
+  // Artifact / Preview / Live tabs
   const [activeArtifactTab, setActiveArtifactTab] = useState('artifacts');
-  const [viewMode, setViewMode]                   = useState('desktop'); // 'mobile'|'desktop'
+  const [viewMode, setViewMode]                   = useState('desktop');
   const [previewHtml, setPreviewHtml]             = useState(null);
   const [previewLoading, setPreviewLoading]       = useState(false);
   const [previewFile, setPreviewFile]             = useState(null);
+
+  // Live feed
+  const [feedLines, setFeedLines]   = useState([]);
+  const [feedDone, setFeedDone]     = useState(false);
+  const feedEndRef                  = useRef(null);
+  const esRef                       = useRef(null);   // EventSource ref
+  const llmLineRef                  = useRef('');     // accumulate llm_chunk tokens
 
   // Re-run dropdown
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -175,7 +282,7 @@ const ProjectView = () => {
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  const fetchRunDetail = async () => {
+  const fetchRunDetail = useCallback(async () => {
     try {
       const res = await api.getRun(id);
       if (!res.data) throw new Error('Empty response from server');
@@ -193,7 +300,7 @@ const ProjectView = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   const fetchFileTree = async () => {
     try {
@@ -223,11 +330,7 @@ const ProjectView = () => {
   const loadPreview = useCallback(async () => {
     if (!fileTree) return;
     const indexFile = findIndexHtml(fileTree);
-    if (!indexFile) {
-      setPreviewHtml(null);
-      setPreviewFile(null);
-      return;
-    }
+    if (!indexFile) { setPreviewHtml(null); setPreviewFile(null); return; }
     setPreviewFile(indexFile.path);
     setPreviewLoading(true);
     try {
@@ -246,26 +349,140 @@ const ProjectView = () => {
     }
   }, [activeArtifactTab, fileTree, previewHtml, previewLoading, loadPreview]);
 
+  // ── SSE live feed ─────────────────────────────────────────────────────────
+
+  const appendLine = useCallback((line) => {
+    if (!line) return;
+    setFeedLines((prev) => [...prev.slice(-300), line]);
+  }, []);
+
+  useEffect(() => {
+    // Only open SSE when run is running and no active connection already
+    if (!run || run.status !== 'running') return;
+    if (esRef.current) return; // already connected
+
+    // Get stored token for EventSource (EventSource can't send Authorization header)
+    const token = sessionStorage.getItem('aether_token') || '';
+    const url = `/factory/runs/${id}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+
+    const es = new EventSource(url);
+    esRef.current = es;
+
+    es.onmessage = (e) => {
+      let event;
+      try { event = JSON.parse(e.data); } catch { return; }
+
+      if (event.type === 'llm_chunk') {
+        // Accumulate tokens until we see a newline, then flush as one line
+        llmLineRef.current += event.text || '';
+        const nl = llmLineRef.current.lastIndexOf('\n');
+        if (nl !== -1) {
+          const flushed = llmLineRef.current.slice(0, nl);
+          llmLineRef.current = llmLineRef.current.slice(nl + 1);
+          flushed.split('\n').forEach((l) => appendLine(l));
+        }
+      } else {
+        // Flush any pending LLM line before a structural event
+        if (llmLineRef.current) {
+          appendLine(llmLineRef.current);
+          llmLineRef.current = '';
+        }
+        const line = formatEvent(event);
+        if (line) appendLine(line);
+      }
+
+      if (event.type === 'pipeline_complete') {
+        // Flush remainder
+        if (llmLineRef.current) {
+          appendLine(llmLineRef.current);
+          llmLineRef.current = '';
+        }
+        setFeedDone(true);
+        es.close();
+        esRef.current = null;
+        fetchRunDetail();
+        fetchFileTree();
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      esRef.current = null;
+    };
+
+    return () => {
+      es.close();
+      esRef.current = null;
+    };
+  }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Switch to LIVE tab automatically when run starts
+  useEffect(() => {
+    if (run?.status === 'running' && activeArtifactTab !== 'live') {
+      setActiveArtifactTab('live');
+    }
+  }, [run?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll live feed
+  useEffect(() => {
+    if (activeArtifactTab === 'live') {
+      feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [feedLines, activeArtifactTab]);
+
   // ── Controls ───────────────────────────────────────────────────────────────
+
+  const showToast = (msg) => setToast(msg);
 
   const handlePause = async () => {
     setControlLoading('pause');
-    try { await api.pauseRun(id); await fetchRunDetail(); } finally { setControlLoading(null); }
+    try {
+      await api.pauseRun(id);
+      setRun((prev) => prev ? { ...prev, status: 'paused' } : prev);
+      showToast('⏸ Pipeline paused');
+      setTimeout(fetchRunDetail, 2000);
+    } catch (e) {
+      showToast('Failed to pause: ' + (e.message || 'error'));
+    } finally {
+      setControlLoading(null);
+    }
   };
+
   const handleResume = async () => {
     setControlLoading('resume');
-    try { await api.resumeRun(id); await fetchRunDetail(); } finally { setControlLoading(null); }
+    try {
+      await api.resumeRun(id);
+      setRun((prev) => prev ? { ...prev, status: 'running' } : prev);
+      showToast('▶ Pipeline resumed');
+      setTimeout(fetchRunDetail, 2000);
+    } catch (e) {
+      showToast('Failed to resume: ' + (e.message || 'error'));
+    } finally {
+      setControlLoading(null);
+    }
   };
+
   const handleCancel = async () => {
     if (!window.confirm('Cancel this run? This cannot be undone.')) return;
     setControlLoading('cancel');
-    try { await api.cancelRun(id); await fetchRunDetail(); } finally { setControlLoading(null); }
+    try {
+      await api.cancelRun(id);
+      setRun((prev) => prev ? { ...prev, status: 'cancelled' } : prev);
+      showToast('✕ Pipeline cancelled');
+      setTimeout(fetchRunDetail, 2000);
+    } catch (e) {
+      showToast('Failed to cancel: ' + (e.message || 'error'));
+    } finally {
+      setControlLoading(null);
+    }
   };
+
   const handlePriorityCycle = async () => {
     const next = PRIORITY_CYCLE[(PRIORITY_CYCLE.indexOf(priority) + 1) % PRIORITY_CYCLE.length];
     setPriority(next);
     try { await api.setRunPriority(id, next); } catch { setPriority(priority); }
   };
+
   const handleRerun = async (fromPhase) => {
     setRerunOpen(false);
     try {
@@ -278,7 +495,9 @@ const ProjectView = () => {
 
   // Close rerun dropdown on outside click
   useEffect(() => {
-    const handler = (e) => { if (rerunRef.current && !rerunRef.current.contains(e.target)) setRerunOpen(false); };
+    const handler = (e) => {
+      if (rerunRef.current && !rerunRef.current.contains(e.target)) setRerunOpen(false);
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -289,7 +508,7 @@ const ProjectView = () => {
     fetchRunDetail();
     fetchFileTree();
     const interval = setInterval(() => {
-      if (!error && (!run || run.status === 'running')) fetchRunDetail();
+      if (!error && (!run || run.status === 'running' || run.status === 'paused')) fetchRunDetail();
     }, 4000);
     return () => clearInterval(interval);
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -317,10 +536,10 @@ const ProjectView = () => {
     return 'pending';
   };
 
-  const completedPhases = PHASES.filter((p) =>
+  const completedPhases  = PHASES.filter((p) =>
     ['passed', 'completed', 'timeout'].includes(getPhaseStatus(p))
   ).length;
-  const progressPercent = (completedPhases / PHASES.length) * 100;
+  const progressPercent  = (completedPhases / PHASES.length) * 100;
 
   // ── Loading / error states ─────────────────────────────────────────────────
 
@@ -367,11 +586,10 @@ const ProjectView = () => {
     );
   }
 
-  const events = run.events || [];
-  const phases = run.phases || {};
-
-  const passedCount = PHASES.filter((p) => ['passed', 'completed'].includes(getPhaseStatus(p))).length;
-  const successRate = completedPhases > 0 ? Math.round((passedCount / completedPhases) * 100) : 0;
+  const events       = run.events || [];
+  const phases       = run.phases || {};
+  const passedCount  = PHASES.filter((p) => ['passed', 'completed'].includes(getPhaseStatus(p))).length;
+  const successRate  = completedPhases > 0 ? Math.round((passedCount / completedPhases) * 100) : 0;
   const artifactCount = fileTree ? countFiles(fileTree) : 0;
 
   const curlCmd = `curl -s http://localhost:8000/health`;
@@ -384,14 +602,13 @@ const ProjectView = () => {
   const runStatus = run.status;
   const isRunning = runStatus === 'running';
   const isPaused  = runStatus === 'paused';
-  const isDone    = ['completed', 'failed', 'cancelled'].includes(runStatus);
+  const isDone    = ['completed', 'failed', 'cancelled', 'interrupted'].includes(runStatus);
   const priConf   = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.normal;
 
-  // Open preview in new tab
   const openPreviewTab = () => {
     if (!previewHtml) return;
     const blob = new Blob([previewHtml], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
+    const url  = URL.createObjectURL(blob);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
@@ -400,6 +617,9 @@ const ProjectView = () => {
 
   return (
     <div className="flex h-full overflow-hidden -m-6">
+
+      {/* Toast notification */}
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
       {/* ── LEFT: Phase sidebar ──────────────────────────────────────────────── */}
       <div className="w-52 bg-panel border-r border-border flex flex-col shrink-0 overflow-hidden">
@@ -415,9 +635,9 @@ const ProjectView = () => {
 
         <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
           {PHASES.map((p) => {
-            const st = getPhaseStatus(p);
-            const pData = phases[p] || {};
-            const dur = pData.duration_s != null
+            const st      = getPhaseStatus(p);
+            const pData   = phases[p] || {};
+            const dur     = pData.duration_s != null
               ? pData.duration_s < 60 ? `${pData.duration_s}s` : `${Math.round(pData.duration_s / 60)}m`
               : null;
             const isActive = st === 'running' || run.current_phase === p;
@@ -464,7 +684,7 @@ const ProjectView = () => {
             </h1>
             <PhaseBadge status={run.status} size="md" />
 
-            {/* Priority badge — click to cycle */}
+            {/* Priority badge */}
             <button
               onClick={handlePriorityCycle}
               className={`flex items-center space-x-1.5 text-xs font-bold px-2.5 py-1 rounded-full border border-border/50 hover:bg-border/30 transition-colors ${priConf.color}`}
@@ -504,7 +724,6 @@ const ProjectView = () => {
               <button
                 onClick={copyCurl}
                 className="flex items-center space-x-1.5 text-xs font-mono text-accent hover:text-accent/80 transition-colors bg-accent/10 border border-accent/20 rounded px-2 py-1"
-                title="Copy curl command"
               >
                 <Terminal className="w-3 h-3 shrink-0" />
                 <span>{curlCopied ? '✓ Copied!' : 'Copy curl'}</span>
@@ -512,79 +731,89 @@ const ProjectView = () => {
             </div>
           </div>
 
-          {/* Controls row */}
-          <div className="flex items-center space-x-2 pt-2 border-t border-border/50">
-            {isRunning && (
-              <>
-                <button
-                  onClick={handlePause}
-                  disabled={!!controlLoading}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-border/40 hover:bg-border/70 text-bright text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {controlLoading === 'pause' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
-                  <span>Pause</span>
-                </button>
-                <button
-                  onClick={handleCancel}
-                  disabled={!!controlLoading}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-danger/10 hover:bg-danger/20 text-danger text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {controlLoading === 'cancel' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                  <span>Cancel</span>
-                </button>
-              </>
-            )}
-            {isPaused && (
-              <>
-                <button
-                  onClick={handleResume}
-                  disabled={!!controlLoading}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-accent/15 hover:bg-accent/25 text-accent text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {controlLoading === 'resume' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                  <span>Resume</span>
-                </button>
-                <button
-                  onClick={handleCancel}
-                  disabled={!!controlLoading}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-danger/10 hover:bg-danger/20 text-danger text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {controlLoading === 'cancel' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                  <span>Cancel</span>
-                </button>
-              </>
-            )}
-            {isDone && (
-              <div className="relative" ref={rerunRef}>
-                <button
-                  onClick={() => setRerunOpen((v) => !v)}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-border/40 hover:bg-border/70 text-bright text-xs font-bold rounded-lg transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Re-run from phase</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${rerunOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {rerunOpen && (
-                  <div className="absolute top-full left-0 mt-1 z-50 w-52 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden">
-                    {PHASES.map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => handleRerun(p)}
-                        className="w-full flex items-center space-x-2 px-3 py-2 text-xs text-muted hover:bg-border/30 hover:text-bright transition-colors text-left"
-                      >
-                        <RotateCcw className="w-3 h-3 shrink-0" />
-                        <span>{PHASE_NAMES[p]}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Controls row — large prominent buttons */}
+          {(isRunning || isPaused || isDone) && (
+            <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-border/50">
+              {isRunning && (
+                <>
+                  <button
+                    onClick={handlePause}
+                    disabled={!!controlLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-lg transition-colors disabled:opacity-50 text-sm"
+                  >
+                    {controlLoading === 'pause'
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Pause className="w-4 h-4" />}
+                    <span>Pause</span>
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    disabled={!!controlLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-sm"
+                  >
+                    {controlLoading === 'cancel'
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <X className="w-4 h-4" />}
+                    <span>Cancel</span>
+                  </button>
+                </>
+              )}
+              {isPaused && (
+                <>
+                  <button
+                    onClick={handleResume}
+                    disabled={!!controlLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-sm"
+                  >
+                    {controlLoading === 'resume'
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Play className="w-4 h-4" />}
+                    <span>Resume</span>
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    disabled={!!controlLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-sm"
+                  >
+                    {controlLoading === 'cancel'
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <X className="w-4 h-4" />}
+                    <span>Cancel</span>
+                  </button>
+                </>
+              )}
+              {isDone && (
+                <div className="relative" ref={rerunRef}>
+                  <button
+                    onClick={() => setRerunOpen((v) => !v)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors text-sm"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Re-run from phase</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${rerunOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {rerunOpen && (
+                    <div className="absolute top-full left-0 mt-1 z-50 w-56 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden">
+                      {PHASES.map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => handleRerun(p)}
+                          className="w-full flex items-center space-x-2 px-3 py-2.5 text-xs text-muted hover:bg-border/30 hover:text-bright transition-colors text-left"
+                        >
+                          <RotateCcw className="w-3 h-3 shrink-0" />
+                          <span>{PHASE_NAMES[p]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Currently running indicator */}
-        {run.status === 'running' && (
+        {isRunning && (
           <section className="panel p-4 flex items-center space-x-3">
             <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />
             <div>
@@ -600,22 +829,23 @@ const ProjectView = () => {
           </section>
         )}
 
-        {run.status === 'paused' && (
+        {isPaused && (
           <section className="panel p-4 flex items-center space-x-3 border-warning/20">
             <Pause className="w-4 h-4 text-warning shrink-0" />
-            <span className="text-sm font-bold text-warning">Pipeline paused — will resume after current phase</span>
+            <span className="text-sm font-bold text-warning">Pipeline paused — click Resume to continue</span>
           </section>
         )}
 
-        {/* Artifacts / Preview tabs */}
+        {/* ── Artifacts / Preview / Live tabs ───────────────────────────────── */}
         <section>
           <div className="panel overflow-hidden">
             {/* Tab header */}
             <div className="bg-border/20 px-4 py-0 border-b border-border flex items-center justify-between">
               <div className="flex">
                 {[
-                  { id: 'artifacts', label: 'Artifacts', icon: FileCode },
-                  { id: 'preview',   label: 'Preview',   icon: Monitor },
+                  { id: 'live',      label: 'Live',      icon: Radio,    showDot: isRunning },
+                  { id: 'artifacts', label: 'Artifacts', icon: FileCode  },
+                  { id: 'preview',   label: 'Preview',   icon: Monitor   },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -626,8 +856,11 @@ const ProjectView = () => {
                         : 'border-transparent text-muted hover:text-bright'
                     }`}
                   >
-                    <tab.icon className="w-3.5 h-3.5" />
+                    <tab.icon className={`w-3.5 h-3.5 ${tab.showDot ? 'text-emerald-400 animate-pulse' : ''}`} />
                     <span>{tab.label}</span>
+                    {tab.showDot && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
                   </button>
                 ))}
               </div>
@@ -639,29 +872,64 @@ const ProjectView = () => {
                   <button
                     onClick={() => setViewMode('mobile')}
                     className={`p-1.5 rounded transition-colors ${viewMode === 'mobile' ? 'text-accent bg-accent/10' : 'text-muted hover:text-bright'}`}
-                    title="Mobile view (390px)"
                   >
                     <Smartphone className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => setViewMode('desktop')}
                     className={`p-1.5 rounded transition-colors ${viewMode === 'desktop' ? 'text-accent bg-accent/10' : 'text-muted hover:text-bright'}`}
-                    title="Desktop view (100%)"
                   >
                     <Monitor className="w-3.5 h-3.5" />
                   </button>
-                  <button
-                    onClick={openPreviewTab}
-                    className="p-1.5 rounded text-muted hover:text-bright transition-colors"
-                    title="Open in new tab"
-                  >
+                  <button onClick={openPreviewTab} className="p-1.5 rounded text-muted hover:text-bright transition-colors">
                     <OpenTab className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Artifacts tab content */}
+            {/* ── LIVE tab ──────────────────────────────────────────────────── */}
+            {activeArtifactTab === 'live' && (
+              <div className="flex flex-col" style={{ height: '420px', background: '#0a0a0f' }}>
+                {/* Header bar */}
+                <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 shrink-0">
+                  <div className="flex items-center space-x-2">
+                    {isRunning
+                      ? <><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">LIVE</span></>
+                      : <><span className="w-2 h-2 rounded-full bg-slate-600" /><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{feedDone ? 'COMPLETE' : 'IDLE'}</span></>
+                    }
+                    <span className="text-[10px] text-slate-600 ml-2">
+                      {isRunning ? 'AetherOS is building your project…' : feedDone ? 'Build finished.' : 'Waiting for pipeline…'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-700">{feedLines.length} lines</span>
+                </div>
+
+                {/* Terminal body */}
+                <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-0.5 custom-scrollbar">
+                  {feedLines.length === 0 && (
+                    <div className="text-slate-600 italic">
+                      {isRunning ? 'Connecting to pipeline stream…' : 'No events yet. Start a run to see live output.'}
+                    </div>
+                  )}
+                  {feedLines.map((line, i) => (
+                    <TerminalLine key={i} text={line} />
+                  ))}
+                  {/* Blinking cursor */}
+                  {isRunning && (
+                    <div className="flex items-center">
+                      <span className="text-emerald-400 animate-pulse">█</span>
+                    </div>
+                  )}
+                  {feedDone && (
+                    <div className="mt-3 text-emerald-400 font-bold">✓ Build complete</div>
+                  )}
+                  <div ref={feedEndRef} />
+                </div>
+              </div>
+            )}
+
+            {/* ── Artifacts tab ─────────────────────────────────────────────── */}
             {activeArtifactTab === 'artifacts' && (
               <div className="flex h-[420px]">
                 <div className="w-64 border-r border-border overflow-y-auto p-2 custom-scrollbar shrink-0">
@@ -702,7 +970,7 @@ const ProjectView = () => {
               </div>
             )}
 
-            {/* Preview tab content */}
+            {/* ── Preview tab ───────────────────────────────────────────────── */}
             {activeArtifactTab === 'preview' && (
               <div className="flex flex-col" style={{ height: '420px' }}>
                 {previewLoading ? (
@@ -710,7 +978,6 @@ const ProjectView = () => {
                     <Loader2 className="w-8 h-8 text-accent animate-spin" />
                   </div>
                 ) : !previewHtml ? (
-                  // Attempt to load if not yet loaded
                   fileTree === null ? (
                     <div className="flex items-center justify-center h-full text-muted text-sm">Loading file tree…</div>
                   ) : (

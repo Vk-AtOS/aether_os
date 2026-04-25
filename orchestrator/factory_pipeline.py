@@ -19,6 +19,9 @@ from aether_os.orchestrator.messages import PhaseInput, PhaseMessage, PhaseResul
 from aether_os.orchestrator.state_machine import (
     PipelineStateMachine, PipelineState, PHASE_TO_STATE,
 )
+from aether_os.orchestrator.events import (
+    PIPELINE_EVENTS, ACTIVE_RUN_ID, ACTIVE_PHASE, emit,
+)
 from aether_os.core.projects import get_project_manager
 from aether_os.core.audit.ledger import get_ledger
 
@@ -95,11 +98,14 @@ class FactoryPipeline:
                   run_id: Optional[str] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
-        
+
         # Create project directory
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
         project_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Create event queue for SSE streaming
+        PIPELINE_EVENTS[run_id] = asyncio.Queue(maxsize=500)
+
         self.ledger.save_run(run_id, f"factory: {raw_input[:60]}", "running")
 
         # Accumulated context passed between phases
@@ -125,9 +131,14 @@ class FactoryPipeline:
         pipeline_start = time.time()
         
         for phase_name in phases_to_run:
+            # Set context vars so LLM calls in this phase can emit to the queue
+            run_token   = ACTIVE_RUN_ID.set(run_id)
+            phase_token = ACTIVE_PHASE.set(phase_name)
+
             # Update state machine
             await self._update_state(run_id, phase_name, "running")
-            
+            await emit({"type": "phase_start", "phase": phase_name}, run_id=run_id)
+
             try:
                 # Build phase input with accumulated context
                 phase_input = PhaseInput(
@@ -146,7 +157,23 @@ class FactoryPipeline:
                     timeout=600)  # 10 min per phase (3b model needs time)
                 
                 results[phase_name] = phase_result
-                
+
+                # Emit file_written events for every file produced by this phase
+                _phase_dir = project_dir / phase_name
+                if _phase_dir.exists():
+                    for _f in _phase_dir.rglob("*"):
+                        if _f.is_file():
+                            try:
+                                _sz = _f.stat().st_size
+                            except OSError:
+                                _sz = 0
+                            await emit({
+                                "type": "file_written",
+                                "phase": phase_name,
+                                "path": str(_f.relative_to(project_dir)),
+                                "size": _sz,
+                            }, run_id=run_id)
+
                 # Add phase output to context for next phase to use
                 accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
                 accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
@@ -179,25 +206,45 @@ class FactoryPipeline:
                                        "downstream phases will use their own fallbacks")
                 
                 # Update state
-                status = "passed" if (phase_result.get("status") == "passed") else "completed"
-                await self._update_state(run_id, phase_name, status)
+                p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
+                await self._update_state(run_id, phase_name, p_status)
+                await emit({
+                    "type": "phase_complete",
+                    "phase": phase_name,
+                    "status": p_status,
+                    "duration": phase_result.get("duration_s"),
+                }, run_id=run_id)
 
             except asyncio.TimeoutError:
                 logger.warning(f"{phase_name} timed out, continuing")
                 await self._update_state(run_id, phase_name, "timeout")
                 results[phase_name] = {"status": "timeout", "output_path": ""}
+                await emit({"type": "phase_complete", "phase": phase_name, "status": "timeout"}, run_id=run_id)
 
             except Exception as e:
                 logger.error(f"{phase_name} failed: {e}")
                 await self._update_state(run_id, phase_name, "failed")
                 results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
+                await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
+                            "error": str(e)}, run_id=run_id)
                 # Continue to next phase even if this one failed
+
+            finally:
+                # Reset context vars after each phase
+                ACTIVE_RUN_ID.reset(run_token)
+                ACTIVE_PHASE.reset(phase_token)
 
             # ── Control signal check after each phase ──────────────────────
             control = PIPELINE_CONTROL.get(run_id)
             if control == "cancel":
                 logger.info("Pipeline %s cancelled after phase %s", run_id, phase_name)
                 self.ledger.update_run_status(run_id, "cancelled")
+                _q2 = PIPELINE_EVENTS.get(run_id)
+                if _q2:
+                    try:
+                        _q2.put_nowait({"type": "pipeline_complete", "status": "cancelled", "ts": time.time()})
+                    except Exception:
+                        pass
                 return {
                     "run_id": run_id, "status": "cancelled",
                     "phases": results, "output_dir": str(project_dir),
@@ -218,8 +265,27 @@ class FactoryPipeline:
         # Mark run as complete
         await self._update_state(run_id, "pipeline", "complete")
         self.ledger.update_run_status(run_id, "completed")
-        
+
         duration = time.time() - pipeline_start
+
+        # Emit pipeline_complete so SSE clients know to close the stream
+        _q = PIPELINE_EVENTS.get(run_id)
+        if _q:
+            try:
+                await _q.put({
+                    "type": "pipeline_complete",
+                    "status": "completed",
+                    "duration": round(duration, 1),
+                    "ts": time.time(),
+                })
+            except Exception:
+                pass
+        # Schedule queue cleanup after 5 minutes
+        async def _cleanup():
+            await asyncio.sleep(300)
+            PIPELINE_EVENTS.pop(run_id, None)
+        asyncio.create_task(_cleanup())
+
         return {
             "run_id": run_id,
             "project_id": run_id,  # In this refactored version, run_id is used for project_dir

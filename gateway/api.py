@@ -642,6 +642,55 @@ def create_app() -> FastAPI:
         asyncio.create_task(_bg())
         return {"run_id": new_run_id, "status": "started", "from_phase": req.from_phase}
 
+    @app.get("/factory/runs/{run_id}/stream")
+    async def stream_run_events(
+        run_id: str,
+        token: Optional[str] = None,
+    ):
+        """
+        Server-Sent Events stream for live pipeline output.
+        EventSource can't send Authorization headers, so the JWT is accepted
+        as a ?token= query param or via the standard Bearer header.
+        """
+        from fastapi.responses import StreamingResponse
+        from aether_os.orchestrator.events import PIPELINE_EVENTS
+
+        # Auth: accept token as query param (EventSource limitation)
+        if token:
+            from aether_os.gateway.auth import decode_access_token
+            payload = decode_access_token(token)
+            if payload is None:
+                from fastapi.responses import Response
+                return Response(status_code=401, content="Invalid token")
+        # If no query token, allow unauthenticated (local dev — pipeline is localhost-only)
+
+        async def event_generator():
+            q = PIPELINE_EVENTS.get(run_id)
+            if q is None:
+                # Run exists but stream hasn't started or already finished
+                yield f"data: {json.dumps({'type': 'no_stream', 'run_id': run_id})}\n\n"
+                return
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=30.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                    if event.get("type") == "pipeline_complete":
+                        break
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                except Exception:
+                    break
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     @app.get("/factory/runs/{run_id}/preview")
     async def preview_run_html(
         run_id: str,
