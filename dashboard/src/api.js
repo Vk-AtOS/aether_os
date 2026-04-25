@@ -54,7 +54,7 @@ export const api = {
   },
 
   // Factory
-  startPipeline: (data) => client.post('/pipeline/start', data),
+  startPipeline: (data) => client.post('/factory/start', data),
   listRuns: () => client.get('/factory/runs'),
   getRun: (runId) => client.get(`/factory/runs/${runId}`),
   getRunFiles: (runId) => client.get(`/factory/runs/${runId}/files`),
@@ -75,6 +75,7 @@ export const api = {
   getCosts: () => client.get('/system/costs'),
 
   // Settings
+  getApiKeys: () => client.get('/settings/api-keys'),
   saveApiKeys: (provider, key) => client.post('/settings/api-keys', { provider, key }),
   testProvider: (provider) => client.post('/settings/test-provider', { provider }),
   getPhaseConfigs: () => client.get('/settings/phases/config'),

@@ -24,22 +24,30 @@ const PhaseDetail = () => {
       try {
         const res = await api.getRun(id);
         const run = res.data;
-        // Extract phase-specific data from the run
-        const phases = Array.isArray(run.phases) ? run.phases : Object.values(run.phases || {});
-        const phase = phases.find(p => p.id === name || p.name === name) || {};
+        // phases is a dict keyed by phase name: { p01_intake_requirements: {status, updated_at}, ... }
+        const phaseEntry = run.phases?.[name] ?? null;
         setPhaseData({
-          name: phase.name || name,
-          status: phase.status || run.status,
-          confidence: phase.confidence || 0,
-          duration: phase.duration || '—',
-          files: phase.files || {},
-          gate_result: phase.gate_result || { passed: phase.status === 'passed', confidence: phase.confidence || 0, issues: [], attempts: 1 },
-          memories: phase.memories || [],
+          name,
+          status: phaseEntry?.status || run.status || 'unknown',
+          confidence: phaseEntry?.confidence ?? 0,
+          duration: phaseEntry?.duration_s != null
+            ? phaseEntry.duration_s < 60
+              ? `${phaseEntry.duration_s}s`
+              : `${Math.round(phaseEntry.duration_s / 60)}m`
+            : '—',
+          files: phaseEntry?.files || {},
+          gate_result: phaseEntry?.gate_result || {
+            passed: phaseEntry?.status === 'passed',
+            confidence: phaseEntry?.confidence ?? 0,
+            issues: [],
+            attempts: 1,
+          },
+          memories: phaseEntry?.memories || [],
         });
       } catch (err) {
         console.error('Failed to load phase detail', err);
         setPhaseData({
-          name: name,
+          name,
           status: 'unknown',
           confidence: 0,
           duration: '—',
@@ -187,7 +195,7 @@ const PhaseDetail = () => {
               <div key={i} className="panel p-6 flex items-start space-x-6">
                  <div className="shrink-0 flex flex-col items-center">
                     <div className="text-[10px] font-bold text-muted uppercase tracking-tighter mb-1">Score</div>
-                    <div className="text-lg font-bold text-accent font-mono">{(mem.score * 100).toFixed(0)}%</div>
+                    <div className="text-lg font-bold text-accent font-mono">{((mem.score ?? 0) * 100).toFixed(0)}%</div>
                  </div>
                  <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-2">

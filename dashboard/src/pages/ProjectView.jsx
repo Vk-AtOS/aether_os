@@ -142,6 +142,7 @@ const ProjectView = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileContent, setFileContent]   = useState(null);
   const [fileLoading, setFileLoading]   = useState(false);
+  const [curlCopied, setCurlCopied]     = useState(false);
   const logEndRef = useRef(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
@@ -296,7 +297,6 @@ const ProjectView = () => {
 
   // Copy curl command for health check
   const curlCmd = `curl -s http://localhost:8000/health`;
-  const [curlCopied, setCurlCopied] = useState(false);
   const copyCurl = () => {
     navigator.clipboard.writeText(curlCmd);
     setCurlCopied(true);
@@ -337,10 +337,10 @@ const ProjectView = () => {
             const isFailed = st === 'failed';
 
             return (
-              <a
+              <button
                 key={p}
-                href={`#phase-${p}`}
-                className={`flex items-center px-4 py-2.5 text-xs transition-colors group ${
+                onClick={() => navigate(`/project/${id}/phase/${p}`)}
+                className={`w-full flex items-center px-4 py-2.5 text-xs transition-colors group text-left ${
                   isActive
                     ? 'bg-accent/10 border-r-2 border-accent text-accent'
                     : 'hover:bg-white/[0.03] text-muted hover:text-bright'
@@ -364,7 +364,7 @@ const ProjectView = () => {
                     {dur}
                   </span>
                 )}
-              </a>
+              </button>
             );
           })}
         </div>
