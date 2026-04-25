@@ -1,28 +1,39 @@
 import React from 'react';
 
+// Canonical 10-phase order matching orchestrator/factory_pipeline.py PHASE_SEQUENCE
+const PHASE_ORDER = [
+  'p01_intake_requirements',
+  'p02_architecture',
+  'p03_scaffolding',
+  'p04_backend',
+  'p05_frontend',
+  'p06_review_security',
+  'p07_testing',
+  'p08_cicd_deployment',
+  'p09_observability',
+  'p10_docs_delivery',
+];
+
 const PhaseBar = ({ phases }) => {
-  // Normalize: API returns phases as {} dict or array; we need an array for .find()
-  const phaseList = Array.isArray(phases) ? phases : [];
-  // Total 26 phases in AetherOS Factory
-  const total = 26;
-  const blocks = Array.from({ length: total }, (_, i) => {
-    const phaseKey = `p${i.toString().padStart(2, '0')}`;
-    const phaseData = phaseList.find(p => p.id === phaseKey);
-    
+  // phases may be a dict { phase_name: { status, updated_at } } or empty/null
+  const phaseDict = (phases && typeof phases === 'object' && !Array.isArray(phases))
+    ? phases
+    : {};
+
+  const blocks = PHASE_ORDER.map((id) => {
+    const status = phaseDict[id]?.status ?? 'pending';
     let color = 'bg-border/30';
-    if (phaseData) {
-      if (phaseData.status === 'passed') color = 'bg-success';
-      if (phaseData.status === 'failed') color = 'bg-danger';
-      if (phaseData.status === 'running') color = 'bg-accent animate-pulse';
-      if (phaseData.status === 'escalated') color = 'bg-warning';
-    }
+    if (status === 'passed' || status === 'completed') color = 'bg-success';
+    else if (status === 'failed')                       color = 'bg-danger';
+    else if (status === 'running')                      color = 'bg-accent animate-pulse';
+    else if (status === 'escalated')                    color = 'bg-warning';
 
     return (
-      <div 
-        key={i} 
+      <div
+        key={id}
         className={`h-1.5 flex-1 rounded-full ${color}`}
-        title={phaseKey}
-      ></div>
+        title={id}
+      />
     );
   });
 

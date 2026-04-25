@@ -21,12 +21,15 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 
 const PhaseConfigPanel = ({ phase, config, onSave }) => {
-  const [status, setStatus] = useState(config.status || 'Enabled');
-  const [priority, setPriority] = useState(config.priority || 'Normal');
+  const [enabled, setEnabled] = useState(config.enabled !== false);
+  const [priority, setPriority] = useState(
+    config.priority ? config.priority.charAt(0).toUpperCase() + config.priority.slice(1) : 'Normal'
+  );
   const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
-    await onSave({ status, priority });
+    // Backend expects { enabled: bool, priority: 'low'|'normal'|'high' }
+    await onSave({ enabled, priority: priority.toLowerCase() });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -37,13 +40,12 @@ const PhaseConfigPanel = ({ phase, config, onSave }) => {
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-muted uppercase">Execution Status</label>
           <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            value={enabled ? 'Enabled' : 'Disabled'}
+            onChange={(e) => setEnabled(e.target.value === 'Enabled')}
             className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
           >
             <option>Enabled</option>
             <option>Disabled</option>
-            <option>Required</option>
           </select>
         </div>
         <div className="space-y-1">
@@ -86,33 +88,61 @@ const Settings = () => {
   const [selectedFile, setSelectedFile] = useState('');
   const [loadingFiles, setLoadingFiles] = useState(false);
 
+  // Exact 10-phase names from orchestrator/factory_pipeline.py PHASE_SEQUENCE
   const PHASES = [
-    'p00', 'p01', 'p02', 'p03', 'p04a', 'p04b', 'p04c', 'p04d', 'p04e',
-    'p05', 'p06', 'p07a', 'p07b', 'p07c', 'p07d', 'p08', 'p09', 'p10',
-    'p11a', 'p11b', 'p11c', 'p11d', 'p12a', 'p12b', 'p13', 'p14'
+    'p01_intake_requirements',
+    'p02_architecture',
+    'p03_scaffolding',
+    'p04_backend',
+    'p05_frontend',
+    'p06_review_security',
+    'p07_testing',
+    'p08_cicd_deployment',
+    'p09_observability',
+    'p10_docs_delivery',
   ];
 
   const PHASE_NAMES = {
-    p00: 'Intake', p01: 'Requirements', p02: 'Architecture', p03: 'Scaffolding',
-    p04a: 'Backend', p04b: 'UI/UX', p04c: 'Frontend', p04d: 'Components', p04e: 'Integration',
-    p05: 'Review', p06: 'Security', p07a: 'Unit Test', p07b: 'Perf Test', p07c: 'A11y Test', p07d: 'E2E Test',
-    p08: 'CI/CD', p09: 'Docs', p10: 'Deploy', p11a: 'Monitor', p11b: 'Errors',
-    p11c: 'Analytics', p11d: 'Alerts', p12a: 'Flags', p12b: 'A/B Test', p13: 'Memory', p14: 'Portal'
+    p01_intake_requirements: 'Intake & Requirements',
+    p02_architecture:        'Architecture',
+    p03_scaffolding:         'Scaffolding',
+    p04_backend:             'Backend',
+    p05_frontend:            'Frontend',
+    p06_review_security:     'Review & Security',
+    p07_testing:             'Testing',
+    p08_cicd_deployment:     'CI/CD & Deployment',
+    p09_observability:       'Observability',
+    p10_docs_delivery:       'Docs & Delivery',
   };
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, cRes, rRes, pcRes] = await Promise.allSettled([
+        const [hRes, cRes, rRes, pcRes, keyRes] = await Promise.allSettled([
           api.getHealth(),
           api.getCosts(),
           api.listRuns(),
           api.getPhaseConfigs(),
+          api.getApiKeys(),
         ]);
         if (hRes.status === 'fulfilled') setHealth(hRes.value.data);
         if (cRes.status === 'fulfilled') setCosts(cRes.value.data);
         if (rRes.status === 'fulfilled') setRuns(rRes.value.data || []);
-        if (pcRes.status === 'fulfilled') setPhaseConfigs(pcRes.value.data || {});
+        if (pcRes.status === 'fulfilled') {
+          // Backend returns an array; convert to dict keyed by phase_name
+          const cfgArray = pcRes.value.data || [];
+          const cfgDict = {};
+          cfgArray.forEach(c => { cfgDict[c.phase_name] = c; });
+          setPhaseConfigs(cfgDict);
+        }
+        if (keyRes.status === 'fulfilled') {
+          const kd = keyRes.value.data || {};
+          // Backend returns 'google' key; UI uses 'gemini' key
+          setApiKeys({
+            anthropic: kd.anthropic || '',
+            gemini: kd.google || '',
+          });
+        }
       } catch (err) {
         console.error('Settings fetch error', err);
       }
@@ -153,6 +183,19 @@ const Settings = () => {
     }
   };
 
+  // Recursively flatten the nested tree returned by /factory/runs/{id}/files
+  const flattenTree = (items) => {
+    const paths = [];
+    for (const item of items || []) {
+      if (item.type === 'file') {
+        paths.push(item.path);
+      } else if (item.type === 'directory' && item.children) {
+        paths.push(...flattenTree(item.children));
+      }
+    }
+    return paths;
+  };
+
   const handleRunSelect = async (runId) => {
     setSelectedRun(runId);
     setSelectedFile('');
@@ -161,13 +204,16 @@ const Settings = () => {
     setLoadingFiles(true);
     try {
       const res = await api.getRunFiles(runId);
-      // API returns array of {path, size, phase} — group by phase
-      const files = res.data || [];
+      // API returns { run_id, tree: [{name, type, path, children?, size_bytes?}] }
+      const tree = res.data?.tree || [];
+      const filePaths = flattenTree(tree);
+      // Group by top-level directory (or 'root' for top-level files)
       const grouped = {};
-      files.forEach(f => {
-        const phase = f.phase || f.path.split('/')[0] || 'other';
-        if (!grouped[phase]) grouped[phase] = [];
-        grouped[phase].push(f.path || f.name || f);
+      filePaths.forEach(path => {
+        const parts = path.split('/');
+        const group = parts.length > 1 ? parts[0] : 'root';
+        if (!grouped[group]) grouped[group] = [];
+        grouped[group].push(path);
       });
       setRunFiles(grouped);
     } catch (err) {
@@ -182,7 +228,13 @@ const Settings = () => {
     setFileContent('');
     try {
       const res = await api.getFileContent(selectedRun, filePath);
-      setFileContent(typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2));
+      // Response shape: { path, content, language, size_bytes, truncated, type }
+      const payload = res.data;
+      if (payload?.type === 'image') {
+        setFileContent('// Image file — cannot preview');
+      } else {
+        setFileContent(payload?.content || '// (empty file)');
+      }
     } catch (err) {
       setFileContent(`// Could not load file: ${filePath}`);
     }
