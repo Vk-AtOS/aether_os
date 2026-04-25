@@ -193,7 +193,7 @@ async def _call_gemini(
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
 async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> str:
-    """Call Ollama via HTTP with a specific model."""
+    """Call Ollama via HTTP with a specific model. Streams tokens when a run is active."""
     import httpx  # type: ignore
     from ..config.loader import get_config
     cfg = get_config()
@@ -203,16 +203,55 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
     logger.info("Using Ollama model: %s", model)
     logger.info("LLM call: provider=ollama model=%s task=%s", model, task_type)
 
-    url = f"{base_url}/api/generate"
-    payload = {"model": model, "prompt": prompt, "stream": False}
+    # Check if there's an active pipeline run to stream into
+    try:
+        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE, PIPELINE_EVENTS
+        run_id = ACTIVE_RUN_ID.get()
+        phase  = ACTIVE_PHASE.get()
+    except Exception:
+        run_id = None
+        phase  = None
 
-    async with httpx.AsyncClient(timeout=timeout) as http:
-        try:
-            resp = await http.post(url, json=payload)
-            resp.raise_for_status()
-            return resp.json().get("response", "")
-        except Exception as exc:
-            raise RuntimeError(f"Ollama call failed with {model}: {exc}") from exc
+    url = f"{base_url}/api/generate"
+
+    if run_id and PIPELINE_EVENTS.get(run_id):
+        # Streaming path — emit llm_chunk events as tokens arrive
+        q = PIPELINE_EVENTS[run_id]
+        payload = {"model": model, "prompt": prompt, "stream": True}
+        chunks: list[str] = []
+        async with httpx.AsyncClient(timeout=timeout) as http:
+            try:
+                async with http.stream("POST", url, json=payload) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except Exception:
+                            continue
+                        token = obj.get("response", "")
+                        if token:
+                            chunks.append(token)
+                            try:
+                                q.put_nowait({"type": "llm_chunk", "phase": phase, "text": token})
+                            except Exception:
+                                pass  # Queue full — skip token event, keep accumulating
+                        if obj.get("done"):
+                            break
+            except Exception as exc:
+                raise RuntimeError(f"Ollama streaming call failed with {model}: {exc}") from exc
+        return "".join(chunks)
+    else:
+        # Non-streaming path (no active run or queue)
+        payload = {"model": model, "prompt": prompt, "stream": False}
+        async with httpx.AsyncClient(timeout=timeout) as http:
+            try:
+                resp = await http.post(url, json=payload)
+                resp.raise_for_status()
+                return resp.json().get("response", "")
+            except Exception as exc:
+                raise RuntimeError(f"Ollama call failed with {model}: {exc}") from exc
 
 
 async def _call_ollama(prompt: str, task_type: str) -> str:
