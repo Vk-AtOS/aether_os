@@ -109,6 +109,14 @@ class PhaseConfigUpdate(BaseModel):
     priority: str
 
 
+class PriorityRequest(BaseModel):
+    priority: str  # "high" | "normal" | "low"
+
+
+class RerunRequest(BaseModel):
+    from_phase: str
+
+
 # ── Auth dependency ────────────────────────────────────────────────────────────
 
 async def get_current_user(
@@ -383,6 +391,18 @@ def create_app() -> FastAPI:
                 except Exception:
                     pass
 
+            # Load all priorities at once
+            priority_map: Dict[str, str] = {}
+            if db_path.exists():
+                try:
+                    with sqlite3.connect(str(db_path)) as _pc:
+                        for _rid2, _pri in _pc.execute(
+                            "SELECT run_id, priority FROM run_metadata"
+                        ).fetchall():
+                            priority_map[_rid2] = _pri
+                except Exception:
+                    pass
+
             formatted = []
             for run in history:
                 d = dict(run)
@@ -393,6 +413,7 @@ def create_app() -> FastAPI:
                 # Populate current_phase from phase_completions
                 d["current_phase"] = phase_map.get(d.get("id", ""))
                 d.setdefault("phases", {})
+                d["priority"] = priority_map.get(d.get("id", ""), "normal")
                 # Convert Unix seconds → JS milliseconds
                 if d.get("started_at"):
                     d["started_at"] = int(d["started_at"] * 1000)
@@ -445,7 +466,183 @@ def create_app() -> FastAPI:
         cmd = detail.get("command", "")
         detail["project_name"] = cmd[9:] if cmd.startswith("factory: ") else cmd
         detail.setdefault("cost", 0.0)
+
+        # Enrich each phase with its output file content from the project dir
+        project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+        _OUTPUT_FILE_CANDIDATES = [
+            "consolidated.json", "architecture.json", "frontend_meta.json",
+            "review.json", "test_results.json", "delivery.json",
+            "observability.json", "cicd.json",
+        ]
+        for phase_key, phase_val in phases.items():
+            phase_dir = project_dir / phase_key
+            if not phase_dir.exists():
+                continue
+            # Try known names first
+            loaded = False
+            for fname in _OUTPUT_FILE_CANDIDATES + [f"{phase_key}.json"]:
+                fpath = phase_dir / fname
+                if fpath.exists():
+                    try:
+                        phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
+                        phase_val["output_file"] = f"{phase_key}/{fname}"
+                        loaded = True
+                        break
+                    except Exception:
+                        pass
+            # Fallback: first .json file directly in the phase dir
+            if not loaded:
+                for fpath in sorted(phase_dir.glob("*.json")):
+                    try:
+                        phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
+                        phase_val["output_file"] = f"{phase_key}/{fpath.name}"
+                        break
+                    except Exception:
+                        pass
+
+        # Load priority from run_metadata table (if it exists)
+        priority = "normal"
+        if db_path.exists():
+            try:
+                with sqlite3.connect(str(db_path)) as _conn:
+                    _row = _conn.execute(
+                        "SELECT priority FROM run_metadata WHERE run_id=?", (run_id,)
+                    ).fetchone()
+                    if _row:
+                        priority = _row[0]
+            except Exception:
+                pass
+        detail["priority"] = priority
+
         return detail
+
+    # ── Factory run controls ──────────────────────────────────────────────────
+
+    @app.post("/factory/runs/{run_id}/pause")
+    async def pause_factory_run(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Signal the pipeline to pause after the current phase completes."""
+        from aether_os.orchestrator.factory_pipeline import PIPELINE_CONTROL
+        from aether_os.core.audit.ledger import get_ledger as _get_ledger
+        PIPELINE_CONTROL[run_id] = "pause"
+        _get_ledger().update_run_status(run_id, "paused")
+        return {"run_id": run_id, "status": "paused"}
+
+    @app.post("/factory/runs/{run_id}/resume")
+    async def resume_factory_run(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Resume a paused pipeline run."""
+        from aether_os.orchestrator.factory_pipeline import PIPELINE_CONTROL
+        from aether_os.core.audit.ledger import get_ledger as _get_ledger
+        PIPELINE_CONTROL[run_id] = None
+        _get_ledger().update_run_status(run_id, "running")
+        return {"run_id": run_id, "status": "running"}
+
+    @app.post("/factory/runs/{run_id}/cancel")
+    async def cancel_factory_run(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Cancel a running or paused pipeline run."""
+        from aether_os.orchestrator.factory_pipeline import PIPELINE_CONTROL
+        from aether_os.core.audit.ledger import get_ledger as _get_ledger
+        PIPELINE_CONTROL[run_id] = "cancel"
+        _get_ledger().update_run_status(run_id, "cancelled")
+        return {"run_id": run_id, "status": "cancelled"}
+
+    @app.post("/factory/runs/{run_id}/priority")
+    async def set_factory_run_priority(
+        run_id: str,
+        req: PriorityRequest,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Set the priority label for a run (stored in run_metadata table)."""
+        if req.priority not in ("high", "normal", "low"):
+            raise HTTPException(status_code=400, detail="priority must be high | normal | low")
+        _db = pathlib.Path.home() / ".aether_os" / "aether_os.db"
+        with sqlite3.connect(str(_db)) as _conn:
+            _conn.execute("""
+                CREATE TABLE IF NOT EXISTS run_metadata (
+                    run_id TEXT PRIMARY KEY,
+                    priority TEXT,
+                    updated_at REAL
+                )
+            """)
+            _conn.execute("""
+                INSERT OR REPLACE INTO run_metadata (run_id, priority, updated_at)
+                VALUES (?, ?, ?)
+            """, (run_id, req.priority, time.time()))
+            _conn.commit()
+        return {"run_id": run_id, "priority": req.priority}
+
+    @app.post("/factory/runs/{run_id}/rerun")
+    async def rerun_factory_run(
+        run_id: str,
+        req: RerunRequest,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Create a new run starting from a given phase, using the same input."""
+        import uuid as _uuid
+        from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
+        from aether_os.core.audit.ledger import get_ledger as _get_ledger
+
+        detail = _get_ledger().get_run_detail(run_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+        cmd = detail.get("command", "")
+        raw_input = cmd[9:] if cmd.startswith("factory: ") else cmd
+        new_run_id = str(_uuid.uuid4())
+        factory = _get_factory()
+
+        async def _bg():
+            try:
+                await factory.run(
+                    client_id="rerun",
+                    raw_input=raw_input,
+                    start_phase=req.from_phase,
+                    run_id=new_run_id,
+                )
+            except Exception as exc:
+                logger.error("Rerun failed: %s", exc)
+
+        asyncio.create_task(_bg())
+        return {"run_id": new_run_id, "status": "started", "from_phase": req.from_phase}
+
+    @app.get("/factory/runs/{run_id}/preview")
+    async def preview_run_html(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """Serve the generated index.html from p05_frontend with Content-Type: text/html."""
+        from fastapi.responses import HTMLResponse
+        from aether_os.core.audit.ledger import get_ledger as _get_ledger
+
+        run_detail = _get_ledger().get_run_detail(run_id)
+        project_id = run_id
+        if run_detail and "project_id" in run_detail:
+            project_id = run_detail["project_id"]
+
+        from aether_os.core.projects import get_project_manager as _get_pm
+        root_dir = _get_pm().get_project_dir(project_id)
+
+        # Walk looking for index.html
+        for candidate in [
+            root_dir / "p05_frontend" / "index.html",
+            root_dir / "index.html",
+        ]:
+            if candidate.exists():
+                return HTMLResponse(content=candidate.read_text(encoding="utf-8"))
+
+        # Recursive search
+        for html_file in root_dir.rglob("index.html"):
+            return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
+
+        raise HTTPException(status_code=404, detail="No index.html found in run artifacts")
 
     # ── System endpoints ──────────────────────────────────────────────────────
 
