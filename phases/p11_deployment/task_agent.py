@@ -20,7 +20,28 @@ class TaskAgent:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
 
+    async def _check_docker(self) -> bool:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "info",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=10)
+            return proc.returncode == 0
+        except Exception:
+            return False
+
     async def run(self, phase_input: Any) -> Dict[str, Any]:
+        docker_available = await self._check_docker()
+        if not docker_available:
+            return {
+                "success": False,
+                "skipped": True,
+                "error": "Docker daemon not running. Start Docker Desktop and use the Deploy button to deploy manually.",
+                "live_url": None,
+            }
+
         run_id: str = phase_input.run_id
         project_dir = Path(os.path.expanduser(
             f"~/.aether_os/projects/{run_id}"
@@ -127,9 +148,13 @@ class TaskAgent:
             WORKDIR /app
             COPY . .
             {pip_reqs}
-            RUN pip install --no-cache-dir fastapi uvicorn \\
-                pydantic python-jose passlib bcrypt \\
-                python-multipart aiofiles 2>/dev/null || true
+            RUN pip install --no-cache-dir \\
+                fastapi uvicorn pydantic \\
+                python-jose passlib bcrypt \\
+                python-multipart aiofiles \\
+                sentry-sdk[fastapi] sqlalchemy \\
+                prometheus-client httpx requests \\
+                python-dotenv 2>/dev/null || true
             EXPOSE 8000
             CMD ["uvicorn", "{module_path}:app", \\
                 "--host", "0.0.0.0", "--port", "8000"]
