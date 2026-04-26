@@ -260,9 +260,13 @@ const ProjectView = () => {
   const [controlLoading, setControlLoading] = useState(null);
   const [priority, setPriority]             = useState('normal');
 
+  // Deployment
+  const [deploying, setDeploying] = useState(false);
+
   // Artifact / Preview / Live tabs
   const [activeArtifactTab, setActiveArtifactTab] = useState('artifacts');
   const [viewMode, setViewMode]                   = useState('desktop');
+  const [previewMode, setPreviewMode]             = useState('static'); // 'live' | 'static'
   const [previewHtml, setPreviewHtml]             = useState(null);
   const [previewLoading, setPreviewLoading]       = useState(false);
   const [previewFile, setPreviewFile]             = useState(null);
@@ -421,6 +425,11 @@ const ProjectView = () => {
     }
   }, [run?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // When live_url appears, default preview mode to 'live'
+  useEffect(() => {
+    if (run?.live_url) setPreviewMode('live');
+  }, [run?.live_url]);
+
   // Auto-scroll live feed
   useEffect(() => {
     if (activeArtifactTab === 'live') {
@@ -501,6 +510,35 @@ const ProjectView = () => {
       navigate(`/project/${res.data.run_id}`);
     } catch (e) {
       showToast('Failed to start run: ' + (e.message || 'unknown error'));
+    }
+  };
+
+  const handleDeploy = async () => {
+    setDeploying(true);
+    try {
+      const res = await api.deployRun(id);
+      if (res.data?.live_url) {
+        setRun((prev) => prev ? { ...prev, live_url: res.data.live_url } : prev);
+        setPreviewMode('live');
+        showToast('🚀 App is live at ' + res.data.live_url);
+      } else {
+        showToast('Deploy failed: ' + (res.data?.error || 'unknown error'));
+      }
+    } catch (e) {
+      showToast('Deploy error: ' + (e.message || 'unknown'));
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const handleStopDeploy = async () => {
+    try {
+      await api.stopDeploy(id);
+      setRun((prev) => prev ? { ...prev, live_url: null } : prev);
+      setPreviewMode('static');
+      showToast('Container stopped');
+    } catch (e) {
+      showToast('Stop failed: ' + (e.message || 'unknown'));
     }
   };
 
@@ -696,12 +734,46 @@ const ProjectView = () => {
               <span>{priConf.label}</span>
             </button>
           </div>
-          <button
-            onClick={() => navigate(`/portal/${run.run_id || run.id}`)}
-            className="bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center"
-          >
-            <ExternalLink className="w-3.5 h-3.5 mr-2" /> VIEW PORTAL
-          </button>
+          <div className="flex items-center space-x-2">
+            {/* Live App — shown when container is running */}
+            {run.live_url ? (
+              <>
+                <a
+                  href={run.live_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg transition-colors text-xs animate-pulse"
+                >
+                  <span>🚀</span>
+                  <span>LAUNCH APP</span>
+                  <span className="opacity-70">:{run.live_url.split(':').pop()}</span>
+                </a>
+                <button
+                  onClick={handleStopDeploy}
+                  className="px-3 py-2 bg-red-900/60 hover:bg-red-800 text-red-300 rounded-lg text-xs font-medium transition-colors"
+                  title="Stop container"
+                >
+                  Stop
+                </button>
+              </>
+            ) : run.status === 'completed' ? (
+              <button
+                onClick={handleDeploy}
+                disabled={deploying}
+                className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-xs"
+              >
+                <span>{deploying ? '⏳' : '🐳'}</span>
+                <span>{deploying ? 'Building…' : 'Deploy to localhost'}</span>
+              </button>
+            ) : null}
+
+            <button
+              onClick={() => navigate(`/portal/${run.run_id || run.id}`)}
+              className="bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center"
+            >
+              <ExternalLink className="w-3.5 h-3.5 mr-2" /> VIEW PORTAL
+            </button>
+          </div>
         </header>
 
         {/* Run Summary card */}
@@ -959,48 +1031,102 @@ const ProjectView = () => {
 
             {/* ── Preview tab ───────────────────────────────────────────────── */}
             {activeArtifactTab === 'preview' && (
-              <div className="flex flex-col" style={{ height: '420px' }}>
-                {previewLoading ? (
-                  <div className="flex items-center justify-center h-full">
-                    <Loader2 className="w-8 h-8 text-accent animate-spin" />
+              <div className="flex flex-col" style={{ height: '480px' }}>
+                {/* Mode toggle bar */}
+                <div className="flex items-center space-x-2 px-4 py-2.5 border-b border-border bg-border/10 shrink-0">
+                  {run.live_url && (
+                    <button
+                      onClick={() => setPreviewMode('live')}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                        previewMode === 'live'
+                          ? 'bg-emerald-500 text-black'
+                          : 'bg-white/5 text-muted hover:text-bright'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${previewMode === 'live' ? 'bg-black' : 'bg-emerald-400'} animate-pulse`} />
+                      <span>Live App</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setPreviewMode('static')}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      previewMode === 'static'
+                        ? 'bg-indigo-500 text-white'
+                        : 'bg-white/5 text-muted hover:text-bright'
+                    }`}
+                  >
+                    <span>📄</span>
+                    <span>Generated UI</span>
+                  </button>
+                </div>
+
+                {/* ── Live App iframe ── */}
+                {previewMode === 'live' && run.live_url && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <div className="bg-black/30 px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0">
+                      <span className="text-[10px] font-mono text-emerald-400">{run.live_url}</span>
+                      <a
+                        href={run.live_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-muted hover:text-bright transition-colors"
+                      >
+                        Open tab ↗
+                      </a>
+                    </div>
+                    <iframe
+                      src={run.live_url}
+                      className="flex-1 w-full border-none bg-white"
+                      title="Live Application"
+                      style={{ minHeight: '360px' }}
+                    />
                   </div>
-                ) : !previewHtml ? (
-                  fileTree === null ? (
-                    <div className="flex items-center justify-center h-full text-muted text-sm">Loading file tree…</div>
+                )}
+
+                {/* ── Static / Generated UI ── */}
+                {previewMode === 'static' && (
+                  previewLoading ? (
+                    <div className="flex items-center justify-center flex-1">
+                      <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                    </div>
+                  ) : !previewHtml ? (
+                    fileTree === null ? (
+                      <div className="flex items-center justify-center flex-1 text-muted text-sm">Loading file tree…</div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center flex-1 space-y-4 p-8 text-center">
+                        <Monitor className="w-12 h-12 text-muted/40" />
+                        <div>
+                          <div className="text-bright font-bold mb-1">No frontend preview available.</div>
+                          <div className="text-muted text-sm">The generated project is a backend API.</div>
+                          <div className="text-muted text-sm">Use the Artifacts tab to view the generated code.</div>
+                        </div>
+                      </div>
+                    )
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-full space-y-4 p-8 text-center">
-                      <Monitor className="w-12 h-12 text-muted/40" />
-                      <div>
-                        <div className="text-bright font-bold mb-1">No frontend preview available.</div>
-                        <div className="text-muted text-sm">The generated project is a backend API.</div>
-                        <div className="text-muted text-sm">Use the Artifacts tab to view the generated code.</div>
+                    <div className="flex-1 overflow-hidden flex flex-col bg-white">
+                      {previewFile && (
+                        <div className="bg-border/20 px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0">
+                          <span className="text-[10px] font-mono text-muted">{previewFile}</span>
+                        </div>
+                      )}
+                      <div className="flex-1 flex items-start justify-center overflow-auto bg-[#0a0c10] p-4">
+                        <iframe
+                          srcDoc={previewHtml}
+                          sandbox="allow-scripts allow-same-origin"
+                          style={{
+                            width: viewMode === 'mobile' ? '390px' : '100%',
+                            height: '100%',
+                            minHeight: '320px',
+                            border: 'none',
+                            borderRadius: '6px',
+                            background: 'white',
+                            flexShrink: 0,
+                          }}
+                          title="Project Preview"
+                        />
                       </div>
                     </div>
                   )
-                ) : (
-                  <div className="flex-1 overflow-hidden flex flex-col bg-white">
-                    {previewFile && (
-                      <div className="bg-border/20 px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0">
-                        <span className="text-[10px] font-mono text-muted">{previewFile}</span>
-                      </div>
-                    )}
-                    <div className="flex-1 flex items-start justify-center overflow-auto bg-[#0a0c10] p-4">
-                      <iframe
-                        srcDoc={previewHtml}
-                        sandbox="allow-scripts allow-same-origin"
-                        style={{
-                          width: viewMode === 'mobile' ? '390px' : '100%',
-                          height: '100%',
-                          minHeight: '320px',
-                          border: 'none',
-                          borderRadius: '6px',
-                          background: 'white',
-                          flexShrink: 0,
-                        }}
-                        title="Project Preview"
-                      />
-                    </div>
-                  </div>
                 )}
               </div>
             )}
