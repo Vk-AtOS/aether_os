@@ -27,7 +27,7 @@ from aether_os.core.audit.ledger import get_ledger
 
 logger = logging.getLogger(__name__)
 
-# Ordered 10-phase sequence (consolidated from original 26 phases)
+# Ordered 11-phase sequence (consolidated from original 26 phases)
 PHASE_SEQUENCE = [
     "p01_intake_requirements",
     "p02_architecture",
@@ -39,6 +39,7 @@ PHASE_SEQUENCE = [
     "p08_cicd_deployment",
     "p09_observability",
     "p10_docs_delivery",
+    "p11_deployment",   # Docker build & run — delivers a live URL
 ]
 
 # Legacy 26-phase map kept for reference / partial re-runs
@@ -52,7 +53,7 @@ PHASE_SEQUENCE_LEGACY = [
     "p12a_feature_flags", "p12b_ab_testing", "p13_app_memory", "p14_client_portal",
 ]
 
-# Phase name → supervisor class path (10 consolidated phases)
+# Phase name → supervisor class path (11 consolidated phases)
 PHASE_SUPERVISORS: Dict[str, str] = {
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
@@ -64,6 +65,7 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p08_cicd_deployment":     "aether_os.phases.p08_cicd_deployment.CICDDeploymentSupervisor",
     "p09_observability":       "aether_os.phases.p09_observability.ObservabilitySupervisor",
     "p10_docs_delivery":       "aether_os.phases.p10_docs_delivery.DocsDeliverySupervisor",
+    "p11_deployment":          "aether_os.phases.p11_deployment.DeploymentSupervisor",
 }
 
 
@@ -177,6 +179,30 @@ class FactoryPipeline:
                 # Add phase output to context for next phase to use
                 accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
                 accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
+
+                # If p11_deployment produced a live_url, persist it to the runs table
+                if phase_name == "p11_deployment":
+                    _live_url = phase_result.get("metadata", {}).get("live_url")
+                    if _live_url:
+                        try:
+                            db_path = Path.home() / ".aether_os" / "aether_os.db"
+                            import aiosqlite as _aiosqlite
+                            async with _aiosqlite.connect(str(db_path)) as _db:
+                                # Add column if this is the first deployment
+                                try:
+                                    await _db.execute(
+                                        "ALTER TABLE runs ADD COLUMN live_url TEXT"
+                                    )
+                                except Exception:
+                                    pass  # Column already exists
+                                await _db.execute(
+                                    "UPDATE runs SET live_url=? WHERE id=?",
+                                    (_live_url, run_id),
+                                )
+                                await _db.commit()
+                            accumulated_context["live_url"] = _live_url
+                        except Exception as _e:
+                            logger.warning("Could not persist live_url: %s", _e)
 
                 # Eagerly load architecture.json after p02 so all downstream
                 # phases receive it via data.get("architecture_json", {}).

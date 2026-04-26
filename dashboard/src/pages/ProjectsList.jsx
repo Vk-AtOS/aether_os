@@ -339,6 +339,19 @@ const ProjectsList = () => {
                           onEditRestart={(req) => doEditRestart(run.run_id || run.id, run, req)}
                         />
                       )}
+                      {/* Live URL globe — shown when container is running */}
+                      {run.live_url && (
+                        <a
+                          href={run.live_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors"
+                          title={`Open live app — ${run.live_url}`}
+                        >
+                          🌐
+                        </a>
+                      )}
                       {/* Always show View eye */}
                       <button
                         onClick={(e) => { e.stopPropagation(); navigate(`/project/${run.run_id || run.id}`); }}

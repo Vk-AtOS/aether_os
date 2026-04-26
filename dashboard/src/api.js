@@ -71,6 +71,11 @@ export const api = {
   rerunFromPhase: (runId, fromPhase) =>
     client.post(`/factory/runs/${runId}/rerun`, { from_phase: fromPhase }),
 
+  // Deployment
+  deployRun:       (runId) => client.post(`/factory/runs/${runId}/deploy`),
+  stopDeploy:      (runId) => client.delete(`/factory/runs/${runId}/deploy`),
+  listDeployments: ()      => client.get('/factory/deployments'),
+
   // Portal (Public)
   getPortalStatus: (projectId) => axios.get(`${BASE}/portal/${projectId}/status`),
   getPortalPhase: (projectId, phase) => axios.get(`${BASE}/portal/${projectId}/phase/${phase}`),

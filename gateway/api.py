@@ -432,6 +432,18 @@ def create_app() -> FastAPI:
                 except Exception:
                     pass
 
+            # Pull live_url values for all runs in one query
+            live_url_map: Dict[str, str] = {}
+            if db_path.exists():
+                try:
+                    with sqlite3.connect(str(db_path)) as _luc:
+                        for _rid3, _url in _luc.execute(
+                            "SELECT id, live_url FROM runs WHERE live_url IS NOT NULL"
+                        ).fetchall():
+                            live_url_map[_rid3] = _url
+                except Exception:
+                    pass
+
             formatted = []
             for run in history:
                 d = dict(run)
@@ -443,6 +455,7 @@ def create_app() -> FastAPI:
                 d["current_phase"] = phase_map.get(d.get("id", ""))
                 d.setdefault("phases", {})
                 d["priority"] = priority_map.get(d.get("id", ""), "normal")
+                d["live_url"] = live_url_map.get(d.get("id", ""))
                 # Convert Unix seconds → JS milliseconds
                 if d.get("started_at"):
                     d["started_at"] = int(d["started_at"] * 1000)
@@ -542,6 +555,19 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
         detail["priority"] = priority
+
+        # Load live_url from runs table
+        detail.setdefault("live_url", None)
+        if db_path.exists():
+            try:
+                with sqlite3.connect(str(db_path)) as _conn:
+                    _row = _conn.execute(
+                        "SELECT live_url FROM runs WHERE id=?", (run_id,)
+                    ).fetchone()
+                    if _row and _row[0]:
+                        detail["live_url"] = _row[0]
+            except Exception:
+                pass
 
         return detail
 
@@ -1156,6 +1182,86 @@ def create_app() -> FastAPI:
             "enabled": req.enabled,
             "priority": req.priority
         }
+
+    # ── Deployment endpoints ───────────────────────────────────────────────────
+
+    @app.post("/factory/runs/{run_id}/deploy")
+    async def deploy_run(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Manually trigger Docker deployment for a completed run."""
+        import subprocess as _sp
+        from types import SimpleNamespace
+        from aether_os.phases.p11_deployment.task_agent import TaskAgent
+
+        agent = TaskAgent()
+        phase_input = SimpleNamespace(run_id=run_id)
+        result = await agent.run(phase_input)
+
+        if result.get("success") and result.get("live_url"):
+            _db = pathlib.Path.home() / ".aether_os" / "aether_os.db"
+            with sqlite3.connect(str(_db)) as _conn:
+                try:
+                    _conn.execute("ALTER TABLE runs ADD COLUMN live_url TEXT")
+                except Exception:
+                    pass
+                _conn.execute(
+                    "UPDATE runs SET live_url=? WHERE id=?",
+                    (result["live_url"], run_id),
+                )
+                _conn.commit()
+
+        return result
+
+    @app.delete("/factory/runs/{run_id}/deploy")
+    async def stop_deployment(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Stop the running Docker container for this run."""
+        import subprocess as _sp
+        container_name = f"aetheros-app-{run_id[:8]}"
+        result = _sp.run(
+            ["docker", "rm", "-f", container_name],
+            capture_output=True,
+        )
+        _db = pathlib.Path.home() / ".aether_os" / "aether_os.db"
+        with sqlite3.connect(str(_db)) as _conn:
+            try:
+                _conn.execute("ALTER TABLE runs ADD COLUMN live_url TEXT")
+            except Exception:
+                pass
+            _conn.execute(
+                "UPDATE runs SET live_url=NULL WHERE id=?", (run_id,)
+            )
+            _conn.commit()
+        return {"stopped": result.returncode == 0, "container": container_name}
+
+    @app.get("/factory/deployments")
+    async def list_deployments(
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """List all running AetherOS Docker containers."""
+        import subprocess as _sp
+        result = _sp.run(
+            [
+                "docker", "ps",
+                "--filter", "name=aetheros-app",
+                "--format", "{{.Names}}\t{{.Ports}}\t{{.Status}}",
+            ],
+            capture_output=True, text=True,
+        )
+        containers = []
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                parts = line.split("\t")
+                containers.append({
+                    "name":   parts[0] if len(parts) > 0 else "",
+                    "ports":  parts[1] if len(parts) > 1 else "",
+                    "status": parts[2] if len(parts) > 2 else "",
+                })
+        return {"containers": containers}
 
     @app.get("/settings/phases/config")
     async def get_all_phase_configs(

@@ -39,6 +39,7 @@ whatthepatch>=1.0.0         # Bug 1 fix: replaces broken difflib.patch_from_unif
 
 # ── Async / Files ─────────────────────────────────────────────────────────────
 aiofiles>=23.0.0
+aiohttp>=3.9.0               # p11_deployment: readiness probe for deployed containers
 
 # ── Dev / Test ────────────────────────────────────────────────────────────────
 pytest>=7.4.0
