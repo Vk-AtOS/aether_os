@@ -1195,6 +1195,18 @@ def create_app() -> FastAPI:
         from types import SimpleNamespace
         from aether_os.phases.p11_deployment.task_agent import TaskAgent
 
+        # Fast-fail if Docker daemon isn't reachable
+        _docker_check = _sp.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=10,
+        )
+        if _docker_check.returncode != 0:
+            return {
+                "success": False,
+                "error": "Docker daemon not running. Please start Docker Desktop first.",
+            }
+
         agent = TaskAgent()
         phase_input = SimpleNamespace(run_id=run_id)
         result = await agent.run(phase_input)
