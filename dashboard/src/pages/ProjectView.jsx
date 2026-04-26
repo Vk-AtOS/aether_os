@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
+import RerunDropdown from '../components/RerunDropdown';
 import {
   Terminal,
   ExternalLink,
@@ -16,7 +17,6 @@ import {
   Pause,
   Play,
   X,
-  RotateCcw,
   Smartphone,
   Monitor,
   ExternalLink as OpenTab,
@@ -274,9 +274,7 @@ const ProjectView = () => {
   const esRef                       = useRef(null);   // EventSource ref
   const llmLineRef                  = useRef('');     // accumulate llm_chunk tokens
 
-  // Re-run dropdown
-  const [rerunOpen, setRerunOpen] = useState(false);
-  const rerunRef = useRef(null);
+  // Re-run dropdown (managed inside RerunDropdown component)
 
   const logEndRef = useRef(null);
 
@@ -484,23 +482,27 @@ const ProjectView = () => {
   };
 
   const handleRerun = async (fromPhase) => {
-    setRerunOpen(false);
     try {
       const res = await api.rerunFromPhase(id, fromPhase);
       navigate(`/project/${res.data.run_id}`);
     } catch (e) {
-      alert('Failed to start rerun: ' + (e.message || 'unknown error'));
+      showToast('Failed to start rerun: ' + (e.message || 'unknown error'));
     }
   };
 
-  // Close rerun dropdown on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (rerunRef.current && !rerunRef.current.contains(e.target)) setRerunOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  const handleEditRestart = async (editedReq) => {
+    try {
+      const res = await api.startPipeline({
+        raw_input: editedReq,
+        project_name: run?.project_name,
+        domain: run?.domain || 'general',
+        client_id: run?.client_id || 'client-001',
+      });
+      navigate(`/project/${res.data.run_id}`);
+    } catch (e) {
+      showToast('Failed to start run: ' + (e.message || 'unknown error'));
+    }
+  };
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -783,30 +785,15 @@ const ProjectView = () => {
                 </>
               )}
               {isDone && (
-                <div className="relative" ref={rerunRef}>
-                  <button
-                    onClick={() => setRerunOpen((v) => !v)}
-                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors text-sm"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Re-run from phase</span>
-                    <ChevronDown className={`w-4 h-4 transition-transform ${rerunOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  {rerunOpen && (
-                    <div className="absolute top-full left-0 mt-1 z-50 w-56 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden">
-                      {PHASES.map((p) => (
-                        <button
-                          key={p}
-                          onClick={() => handleRerun(p)}
-                          className="w-full flex items-center space-x-2 px-3 py-2.5 text-xs text-muted hover:bg-border/30 hover:text-bright transition-colors text-left"
-                        >
-                          <RotateCcw className="w-3 h-3 shrink-0" />
-                          <span>{PHASE_NAMES[p]}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <RerunDropdown
+                  status={runStatus}
+                  rawInput={run.raw_input || run.requirement || ''}
+                  variant="button"
+                  onContinue={handleResume}
+                  onRerunPhase={handleRerun}
+                  onFullRestart={() => handleRerun('p01_intake_requirements')}
+                  onEditRestart={handleEditRestart}
+                />
               )}
             </div>
           )}

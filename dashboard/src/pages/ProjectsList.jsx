@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
-import { Eye, Search, Clock, Rocket, Pause, Play, X, RotateCcw, Loader2 } from 'lucide-react';
+import RerunDropdown from '../components/RerunDropdown';
+import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
 
 // 10-phase list in order
 const PHASES = [
@@ -100,14 +101,42 @@ const ProjectsList = () => {
   const navigate = useNavigate();
 
   const doAction = async (e, runId, action) => {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     setActionLoading((prev) => ({ ...prev, [runId]: action }));
     try {
       if (action === 'pause')  await api.pauseRun(runId);
       if (action === 'resume') await api.resumeRun(runId);
       if (action === 'cancel') await api.cancelRun(runId);
-      if (action === 'rerun')  await api.rerunFromPhase(runId, 'p01_intake_requirements');
       await fetchRuns();
+    } catch {
+      /* silent fail */
+    } finally {
+      setActionLoading((prev) => { const n = { ...prev }; delete n[runId]; return n; });
+    }
+  };
+
+  const doRerunPhase = async (runId, fromPhase) => {
+    setActionLoading((prev) => ({ ...prev, [runId]: 'rerun' }));
+    try {
+      const res = await api.rerunFromPhase(runId, fromPhase);
+      navigate(`/project/${res.data.run_id}`);
+    } catch {
+      /* silent fail */
+    } finally {
+      setActionLoading((prev) => { const n = { ...prev }; delete n[runId]; return n; });
+    }
+  };
+
+  const doEditRestart = async (runId, run, editedReq) => {
+    setActionLoading((prev) => ({ ...prev, [runId]: 'rerun' }));
+    try {
+      const res = await api.startPipeline({
+        raw_input: editedReq,
+        project_name: run.project_name,
+        domain: run.domain || 'general',
+        client_id: run.client_id || 'client-001',
+      });
+      navigate(`/project/${res.data.run_id}`);
     } catch {
       /* silent fail */
     } finally {
@@ -297,18 +326,18 @@ const ProjectsList = () => {
                           </button>
                         </>
                       )}
-                      {/* Completed / failed → Re-run */}
+                      {/* Completed / failed / cancelled / interrupted → RerunDropdown */}
                       {['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) && (
-                        <button
-                          onClick={(e) => doAction(e, run.run_id || run.id, 'rerun')}
-                          disabled={!!actionLoading[run.run_id || run.id]}
-                          className="p-1.5 rounded text-indigo-400 hover:bg-indigo-400/10 transition-colors"
-                          title="Re-run from start"
-                        >
-                          {actionLoading[run.run_id || run.id] === 'rerun'
-                            ? <Loader2 className="w-4 h-4 animate-spin" />
-                            : <RotateCcw className="w-4 h-4" />}
-                        </button>
+                        <RerunDropdown
+                          status={run.status}
+                          rawInput={run.raw_input || run.requirement || ''}
+                          loading={actionLoading[run.run_id || run.id] === 'rerun'}
+                          variant="compact"
+                          onContinue={() => doAction(null, run.run_id || run.id, 'resume')}
+                          onRerunPhase={(phase) => doRerunPhase(run.run_id || run.id, phase)}
+                          onFullRestart={() => doRerunPhase(run.run_id || run.id, 'p01_intake_requirements')}
+                          onEditRestart={(req) => doEditRestart(run.run_id || run.id, run, req)}
+                        />
                       )}
                       {/* Always show View eye */}
                       <button
