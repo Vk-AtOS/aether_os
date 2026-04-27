@@ -49,11 +49,30 @@ class TaskAgent:
 
         main_py = self._find_main_py(project_dir)
         if not main_py:
-            return {
-                "success": False,
-                "error": "No main.py found to deploy",
-                "skipped": True,
-            }
+            # Generate fallback app directly from requirement
+            raw_input = getattr(phase_input, "raw_input", "") or (
+                getattr(phase_input, "input_data", {}) or {}
+            ).get("raw_input", "")
+            if raw_input:
+                main_py = self._generate_fallback_app(project_dir, raw_input)
+            if not main_py:
+                return {
+                    "success": False,
+                    "error": "No main.py found to deploy",
+                    "skipped": True,
+                }
+
+        # If the found main.py is a stub, generate the real app beside it
+        if not self._is_real_app(main_py):
+            raw_input = getattr(phase_input, "raw_input", "") or (
+                getattr(phase_input, "input_data", {}) or {}
+            ).get("raw_input", "")
+            if raw_input:
+                fallback_py = self._generate_fallback_app(
+                    main_py.parent, raw_input, dest=main_py
+                )
+                if fallback_py:
+                    main_py = fallback_py
 
         app_dir = main_py.parent
         self._write_dockerfile(app_dir, main_py)
@@ -103,18 +122,107 @@ class TaskAgent:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    def _is_real_app(self, path: Path) -> bool:
+        """True only if the file looks like a real generated app, not a stub."""
+        try:
+            content = path.read_text()
+            return (
+                "FastAPI" in content
+                and len(content) > 500
+                and "@app." in content
+                and content.count("@app.") > 1   # more than just /health
+            )
+        except Exception:
+            return False
+
     def _find_main_py(self, project_dir: Path) -> Optional[Path]:
-        """Return the first main.py found, checking canonical locations first."""
-        candidates = [
+        """
+        Find the real main.py with priority order.
+        Skips scaffolding stubs (< 500 bytes or only /health).
+        """
+        # Priority 1: backend codegen output
+        priority_candidates = [
             project_dir / "src" / "main.py",
             project_dir / "p04_backend" / "src" / "main.py",
-            project_dir / "p03_scaffolding" / project_dir.name / "main.py",
+            project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+            project_dir / "p04a_backend_codegen" / "src" / "main.py",
         ]
-        for c in candidates:
-            if c.exists():
+        for c in priority_candidates:
+            if c.exists() and self._is_real_app(c):
                 return c
-        found = list(project_dir.rglob("main.py"))
-        return found[0] if found else None
+
+        # Priority 2: any main.py that looks like a real app
+        for found in sorted(project_dir.rglob("main.py")):
+            if self._is_real_app(found):
+                return found
+
+        # Last resort: any main.py (including scaffolding stub)
+        found_all = list(project_dir.rglob("main.py"))
+        return found_all[0] if found_all else None
+
+    def _generate_fallback_app(
+        self,
+        target_dir: Path,
+        raw_input: str,
+        dest: Optional[Path] = None,
+    ) -> Optional[Path]:
+        """
+        Generate a domain-specific app from raw_input when p04_backend timed out.
+        Writes to dest (or target_dir/main.py) and returns the path.
+        """
+        try:
+            # Import domain templates from p04a
+            import sys, importlib.util
+            ta_path = Path(__file__).parent.parent / "p04a_backend_codegen" / "task_agent.py"
+            if not ta_path.exists():
+                return None
+            # Load the module without triggering package __init__
+            import types, builtins
+
+            real_import = builtins.__import__
+
+            def _stub_import(name, *args, **kwargs):
+                if "aether_os" in name:
+                    m = sys.modules.get(name)
+                    if m is None:
+                        m = types.ModuleType(name)
+                        sys.modules[name] = m
+                    return m
+                return real_import(name, *args, **kwargs)
+
+            builtins.__import__ = _stub_import
+            try:
+                spec = importlib.util.spec_from_file_location("_p04a_ta", ta_path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+            finally:
+                builtins.__import__ = real_import
+
+            code = mod._generate_from_requirement(raw_input)
+            import ast
+            ast.parse(code)  # validate
+
+            if dest is None:
+                dest = target_dir / "main.py"
+            dest.write_text(code)
+
+            # Also write httpx to requirements.txt if missing
+            req = dest.parent / "requirements.txt"
+            if req.exists():
+                if "httpx" not in req.read_text():
+                    req.write_text(req.read_text() + "\nhttpx>=0.27.0\n")
+            else:
+                req.write_text(
+                    "fastapi>=0.111.0\nuvicorn[standard]>=0.29.0\n"
+                    "pydantic>=2.0.0\nhttpx>=0.27.0\npython-dotenv\n"
+                )
+            return dest
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[p11] fallback app generation failed: %s", exc
+            )
+            return None
 
     def _find_free_port(self) -> int:
         for port in range(8100, 8999):
