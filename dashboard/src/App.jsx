@@ -9,6 +9,7 @@ import ProjectsList from './pages/ProjectsList';
 import PhaseDetail from './pages/PhaseDetail';
 import ClientPortal from './pages/ClientPortal';
 import Settings from './pages/Settings';
+import NewProjectWizard from './pages/NewProjectWizard';
 import { api, setNavigate } from './api';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -41,6 +42,7 @@ function App() {
         <Route path="project/:id" element={<ErrorBoundary><ProjectView /></ErrorBoundary>} />
         <Route path="project/:id/phase/:name" element={<ErrorBoundary><PhaseDetail /></ErrorBoundary>} />
         <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+        <Route path="new-project" element={<ErrorBoundary><NewProjectWizard /></ErrorBoundary>} />
       </Route>
       
       <Route path="*" element={<Navigate to="/" replace />} />

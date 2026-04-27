@@ -20,7 +20,7 @@ const Sidebar = () => {
 
   const staticItems = [
     { name: 'Dashboard',   path: '/',         icon: LayoutDashboard },
-    { name: 'New Project', path: '/new',       icon: PlusCircle },
+    { name: 'New Project', path: '/new-project', icon: PlusCircle },
     { name: 'Projects',    path: '/projects',  icon: List },
     { name: 'Settings',    path: '/settings',  icon: Settings },
   ];

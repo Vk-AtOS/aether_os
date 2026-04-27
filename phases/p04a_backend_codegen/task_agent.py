@@ -190,7 +190,7 @@ class BackendCodegenAgent:
             f"Reply with ONLY valid Python code, no markdown fences."
         )
         main_code = await self._generate_python(main_prompt, client,
-                                                 _intelligent_fallback_main(endpoints, resources))
+                                                 _intelligent_fallback_main(endpoints, resources, raw_input))
         main_files = _write_to_both(main_code, root_dir, phase_dir, Path("src") / "main.py")
         generated_files.extend(main_files)
 
@@ -277,11 +277,15 @@ def _strip_fences(code: str) -> str:
     return code.rstrip("`").strip()
 
 
-def _intelligent_fallback_main(endpoints: list, resources: List[Dict]) -> str:
+def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
+                               raw_input: str = "") -> str:
     """
-    Generate real CRUD FastAPI code from the detected resources.
-    Uses in-memory storage so it's immediately runnable without a DB driver.
+    Generate domain-specific FastAPI code from raw_input when LLM fails.
+    Falls back to resource-based CRUD if domain can't be detected.
     """
+    if raw_input.strip():
+        return _generate_from_requirement(raw_input)
+
     primary = resources[0] if resources else {"resource": "item", "table": "items",
                                                "columns": ["id", "name", "created_at"]}
     res     = primary["resource"]
@@ -387,6 +391,905 @@ def _build_requirements(stack: dict) -> str:
         "slowapi",
     ]
     return "\n".join(sorted(set(pkgs))) + "\n"
+
+
+# ── Domain-specific template generators ──────────────────────────────────────
+
+def _generate_from_requirement(raw_text: str, project_name: str = "app") -> str:
+    """Detect domain from requirement text and return a matching FastAPI app."""
+    low = raw_text.lower()
+    if any(w in low for w in ["meeting", "notes", "summar", "transcript"]):
+        return _meeting_summarizer_app(project_name or "meetingmind")
+    if any(w in low for w in ["todo", "task", "checklist"]):
+        return _todo_app(project_name or "taskmanager")
+    if any(w in low for w in ["invoice", "billing", "payment"]):
+        return _billing_app(project_name or "invoicer")
+    if any(w in low for w in ["voice", "audio", "record", "speech"]):
+        return _voice_app(project_name or "voicerecorder")
+    if any(w in low for w in ["chat", "message", "conversation"]):
+        return _chat_app(project_name or "chatapp")
+    if any(w in low for w in ["game", "score", "player", "level", "snake"]):
+        return _game_app(project_name or "gameapp")
+    return _generic_api(project_name or "app")
+
+
+# ── Python code templates (raw strings to avoid f-string conflicts) ───────────
+
+_MEETING_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeetingMind</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f1117;color:#e2e8f0;height:100vh;display:flex;flex-direction:column}
+header{padding:1rem 1.5rem;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:.75rem}
+header h1{font-size:1.25rem;font-weight:700;color:#fff}
+header .badge{font-size:.7rem;color:#6366f1;border:1px solid #6366f160;border-radius:999px;padding:.125rem .5rem}
+.layout{display:flex;flex:1;overflow:hidden}
+.sidebar{width:280px;border-right:1px solid #1e293b;overflow-y:auto;padding:1rem;flex-shrink:0}
+.sidebar h2{font-size:.7rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+.hi{background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.75rem;margin-bottom:.5rem;cursor:pointer;transition:border-color .2s;position:relative}
+.hi:hover{border-color:#6366f1}
+.hi-sum{font-size:.78rem;color:#94a3b8;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hi-date{font-size:.68rem;color:#475569;margin-top:.25rem}
+.hi-del{position:absolute;top:.5rem;right:.5rem;background:none;border:none;color:#475569;cursor:pointer;font-size:1rem;line-height:1;padding:0}
+.hi-del:hover{color:#ef4444}
+.main{flex:1;overflow-y:auto;padding:1.5rem;display:flex;flex-direction:column;gap:1rem}
+.card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem}
+label{font-size:.7rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:.5rem}
+textarea{width:100%;background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:.75rem;color:#e2e8f0;font-size:.875rem;resize:vertical;min-height:160px;outline:none;font-family:inherit}
+textarea:focus{border-color:#6366f1}
+.btn{display:inline-flex;align-items:center;gap:.5rem;background:#6366f1;color:#fff;border:none;border-radius:.5rem;padding:.625rem 1.25rem;font-size:.875rem;font-weight:600;cursor:pointer;transition:background .2s;margin-top:.75rem}
+.btn:hover{background:#5254e7}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.rs h3{font-size:.875rem;font-weight:700;color:#fff;margin-bottom:.75rem}
+.rs-sec{margin-bottom:1rem}
+.rs-sec h4{font-size:.7rem;font-weight:600;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem}
+.rs-sec p{font-size:.875rem;color:#cbd5e1;line-height:1.6}
+.rs-sec ul{list-style:none;padding:0}
+.rs-sec li{font-size:.875rem;color:#cbd5e1;padding:.2rem 0 .2rem 1rem;position:relative}
+.rs-sec li::before{content:"›";position:absolute;left:0;color:#6366f1}
+.hidden{display:none}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #fff4;border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>MeetingMind</h1>
+  <span class="badge">AI Summarizer</span>
+</header>
+<div class="layout">
+  <aside class="sidebar">
+    <h2>History</h2>
+    <div id="hist"></div>
+  </aside>
+  <main class="main">
+    <div class="card">
+      <label>Paste Meeting Notes</label>
+      <textarea id="notes" placeholder="Paste your meeting notes here..."></textarea>
+      <button class="btn" id="sbtn" onclick="doSummarize()">
+        <span id="bico">&#10024;</span>
+        <span id="btxt">Summarize with AI</span>
+      </button>
+    </div>
+    <div class="card rs hidden" id="res">
+      <h3>Summary</h3>
+      <div class="rs-sec"><h4>Overview</h4><p id="r-sum"></p></div>
+      <div class="rs-sec"><h4>Action Items</h4><ul id="r-act"></ul></div>
+      <div class="rs-sec"><h4>Decisions</h4><ul id="r-dec"></ul></div>
+      <div class="rs-sec"><h4>Next Steps</h4><ul id="r-nxt"></ul></div>
+    </div>
+  </main>
+</div>
+<script>
+var _cache={};
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+async function doSummarize(){
+  var notes=document.getElementById('notes').value.trim();
+  if(!notes)return;
+  var btn=document.getElementById('sbtn');
+  btn.disabled=true;
+  document.getElementById('bico').innerHTML='<span class="spinner"></span>';
+  document.getElementById('btxt').textContent='Summarizing...';
+  try{
+    var r=await fetch('/summarize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:notes})});
+    var d=await r.json();
+    showResult(d);
+    loadHistory();
+  }catch(e){alert('Error: '+e.message);}
+  finally{
+    btn.disabled=false;
+    document.getElementById('bico').textContent='\\u2728';
+    document.getElementById('btxt').textContent='Summarize with AI';
+  }
+}
+function showResult(d){
+  document.getElementById('r-sum').textContent=d.summary||'';
+  function toList(el,arr){el.innerHTML=(arr||[]).map(function(i){return'<li>'+esc(i)+'</li>';}).join('')||'<li>None noted.</li>';}
+  toList(document.getElementById('r-act'),d.action_items);
+  toList(document.getElementById('r-dec'),d.decisions);
+  toList(document.getElementById('r-nxt'),d.next_steps);
+  document.getElementById('res').classList.remove('hidden');
+}
+async function loadHistory(){
+  try{
+    var r=await fetch('/summaries');var items=await r.json();
+    _cache={};items.forEach(function(i){_cache[i.id]=i;});
+    var el=document.getElementById('hist');
+    if(!items.length){el.innerHTML='<p style="color:#475569;font-size:.8rem">No summaries yet.</p>';return;}
+    el.innerHTML=items.map(function(item){
+      return'<div class="hi" onclick="loadItem('+item.id+')">'
+        +'<button class="hi-del" onclick="event.stopPropagation();delItem('+item.id+')">\\u00d7</button>'
+        +'<div class="hi-sum">'+esc(item.summary)+'</div>'
+        +'<div class="hi-date">'+(item.created_at?item.created_at.split('T')[0]:'')+'</div></div>';
+    }).join('');
+  }catch(e){}
+}
+function loadItem(id){if(_cache[id])showResult(_cache[id]);}
+async function delItem(id){
+  if(!confirm('Delete?'))return;
+  await fetch('/summaries/'+id,{method:'DELETE'});
+  loadHistory();
+}
+loadHistory();
+</script>
+</body>
+</html>"""
+
+
+def _meeting_summarizer_app(project_name: str = "meetingmind") -> str:
+    """Return a complete meeting summarizer FastAPI app with SQLite + Ollama."""
+    body = r'''from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import Optional, List
+import sqlite3, httpx, json, re, os
+from pathlib import Path
+
+app = FastAPI(title="MeetingMind", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+DB_PATH = Path("data/meetings.db")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
+
+
+def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("""CREATE TABLE IF NOT EXISTS summaries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notes TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        action_items TEXT DEFAULT '[]',
+        decisions TEXT DEFAULT '[]',
+        next_steps TEXT DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    conn.commit(); conn.close()
+
+
+init_db()
+
+
+class SummarizeRequest(BaseModel):
+    notes: str
+
+
+class SummaryOut(BaseModel):
+    id: Optional[int] = None
+    notes: str
+    summary: str
+    action_items: List[str] = []
+    decisions: List[str] = []
+    next_steps: List[str] = []
+    created_at: Optional[str] = None
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "version": "1.0.0", "service": "MeetingMind"}
+
+
+@app.post("/summarize", response_model=SummaryOut)
+async def summarize(req: SummarizeRequest):
+    prompt = (
+        "Analyze these meeting notes. Respond with ONLY valid JSON (no markdown fences):\n"
+        "{\"summary\": \"2-3 sentence overview\", \"action_items\": [\"item\"],"
+        " \"decisions\": [\"decision\"], \"next_steps\": [\"step\"]}\n\nNotes:\n"
+        + req.notes[:3000]
+    )
+    result = {"summary": "Summary unavailable (Ollama not reachable).",
+              "action_items": [], "decisions": [], "next_steps": []}
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            r = await c.post(OLLAMA_URL, json={"model": OLLAMA_MODEL,
+                                               "prompt": prompt, "stream": False})
+            r.raise_for_status()
+            raw = r.json().get("response", "{}")
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if m:
+                p = json.loads(m.group())
+                result = {k: p.get(k, result[k]) for k in result}
+    except Exception:
+        pass
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            "INSERT INTO summaries (notes,summary,action_items,decisions,next_steps)"
+            " VALUES(?,?,?,?,?)",
+            (req.notes, result["summary"], json.dumps(result["action_items"]),
+             json.dumps(result["decisions"]), json.dumps(result["next_steps"])))
+        conn.commit(); rid = cur.lastrowid
+    finally:
+        conn.close()
+    return SummaryOut(id=rid, notes=req.notes, **result)
+
+
+@app.get("/summaries", response_model=List[SummaryOut])
+def list_summaries():
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT * FROM summaries ORDER BY created_at DESC LIMIT 50").fetchall()
+        return [SummaryOut(id=r["id"], notes=r["notes"], summary=r["summary"],
+                action_items=json.loads(r["action_items"] or "[]"),
+                decisions=json.loads(r["decisions"] or "[]"),
+                next_steps=json.loads(r["next_steps"] or "[]"),
+                created_at=r["created_at"]) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.delete("/summaries/{sid}")
+def delete_summary(sid: int):
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        cur = conn.execute("DELETE FROM summaries WHERE id=?", (sid,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, detail="Not found")
+        return {"status": "deleted", "id": sid}
+    finally:
+        conn.close()
+
+
+HTML_CONTENT = __HTML__
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    return HTML_CONTENT
+'''
+    return body.replace("__HTML__", repr(_MEETING_HTML))
+
+
+def _todo_app(project_name: str = "taskmanager") -> str:
+    """Return a complete todo/task manager FastAPI app."""
+    html = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>TaskManager</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;max-width:800px;margin:0 auto;padding:2rem}
+h1{color:#fff;margin-bottom:1.5rem;font-size:1.5rem}
+.form{display:flex;gap:.75rem;margin-bottom:1.5rem}
+input[type=text]{flex:1;background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.625rem 1rem;color:#e2e8f0;font-size:.875rem;outline:none}
+input:focus{border-color:#6366f1}
+select{background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.625rem;color:#e2e8f0;outline:none}
+button{background:#6366f1;color:#fff;border:none;border-radius:.5rem;padding:.625rem 1.25rem;font-size:.875rem;font-weight:600;cursor:pointer}
+button:hover{background:#5254e7}
+.todo{background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.875rem 1rem;margin-bottom:.5rem;display:flex;align-items:center;gap:.75rem}
+.todo.done .title{text-decoration:line-through;color:#64748b}
+.title{flex:1;font-size:.875rem}
+.badge{font-size:.65rem;padding:.125rem .5rem;border-radius:999px;font-weight:600}
+.HIGH{background:#ef444420;color:#ef4444;border:1px solid #ef444440}
+.MEDIUM{background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40}
+.LOW{background:#22c55e20;color:#22c55e;border:1px solid #22c55e40}
+.del{background:none;border:none;color:#475569;cursor:pointer;padding:0;font-size:1.1rem}
+.del:hover{color:#ef4444}
+</style></head>
+<body>
+<h1>Task Manager</h1>
+<div class="form">
+  <input type="text" id="title" placeholder="New task title..." onkeydown="if(event.key==='Enter')addTask()">
+  <select id="pri"><option value="HIGH">High</option><option value="MEDIUM" selected>Medium</option><option value="LOW">Low</option></select>
+  <button onclick="addTask()">Add Task</button>
+</div>
+<div id="list"></div>
+<script>
+async function load(){
+  var r=await fetch('/todos');var todos=await r.json();
+  var el=document.getElementById('list');
+  el.innerHTML=todos.map(function(t){
+    return'<div class="todo'+(t.completed?' done':'')+'"><input type="checkbox"'+(t.completed?' checked':'')
+      +' onchange="toggle('+t.id+',this.checked)"><span class="title">'+esc(t.title)+'</span>'
+      +'<span class="badge '+t.priority+'">'+t.priority+'</span>'
+      +'<button class="del" onclick="del('+t.id+')">&#x2715;</button></div>';
+  }).join('');
+}
+async function addTask(){
+  var t=document.getElementById('title').value.trim();
+  if(!t)return;
+  var p=document.getElementById('pri').value;
+  await fetch('/todos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,priority:p})});
+  document.getElementById('title').value='';load();
+}
+async function toggle(id,done){await fetch('/todos/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({completed:done})});load();}
+async function del(id){await fetch('/todos/'+id,{method:'DELETE'});load();}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+load();
+</script>
+</body></html>"""
+
+    return (
+        "from fastapi import FastAPI, HTTPException\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse\n"
+        "from pydantic import BaseModel\n"
+        "from typing import Optional, List\n"
+        "import sqlite3, json\n"
+        "from pathlib import Path\n\n"
+        "app = FastAPI(title='TaskManager', version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "DB_PATH = Path('data/tasks.db')\n\n"
+        "def init_db():\n"
+        "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    conn.execute(\"\"\"CREATE TABLE IF NOT EXISTS todos (\n"
+        "        id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "        title TEXT NOT NULL,\n"
+        "        priority TEXT DEFAULT 'MEDIUM',\n"
+        "        completed INTEGER DEFAULT 0,\n"
+        "        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
+        "    )\"\"\")\n"
+        "    conn.commit(); conn.close()\n\n"
+        "init_db()\n\n"
+        "class TodoCreate(BaseModel):\n"
+        "    title: str\n"
+        "    priority: str = 'MEDIUM'\n\n"
+        "class TodoUpdate(BaseModel):\n"
+        "    completed: Optional[bool] = None\n"
+        "    title: Optional[str] = None\n\n"
+        "class TodoOut(BaseModel):\n"
+        "    id: int\n"
+        "    title: str\n"
+        "    priority: str\n"
+        "    completed: bool\n"
+        "    created_at: Optional[str] = None\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok'}\n\n"
+        "@app.get('/todos', response_model=List[TodoOut])\n"
+        "def list_todos():\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        rows = conn.execute('SELECT * FROM todos ORDER BY created_at DESC').fetchall()\n"
+        "        return [dict(r) for r in rows]\n"
+        "    finally: conn.close()\n\n"
+        "@app.post('/todos', response_model=TodoOut, status_code=201)\n"
+        "def create_todo(payload: TodoCreate):\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        cur = conn.execute('INSERT INTO todos(title,priority) VALUES(?,?)',\n"
+        "                           (payload.title, payload.priority))\n"
+        "        conn.commit()\n"
+        "        row = conn.execute('SELECT * FROM todos WHERE id=?', (cur.lastrowid,)).fetchone()\n"
+        "        return dict(row)\n"
+        "    finally: conn.close()\n\n"
+        "@app.put('/todos/{tid}', response_model=TodoOut)\n"
+        "def update_todo(tid: int, payload: TodoUpdate):\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        if payload.completed is not None:\n"
+        "            conn.execute('UPDATE todos SET completed=? WHERE id=?', (int(payload.completed), tid))\n"
+        "        if payload.title:\n"
+        "            conn.execute('UPDATE todos SET title=? WHERE id=?', (payload.title, tid))\n"
+        "        conn.commit()\n"
+        "        row = conn.execute('SELECT * FROM todos WHERE id=?', (tid,)).fetchone()\n"
+        "        if not row: raise HTTPException(404, 'Not found')\n"
+        "        return dict(row)\n"
+        "    finally: conn.close()\n\n"
+        "@app.delete('/todos/{tid}')\n"
+        "def delete_todo(tid: int):\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    try:\n"
+        "        cur = conn.execute('DELETE FROM todos WHERE id=?', (tid,))\n"
+        "        conn.commit()\n"
+        "        if cur.rowcount == 0: raise HTTPException(404, 'Not found')\n"
+        "        return {'status': 'deleted', 'id': tid}\n"
+        "    finally: conn.close()\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
+
+
+def _voice_app(project_name: str = "voicerecorder") -> str:
+    """Return a voice recorder FastAPI app (browser MediaRecorder + file storage)."""
+    html = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Voice Recorder</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;padding:3rem 1rem}
+h1{color:#fff;margin-bottom:2rem}
+.rec-btn{width:80px;height:80px;border-radius:50%;border:none;background:#6366f1;cursor:pointer;font-size:2rem;transition:all .2s;box-shadow:0 0 0 0 #6366f160}
+.rec-btn.recording{background:#ef4444;animation:pulse 1s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #ef444460}70%{box-shadow:0 0 0 20px #ef444400}100%{box-shadow:0 0 0 0 #ef444400}}
+.status{margin:.75rem 0;font-size:.875rem;color:#64748b}
+.recordings{width:100%;max-width:600px;margin-top:2rem}
+.recordings h2{font-size:.875rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+.rec-item{background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.875rem 1rem;margin-bottom:.5rem;display:flex;align-items:center;gap:.75rem}
+.rec-item audio{flex:1;height:32px}
+.rec-name{font-size:.8rem;color:#94a3b8;min-width:160px}
+.del{background:none;border:none;color:#475569;cursor:pointer;font-size:1.1rem}
+.del:hover{color:#ef4444}
+</style></head>
+<body>
+<h1>Voice Recorder</h1>
+<button class="rec-btn" id="rbtn" onclick="toggleRecord()">&#x1f3a4;</button>
+<div class="status" id="status">Click to start recording</div>
+<div class="recordings"><h2>Recordings</h2><div id="rlist"></div></div>
+<script>
+var mr=null,chunks=[];
+async function toggleRecord(){
+  if(mr&&mr.state==='recording'){mr.stop();return;}
+  var stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  mr=new MediaRecorder(stream);chunks=[];
+  mr.ondataavailable=function(e){chunks.push(e.data);};
+  mr.onstop=async function(){
+    var blob=new Blob(chunks,{type:'audio/webm'});
+    var fd=new FormData();fd.append('audio',blob,'recording.webm');
+    await fetch('/transcribe',{method:'POST',body:fd});
+    stream.getTracks().forEach(function(t){t.stop();});
+    document.getElementById('rbtn').classList.remove('recording');
+    document.getElementById('rbtn').textContent='\\u1f3a4';
+    document.getElementById('status').textContent='Click to start recording';
+    loadRecs();
+  };
+  mr.start();
+  document.getElementById('rbtn').classList.add('recording');
+  document.getElementById('status').textContent='Recording... click to stop';
+}
+async function loadRecs(){
+  var r=await fetch('/recordings');var recs=await r.json();
+  var el=document.getElementById('rlist');
+  el.innerHTML=recs.map(function(rec){
+    return'<div class="rec-item"><span class="rec-name">'+esc(rec.filename)+'</span>'
+      +'<audio controls src="/recordings/'+esc(rec.filename)+'"></audio>'
+      +'<button class="del" onclick="delRec('+rec.id+')">&#x2715;</button></div>';
+  }).join('');
+}
+async function delRec(id){await fetch('/recordings/'+id,{method:'DELETE'});loadRecs();}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+loadRecs();
+</script>
+</body></html>"""
+
+    return (
+        "from fastapi import FastAPI, HTTPException, UploadFile, File\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse, FileResponse\n"
+        "from pydantic import BaseModel\n"
+        "from typing import Optional, List\n"
+        "import sqlite3, shutil, uuid\n"
+        "from pathlib import Path\n\n"
+        "app = FastAPI(title='VoiceRecorder', version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "AUDIO_DIR = Path('data/recordings')\n"
+        "DB_PATH = Path('data/recordings.db')\n\n"
+        "def init_db():\n"
+        "    AUDIO_DIR.mkdir(parents=True, exist_ok=True)\n"
+        "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    conn.execute(\"\"\"CREATE TABLE IF NOT EXISTS recordings (\n"
+        "        id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "        filename TEXT NOT NULL,\n"
+        "        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
+        "    )\"\"\")\n"
+        "    conn.commit(); conn.close()\n\n"
+        "init_db()\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok'}\n\n"
+        "@app.post('/transcribe')\n"
+        "async def transcribe(audio: UploadFile = File(...)):\n"
+        "    fname = f'{uuid.uuid4().hex}.webm'\n"
+        "    dest = AUDIO_DIR / fname\n"
+        "    with open(dest, 'wb') as f:\n"
+        "        shutil.copyfileobj(audio.file, f)\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    try:\n"
+        "        cur = conn.execute('INSERT INTO recordings(filename) VALUES(?)', (fname,))\n"
+        "        conn.commit(); rid = cur.lastrowid\n"
+        "    finally: conn.close()\n"
+        "    return {'id': rid, 'filename': fname}\n\n"
+        "@app.get('/recordings')\n"
+        "def list_recordings():\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        rows = conn.execute('SELECT * FROM recordings ORDER BY created_at DESC').fetchall()\n"
+        "        return [dict(r) for r in rows]\n"
+        "    finally: conn.close()\n\n"
+        "@app.get('/recordings/{filename}')\n"
+        "def get_recording(filename: str):\n"
+        "    path = AUDIO_DIR / filename\n"
+        "    if not path.exists(): raise HTTPException(404, 'Not found')\n"
+        "    return FileResponse(str(path), media_type='audio/webm')\n\n"
+        "@app.delete('/recordings/{rid}')\n"
+        "def delete_recording(rid: int):\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        row = conn.execute('SELECT filename FROM recordings WHERE id=?', (rid,)).fetchone()\n"
+        "        if not row: raise HTTPException(404, 'Not found')\n"
+        "        audio = AUDIO_DIR / row['filename']\n"
+        "        if audio.exists(): audio.unlink()\n"
+        "        conn.execute('DELETE FROM recordings WHERE id=?', (rid,))\n"
+        "        conn.commit()\n"
+        "        return {'status': 'deleted', 'id': rid}\n"
+        "    finally: conn.close()\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
+
+
+def _chat_app(project_name: str = "chatapp") -> str:
+    """Return an AI chat FastAPI app (Ollama backend)."""
+    html = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>AI Chat</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Courier New',monospace;background:#0a0a0a;color:#e2e8f0;height:100vh;display:flex;flex-direction:column}
+header{padding:.75rem 1.5rem;border-bottom:1px solid #1a1a2e;display:flex;align-items:center;justify-content:space-between}
+header h1{color:#6366f1;font-size:1rem}
+.chat{flex:1;overflow-y:auto;padding:1rem 1.5rem;display:flex;flex-direction:column;gap:.75rem}
+.msg{max-width:70%;padding:.625rem 1rem;border-radius:.75rem;font-size:.875rem;line-height:1.5;white-space:pre-wrap}
+.user{align-self:flex-end;background:#6366f1;color:#fff}
+.assistant{align-self:flex-start;background:#1e293b;color:#e2e8f0;border:1px solid #334155}
+.footer{padding:.75rem 1rem;border-top:1px solid #1a1a2e;display:flex;gap:.5rem}
+textarea{flex:1;background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.625rem;color:#e2e8f0;font-size:.875rem;resize:none;outline:none;height:44px;font-family:inherit}
+textarea:focus{border-color:#6366f1}
+button{background:#6366f1;color:#fff;border:none;border-radius:.5rem;padding:.625rem 1rem;cursor:pointer;font-size:.875rem;font-weight:600}
+button:hover{background:#5254e7}
+.clear-btn{background:#1e293b;color:#64748b;border:1px solid #334155}
+.clear-btn:hover{color:#e2e8f0}
+</style></head>
+<body>
+<header><h1>&#9670; AI Chat</h1><button class="clear-btn" onclick="clearChat()">Clear</button></header>
+<div class="chat" id="chat"></div>
+<div class="footer">
+  <textarea id="inp" placeholder="Message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
+  <button onclick="send()">Send</button>
+</div>
+<script>
+async function send(){
+  var inp=document.getElementById('inp');
+  var msg=inp.value.trim();if(!msg)return;
+  inp.value='';
+  addMsg('user',msg);
+  var el=addMsg('assistant','...');
+  try{
+    var r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    var d=await r.json();
+    el.textContent=d.reply||d.error||'No response';
+  }catch(e){el.textContent='Error: '+e.message;}
+  var chat=document.getElementById('chat');
+  chat.scrollTop=chat.scrollHeight;
+}
+function addMsg(role,text){
+  var chat=document.getElementById('chat');
+  var div=document.createElement('div');div.className='msg '+role;div.textContent=text;
+  chat.appendChild(div);chat.scrollTop=chat.scrollHeight;return div;
+}
+async function clearChat(){
+  await fetch('/chat',{method:'DELETE'});
+  document.getElementById('chat').innerHTML='';
+}
+</script>
+</body></html>"""
+
+    return (
+        "from fastapi import FastAPI\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse\n"
+        "from pydantic import BaseModel\n"
+        "import httpx, os\n\n"
+        "app = FastAPI(title='AIChat', version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')\n"
+        "OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:3b')\n"
+        "history = []\n\n"
+        "class ChatRequest(BaseModel):\n"
+        "    message: str\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok'}\n\n"
+        "@app.post('/chat')\n"
+        "async def chat(req: ChatRequest):\n"
+        "    history.append({'role': 'user', 'content': req.message})\n"
+        "    context = '\\n'.join([f\"{m['role'].upper()}: {m['content']}\" for m in history[-10:]])\n"
+        "    prompt = f'You are a helpful assistant.\\n\\nConversation:\\n{context}\\n\\nASSISTANT:'\n"
+        "    try:\n"
+        "        async with httpx.AsyncClient(timeout=60.0) as c:\n"
+        "            r = await c.post(OLLAMA_URL, json={'model': OLLAMA_MODEL, 'prompt': prompt, 'stream': False})\n"
+        "            reply = r.json().get('response', 'No response from model').strip()\n"
+        "    except Exception as e:\n"
+        "        reply = f'Ollama not reachable: {str(e)[:100]}'\n"
+        "    history.append({'role': 'assistant', 'content': reply})\n"
+        "    return {'reply': reply}\n\n"
+        "@app.delete('/chat')\n"
+        "def clear_chat():\n"
+        "    history.clear()\n"
+        "    return {'status': 'cleared'}\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
+
+
+def _billing_app(project_name: str = "invoicer") -> str:
+    """Return an invoice generator FastAPI app with SQLite."""
+    html = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Invoicer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;padding:2rem;max-width:900px;margin:0 auto}
+h1{color:#fff;margin-bottom:1.5rem}
+.form{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem}
+.row{display:grid;grid-template-columns:2fr 1fr 1fr;gap:.75rem;margin-bottom:.75rem}
+input{background:#0f172a;border:1px solid #334155;border-radius:.375rem;padding:.5rem .75rem;color:#e2e8f0;font-size:.875rem;outline:none;width:100%}
+input:focus{border-color:#6366f1}
+.btn{background:#6366f1;color:#fff;border:none;border-radius:.5rem;padding:.625rem 1.25rem;cursor:pointer;font-size:.875rem;font-weight:600}
+.btn:hover{background:#5254e7}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em;padding:.5rem .75rem;border-bottom:1px solid #1e293b}
+td{padding:.75rem;border-bottom:1px solid #1e293b;font-size:.875rem}
+.total{font-weight:700;color:#6366f1}
+.del{background:none;border:none;color:#475569;cursor:pointer;font-size:1rem}
+.del:hover{color:#ef4444}
+</style></head>
+<body>
+<h1>Invoicer</h1>
+<div class="form">
+  <div class="row">
+    <input id="client" placeholder="Client name" type="text">
+    <input id="desc" placeholder="Description" type="text">
+    <input id="amount" placeholder="Amount" type="number" step="0.01">
+  </div>
+  <button class="btn" onclick="addInvoice()">Create Invoice</button>
+</div>
+<table>
+  <thead><tr><th>Client</th><th>Description</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr></thead>
+  <tbody id="tbody"></tbody>
+</table>
+<script>
+async function load(){
+  var r=await fetch('/invoices');var inv=await r.json();
+  var el=document.getElementById('tbody');
+  var total=inv.reduce(function(s,i){return s+(i.amount||0);},0);
+  el.innerHTML=inv.map(function(i){
+    return'<tr><td>'+esc(i.client)+'</td><td>'+esc(i.description)+'</td>'
+      +'<td>$'+(i.amount||0).toFixed(2)+'</td>'
+      +'<td>'+esc(i.status)+'</td>'
+      +'<td>'+(i.created_at?i.created_at.split('T')[0]:i.created_at||'')+'</td>'
+      +'<td><button class="del" onclick="del('+i.id+')">&#x2715;</button></td></tr>';
+  }).join('')+'<tr><td colspan="2"></td><td class="total">Total: $'+total.toFixed(2)+'</td><td colspan="3"></td></tr>';
+}
+async function addInvoice(){
+  var c=document.getElementById('client').value.trim();
+  var d=document.getElementById('desc').value.trim();
+  var a=parseFloat(document.getElementById('amount').value);
+  if(!c||!d||isNaN(a))return alert('Fill all fields');
+  await fetch('/invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client:c,description:d,amount:a})});
+  document.getElementById('client').value='';document.getElementById('desc').value='';document.getElementById('amount').value='';
+  load();
+}
+async function del(id){await fetch('/invoices/'+id,{method:'DELETE'});load();}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+load();
+</script>
+</body></html>"""
+
+    return (
+        "from fastapi import FastAPI, HTTPException\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse\n"
+        "from pydantic import BaseModel\n"
+        "from typing import Optional, List\n"
+        "import sqlite3\n"
+        "from pathlib import Path\n\n"
+        "app = FastAPI(title='Invoicer', version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "DB_PATH = Path('data/invoices.db')\n\n"
+        "def init_db():\n"
+        "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    conn.execute(\"\"\"CREATE TABLE IF NOT EXISTS invoices (\n"
+        "        id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "        client TEXT NOT NULL,\n"
+        "        description TEXT NOT NULL,\n"
+        "        amount REAL NOT NULL,\n"
+        "        status TEXT DEFAULT 'pending',\n"
+        "        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
+        "    )\"\"\")\n"
+        "    conn.commit(); conn.close()\n\n"
+        "init_db()\n\n"
+        "class InvoiceCreate(BaseModel):\n"
+        "    client: str\n"
+        "    description: str\n"
+        "    amount: float\n"
+        "    status: str = 'pending'\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok'}\n\n"
+        "@app.get('/invoices')\n"
+        "def list_invoices():\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        rows = conn.execute('SELECT * FROM invoices ORDER BY created_at DESC').fetchall()\n"
+        "        return [dict(r) for r in rows]\n"
+        "    finally: conn.close()\n\n"
+        "@app.post('/invoices', status_code=201)\n"
+        "def create_invoice(payload: InvoiceCreate):\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        cur = conn.execute('INSERT INTO invoices(client,description,amount,status) VALUES(?,?,?,?)',\n"
+        "                           (payload.client, payload.description, payload.amount, payload.status))\n"
+        "        conn.commit()\n"
+        "        row = conn.execute('SELECT * FROM invoices WHERE id=?', (cur.lastrowid,)).fetchone()\n"
+        "        return dict(row)\n"
+        "    finally: conn.close()\n\n"
+        "@app.delete('/invoices/{iid}')\n"
+        "def delete_invoice(iid: int):\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    try:\n"
+        "        cur = conn.execute('DELETE FROM invoices WHERE id=?', (iid,))\n"
+        "        conn.commit()\n"
+        "        if cur.rowcount == 0: raise HTTPException(404, 'Not found')\n"
+        "        return {'status': 'deleted', 'id': iid}\n"
+        "    finally: conn.close()\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
+
+
+def _game_app(project_name: str = "gameapp") -> str:
+    """Return a Snake game FastAPI app."""
+    html = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Snake</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;padding:2rem}
+h1{color:#6366f1;font-size:1.5rem;margin-bottom:.5rem}
+.meta{font-size:.875rem;color:#64748b;margin-bottom:1rem}
+canvas{border:2px solid #334155;border-radius:.5rem;background:#0a0f1a}
+.score{margin-top:1rem;font-size:1.25rem;color:#e2e8f0}
+.hi{font-size:.875rem;color:#64748b;margin-top:.25rem}
+.overlay{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem}
+.overlay h2{font-size:2rem;color:#fff}
+.overlay p{color:#94a3b8}
+button.play{background:#6366f1;color:#fff;border:none;border-radius:.5rem;padding:.75rem 2rem;font-size:1rem;font-weight:700;cursor:pointer}
+button.play:hover{background:#5254e7}
+.hidden{display:none}
+</style></head>
+<body>
+<h1>Snake</h1>
+<p class="meta">Use arrow keys or WASD</p>
+<canvas id="c" width="400" height="400"></canvas>
+<div class="score">Score: <span id="sc">0</span></div>
+<div class="hi">Best: <span id="hi">0</span></div>
+<div class="overlay hidden" id="ov">
+  <h2 id="ov-title">Snake</h2>
+  <p id="ov-msg">Press Play to start</p>
+  <button class="play" onclick="startGame()">Play</button>
+</div>
+<script>
+var GRID=20,CELL=20,W=GRID,H=GRID;
+var ctx=document.getElementById('c').getContext('2d');
+var snake,dir,food,score,hi=parseInt(localStorage.getItem('snake_hi')||'0'),loop;
+document.getElementById('hi').textContent=hi;
+document.getElementById('ov').classList.remove('hidden');
+document.addEventListener('keydown',function(e){
+  var map={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],
+           KeyW:[0,-1],KeyS:[0,1],KeyA:[-1,0],KeyD:[1,0]};
+  var nd=map[e.code];
+  if(nd&&!(nd[0]===-dir[0]&&nd[1]===-dir[1])){dir=nd;e.preventDefault();}
+});
+function startGame(){
+  document.getElementById('ov').classList.add('hidden');
+  snake=[[10,10],[9,10],[8,10]];dir=[1,0];score=0;
+  document.getElementById('sc').textContent=0;
+  placeFood();clearInterval(loop);
+  loop=setInterval(step,Math.max(60,150-score*5));
+}
+function placeFood(){
+  do{food=[Math.floor(Math.random()*W),Math.floor(Math.random()*H)];}
+  while(snake.some(function(s){return s[0]===food[0]&&s[1]===food[1];}));
+}
+function step(){
+  var head=[snake[0][0]+dir[0],snake[0][1]+dir[1]];
+  if(head[0]<0||head[0]>=W||head[1]<0||head[1]>=H||snake.some(function(s){return s[0]===head[0]&&s[1]===head[1];})){
+    clearInterval(loop);
+    if(score>hi){hi=score;localStorage.setItem('snake_hi',hi);document.getElementById('hi').textContent=hi;}
+    document.getElementById('ov-title').textContent='Game Over';
+    document.getElementById('ov-msg').textContent='Score: '+score;
+    document.getElementById('ov').classList.remove('hidden');return;
+  }
+  snake.unshift(head);
+  if(head[0]===food[0]&&head[1]===food[1]){
+    score++;document.getElementById('sc').textContent=score;
+    clearInterval(loop);loop=setInterval(step,Math.max(60,150-score*5));
+    placeFood();
+  }else{snake.pop();}
+  draw();
+}
+function draw(){
+  ctx.fillStyle='#0a0f1a';ctx.fillRect(0,0,400,400);
+  snake.forEach(function(s,i){
+    ctx.fillStyle=i===0?'#6366f1':'#4f46e5';
+    ctx.fillRect(s[0]*CELL+1,s[1]*CELL+1,CELL-2,CELL-2);
+  });
+  ctx.fillStyle='#22c55e';
+  ctx.beginPath();ctx.arc(food[0]*CELL+CELL/2,food[1]*CELL+CELL/2,CELL/2-2,0,Math.PI*2);ctx.fill();
+}
+</script>
+</body></html>"""
+
+    return (
+        "from fastapi import FastAPI\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse\n\n"
+        "app = FastAPI(title='SnakeGame', version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok'}\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
+
+
+def _generic_api(project_name: str = "app") -> str:
+    """Return a generic FastAPI app when no domain can be detected."""
+    html = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>API</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:1rem}h1{color:#6366f1;font-size:2rem}p{color:#64748b}a{color:#6366f1;text-decoration:none}a:hover{text-decoration:underline}</style>
+</head>
+<body>
+<h1>API is running</h1>
+<p>Generated by AetherOS Factory</p>
+<a href="/docs">&#x2192; View API Documentation</a>
+<a href="/health">&#x2192; Health Check</a>
+</body></html>"""
+
+    return (
+        "from fastapi import FastAPI\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse\n\n"
+        "app = FastAPI(title='GeneratedAPI', version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok', 'version': '1.0.0'}\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
 
 
 def _build_readme(raw_input: str, endpoints: list, resources: List[Dict],

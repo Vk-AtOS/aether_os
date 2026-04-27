@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogOut, Plus, Coins } from 'lucide-react';
 import { api } from '../api';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // Hexagon SVG logo mark
 const HexLogo = () => (
@@ -25,6 +25,8 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ today_usd: 0, tokens_today: '—' });
   const navigate = useNavigate();
+  const location = useLocation();
+  const isOnWizard = location.pathname === '/new-project';
 
   const fetchHealth = async () => {
     try {
@@ -104,8 +106,9 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
         </div>
 
         <button
-          onClick={onNewProject}
-          className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg"
+          onClick={() => isOnWizard ? null : navigate('/new-project')}
+          disabled={isOnWizard}
+          className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New Project</span>
