@@ -27,6 +27,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     stack = arch_json.get("tech_stack", {})
     llm = get_llm_client()
 
+    # Find the real main.py to determine correct module path
+    main_py, app_module = _find_main_py(project_dir)
+    project_dir.mkdir(parents=True, exist_ok=True)
+
     # Generate Dockerfile
     dockerfile_code = await llm.call(
         f"Write a production Dockerfile for a {stack.get('backend','FastAPI')} app.\n"
@@ -37,11 +41,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         f"- HEALTHCHECK instruction\n"
         f"- Expose port 8000\n"
         f"- Use python:3.11-slim base image for Python apps\n"
-        f"- CMD: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4",
+        f"- CMD: uvicorn {app_module}:app --host 0.0.0.0 --port 8000 --workers 4",
         task_type="code_generation",
     )
     dockerfile_path = project_dir / "Dockerfile"
-    project_dir.mkdir(parents=True, exist_ok=True)
     dockerfile_path.write_text(_strip_fences(dockerfile_code))
 
     # Generate docker-compose.yml
@@ -198,6 +201,51 @@ services:
 {cache_service}
 {volumes}
 """
+
+
+def _is_real_app(path: Path) -> bool:
+    """True if file looks like a real FastAPI app (not a stub)."""
+    try:
+        content = path.read_text()
+        return "FastAPI" in content and len(content) > 300 and "@app." in content
+    except Exception:
+        return False
+
+
+def _find_main_py(project_dir: Path):
+    """
+    Find the real main.py using priority order.
+    Returns (path, dotted_module_path) tuple.
+    """
+    # Priority 1: project_dir/src/main.py
+    p = project_dir / "src" / "main.py"
+    if p.exists() and _is_real_app(p):
+        return p, "src.main"
+
+    # Priority 2: p04_backend output dirs
+    for sub in ["p04a_backend_codegen", "p04_backend", "backend_codegen"]:
+        p = project_dir / sub / "src" / "main.py"
+        if p.exists() and _is_real_app(p):
+            return p, f"{sub}.src.main"
+        p = project_dir / sub / "main.py"
+        if p.exists() and _is_real_app(p):
+            return p, f"{sub}.main"
+
+    # Priority 3: any main.py with FastAPI in it
+    for candidate in sorted(project_dir.rglob("main.py")):
+        if _is_real_app(candidate):
+            rel = candidate.relative_to(project_dir)
+            module = str(rel.with_suffix("")).replace("/", ".").replace("\\", ".")
+            return candidate, module
+
+    # Last resort: first main.py found
+    for candidate in sorted(project_dir.rglob("main.py")):
+        rel = candidate.relative_to(project_dir)
+        module = str(rel.with_suffix("")).replace("/", ".").replace("\\", ".")
+        return candidate, module
+
+    # Fallback if nothing found
+    return project_dir / "src" / "main.py", "src.main"
 
 
 def _detect_cloud(arch: Dict) -> str:

@@ -14,6 +14,26 @@ logger = logging.getLogger(__name__)
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     data = phase_input.input_data
+
+    # Check if backend already embeds a frontend at GET /
+    project_dir = Path(data.get("project_dir", ""))
+    for candidate in [
+        project_dir / "src" / "main.py",
+        project_dir / "p04a_backend_codegen" / "src" / "main.py",
+    ]:
+        if candidate.exists():
+            content = candidate.read_text()
+            if "HTMLResponse" in content and '@app.get("/")' in content:
+                logger.info("[p04c] Backend already serves HTML at GET / — skipping frontend")
+                return TaskResult(
+                    output_path=str(output_dir),
+                    confidence=0.95,
+                    metadata={"skipped": True, "reason": "Backend embeds HTML at GET /"},
+                    issues=[],
+                    success=True,
+                )
+            break
+
     design_spec_path = data.get("design_spec_path", "")
     components_json_path = data.get("components_json_path", "")
     arch_json = data.get("architecture_json", {})
