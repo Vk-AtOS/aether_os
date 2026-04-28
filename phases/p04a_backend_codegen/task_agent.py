@@ -555,7 +555,7 @@ app = FastAPI(title="MeetingMind", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 DB_PATH = Path("data/meetings.db")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
 
 
@@ -1007,7 +1007,7 @@ async function clearChat(){
         "import httpx, os\n\n"
         "app = FastAPI(title='AIChat', version='1.0.0')\n"
         "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
-        "OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')\n"
+        "OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://host.docker.internal:11434/api/generate')\n"
         "OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:3b')\n"
         "history = []\n\n"
         "class ChatRequest(BaseModel):\n"
