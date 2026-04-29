@@ -116,7 +116,7 @@ async def submit_feedback(project_id: str, body: FeedbackBody):
     except Exception as e:
         raise HTTPException(500, str(e))
 """
-    routes_dir = Path("/Users/apple/Desktop/aether_os/gateway/client_portal")
+    routes_dir = Path(__file__).resolve().parents[2] / "gateway" / "client_portal"
     routes_dir.mkdir(parents=True, exist_ok=True)
     routes_file = routes_dir / "routes.py"
     routes_file.write_text(portal_routes)

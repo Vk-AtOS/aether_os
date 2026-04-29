@@ -52,16 +52,22 @@ const NewProjectModal = ({ open, onClose }) => {
     setLoading(true);
     setError(null);
     try {
-      await api.startPipeline({
+      const res = await api.startPipeline({
         raw_input: requirements.trim(),
-        project_name: name.trim() || undefined,
+        project_name: name.trim() || 'Untitled Project',
         domain,
         client_id: name.trim()
           ? name.trim().toLowerCase().replace(/\s+/g, '-')
           : 'client-001',
       });
+      const runId = res.data?.run_id;
       onClose();
-      navigate('/projects');
+      // Navigate directly to the live run view
+      if (runId) {
+        navigate(`/project/${runId}`);
+      } else {
+        navigate('/projects');
+      }
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to start run.');
       setLoading(false);
