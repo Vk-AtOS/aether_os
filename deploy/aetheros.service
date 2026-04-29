@@ -1,0 +1,51 @@
+[Unit]
+Description=AetherOS — Autonomous Software Factory
+Documentation=https://github.com/your-org/aetheros
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=exec
+User=aetheros
+Group=aetheros
+WorkingDirectory=/opt/aetheros
+
+# Load secrets from environment file (not committed to git)
+EnvironmentFile=/opt/aetheros/.env
+
+# Start the gateway
+ExecStart=/opt/aetheros/venv/bin/uvicorn main:app \
+    --host 127.0.0.1 \
+    --port 9200 \
+    --workers 2 \
+    --log-level info \
+    --timeout-keep-alive 120
+
+# Graceful restart — let SSE streams drain
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/aetheros /var/log/aetheros
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aetheros
+
+[Install]
+WantedBy=multi-user.target

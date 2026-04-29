@@ -854,9 +854,17 @@ def create_app() -> FastAPI:
                 "WHERE ts >= strftime('%s','now','-1 day')"
             ).fetchone()
             runs_today = row[0]
+
+            # tokens_today: sum of prompt + completion tokens for the last 24 h
+            row = conn.execute(
+                "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) FROM llm_calls "
+                "WHERE ts >= strftime('%s','now','-1 day')"
+            ).fetchone()
+            tokens_today = row[0]
             conn.close()
         except Exception as exc:
             logger.warning("Could not query billing DB: %s", exc)
+            tokens_today = 0
 
         avg_cost = round(today_usd / runs_today, 6) if runs_today > 0 else 0.0
         return {
@@ -865,6 +873,7 @@ def create_app() -> FastAPI:
             "total_usd": total_usd,
             "runs_today": runs_today,
             "avg_cost_per_run": avg_cost,
+            "tokens_today": tokens_today,
         }
 
     # ── Factory run file management (Endpoints 1 & 2) ──────────────────────────

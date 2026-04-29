@@ -96,7 +96,10 @@ class TaskAgent:
             return run_result
 
         ready = await self._wait_for_ready(port, timeout=30)
-        live_url = f"http://localhost:{port}"
+        # Use PUBLIC_HOST env var so the URL is externally accessible on a VPS.
+        # Falls back to localhost for local dev.
+        public_host = os.environ.get("PUBLIC_HOST", "localhost")
+        live_url = f"http://{public_host}:{port}"
 
         deploy_info: Dict[str, Any] = {
             "live_url": live_url,
