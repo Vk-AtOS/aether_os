@@ -85,6 +85,16 @@ const TEMPLATES = [
       'Game over screen with restart. Clean minimal UI. FastAPI serves the HTML page.',
   },
   {
+    id: 'odoo',
+    icon: '🏢',
+    label: 'Odoo Module',
+    name: 'OdooModule',
+    domain: 'erp',
+    prompt:
+      'Build a custom Odoo module for employee attendance tracking with department ' +
+      'management, leave requests, and monthly reports',
+  },
+  {
     id: 'custom',
     icon: '✏️',
     label: 'Custom',
@@ -268,7 +278,7 @@ const NewProjectWizard = () => {
               onChange={(e) => setDomain(e.target.value)}
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-bright focus:outline-none focus:border-accent"
             >
-              {['general','fintech','healthtech','ecommerce','edtech','analytics','devtools'].map((d) => (
+              {['general','fintech','healthtech','ecommerce','edtech','analytics','devtools','erp'].map((d) => (
                 <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
               ))}
             </select>

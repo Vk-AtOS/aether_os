@@ -410,6 +410,8 @@ def _generate_from_requirement(raw_text: str, project_name: str = "app") -> str:
         return _chat_app(project_name or "chatapp")
     if any(w in low for w in ["game", "score", "player", "level", "snake"]):
         return _game_app(project_name or "gameapp")
+    if any(w in low for w in ["odoo", "module", "erp", "attendance", "leave", "payroll", "inventory", "crm"]):
+        return _odoo_module_app(project_name or "module")
     return _generic_api(project_name or "app")
 
 
@@ -1286,6 +1288,340 @@ def _generic_api(project_name: str = "app") -> str:
         "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
         "@app.get('/health')\n"
         "def health(): return {'status': 'ok', 'version': '1.0.0'}\n\n"
+        f"HTML_CONTENT = {repr(html)}\n\n"
+        "@app.get('/', response_class=HTMLResponse)\n"
+        "async def index(): return HTML_CONTENT\n"
+    )
+
+
+_ODOO_HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__MODULE_NAME__</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#16162a;color:#cdd6f4;min-height:100vh;display:flex;flex-direction:column}
+.topbar{background:#12121e;border-bottom:1px solid #2a2a45;padding:0 1.5rem;height:50px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:.625rem}
+.brand-icon{width:30px;height:30px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border-radius:.375rem;display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800;color:#fff}
+.brand-name{font-size:.875rem;font-weight:700;color:#fff;letter-spacing:-.01em}
+.brand-crumb{font-size:.75rem;color:#4a4a75;margin-left:.25rem}
+.user-pill{display:flex;align-items:center;gap:.5rem;background:#1e1e36;border:1px solid #2a2a45;border-radius:999px;padding:.25rem .75rem .25rem .375rem}
+.avatar{width:24px;height:24px;background:#7c3aed;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.625rem;font-weight:700}
+.user-name{font-size:.72rem;color:#6c6c9a}
+.subnav{background:#12121e;border-bottom:1px solid #2a2a45;padding:0 1.5rem;display:flex;gap:0;height:38px}
+.nav-tab{padding:0 1rem;font-size:.78rem;font-weight:500;color:#4a4a75;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;transition:all .15s}
+.nav-tab:hover{color:#9694b0}
+.nav-tab.active{color:#a78bfa;border-bottom-color:#7c3aed;font-weight:600}
+.page{flex:1;padding:1.5rem;overflow:auto;display:flex;flex-direction:column;gap:1rem}
+.toolbar{display:flex;align-items:center;gap:.75rem}
+.search-wrap{display:flex;align-items:center;gap:.5rem;background:#1e1e36;border:1px solid #2a2a45;border-radius:.5rem;padding:.375rem .875rem;flex:1;max-width:360px}
+.search-wrap input{background:none;border:none;outline:none;color:#cdd6f4;font-size:.8rem;width:100%;min-width:0}
+.search-wrap input::placeholder{color:#3a3a5c}
+.filter-pill{background:#1e1e36;border:1px solid #2a2a45;border-radius:.5rem;padding:.375rem .75rem;color:#6c6c9a;font-size:.78rem;cursor:pointer;display:flex;align-items:center;gap:.375rem;white-space:nowrap;transition:border-color .15s}
+.filter-pill:hover{border-color:#7c3aed;color:#cdd6f4}
+.btn-primary{background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:.5rem;padding:.375rem 1rem;font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:opacity .15s}
+.btn-primary:hover{opacity:.9}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem}
+.kpi{background:#1e1e36;border:1px solid #2a2a45;border-radius:.625rem;padding:.875rem 1rem}
+.kpi-val{font-size:1.5rem;font-weight:700;color:#fff;line-height:1}
+.kpi-label{font-size:.68rem;color:#4a4a75;text-transform:uppercase;letter-spacing:.06em;margin-top:.25rem}
+.kpi.v-purple .kpi-val{color:#a78bfa}
+.kpi.v-green .kpi-val{color:#4ade80}
+.kpi.v-amber .kpi-val{color:#fbbf24}
+.card{background:#1e1e36;border:1px solid #2a2a45;border-radius:.75rem;overflow:hidden}
+.card-head{padding:.75rem 1.25rem;border-bottom:1px solid #2a2a45;display:flex;align-items:center;justify-content:space-between}
+.card-title{font-size:.8rem;font-weight:600;color:#9694b0}
+.rec-badge{font-size:.68rem;background:#12121e;border:1px solid #2a2a45;border-radius:999px;padding:.1rem .5rem;color:#4a4a75}
+table{width:100%;border-collapse:collapse}
+th{padding:.5rem 1rem;text-align:left;font-size:.65rem;font-weight:600;color:#4a4a75;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #2a2a45;white-space:nowrap;background:#12121e}
+th:first-child{padding-left:1.25rem}
+td{padding:.75rem 1rem;font-size:.8rem;border-bottom:1px solid #1e1e3a}
+td:first-child{padding-left:1.25rem;color:#7c3aed;font-weight:700;font-family:monospace;font-size:.75rem}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#252540}
+.name-cell{color:#e2e8f0;font-weight:500}
+.desc-cell{color:#6c6c9a;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dept-cell{color:#9694b0}
+.date-cell{color:#4a4a75;font-size:.72rem}
+.badge{display:inline-flex;align-items:center;gap:.2rem;padding:.15rem .5rem;border-radius:999px;font-size:.65rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.b-active{background:#22c55e18;color:#4ade80;border:1px solid #22c55e30}
+.b-draft{background:#f9731618;color:#fb923c;border:1px solid #f9731630}
+.b-pending{background:#7c3aed18;color:#a78bfa;border:1px solid #7c3aed30}
+.b-archived{background:#6c6c9a18;color:#6c6c9a;border:1px solid #6c6c9a30}
+.actions{display:flex;gap:.375rem}
+.act{background:none;border:1px solid #2a2a45;border-radius:.375rem;padding:.2rem .5rem;font-size:.7rem;color:#4a4a75;cursor:pointer;transition:all .15s}
+.act:hover{border-color:#7c3aed;color:#a78bfa}
+.act-d:hover{border-color:#ef444460;color:#f87171}
+.empty-row td{padding:3rem;text-align:center;color:#3a3a5c;font-size:.875rem}
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(3px)}
+.modal{background:#1e1e36;border:1px solid #2a2a45;border-radius:.875rem;padding:1.5rem;width:100%;max-width:460px;box-shadow:0 30px 60px rgba(0,0,0,.5)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+.modal-heading{font-size:.9rem;font-weight:700;color:#fff}
+.close-btn{background:none;border:none;color:#4a4a75;cursor:pointer;font-size:1.125rem;line-height:1;padding:0}
+.close-btn:hover{color:#cdd6f4}
+.field{margin-bottom:.875rem}
+.field label{display:block;font-size:.68rem;font-weight:700;color:#4a4a75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.375rem}
+.inp,.sel,.ta{width:100%;background:#12121e;border:1px solid #2a2a45;border-radius:.5rem;padding:.5rem .75rem;color:#cdd6f4;font-size:.8rem;outline:none;font-family:inherit;transition:border-color .15s}
+.inp:focus,.sel:focus,.ta:focus{border-color:#7c3aed}
+.ta{min-height:72px;resize:vertical}
+.sel option{background:#1e1e36}
+.modal-foot{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1.25rem;padding-top:1rem;border-top:1px solid #2a2a45}
+.btn-ghost{background:#12121e;border:1px solid #2a2a45;border-radius:.5rem;padding:.4rem 1rem;color:#6c6c9a;font-size:.8rem;cursor:pointer;transition:color .15s}
+.btn-ghost:hover{color:#cdd6f4}
+.btn-save{background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:.5rem;padding:.4rem 1rem;font-size:.8rem;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn-save:hover{opacity:.9}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-icon">&#9670;</div>
+    <span class="brand-name">__MODULE_NAME__</span>
+    <span class="brand-crumb">/ Records</span>
+  </div>
+  <div class="user-pill">
+    <div class="avatar">AD</div>
+    <span class="user-name">Administrator</span>
+  </div>
+</div>
+<div class="subnav">
+  <div class="nav-tab active">Records</div>
+  <div class="nav-tab">Reports</div>
+  <div class="nav-tab">Configuration</div>
+</div>
+<div class="page">
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span style="color:#3a3a5c;font-size:.875rem">&#128269;</span>
+      <input id="q" type="text" placeholder="Search records..." oninput="applyFilter()">
+    </div>
+    <button class="filter-pill" onclick="nextFilter()">
+      <span>&#9662;</span><span id="flabel">All Status</span>
+    </button>
+    <div style="flex:1"></div>
+    <button class="btn-primary" onclick="openModal(null)">+ New Record</button>
+  </div>
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-val" id="k-total">0</div><div class="kpi-label">Total Records</div></div>
+    <div class="kpi v-purple"><div class="kpi-val" id="k-active">0</div><div class="kpi-label">Active</div></div>
+    <div class="kpi v-green"><div class="kpi-val" id="k-draft">0</div><div class="kpi-label">Draft</div></div>
+    <div class="kpi v-amber"><div class="kpi-val" id="k-pending">0</div><div class="kpi-label">Pending</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">__MODULE_NAME__ Records</span>
+      <span class="rec-badge" id="rec-ct">0 records</span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Name</th><th>Description</th><th>Department</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+<div class="modal-mask hidden" id="mask">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-heading" id="m-title">New Record</span>
+      <button class="close-btn" onclick="closeModal()">&#215;</button>
+    </div>
+    <div class="field"><label>Name *</label><input class="inp" id="m-name" type="text" placeholder="Record name..."></div>
+    <div class="field"><label>Description</label><textarea class="ta" id="m-desc" placeholder="Description..."></textarea></div>
+    <div class="field"><label>Department</label><input class="inp" id="m-dept" type="text" placeholder="e.g. HR, Finance, Engineering..."></div>
+    <div class="field"><label>Status</label>
+      <select class="sel" id="m-status">
+        <option value="draft">Draft</option>
+        <option value="active">Active</option>
+        <option value="pending">Pending</option>
+        <option value="archived">Archived</option>
+      </select>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn-save" onclick="save()">Save Record</button>
+    </div>
+  </div>
+</div>
+<script>
+var ALL=[],EID=null,FLT='all';
+var FLTS=['all','active','draft','pending','archived'];
+var FLTN={'all':'All Status','active':'Active','draft':'Draft','pending':'Pending','archived':'Archived'};
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function badge(s){
+  var m={active:'b-active',draft:'b-draft',pending:'b-pending',archived:'b-archived'};
+  return '<span class="badge '+(m[s]||'b-draft')+'">'+esc(s)+'</span>';
+}
+function dt(s){
+  if(!s)return'';
+  try{return new Date(s).toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'});}
+  catch(e){return String(s).split('T')[0]||'';}
+}
+function kpi(){
+  document.getElementById('k-total').textContent=ALL.length;
+  document.getElementById('k-active').textContent=ALL.filter(function(r){return r.status==='active';}).length;
+  document.getElementById('k-draft').textContent=ALL.filter(function(r){return r.status==='draft';}).length;
+  document.getElementById('k-pending').textContent=ALL.filter(function(r){return r.status==='pending';}).length;
+}
+function render(rows){
+  var tb=document.getElementById('tbody');
+  var ct=document.getElementById('rec-ct');
+  kpi();
+  ct.textContent=rows.length+' record'+(rows.length!==1?'s':'');
+  if(!rows.length){
+    tb.innerHTML='<tr class="empty-row"><td colspan="7">No records match your search.</td></tr>';
+    return;
+  }
+  tb.innerHTML=rows.map(function(r){
+    return '<tr>'
+      +'<td>#'+r.id+'</td>'
+      +'<td class="name-cell">'+esc(r.name)+'</td>'
+      +'<td class="desc-cell" title="'+esc(r.description||'')+'">'+esc(r.description||'—')+'</td>'
+      +'<td class="dept-cell">'+esc(r.department||'—')+'</td>'
+      +'<td>'+badge(r.status||'draft')+'</td>'
+      +'<td class="date-cell">'+dt(r.created_at)+'</td>'
+      +'<td><div class="actions">'
+        +'<button class="act" onclick="openModal('+r.id+')">Edit</button>'
+        +'<button class="act act-d" onclick="del('+r.id+')">Delete</button>'
+      +'</div></td>'
+    +'</tr>';
+  }).join('');
+}
+function applyFilter(){
+  var q=document.getElementById('q').value.toLowerCase();
+  var rows=ALL.filter(function(r){
+    var ok=(FLT==='all'||r.status===FLT);
+    if(q)ok=ok&&((r.name||'').toLowerCase().indexOf(q)>=0||(r.description||'').toLowerCase().indexOf(q)>=0||(r.department||'').toLowerCase().indexOf(q)>=0);
+    return ok;
+  });
+  render(rows);
+}
+function nextFilter(){
+  FLT=FLTS[(FLTS.indexOf(FLT)+1)%FLTS.length];
+  document.getElementById('flabel').textContent=FLTN[FLT];
+  applyFilter();
+}
+async function load(){var r=await fetch('/records');ALL=await r.json();applyFilter();}
+function openModal(id){
+  EID=id;
+  document.getElementById('m-title').textContent=id?'Edit Record':'New Record';
+  var rec=id?ALL.find(function(r){return r.id===id;}):null;
+  document.getElementById('m-name').value=rec?rec.name||'':'';
+  document.getElementById('m-desc').value=rec?rec.description||'':'';
+  document.getElementById('m-dept').value=rec?rec.department||'':'';
+  document.getElementById('m-status').value=rec?rec.status||'draft':'draft';
+  document.getElementById('mask').classList.remove('hidden');
+  setTimeout(function(){document.getElementById('m-name').focus();},50);
+}
+function closeModal(){document.getElementById('mask').classList.add('hidden');}
+document.getElementById('mask').addEventListener('click',function(e){if(e.target===this)closeModal();});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
+async function save(){
+  var n=document.getElementById('m-name').value.trim();
+  if(!n)return document.getElementById('m-name').focus();
+  var p={name:n,description:document.getElementById('m-desc').value.trim(),
+         department:document.getElementById('m-dept').value.trim(),
+         status:document.getElementById('m-status').value};
+  await fetch(EID?'/records/'+EID:'/records',{method:EID?'PUT':'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});
+  closeModal();load();
+}
+function del(id){if(confirm('Delete this record?'))fetch('/records/'+id,{method:'DELETE'}).then(load);}
+load();
+</script>
+</body>
+</html>"""
+
+
+def _odoo_module_app(project_name: str = "module") -> str:
+    """Return a complete Odoo-style CRUD module FastAPI app with SQLite + professional dark UI."""
+    module_name = (project_name or "module").replace("-", " ").replace("_", " ").title()
+    html = _ODOO_HTML_TEMPLATE.replace("__MODULE_NAME__", module_name)
+    return (
+        "from fastapi import FastAPI, HTTPException\n"
+        "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from fastapi.responses import HTMLResponse\n"
+        "from pydantic import BaseModel\n"
+        "from typing import Optional, List\n"
+        "import sqlite3\n"
+        "from pathlib import Path\n\n"
+        f"MODULE_NAME = {repr(module_name)}\n"
+        "app = FastAPI(title=MODULE_NAME, version='1.0.0')\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "DB_PATH = Path('data/module.db')\n\n"
+        "def init_db():\n"
+        "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    conn.execute(\"\"\"CREATE TABLE IF NOT EXISTS records (\n"
+        "        id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "        name TEXT NOT NULL,\n"
+        "        description TEXT DEFAULT '',\n"
+        "        department TEXT DEFAULT '',\n"
+        "        status TEXT DEFAULT 'draft',\n"
+        "        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
+        "    )\"\"\")\n"
+        "    conn.commit(); conn.close()\n\n"
+        "init_db()\n\n"
+        "class RecordCreate(BaseModel):\n"
+        "    name: str\n"
+        "    description: Optional[str] = ''\n"
+        "    department: Optional[str] = ''\n"
+        "    status: Optional[str] = 'draft'\n\n"
+        "class RecordUpdate(BaseModel):\n"
+        "    name: Optional[str] = None\n"
+        "    description: Optional[str] = None\n"
+        "    department: Optional[str] = None\n"
+        "    status: Optional[str] = None\n\n"
+        "@app.get('/health')\n"
+        "def health(): return {'status': 'ok', 'module': MODULE_NAME, 'version': '1.0.0'}\n\n"
+        "@app.get('/records')\n"
+        "def list_records():\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        return [dict(r) for r in conn.execute(\n"
+        "            'SELECT * FROM records ORDER BY created_at DESC').fetchall()]\n"
+        "    finally: conn.close()\n\n"
+        "@app.post('/records', status_code=201)\n"
+        "def create_record(payload: RecordCreate):\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        cur = conn.execute(\n"
+        "            'INSERT INTO records(name,description,department,status) VALUES(?,?,?,?)',\n"
+        "            (payload.name, payload.description or '', payload.department or '',\n"
+        "             payload.status or 'draft'))\n"
+        "        conn.commit()\n"
+        "        return dict(conn.execute(\n"
+        "            'SELECT * FROM records WHERE id=?', (cur.lastrowid,)).fetchone())\n"
+        "    finally: conn.close()\n\n"
+        "@app.put('/records/{rid}')\n"
+        "def update_record(rid: int, payload: RecordUpdate):\n"
+        "    conn = sqlite3.connect(str(DB_PATH)); conn.row_factory = sqlite3.Row\n"
+        "    try:\n"
+        "        row = conn.execute('SELECT * FROM records WHERE id=?', (rid,)).fetchone()\n"
+        "        if not row: raise HTTPException(404, detail='Record not found')\n"
+        "        rec = dict(row)\n"
+        "        for k, v in payload.dict(exclude_none=True).items(): rec[k] = v\n"
+        "        conn.execute(\n"
+        "            'UPDATE records SET name=?,description=?,department=?,status=? WHERE id=?',\n"
+        "            (rec['name'], rec['description'], rec['department'], rec['status'], rid))\n"
+        "        conn.commit()\n"
+        "        return dict(conn.execute(\n"
+        "            'SELECT * FROM records WHERE id=?', (rid,)).fetchone())\n"
+        "    finally: conn.close()\n\n"
+        "@app.delete('/records/{rid}')\n"
+        "def delete_record(rid: int):\n"
+        "    conn = sqlite3.connect(str(DB_PATH))\n"
+        "    try:\n"
+        "        cur = conn.execute('DELETE FROM records WHERE id=?', (rid,))\n"
+        "        conn.commit()\n"
+        "        if cur.rowcount == 0: raise HTTPException(404, detail='Record not found')\n"
+        "        return {'status': 'deleted', 'id': rid}\n"
+        "    finally: conn.close()\n\n"
         f"HTML_CONTENT = {repr(html)}\n\n"
         "@app.get('/', response_class=HTMLResponse)\n"
         "async def index(): return HTML_CONTENT\n"
