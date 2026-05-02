@@ -321,48 +321,24 @@ class LLMClient:
         max_tokens: int = 8192,
     ) -> str:
         """
-        Call the LLM with task routing and tiered fallback.
-        """
-        from ..errors import LLMUnavailable
+        Call the LLM via the multi-model router.
 
+        Chain: Anthropic claude-sonnet-4-6 → Gemini gemini-2.5-flash → Ollama qwen2.5-coder:3b
+        Each model has individual timeouts and retry counts (see core/model_router.py).
+        """
         if context:
             ctx_str = json.dumps(context, indent=2)
             prompt = f"Context:\n{ctx_str}\n\n{prompt}"
 
-        # BUG FIX: Skip Anthropic and Gemini entirely. Direct to Ollama.
-        # Try primary model then fallback 3b model.
-        primary_model = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b")
-        fallback_model = "qwen2.5-coder:3b"
-        
-        for model in [primary_model, fallback_model]:
-            try:
-                # Check if model is installed
-                import httpx
-                from ..config.loader import get_config
-                cfg = get_config()
-                base_url = cfg.get("llm.ollama_base_url", "http://localhost:11434")
-                
-                # Check tags to see if model exists
-                async with httpx.AsyncClient(timeout=5.0) as http:
-                    resp = await http.get(f"{base_url}/api/tags")
-                    if resp.status_code == 200:
-                        models = [m["name"] for m in resp.json().get("models", [])]
-                        # Match name or name:latest
-                        if model not in models and f"{model}:latest" not in models:
-                            logger.warning("Ollama model %s not found, trying next...", model)
-                            continue
-                
-                # Model found, call it
-                result = await _call_ollama_with_model(prompt, task_type, model)
-                self.last_provider = "ollama"
-                return result
-            except Exception as exc:
-                logger.warning("Ollama call with %s failed: %s", model, exc)
-                continue
-
-        raise LLMUnavailable(
-            "Ollama is not running. Start it with: ollama serve"
+        from aether_os.core.model_router import get_router
+        text, provider = await get_router().call(
+            prompt=prompt,
+            task_type=task_type,
+            system=system,
+            max_tokens=max_tokens,
         )
+        self.last_provider = provider
+        return text
 
     async def call_structured(
         self,
