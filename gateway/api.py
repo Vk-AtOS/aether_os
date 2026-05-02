@@ -154,6 +154,13 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("DB init failed: %s", exc)
 
+        # Initialise LangSmith tracing (graceful degradation if key absent)
+        try:
+            from aether_os.core.telemetry.langsmith_tracer import init_langsmith
+            init_langsmith()
+        except Exception as exc:
+            logger.warning("LangSmith init skipped: %s", exc)
+
         # Pre-build call graph if repo root configured (Bug 5 fix)
         try:
             repo_root = os.environ.get("AETHER_REPO_ROOT")
@@ -773,10 +780,18 @@ def create_app() -> FastAPI:
         from aether_os.core.llm.client import get_llm_client
         client = get_llm_client()
         active_provider = client.last_provider or os.environ.get("PRIMARY_LLM", "none")
-        
+
+        # Model router routing status
+        routing: dict = {}
+        try:
+            from aether_os.core.model_router import get_router as _get_router
+            routing = _get_router().get_status()
+        except Exception:
+            pass
+
         status = "healthy"
         message = "All systems operational."
-        
+
         if ollama_available and not anthropic_available and not gemini_available:
             status = "ok"
             message = "Running on local Ollama (configured)."
@@ -795,11 +810,24 @@ def create_app() -> FastAPI:
             "anthropic_available": anthropic_available,
             "gemini_available": gemini_available,
             "ollama_available": ollama_available,
+            "active_model": routing.get("active_model"),
+            "fallback_count_today": routing.get("fallback_count_today", 0),
+            "model_availability": routing.get("model_availability", {}),
             "version": "1.0.0",
             "tests_passing": 153,
             "database": "healthy",
             "memory_store": "healthy",
         }
+
+    @app.get("/health/observability")
+    async def health_observability() -> Dict[str, Any]:
+        """
+        Observability health — LangSmith status and today's trace count.
+        Returns: {langsmith, last_trace_id, traces_today}
+        No auth required (public health probe).
+        """
+        from aether_os.core.telemetry.langsmith_tracer import get_status
+        return get_status()
 
     @app.get("/system/costs")
     async def system_costs(
