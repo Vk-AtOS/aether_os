@@ -45,11 +45,9 @@ def _build_db_url() -> str:
     # Default: SQLite with aiosqlite
     from .config.loader import get_config
     from pathlib import Path as _Path
-    (_Path.home() / ".aether_os").mkdir(parents=True, exist_ok=True)
-    
-    db_path_raw = get_config().get("database.path", str(_Path.home() / ".aether_os" / "aether_os.db"))
-    db_path = _Path(db_path_raw).expanduser().resolve()
+    db_path = _Path.home() / ".aether_os" / "aether_os.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    # 4 slashes total for absolute path: 3 from prefix, 1 from db_path
     return f"sqlite+aiosqlite:///{db_path}"
 
 
@@ -98,6 +96,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Create all tables. Call on application startup."""
+    from . import models  # Ensure all models are registered with Base
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

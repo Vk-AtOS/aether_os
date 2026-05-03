@@ -6,13 +6,38 @@ Bug 4 fix applied: SECRET_KEY raises RuntimeError if not set in env.
 from __future__ import annotations
 import logging
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
 
 _SECRET_KEY_ENV = "AETHER_SECRET_KEY"
 _ALGORITHM = "HS256"
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against its hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def generate_api_key() -> str:
+    """Generate a new API key with the aesk_ prefix."""
+    return f"aesk_{secrets.token_hex(16)}"
+
+
+def hash_api_key(api_key: str) -> str:
+    """Hash an API key for storage."""
+    import hashlib
+    return hashlib.sha256(api_key.encode()).hexdigest()
 
 
 def _get_secret_key() -> str:

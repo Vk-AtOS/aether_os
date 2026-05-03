@@ -36,6 +36,7 @@ class ExecutionContext(BaseModel):
     # Unique identifiers
     run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    org_id: Optional[str] = None  # Multi-tenancy support
 
     # Input
     requirement: str = ""          # Original NL requirement from user

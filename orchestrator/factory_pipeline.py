@@ -99,7 +99,8 @@ class FactoryPipeline:
                   domain: str = "general",
                   project_name: Optional[str] = None,
                   start_phase: Optional[str] = None,
-                  run_id: Optional[str] = None) -> dict:
+                  run_id: Optional[str] = None,
+                  org_id: Optional[str] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
 
@@ -110,11 +111,12 @@ class FactoryPipeline:
         # Create event queue for SSE streaming
         PIPELINE_EVENTS[run_id] = asyncio.Queue(maxsize=500)
 
-        self.ledger.save_run(run_id, f"factory: {raw_input[:60]}", "running")
+        self.ledger.save_run(run_id, f"factory: {raw_input[:60]}", org_id=org_id, status="running")
 
         # Accumulated context passed between phases
         accumulated_context = {
             "run_id": run_id,
+            "org_id": org_id,
             "client_id": client_id,
             "raw_input": raw_input,
             "domain": domain,
