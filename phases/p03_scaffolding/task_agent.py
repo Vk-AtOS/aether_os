@@ -22,10 +22,13 @@ TEMPLATE_MAP = {
 def create_minimal_scaffold(
         project_name: str,
         tech_stack: dict,
-        output_dir: Path) -> Path:
+        output_dir: Path,
+        domain: str = "general") -> Path:
     """Create project scaffold without network access."""
     
     backend = tech_stack.get("backend", "fastapi").lower()
+    from aether_os.core.domain_engine import get_domain_profile
+    profile = get_domain_profile(domain)
     
     project_dir = output_dir / project_name
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -36,31 +39,62 @@ def create_minimal_scaffold(
         "src/api", "src/models", 
         "src/services"
     ]
+    
+    # Domain specific dirs
+    if domain == "industrial":
+        dirs += ["src/protocols", "src/alarms"]
+    elif domain == "fintech":
+        dirs += ["src/ledger", "src/reconciliation"]
+    elif domain == "saas_multitenant":
+        dirs += ["src/tenants", "src/webhooks"]
+
     for d in dirs:
         (project_dir / d).mkdir(parents=True, exist_ok=True)
         (project_dir / d / "__init__.py").touch()
     
     # Create main.py based on backend
     if "fastapi" in backend:
-        main_content = '''from fastapi import FastAPI
+        main_content = f'''from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="{name}")
+app = FastAPI(
+    title="{project_name}",
+    description="Generated {profile.name} Application"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 async def health():
-    return {{"status": "healthy"}}
-'''.format(name=project_name)
+    return {{"status": "healthy", "domain": "{domain}"}}
+'''
     else:
-        main_content = f'# {project_name}\n'
+        main_content = f'# {project_name}\n# Domain: {domain}\n'
     
+    (project_dir / "src/main.py").write_text(main_content)
+    # Also put a copy in project root for convenience
     (project_dir / "main.py").write_text(main_content)
     
     # Create requirements.txt
-    reqs = ["fastapi", "uvicorn", "pytest"]
+    reqs = ["fastapi", "uvicorn", "pydantic", "pytest", "python-jose", "passlib[bcrypt]"]
     db = tech_stack.get("database", "")
-    if "postgres" in db.lower():
-        reqs.extend(["sqlalchemy", "asyncpg", "alembic"])
-    (project_dir / "requirements.txt").write_text("\n".join(reqs))
+    if "postgres" in db.lower() or "timescale" in db.lower():
+        reqs.extend(["sqlalchemy[asyncio]", "asyncpg", "alembic"])
+    
+    # Domain specific reqs
+    if domain == "industrial":
+        reqs += ["paho-mqtt", "asyncua"]
+    elif domain == "fintech":
+        reqs += ["redis", "cryptography"]
+    elif domain == "saas_multitenant":
+        reqs += ["stripe"]
+
+    (project_dir / "requirements.txt").write_text("\n".join(sorted(set(reqs))))
     
     # Create .env.example
     (project_dir / ".env.example").write_text(
@@ -94,6 +128,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     tech_stack = arch.get("tech_stack", {})
     backend = str(tech_stack.get("backend", "fastapi")).lower()
     project_name = data.get("project_name", phase_input.project_id)
+    domain = data.get("domain", "general")
     
     used_cookiecutter = False
     project_dir = output_dir / project_name
@@ -125,7 +160,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.warning("Cookiecutter failed (%s), falling back to local: %s", template, e)
 
     if not used_cookiecutter:
-        project_dir = create_minimal_scaffold(project_name, tech_stack, output_dir)
+        project_dir = create_minimal_scaffold(project_name, tech_stack, output_dir, domain=domain)
 
     files_created = list(project_dir.rglob("*"))
     file_count = len([f for f in files_created if f.is_file()])

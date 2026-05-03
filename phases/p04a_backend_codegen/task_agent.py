@@ -109,8 +109,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     client = get_llm_client()
     agent  = BackendCodegenAgent()
+    domain = data.get("domain", "general")
     generated_files = await agent.generate_backend_code(
-        architecture, raw_input, root_dir, output_dir, client
+        architecture, raw_input, root_dir, output_dir, client, domain=domain
     )
 
     issues = []
@@ -134,7 +135,8 @@ class BackendCodegenAgent:
             raw_input: str,
             root_dir: Path,
             phase_dir: Path,
-            client: LLMClient) -> list:
+            client: LLMClient,
+            domain: str = "general") -> list:
         """
         Generate all backend files.
         Writes to root_dir/src/ (project deliverable) AND
@@ -169,15 +171,36 @@ class BackendCodegenAgent:
                          for r in resources]
 
         backend = tech_stack.get("backend", "FastAPI")
+        from aether_os.core.domain_engine import get_domain_profile
+        profile = get_domain_profile(domain)
 
         # ── main.py ──────────────────────────────────────────────────────────
         ep_list = "\n".join(
             f"  {ep.get('method','GET')} {ep.get('path','/')} — {ep.get('description','')}"
             for ep in endpoints[:8]
         )
+        
+        domain_rules = []
+        if domain == "fintech":
+            domain_rules.append("- Implement an @idempotent decorator for POST/PUT endpoints")
+            domain_rules.append("- Include an 'audit_log' list and record all state changes")
+        elif domain == "industrial":
+            domain_rules.append("- Include a /telemetry endpoint for high-frequency sensor ingestion")
+            domain_rules.append("- Implement a background task that checks for 'alarm' conditions")
+        elif domain == "saas_multitenant":
+            domain_rules.append("- Implement a middleware that extracts 'X-Org-ID' header into a ContextVar")
+            domain_rules.append("- Ensure ALL in-memory storage queries are filtered by this org_id")
+            domain_rules.append("- Add a /onboarding endpoint that initializes a new organisation")
+        elif domain == "healthcare":
+            domain_rules.append("- Implement a simple PII masking layer for patient data")
+            domain_rules.append("- Include 'fhir_resource_type' in all models")
+        
+        rules_str = "\n".join(domain_rules)
+
         main_prompt = (
             f"Write a complete working FastAPI application in a single file called main.py.\n"
-            f"Project requirement: {raw_input[:300]}\n\n"
+            f"Project requirement: {raw_input[:300]}\n"
+            f"Domain: {profile.name}\n\n"
             f"Endpoints to implement:\n{ep_list}\n\n"
             f"Rules:\n"
             f"- All imports at top of file\n"
@@ -186,11 +209,12 @@ class BackendCodegenAgent:
             f"- Use Pydantic v2 BaseModel for request/response bodies\n"
             f"- Use in-memory list/dict storage (no DB driver needed)\n"
             f"- Include CORS middleware\n"
+            f"{rules_str}\n"
             f"- No placeholder comments like 'TODO' or 'implement this'\n"
             f"Reply with ONLY valid Python code, no markdown fences."
         )
         main_code = await self._generate_python(main_prompt, client,
-                                                 _intelligent_fallback_main(endpoints, resources, raw_input))
+                                                 _intelligent_fallback_main(endpoints, resources, raw_input, domain=domain))
         main_files = _write_to_both(main_code, root_dir, phase_dir, Path("src") / "main.py")
         generated_files.extend(main_files)
 
@@ -278,12 +302,12 @@ def _strip_fences(code: str) -> str:
 
 
 def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
-                               raw_input: str = "") -> str:
+                               raw_input: str = "", domain: str = "general") -> str:
     """
     Generate domain-specific FastAPI code from raw_input when LLM fails.
     Falls back to resource-based CRUD if domain can't be detected.
     """
-    if raw_input.strip():
+    if raw_input.strip() and domain == "general":
         return _generate_from_requirement(raw_input)
 
     primary = resources[0] if resources else {"resource": "item", "table": "items",
@@ -298,52 +322,71 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         else f"    {col}: str"
         for col in cols[:6]
     )
+    
+    extra_fields = ""
+    if domain == "saas_multitenant":
+        extra_fields = "    org_id: str\n"
+    elif domain == "healthcare":
+        extra_fields = "    fhir_resource_type: str = 'Observation'\n"
+
     create_model = (
         f"class {res.title()}Create(BaseModel):\n"
         f"{field_defs}\n"
-        f"\n"
+        f"{extra_fields}\n"
         f"class {res.title()}(BaseModel):\n"
         f"    id: int\n"
         f"{field_defs}\n"
+        f"{extra_fields}\n"
     )
 
     # Build routes
     routes = [
-        f'@app.get("/health")\ndef health():\n    return {{"status": "ok", "version": "1.0.0"}}\n',
+        f'@app.get("/health")\ndef health():\n    return {{"status": "ok", "domain": "{domain}"}}\n',
+    ]
+    
+    if domain == "industrial":
+        routes.append(
+            '@app.post("/telemetry")\ndef post_telemetry(data: dict):\n    # High-frequency ingestion\n    return {"status": "recorded", "ts": 123456789}\n'
+        )
+    elif domain == "fintech":
+        routes.append(
+            'def idempotent(func):\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n'
+        )
+
+    routes += [
         f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}():\n    return list({table}_db.values())\n',
         f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n    new_id = max({table}_db.keys(), default=0) + 1\n    record = {res.title()}(id=new_id, **payload.dict())\n    {table}_db[new_id] = record\n    return record\n',
-        f'@app.get("/{table}/{{item_id}}", response_model={res.title()})\ndef get_{res}(item_id: int):\n    if item_id not in {table}_db:\n        raise HTTPException(404, detail="{res.title()} not found")\n    return {table}_db[item_id]\n',
-        f'@app.put("/{table}/{{item_id}}", response_model={res.title()})\ndef update_{res}(item_id: int, payload: {res.title()}Create):\n    if item_id not in {table}_db:\n        raise HTTPException(404, detail="{res.title()} not found")\n    updated = {res.title()}(id=item_id, **payload.dict())\n    {table}_db[item_id] = updated\n    return updated\n',
-        f'@app.delete("/{table}/{{item_id}}")\ndef delete_{res}(item_id: int):\n    if item_id not in {table}_db:\n        raise HTTPException(404, detail="{res.title()} not found")\n    del {table}_db[item_id]\n    return {{"status": "deleted", "id": item_id}}\n',
     ]
-
-    # Extra resources
-    for r in resources[1:3]:
-        r_res, r_table = r["resource"], r["table"]
-        routes += [
-            f'@app.get("/{r_table}")\ndef list_{r_table}():\n    return list({r_table}_db.values())\n',
-            f'@app.post("/{r_table}", status_code=201)\ndef create_{r_res}(payload: dict):\n    new_id = max({r_table}_db.keys(), default=0) + 1\n    {r_table}_db[new_id] = {{"id": new_id, **payload}}\n    return {r_table}_db[new_id]\n',
-        ]
 
     # In-memory stores
     stores = f"{table}_db: Dict[int, {res.title()}] = {{}}\n"
-    for r in resources[1:3]:
-        stores += f"{r['table']}_db: Dict[int, dict] = {{}}\n"
+    
+    middleware = ""
+    if domain == "saas_multitenant":
+        middleware = """
+@app.middleware("http")
+async def org_middleware(request, call_next):
+    org_id = request.headers.get("X-Org-ID", "default")
+    # In real app, set this in a ContextVar
+    response = await call_next(request)
+    return response
+"""
 
     return (
-        "from fastapi import FastAPI, HTTPException\n"
+        "from fastapi import FastAPI, HTTPException, Request\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from pydantic import BaseModel\n"
         "from typing import Dict, List, Optional\n\n"
-        "app = FastAPI(title='Generated API', version='1.0.0')\n\n"
+        f"app = FastAPI(title='{domain.title()} API', version='1.0.0')\n\n"
         "app.add_middleware(\n"
         "    CORSMiddleware,\n"
         "    allow_origins=['*'],\n"
         "    allow_methods=['*'],\n"
         "    allow_headers=['*'],\n"
-        ")\n\n"
+        ")\n"
+        f"{middleware}\n"
         f"# Pydantic models\n{create_model}\n"
-        f"# In-memory storage (replace with real DB)\n{stores}\n\n"
+        f"# In-memory storage\n{stores}\n\n"
         + "\n".join(routes)
     )
 

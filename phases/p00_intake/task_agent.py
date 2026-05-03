@@ -18,7 +18,7 @@ INTAKE_SCHEMA = {
     "client_id": "",
     "timestamp": "",
     "word_count": 0,
-    "domain_hint": "general"
+    "domain": "general"
 }
 
 
@@ -29,8 +29,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     raw_input = phase_input.input_data.get("raw_input", phase_input.input_data.get("raw_text", ""))
     client_id = phase_input.client_id
     
+    # Ensure domain is classified
+    prompt = (
+        f"Extract and clean this software requirement: {raw_input}\n\n"
+        "Classify the application domain into one of these: "
+        "general, industrial, fintech, healthcare, saas_multitenant, ecommerce, logistics, education."
+    )
+    
     result = await client.call_structured(
-        prompt=f"Extract and clean this software requirement: {raw_input}",
+        prompt=prompt,
         schema_example={
             **INTAKE_SCHEMA,
             "raw_text": raw_input,
@@ -40,6 +47,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         },
         task_type="documentation"
     )
+    
+    # Update pipeline input data so subsequent phases see the detected domain
+    if result.get("domain"):
+        phase_input.input_data["domain"] = result["domain"]
     
     # Always write output to disk
     # The supervisor passes output_dir, but the prompt asked for a specific path construction
