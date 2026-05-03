@@ -440,8 +440,8 @@ def create_app() -> FastAPI:
             return {
                 "plan": org.plan,
                 "runs_used": org.trial_runs_used,
-                "runs_limit": org.trial_runs_limit,
-                "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used)
+                "runs_limit": org.trial_runs_limit if org.plan == "trial" else None,
+                "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used) if org.plan == "trial" else None
             }
 
     @app.get("/pricing")
@@ -599,6 +599,14 @@ def create_app() -> FastAPI:
         logger.info("Client portal router mounted at /portal")
     except Exception as exc:
         logger.warning("Client portal router not loaded: %s", exc)
+
+    # Wire MCP REST router — exposes MCP tools at /mcp/* on port 8000
+    try:
+        from aether_os.gateway.mcp_router import router as mcp_router
+        app.include_router(mcp_router)
+        logger.info("MCP router mounted at /mcp")
+    except Exception as exc:
+        logger.warning("MCP router not loaded: %s", exc)
 
     @app.post("/factory/start")
     async def start_factory_run(
@@ -1028,6 +1036,17 @@ def create_app() -> FastAPI:
                 "Connection": "keep-alive",
             },
         )
+
+    @app.get("/factory/search")
+    async def search_artifacts(
+        q: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> List[Dict[str, Any]]:
+        """Semantic search across all generated artifacts for the organisation."""
+        from aether_os.core.artifact_store import get_artifact_store
+        org_id = user.get("org_id")
+        store = get_artifact_store()
+        return await store.search(q, org_id)
 
     @app.get("/factory/runs/{run_id}/preview")
     async def preview_run_html(
