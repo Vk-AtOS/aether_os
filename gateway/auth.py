@@ -7,26 +7,22 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
-from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
 
 _SECRET_KEY_ENV = "AETHER_SECRET_KEY"
 _ALGORITHM = "HS256"
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
 
 def generate_api_key() -> str:
