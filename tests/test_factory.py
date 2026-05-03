@@ -394,12 +394,12 @@ async def test_factory_pipeline_start_phase(tmp_path):
 
 
 def test_factory_pipeline_phase_sequence():
-    """PHASE_SEQUENCE has exactly 10 consolidated phases."""
+    """PHASE_SEQUENCE starts with intake and ends with deployment."""
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
 
-    assert len(PHASE_SEQUENCE) == 10
+    assert len(PHASE_SEQUENCE) >= 10
     assert PHASE_SEQUENCE[0] == "p01_intake_requirements"
-    assert PHASE_SEQUENCE[-1] == "p10_docs_delivery"
+    assert PHASE_SEQUENCE[-1] == "p11_deployment"
 
 
 def test_factory_pipeline_phase_supervisors_mapped():

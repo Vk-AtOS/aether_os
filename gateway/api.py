@@ -14,6 +14,14 @@ Routes:
   GET  /health              — health check
 """
 from __future__ import annotations
+import sys as _sys
+import pathlib as _pathlib
+# Ensure aether_os package is importable regardless of CWD / how uvicorn is invoked.
+# __file__ is .../aether_os/gateway/api.py → parent.parent.parent is ~/Desktop/
+_pkg_root = str(_pathlib.Path(__file__).resolve().parent.parent.parent)
+if _pkg_root not in _sys.path:
+    _sys.path.insert(0, _pkg_root)
+
 import logging
 import os
 import pathlib
