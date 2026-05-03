@@ -93,8 +93,7 @@ async def submit_feedback(project_id: str, body: FeedbackBody):
         import time
         entry = {"timestamp": time.time(), "feedback": body.feedback, "phase": body.phase}
         with open(feedback_file, "a") as f:
-            f.write(json.dumps(entry) + "
-")
+            f.write(json.dumps(entry) + "\n")
         return {"project_id": project_id, "message": "Feedback recorded", "entry": entry}
     except Exception as e:
         raise HTTPException(500, str(e))
