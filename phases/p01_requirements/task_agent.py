@@ -62,7 +62,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     output_dir.mkdir(parents=True, exist_ok=True)
     data = phase_input.input_data
     raw = data.get("structured_requirements", data.get("raw_text", str(data)))
+    domain = data.get("domain", "general")
     llm = get_llm_client()
+    
+    from aether_os.core.domain_engine import get_domain_profile
+    profile = get_domain_profile(domain)
 
     # If short, research the domain first (optional, keeping for quality)
     research_context = ""
@@ -70,7 +74,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         try:
             from gpt_researcher import GPTResearcher
             researcher = GPTResearcher(
-                query=f"technical requirements for: {raw}",
+                query=f"technical requirements for: {raw} in {domain} domain",
                 report_type="research_report",
             )
             await researcher.conduct_research()
@@ -82,14 +86,28 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if memory_ctx:
         mem_hint = f"\n\nPrevious similar requirements:\n{memory_ctx[0].get('output_text','')}"
 
-    prompt = f"Structure software requirements for: {raw}{research_context}{mem_hint}"
+    prompt = (
+        f"Structure software requirements for: {raw}{research_context}{mem_hint}\n\n"
+        f"Domain Profile ({profile.name}):\n"
+        f"- Required Patterns: {', '.join(profile.required_patterns)}\n"
+        f"- Security: {', '.join(profile.security_requirements)}\n"
+        f"- Compliance: {', '.join(profile.compliance_notes)}"
+    )
     
     # Use call_structured with the requested schema
     doc = await llm.call_structured(
         prompt=prompt,
-        schema_example=REQUIREMENTS_SCHEMA,
+        schema_example={**REQUIREMENTS_SCHEMA, "domain": domain},
         task_type="requirements"
     )
+
+    # Inject mandatory domain NFRs if missing
+    if domain != "general":
+        nfrs = doc.get("non_functional_requirements", [])
+        for pattern in profile.required_patterns:
+            if pattern not in str(nfrs):
+                nfrs.append(f"Mandatory Pattern: {pattern}")
+        doc["non_functional_requirements"] = nfrs
 
     # Fill missing keys with defaults
     doc = apply_defaults(doc, raw)
@@ -120,7 +138,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     return TaskResult(
         output_path=str(out_json), # Gate now expects the JSON file for validation
         confidence=0.9,
-        metadata={"json_path": str(out_json), "markdown_path": str(out_md)},
+        metadata={
+            "json_path": str(out_json), 
+            "markdown_path": str(out_md),
+            "requirements_doc": doc,
+            "domain": domain
+        },
         issues=[],
         success=True,
     )

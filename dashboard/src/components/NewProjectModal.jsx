@@ -1,18 +1,66 @@
 import React, { useState, useEffect } from 'react';
-import { X, Rocket, Loader2 } from 'lucide-react';
+import { X, Rocket, Loader2, Zap, Settings, CreditCard, HeartPulse, Cloud, ShoppingCart, Truck, BookOpen, Shield } from 'lucide-react';
 import { api } from '../api';
 import { useNavigate } from 'react-router-dom';
 
-const DOMAINS = [
-  { value: 'general',   label: 'General / SaaS' },
-  { value: 'fintech',   label: 'Fintech' },
-  { value: 'healthtech', label: 'HealthTech' },
-  { value: 'ecommerce', label: 'E-Commerce' },
-  { value: 'edtech',    label: 'EdTech' },
-  { value: 'logistics', label: 'Logistics' },
-  { value: 'analytics', label: 'Analytics' },
-  { value: 'devtools',  label: 'Developer Tools' },
-];
+const DOMAIN_DATA = {
+  general: {
+    label: 'General / SaaS',
+    icon: <Zap className="w-4 h-4" />,
+    stack: 'FastAPI, SQLite, React',
+    compliance: [],
+    description: 'Standard web application'
+  },
+  industrial: {
+    label: 'Industrial / IoT',
+    icon: <Settings className="w-4 h-4" />,
+    stack: 'TimescaleDB, MQTT, OPC-UA',
+    compliance: ['IEC 62443', 'NIST'],
+    description: 'SCADA & IoT systems'
+  },
+  fintech: {
+    label: 'Fintech',
+    icon: <CreditCard className="w-4 h-4" />,
+    stack: 'PostgreSQL (Serializable), Redis',
+    compliance: ['PCI-DSS', 'SOX'],
+    description: 'Double-entry accounting'
+  },
+  healthcare: {
+    label: 'Healthcare',
+    icon: <HeartPulse className="w-4 h-4" />,
+    stack: 'HL7/FHIR, PostgreSQL',
+    compliance: ['HIPAA', 'GDPR'],
+    description: 'Patient data management'
+  },
+  saas_multitenant: {
+    label: 'SaaS Multi-tenant',
+    icon: <Cloud className="w-4 h-4" />,
+    stack: 'PostgreSQL RLS, Stripe',
+    compliance: ['SOC2', 'GDPR'],
+    description: 'Multi-tenant SaaS'
+  },
+  ecommerce: {
+    label: 'E-Commerce',
+    icon: <ShoppingCart className="w-4 h-4" />,
+    stack: 'PostgreSQL, Meilisearch',
+    compliance: ['PCI-DSS'],
+    description: 'Orders & Inventory'
+  },
+  logistics: {
+    label: 'Logistics',
+    icon: <Truck className="w-4 h-4" />,
+    stack: 'PostGIS, Google Maps',
+    compliance: ['TAPA'],
+    description: 'Route optimization'
+  },
+  education: {
+    label: 'Education / LMS',
+    icon: <BookOpen className="w-4 h-4" />,
+    stack: 'PostgreSQL, AWS S3',
+    compliance: ['FERPA', 'COPPA'],
+    description: 'LMS & Assessments'
+  }
+};
 
 const NewProjectModal = ({ open, onClose }) => {
   const [name, setName] = useState('');
@@ -21,6 +69,8 @@ const NewProjectModal = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+
+  const currentDomain = DOMAIN_DATA[domain] || DOMAIN_DATA.general;
 
   // Reset on open
   useEffect(() => {
@@ -140,16 +190,59 @@ const NewProjectModal = ({ open, onClose }) => {
             <label className="text-xs font-semibold text-muted uppercase tracking-wider">
               Domain
             </label>
-            <select
-              value={domain}
-              onChange={(e) => setDomain(e.target.value)}
-              disabled={loading}
-              className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-bright focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-            >
-              {DOMAINS.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {Object.entries(DOMAIN_DATA).map(([key, d]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setDomain(key)}
+                  className={`flex items-start p-3 text-left border rounded-lg transition-all ${
+                    domain === key 
+                      ? 'border-accent bg-accent/5 ring-1 ring-accent' 
+                      : 'border-border bg-surface hover:border-slate-700'
+                  }`}
+                >
+                  <div className={`mt-0.5 mr-3 ${domain === key ? 'text-accent' : 'text-muted'}`}>
+                    {d.icon}
+                  </div>
+                  <div>
+                    <div className={`text-sm font-semibold ${domain === key ? 'text-bright' : 'text-slate-300'}`}>
+                      {d.label}
+                    </div>
+                    <div className="text-[10px] text-muted leading-tight mt-0.5">
+                      {d.description}
+                    </div>
+                  </div>
+                </button>
               ))}
-            </select>
+            </div>
+          </div>
+
+          {/* Domain Insights */}
+          <div className="bg-surface/50 border border-border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Settings className="w-3.5 h-3.5 text-accent" />
+                <span className="text-xs font-bold text-muted uppercase tracking-wider">Recommended Stack</span>
+              </div>
+              <span className="text-xs text-bright font-mono">{currentDomain.stack}</span>
+            </div>
+            
+            {currentDomain.compliance.length > 0 && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Shield className="w-3.5 h-3.5 text-success" />
+                  <span className="text-xs font-bold text-muted uppercase tracking-wider">Compliance</span>
+                </div>
+                <div className="flex gap-1">
+                  {currentDomain.compliance.map(c => (
+                    <span key={c} className="text-[10px] bg-success/10 text-success border border-success/20 px-1.5 py-0.5 rounded">
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Error */}

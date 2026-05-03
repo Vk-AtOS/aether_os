@@ -17,6 +17,7 @@ from aether_os.core.llm.client import get_llm_client
 logger = logging.getLogger(__name__)
 
 ARCHITECTURE_SCHEMA = {
+    "domain": "general",
     "tech_stack": {
         "backend": "FastAPI",
         "frontend": "React",
@@ -111,11 +112,14 @@ def _extract_resources(raw_input: str) -> List[Dict]:
     return found
 
 
-def _build_fallback_architecture(raw_input: str) -> dict:
+def _build_fallback_architecture(raw_input: str, domain: str = "general") -> dict:
     """
     Build a domain-aware architecture dict when the LLM is unavailable.
     Never returns a generic hello-world — always reflects the requirement.
     """
+    from aether_os.core.domain_engine import get_domain_profile
+    profile = get_domain_profile(domain)
+    
     resources = _extract_resources(raw_input)
     primary = resources[0] if resources else {"resource": "item", "table": "items",
                                                "columns": ["id", "name", "created_at"]}
@@ -163,10 +167,13 @@ def _build_fallback_architecture(raw_input: str) -> dict:
             "description": f"Create {r['resource']}", "auth": True,
         })
 
+    stack = {**TECH_STACK_DEFAULTS, **profile.suggested_tech_stack}
+    db_type = stack.get("database", "PostgreSQL")
+
     component_diagram = (
         f"graph TD\n"
         f"  Client --> API[FastAPI]\n"
-        f"  API --> DB[(PostgreSQL)]\n"
+        f"  API --> DB[({db_type})]\n"
         f"  API --> Auth[JWT Auth]\n"
         f"  subgraph Resources\n"
         + "".join(f"    API --> {r['table'].title()}[{r['table'].title()}]\n"
@@ -175,7 +182,7 @@ def _build_fallback_architecture(raw_input: str) -> dict:
     )
 
     return {
-        "tech_stack": dict(TECH_STACK_DEFAULTS),
+        "tech_stack": stack,
         "component_diagram": component_diagram,
         "database_schema": db_schema,
         "api_endpoints": endpoints,
@@ -190,20 +197,17 @@ def _build_fallback_architecture(raw_input: str) -> dict:
             f"  {res_table.title()}Service-->>API: Result\n"
             "  API-->>Client: JSON Response"
         ),
-        "security_considerations": [
-            "JWT authentication with refresh tokens",
+        "security_considerations": profile.security_requirements + [
             "Pydantic input validation on all endpoints",
-            "Rate limiting via SlowAPI",
             "SQL injection prevention via ORM",
-            "CORS restricted to known origins",
         ],
         "scalability_notes": (
             f"Stateless FastAPI app — scale horizontally behind nginx. "
-            f"PostgreSQL with read replicas for {res_table}. "
-            f"Redis cache for hot {res_name} reads."
+            f"{db_type} with read replicas for {res_table}. "
         ),
         "_fallback": True,
         "_detected_resources": [r["resource"] for r in resources],
+        "domain": domain
     }
 
 
@@ -229,6 +233,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     raw_input   = data.get("raw_input", "")
     requirements = data.get("requirements_doc",
                             data.get("structured_requirements", raw_input or str(data)))
+    domain = data.get("domain", "general")
+
+    from aether_os.core.domain_engine import get_domain_profile
+    profile = get_domain_profile(domain)
 
     out_json = output_dir / "architecture.json"
     out_md   = output_dir / "architecture.md"
@@ -241,16 +249,30 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         prompt = (
             f"Design a complete software architecture for the following requirements:\n\n"
             f"{requirements}\n\n"
+            f"Domain: {profile.name}\n"
+            f"Preferred Database: {profile.preferred_db}\n"
+            f"Suggested Stack: {json.dumps(profile.suggested_tech_stack)}\n"
+            f"Mandatory Patterns: {', '.join(profile.required_patterns)}\n"
+            f"Security: {', '.join(profile.security_requirements)}\n"
+            f"Example Entities to consider: {', '.join(profile.example_entities)}\n\n"
             f"Focus on: tech stack choices, database schema, API endpoints, security."
         )
+        # Seed the schema example with domain defaults
+        schema_example = dict(ARCHITECTURE_SCHEMA)
+        schema_example["domain"] = domain
+        schema_example["tech_stack"] = {**TECH_STACK_DEFAULTS, **profile.suggested_tech_stack}
+        if "database" in profile.suggested_tech_stack:
+            schema_example["tech_stack"]["database"] = profile.suggested_tech_stack["database"]
+        schema_example["security_considerations"] = profile.security_requirements + ["Input validation"]
+        
         doc = await llm.call_structured(
             prompt=prompt,
-            schema_example=ARCHITECTURE_SCHEMA,
+            schema_example=schema_example,
             task_type="architecture",
         )
         # call_structured never raises but may return the schema example on total failure
         # Detect total failure: if parse_error flag is set or doc is identical to schema
-        if doc.get("parse_error") or doc is ARCHITECTURE_SCHEMA:
+        if doc.get("parse_error") or doc.get("tech_stack") == ARCHITECTURE_SCHEMA["tech_stack"]:
             raise ValueError("LLM returned unparseable response")
     except Exception as e:
         logger.warning("[p02] LLM call failed (%s), using intelligent fallback", e)
@@ -259,7 +281,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Apply fallback if LLM produced nothing useful ────────────────────────
     if not doc or not doc.get("api_endpoints") or used_fallback:
-        fallback = _build_fallback_architecture(raw_input or requirements)
+        fallback = _build_fallback_architecture(raw_input or requirements, domain=domain)
         # Merge: keep any valid LLM fields, fill gaps with fallback
         for key, val in fallback.items():
             if not doc.get(key):

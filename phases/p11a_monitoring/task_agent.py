@@ -13,12 +13,40 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     arch_json = data.get("architecture_json", {})
     project_name = data.get("project_name", "app")
     project_dir = Path(data.get("project_dir", str(output_dir)))
+    domain = data.get("domain", "general")
     llm = get_llm_client()
+
+    from aether_os.core.domain_engine import get_domain_profile
+    profile = get_domain_profile(domain)
 
     mon_dir = output_dir / "monitoring"
     mon_dir.mkdir(exist_ok=True)
     grafana_dir = mon_dir / "grafana" / "dashboards"
     grafana_dir.mkdir(parents=True, exist_ok=True)
+
+    # alert_rules.yml
+    alert_rules = f"""groups:
+  - name: {project_name}_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{{status=~"5.."}}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected on {project_name}"
+"""
+    if domain == "industrial":
+        alert_rules += """
+      - alert: SensorThresholdExceeded
+        expr: sensor_reading_value > 90
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Industrial sensor threshold exceeded"
+"""
+    (mon_dir / "alert_rules.yml").write_text(alert_rules)
 
     # prometheus.yml
     prometheus_yml = f"""global:
@@ -30,7 +58,15 @@ scrape_configs:
     static_configs:
       - targets: ["app:8000"]
     metrics_path: /metrics
-
+"""
+    if domain == "saas_multitenant":
+        prometheus_yml += """
+    metric_relabel_configs:
+      - source_labels: [org_id]
+        target_label: tenant
+"""
+    
+    prometheus_yml += """
   - job_name: "node_exporter"
     static_configs:
       - targets: ["node-exporter:9100"]
@@ -54,10 +90,24 @@ alerting:
         "title": f"{project_name} RED Metrics",
         "panels": [
             {"title": "Request Rate", "type": "graph", "targets": [{"expr": "rate(http_requests_total[5m])"}]},
-            {"title": "Error Rate", "type": "graph", "targets": [{"expr": "rate(http_requests_total{{status=~\"5..\"}}[5m])"}]},
+            {"title": "Error Rate", "type": "graph", "targets": [{"expr": "rate(http_requests_total{status=~\"5..\"}[5m])"}]},
             {"title": "P95 Latency", "type": "graph", "targets": [{"expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))"}]},
         ]
     }
+    
+    if domain == "saas_multitenant":
+        red_dashboard["panels"].append({
+            "title": "Requests per Tenant",
+            "type": "graph",
+            "targets": [{"expr": "sum by (org_id) (rate(http_requests_total[5m]))"}]
+        })
+    elif domain == "industrial":
+        red_dashboard["panels"].append({
+            "title": "Sensor Activity",
+            "type": "graph",
+            "targets": [{"expr": "rate(sensor_reading_total[5m])"}]
+        })
+
     resources_dashboard = {
         "title": f"{project_name} Resources",
         "panels": [
