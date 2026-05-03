@@ -213,7 +213,7 @@ async def test_gemini_primary():
             result = await client.call("Say hello", task_type="documentation")
 
         assert result == "Hello from Gemini"
-        assert client.last_provider == "ollama"  # Should be ollama now
+        assert client.last_provider == "gemini"
     finally:
         del os.environ["GOOGLE_API_KEY"]
         if old_anthropic:
@@ -240,13 +240,14 @@ async def test_anthropic_takes_priority():
              patch("aether_os.core.llm.client._call_gemini", new_callable=AsyncMock) as mock_gem, \
              patch("aether_os.core.llm.client._call_ollama_with_model", new_callable=AsyncMock) as mock_ollama:
             mock_ant.return_value = "Hello from Anthropic"
+            mock_gem.return_value = "Hello from Gemini"
             mock_ollama.return_value = "Hello from Ollama"
             client = llm_mod.LLMClient()
             result = await client.call("Say hello", task_type="code_generation")
 
-        assert result == "Hello from Ollama"
-        assert client.last_provider == "ollama"
-        mock_ant.assert_not_called()
+        assert result == "Hello from Anthropic"
+        assert client.last_provider == "anthropic"
+        mock_ant.assert_called_once()
         mock_gem.assert_not_called()
     finally:
         del os.environ["ANTHROPIC_API_KEY"]

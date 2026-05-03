@@ -87,20 +87,32 @@ class PipelineStartResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
+    email: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    org_name: str
 
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_hours: int = 24
+    org_slug: str
+    org_id: str
+    plan: str
 
 
 class ApproveRequest(BaseModel):
     ticket_id: str
     decision: str  # "approve" | "deny"
     reason: Optional[str] = None
+
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str
 
 
 class ApiKeyRequest(BaseModel):
@@ -130,20 +142,54 @@ class RerunRequest(BaseModel):
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> Dict[str, Any]:
-    """FastAPI dependency: validates JWT token, returns user claims."""
+    """FastAPI dependency: validates JWT token or API Key, returns user claims."""
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
         )
-    from aether_os.gateway.auth import decode_access_token
-    payload = decode_access_token(credentials.credentials)
-    if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
-    return payload
+    
+    token = credentials.credentials
+    from aether_os.gateway.auth import decode_access_token, hash_api_key
+    
+    # 1. Try JWT
+    payload = decode_access_token(token)
+    if payload:
+        return payload
+    
+    # 2. Try API Key
+    if token.startswith("aesk_"):
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import APIKey, Organisation
+        from sqlalchemy import select
+        
+        hashed = hash_api_key(token)
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(APIKey, Organisation).join(Organisation).where(
+                APIKey.key_hash == hashed,
+                APIKey.is_active == True
+            )
+            result = await session.execute(stmt)
+            row = result.fetchone()
+            if row:
+                api_key, org = row
+                # Update last_used_at (optional, but good for UX)
+                api_key.last_used_at = time.time()
+                await session.commit()
+                
+                return {
+                    "sub": "api_key",
+                    "org_id": org.id,
+                    "org_slug": org.slug,
+                    "plan": org.plan,
+                    "role": "api"
+                }
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+    )
 
 
 # ── App factory ────────────────────────────────────────────────────────────────
@@ -252,28 +298,193 @@ def create_app() -> FastAPI:
             "version": "1.0.0",
         }
 
+    @app.post("/auth/register", response_model=LoginResponse)
+    async def register(req: RegisterRequest) -> LoginResponse:
+        """Register a new organisation and owner user."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation, User
+        from aether_os.gateway.auth import get_password_hash, create_access_token
+        from sqlalchemy import select
+        import uuid
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            # Check if email exists
+            stmt = select(User).where(User.email == req.email)
+            result = await session.execute(stmt)
+            if result.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Email already registered")
+
+            # Create org
+            slug = req.org_name.lower().replace(" ", "-")
+            org = Organisation(
+                id=str(uuid.uuid4()),
+                name=req.org_name,
+                slug=slug,
+                plan="trial"
+            )
+            session.add(org)
+
+            # Create owner user
+            user = User(
+                id=str(uuid.uuid4()),
+                org_id=org.id,
+                email=req.email,
+                password_hash=get_password_hash(req.password),
+                role="owner"
+            )
+            session.add(user)
+            await session.commit()
+
+            token = create_access_token({
+                "sub": user.email,
+                "user_id": user.id,
+                "org_id": org.id,
+                "org_slug": org.slug,
+                "role": user.role,
+                "plan": org.plan
+            })
+            return LoginResponse(
+                access_token=token,
+                org_slug=org.slug,
+                org_id=org.id,
+                plan=org.plan
+            )
+
     @app.post("/auth/login", response_model=LoginResponse)
     async def login(req: LoginRequest) -> LoginResponse:
-        """
-        Authenticate and return a JWT token.
-        TODO: wire to real user DB via core/identity/identity.py
-        """
-        # Minimal auth: check env-configured admin credentials
-        admin_user = os.environ.get("AETHER_ADMIN_USER", "admin")
-        admin_pass = os.environ.get("AETHER_ADMIN_PASSWORD", "")
-        if not admin_pass:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AETHER_ADMIN_PASSWORD not configured",
+        """Authenticate and return a JWT token."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation, User
+        from aether_os.gateway.auth import verify_password, create_access_token
+        from sqlalchemy import select
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(User, Organisation).join(Organisation).where(User.email == req.email)
+            result = await session.execute(stmt)
+            row = result.fetchone()
+            
+            if not row or not verify_password(req.password, row[0].password_hash):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid credentials",
+                )
+            
+            user, org = row
+            token = create_access_token({
+                "sub": user.email,
+                "user_id": user.id,
+                "org_id": org.id,
+                "org_slug": org.slug,
+                "role": user.role,
+                "plan": org.plan
+            })
+            return LoginResponse(
+                access_token=token,
+                org_slug=org.slug,
+                org_id=org.id,
+                plan=org.plan
             )
-        if req.username != admin_user or req.password != admin_pass:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
+
+    @app.post("/auth/api-keys")
+    async def create_api_key(
+        req: ApiKeyCreateRequest,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Create a new API key for the current organisation."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import APIKey
+        from aether_os.gateway.auth import generate_api_key, hash_api_key
+        import uuid
+
+        org_id = user.get("org_id")
+        raw_key = generate_api_key()
+        hashed = hash_api_key(raw_key)
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            api_key = APIKey(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                key_hash=hashed,
+                name=req.name
             )
-        from aether_os.gateway.auth import create_access_token
-        token = create_access_token({"sub": req.username, "role": "admin"})
-        return LoginResponse(access_token=token)
+            session.add(api_key)
+            await session.commit()
+
+        return {
+            "api_key": raw_key,
+            "name": req.name,
+            "message": "Store this key safely. It will not be shown again."
+        }
+
+    @app.get("/account/usage")
+    async def get_usage(
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Get current usage and limits for the organisation."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
+
+        org_id = user.get("org_id")
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(Organisation).where(Organisation.id == org_id)
+            result = await session.execute(stmt)
+            org = result.scalar_one_or_none()
+            if not org:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            
+            return {
+                "plan": org.plan,
+                "runs_used": org.trial_runs_used,
+                "runs_limit": org.trial_runs_limit,
+                "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used)
+            }
+
+    @app.get("/pricing")
+    async def pricing():
+        """Return pricing information."""
+        from fastapi.responses import HTMLResponse
+        html = """
+        <html>
+        <head><title>AetherOS Pricing</title></head>
+        <body style="font-family: sans-serif; padding: 40px; line-height: 1.6;">
+            <h1>AetherOS Plans</h1>
+            <div style="display: flex; gap: 20px;">
+                <div style="border: 1px solid #ccc; padding: 20px; border-radius: 8px; flex: 1;">
+                    <h2>Trial</h2>
+                    <p>Free</p>
+                    <ul>
+                        <li>3 Pipeline Runs</li>
+                        <li>Standard Agents</li>
+                    </ul>
+                </div>
+                <div style="border: 1px solid #007bff; padding: 20px; border-radius: 8px; flex: 1; background: #f0f7ff;">
+                    <h2>Pro</h2>
+                    <p>₹2,00,000 One-time</p>
+                    <ul>
+                        <li>Unlimited Runs</li>
+                        <li>Priority Support</li>
+                        <li>Custom Agents</li>
+                    </ul>
+                </div>
+                <div style="border: 1px solid #ccc; padding: 20px; border-radius: 8px; flex: 1;">
+                    <h2>Enterprise</h2>
+                    <p>Custom</p>
+                    <ul>
+                        <li>On-premise deployment</li>
+                        <li>SLA Guarantees</li>
+                        <li>Dedicated Infrastructure</li>
+                    </ul>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html)
 
     @app.post("/pipeline/start", response_model=PipelineStartResponse)
     async def start_pipeline(
@@ -282,20 +493,44 @@ def create_app() -> FastAPI:
     ) -> PipelineStartResponse:
         """Start a new pipeline run."""
         from aether_os.orchestrator.pipeline import get_pipeline
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
         import asyncio
 
+        org_id = user.get("org_id")
+        
+        # Trial check
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(Organisation).where(Organisation.id == org_id)
+            result = await session.execute(stmt)
+            org = result.scalar_one_or_none()
+            
+            if org and org.plan == "trial" and org.trial_runs_used >= org.trial_runs_limit:
+                raise HTTPException(
+                    status_code=402, 
+                    detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"}
+                )
+            
+            if org:
+                org.trial_runs_used += 1
+                await session.commit()
+
         pipeline = get_pipeline()
-        logger.info("Pipeline start requested by %s: %s", user.get("sub"), req.requirement[:60])
+        logger.info("Pipeline start requested by %s (org: %s): %s", user.get("sub"), org_id, req.requirement[:60])
 
         # Run async (non-blocking — returns immediately with run_id)
         async def _run_bg():
             try:
+                # We need to pass org_id to pipeline.run
                 result = await pipeline.run(
                     requirement=req.requirement,
                     project_name=req.project_name,
                     language=req.language,
                     output_dir=req.output_dir,
                     max_retries=req.max_retries,
+                    org_id=org_id,
                 )
                 logger.info("Pipeline completed: run_id=%s status=%s", result.get("run_id"), result.get("status"))
             except Exception as exc:
@@ -303,14 +538,13 @@ def create_app() -> FastAPI:
 
         asyncio.create_task(_run_bg())
 
-        # Return a placeholder run_id immediately
-        # The actual run_id is assigned inside pipeline.run
-        # For immediate response, create context first
+        # Create context with org_id
         from aether_os.orchestrator.context import ExecutionContext
         ctx = ExecutionContext(
             requirement=req.requirement,
             project_name=req.project_name,
             language=req.language,
+            org_id=org_id,
         )
 
         return PipelineStartResponse(
@@ -326,7 +560,8 @@ def create_app() -> FastAPI:
     ) -> Dict[str, Any]:
         """Get status of a pipeline run."""
         from aether_os.core.audit.ledger import get_ledger
-        detail = get_ledger().get_run_detail(run_id)
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
         if not detail:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
         return detail
@@ -372,11 +607,33 @@ def create_app() -> FastAPI:
     ) -> Dict[str, Any]:
         """Start a new factory pipeline run (10-phase path)."""
         from aether_os.orchestrator.factory_pipeline import get_factory
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
         import uuid as _uuid
+
+        org_id = user.get("org_id")
+        
+        # Trial check
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(Organisation).where(Organisation.id == org_id)
+            result = await session.execute(stmt)
+            org = result.scalar_one_or_none()
+            
+            if org and org.plan == "trial" and org.trial_runs_used >= org.trial_runs_limit:
+                raise HTTPException(
+                    status_code=402, 
+                    detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"}
+                )
+            
+            if org:
+                org.trial_runs_used += 1
+                await session.commit()
 
         factory = get_factory()
 
-        client_id = req.get("client_id", "anonymous")
+        client_id = req.get("client_id", user.get("org_slug", "anonymous"))
         raw_input = req.get("raw_input", req.get("requirement", ""))
         domain = req.get("domain", "general")
         project_name = req.get("project_name")
@@ -395,6 +652,7 @@ def create_app() -> FastAPI:
                     domain=domain,
                     project_name=project_name,
                     run_id=run_id,
+                    org_id=org_id,
                 )
             except Exception as exc:
                 logger.error("Background factory run failed: %s", exc)
@@ -413,10 +671,11 @@ def create_app() -> FastAPI:
     async def list_factory_runs(
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> List[Dict[str, Any]]:
-        """List all pipeline runs with dashboard-compatible formatting."""
+        """List all pipeline runs for the organisation."""
         try:
             from aether_os.core.audit.ledger import get_ledger
-            history = get_ledger().get_run_history(limit=100)
+            org_id = user.get("org_id")
+            history = get_ledger().get_run_history(org_id=org_id, limit=100)
 
             # Pull latest phase per run from phase_completions
             phase_map: Dict[str, str] = {}
@@ -425,9 +684,10 @@ def create_app() -> FastAPI:
                 try:
                     with sqlite3.connect(str(db_path)) as _conn:
                         rows = _conn.execute(
-                            "SELECT run_id, phase_name FROM phase_completions "
-                            "WHERE phase_name != 'pipeline' "
-                            "ORDER BY updated_at DESC"
+                            "SELECT pc.run_id, pc.phase_name FROM phase_completions pc "
+                            "JOIN runs r ON pc.run_id = r.id "
+                            "WHERE pc.phase_name != 'pipeline' AND r.org_id = ? "
+                            "ORDER BY pc.updated_at DESC", (org_id,)
                         ).fetchall()
                         for _rid, _phase in rows:
                             if _rid not in phase_map:
@@ -488,9 +748,10 @@ def create_app() -> FastAPI:
         run_id: str,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Get detail for a single pipeline run, including phase_completions."""
+        """Get detail for a single pipeline run."""
         from aether_os.core.audit.ledger import get_ledger
-        detail = get_ledger().get_run_detail(run_id)
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
         if not detail:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -593,7 +854,13 @@ def create_app() -> FastAPI:
         run_id: str,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Signal the pipeline to pause after the current phase completes."""
+        """Signal the pipeline to pause."""
+        from aether_os.core.audit.ledger import get_ledger
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
         from aether_os.orchestrator.factory_pipeline import PIPELINE_CONTROL
         from aether_os.core.audit.ledger import get_ledger as _get_ledger
         PIPELINE_CONTROL[run_id] = "pause"
@@ -606,6 +873,12 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Resume a paused pipeline run."""
+        from aether_os.core.audit.ledger import get_ledger
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
         from aether_os.orchestrator.factory_pipeline import PIPELINE_CONTROL
         from aether_os.core.audit.ledger import get_ledger as _get_ledger
         PIPELINE_CONTROL[run_id] = None
@@ -618,6 +891,12 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Cancel a running or paused pipeline run."""
+        from aether_os.core.audit.ledger import get_ledger
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
         from aether_os.orchestrator.factory_pipeline import PIPELINE_CONTROL
         from aether_os.core.audit.ledger import get_ledger as _get_ledger
         PIPELINE_CONTROL[run_id] = "cancel"
@@ -630,18 +909,17 @@ def create_app() -> FastAPI:
         req: PriorityRequest,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Set the priority label for a run (stored in run_metadata table)."""
+        """Set the priority label for a run."""
+        from aether_os.core.audit.ledger import get_ledger
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
         if req.priority not in ("high", "normal", "low"):
             raise HTTPException(status_code=400, detail="priority must be high | normal | low")
         _db = pathlib.Path.home() / ".aether_os" / "aether_os.db"
         with sqlite3.connect(str(_db)) as _conn:
-            _conn.execute("""
-                CREATE TABLE IF NOT EXISTS run_metadata (
-                    run_id TEXT PRIMARY KEY,
-                    priority TEXT,
-                    updated_at REAL
-                )
-            """)
             _conn.execute("""
                 INSERT OR REPLACE INTO run_metadata (run_id, priority, updated_at)
                 VALUES (?, ?, ?)
@@ -655,14 +933,30 @@ def create_app() -> FastAPI:
         req: RerunRequest,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Create a new run starting from a given phase, using the same input."""
+        """Create a new run starting from a given phase."""
         import uuid as _uuid
         from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
         from aether_os.core.audit.ledger import get_ledger as _get_ledger
 
-        detail = _get_ledger().get_run_detail(run_id)
+        org_id = user.get("org_id")
+        detail = _get_ledger().get_run_detail(run_id, org_id=org_id)
         if not detail:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+        # Trial check
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(Organisation).where(Organisation.id == org_id)
+            result = await session.execute(stmt)
+            org = result.scalar_one_or_none()
+            if org and org.plan == "trial" and org.trial_runs_used >= org.trial_runs_limit:
+                raise HTTPException(status_code=402, detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"})
+            if org:
+                org.trial_runs_used += 1
+                await session.commit()
 
         cmd = detail.get("command", "")
         raw_input = cmd[9:] if cmd.startswith("factory: ") else cmd
@@ -672,10 +966,11 @@ def create_app() -> FastAPI:
         async def _bg():
             try:
                 await factory.run(
-                    client_id="rerun",
+                    client_id=user.get("org_slug", "rerun"),
                     raw_input=raw_input,
                     start_phase=req.from_phase,
                     run_id=new_run_id,
+                    org_id=org_id,
                 )
             except Exception as exc:
                 logger.error("Rerun failed: %s", exc)
@@ -688,22 +983,24 @@ def create_app() -> FastAPI:
         run_id: str,
         token: Optional[str] = None,
     ):
-        """
-        Server-Sent Events stream for live pipeline output.
-        EventSource can't send Authorization headers, so the JWT is accepted
-        as a ?token= query param or via the standard Bearer header.
-        """
-        from fastapi.responses import StreamingResponse
+        """Server-Sent Events stream for live pipeline output."""
+        from fastapi.responses import StreamingResponse, Response
         from aether_os.orchestrator.events import PIPELINE_EVENTS
+        from aether_os.gateway.auth import decode_access_token
+        from aether_os.core.audit.ledger import get_ledger
 
-        # Auth: accept token as query param (EventSource limitation)
+        # Auth
+        payload = None
         if token:
-            from aether_os.gateway.auth import decode_access_token
             payload = decode_access_token(token)
-            if payload is None:
-                from fastapi.responses import Response
-                return Response(status_code=401, content="Invalid token")
-        # If no query token, allow unauthenticated (local dev — pipeline is localhost-only)
+        
+        if not payload:
+            return Response(status_code=401, content="Invalid token")
+        
+        org_id = payload.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            return Response(status_code=404, content="Run not found or access denied")
 
         async def event_generator():
             q = PIPELINE_EVENTS.get(run_id)
@@ -737,11 +1034,15 @@ def create_app() -> FastAPI:
         run_id: str,
         user: Dict[str, Any] = Depends(get_current_user),
     ):
-        """Serve the generated index.html from p05_frontend with Content-Type: text/html."""
+        """Serve the generated index.html."""
         from fastapi.responses import HTMLResponse
         from aether_os.core.audit.ledger import get_ledger as _get_ledger
 
-        run_detail = _get_ledger().get_run_detail(run_id)
+        org_id = user.get("org_id")
+        run_detail = _get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+        
         project_id = run_id
         if run_detail and "project_id" in run_detail:
             project_id = run_detail["project_id"]
@@ -921,12 +1222,13 @@ def create_app() -> FastAPI:
     ) -> Dict[str, Any]:
         """Recursive file tree for a run's output directory."""
         from aether_os.core.projects import get_project_manager
-        
-        # In this system, run_id is often used interchangeably with project_id 
-        # for directory lookups in simple cases, but the ledger links them.
-        # We'll try project_id from ledger first, fallback to run_id.
         from aether_os.core.audit.ledger import get_ledger
-        run_detail = get_ledger().get_run_detail(run_id)
+        
+        org_id = user.get("org_id")
+        run_detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
         project_id = run_id
         if run_detail and "project_id" in run_detail:
              project_id = run_detail["project_id"]
@@ -971,11 +1273,15 @@ def create_app() -> FastAPI:
         path: str,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Read file content with security checks and truncation."""
+        """Read file content."""
         from aether_os.core.projects import get_project_manager
         from aether_os.core.audit.ledger import get_ledger
         
-        run_detail = get_ledger().get_run_detail(run_id)
+        org_id = user.get("org_id")
+        run_detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
         project_id = run_id
         if run_detail and "project_id" in run_detail:
              project_id = run_detail["project_id"]
@@ -1235,7 +1541,13 @@ def create_app() -> FastAPI:
         run_id: str,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Manually trigger Docker deployment for a completed run."""
+        """Manually trigger Docker deployment."""
+        from aether_os.core.audit.ledger import get_ledger
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
         import subprocess as _sp
         from types import SimpleNamespace
         from aether_os.phases.p11_deployment.task_agent import TaskAgent
@@ -1276,7 +1588,13 @@ def create_app() -> FastAPI:
         run_id: str,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Stop the running Docker container for this run."""
+        """Stop the running Docker container."""
+        from aether_os.core.audit.ledger import get_ledger
+        org_id = user.get("org_id")
+        detail = get_ledger().get_run_detail(run_id, org_id=org_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
         import subprocess as _sp
         container_name = f"aetheros-app-{run_id[:8]}"
         result = _sp.run(

@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 def _make_app(tmp_path=None):
     """Create a test app with required env vars set."""
     os.environ["AETHER_SECRET_KEY"] = "test-secret-key-32-chars-minimum"
-    os.environ["AETHER_ADMIN_USER"] = "testadmin"
-    os.environ["AETHER_ADMIN_PASSWORD"] = "testpass123"
+    os.environ["AETHER_ADMIN_EMAIL"] = "admin@aetheros.ai"
+    os.environ["AETHER_ADMIN_PASSWORD"] = "admin"
     os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 
     if tmp_path:
@@ -28,6 +28,10 @@ def _make_app(tmp_path=None):
     # Reset singletons before creating app
     import aether_os.core.config.loader as cfg_mod
     cfg_mod.AetherConfig._instance = None
+    
+    import aether_os.core.db as db_mod
+    db_mod._engine = None
+    db_mod._session_factory = None
 
     from aether_os.gateway.api import create_app
     return create_app()
@@ -37,6 +41,12 @@ def _make_app(tmp_path=None):
 def client(tmp_path):
     app = _make_app(tmp_path)
     with TestClient(app, raise_server_exceptions=False) as c:
+        # Register a default user for login tests
+        c.post("/auth/register", json={
+            "email": "testadmin@example.com",
+            "password": "testpass123",
+            "org_name": "Test Org"
+        })
         yield c
 
 
@@ -50,7 +60,7 @@ def test_health_endpoint(client):
 
 def test_login_success(client):
     resp = client.post("/auth/login", json={
-        "username": "testadmin",
+        "email": "testadmin@example.com",
         "password": "testpass123",
     })
     assert resp.status_code == 200
@@ -61,7 +71,7 @@ def test_login_success(client):
 
 def test_login_wrong_password(client):
     resp = client.post("/auth/login", json={
-        "username": "testadmin",
+        "email": "testadmin@example.com",
         "password": "wrongpassword",
     })
     assert resp.status_code == 401
@@ -75,7 +85,7 @@ def test_protected_endpoint_without_token(client):
 def test_protected_endpoint_with_token(client):
     # Get token
     login_resp = client.post("/auth/login", json={
-        "username": "testadmin",
+        "email": "testadmin@example.com",
         "password": "testpass123",
     })
     token = login_resp.json()["access_token"]
@@ -102,7 +112,7 @@ def test_pipeline_start_with_auth(client, tmp_path):
 
     # Get token
     login_resp = client.post("/auth/login", json={
-        "username": "testadmin",
+        "email": "testadmin@example.com",
         "password": "testpass123",
     })
     token = login_resp.json()["access_token"]

@@ -48,6 +48,7 @@ class DecisionLedger:
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY,
                     command TEXT,
+                    org_id TEXT,
                     status TEXT,
                     started_at REAL,
                     finished_at REAL
@@ -73,12 +74,12 @@ class DecisionLedger:
             conn.commit()
             conn.close()
 
-    def save_run(self, run_id: str, command: str, status: str = "running") -> None:
+    def save_run(self, run_id: str, command: str, org_id: Optional[str] = None, status: str = "running") -> None:
         with self._lock:
             conn = sqlite3.connect(self.db_path)
             conn.execute(
-                "INSERT OR REPLACE INTO runs (id, command, status, started_at) VALUES (?, ?, ?, ?)",
-                (run_id, command, status, time.time()),
+                "INSERT OR REPLACE INTO runs (id, command, org_id, status, started_at) VALUES (?, ?, ?, ?, ?)",
+                (run_id, command, org_id, status, time.time()),
             )
             conn.commit()
             conn.close()
@@ -110,21 +111,30 @@ class DecisionLedger:
             conn.commit()
             conn.close()
 
-    def get_run_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_run_history(self, org_id: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
         with self._lock:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            if org_id:
+                rows = conn.execute(
+                    "SELECT * FROM runs WHERE org_id = ? ORDER BY started_at DESC LIMIT ?", (org_id, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
+                ).fetchall()
             conn.close()
         return [dict(r) for r in rows]
 
-    def get_run_detail(self, run_id: str) -> Dict[str, Any]:
+    def get_run_detail(self, run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
         with self._lock:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
-            run_row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            if org_id:
+                run_row = conn.execute("SELECT * FROM runs WHERE id=? AND org_id=?", (run_id, org_id)).fetchone()
+            else:
+                run_row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+            
             if not run_row:
                 conn.close()
                 return {}

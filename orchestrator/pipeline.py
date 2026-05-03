@@ -112,6 +112,7 @@ class Pipeline:
         language: str = "python",
         output_dir: Optional[str] = None,
         max_retries: int = 3,
+        org_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run the full pipeline from requirement to packaged output.
@@ -127,10 +128,11 @@ class Pipeline:
             language=language,
             output_dir=output_dir,
             max_retries=max_retries or cfg.get("pipeline.max_retries", 3),
+            org_id=org_id,
         )
 
         sm = PipelineStateMachine(run_id=ctx.run_id)
-        self.ledger.save_run(ctx.run_id, f"pipeline: {requirement[:50]}", "running")
+        self.ledger.save_run(ctx.run_id, f"pipeline: {requirement[:50]}", org_id=org_id, status="running")
 
         logger.info("Pipeline starting [run=%s] requirement=%s", ctx.run_id, requirement[:60])
         pipeline_start = time.time()
