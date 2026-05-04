@@ -23,10 +23,9 @@ async def test_multi_tenancy_workflow():
     app = create_app()
     # Use a fresh in-memory DB for testing
     import os
-    from aether_os.core.db import _engine, _session_factory
-    global _engine, _session_factory
-    _engine = None
-    _session_factory = None
+    import aether_os.core.db
+    aether_os.core.db._engine = None
+    aether_os.core.db._session_factory = None
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
     os.environ["AETHER_SECRET_KEY"] = "test-secret-key-12345678901234567890"
     
