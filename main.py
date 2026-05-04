@@ -102,7 +102,8 @@ def start(
         f"\n  AetherOS v1.0.0 starting...\n\n"
         f"  Dashboard:  http://localhost:{port}/dashboard\n"
         f"  API:        http://localhost:{port}\n"
-        f"  API Docs:   http://localhost:{port}/docs\n\n"
+        f"  API Docs:   http://localhost:{port}/docs\n"
+        f"  MCP:        http://localhost:{port}/mcp/ (in-process)\n\n"
         f"  LLM Provider: {llm_label}\n"
         f"  Tests:        153 passing\n"
     )

@@ -298,7 +298,7 @@ class FactoryPipeline:
 
         duration = time.time() - pipeline_start
 
-        # Emit pipeline_complete so SSE clients know to close the stream
+        # Emit pipeline_complete immediately so SSE clients are not blocked
         _q = PIPELINE_EVENTS.get(run_id)
         if _q:
             try:
@@ -310,11 +310,42 @@ class FactoryPipeline:
                 })
             except Exception:
                 pass
+
         # Schedule queue cleanup after 5 minutes
         async def _cleanup():
             await asyncio.sleep(300)
             PIPELINE_EVENTS.pop(run_id, None)
         asyncio.create_task(_cleanup())
+
+        # ── PART 2: Embed artifacts for semantic search (background, non-blocking)
+        async def _embed_artifacts():
+            if PIPELINE_CONTROL.get(run_id) == "cancel":
+                return
+            try:
+                from aether_os.core.artifact_store import get_artifact_store
+                store = get_artifact_store()
+                _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
+                _count = 0
+                for _phase in results:
+                    if PIPELINE_CONTROL.get(run_id) == "cancel":
+                        break
+                    _phase_dir = project_dir / _phase
+                    if _phase_dir.exists():
+                        for f in _phase_dir.rglob("*"):
+                            if f.is_file() and f.suffix in _extensions:
+                                try:
+                                    await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text())
+                                    _count += 1
+                                    if _count >= 50:
+                                        break
+                                except Exception:
+                                    continue
+                    if _count >= 50:
+                        break
+                logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
+            except Exception as e:
+                logger.warning("[pipeline] Artifact embedding skipped: %s", e)
+        asyncio.create_task(_embed_artifacts())
 
         return {
             "run_id": run_id,

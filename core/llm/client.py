@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +397,39 @@ Task: {prompt[:200]}"""
             context=context,
         )
         return safe_parse_json(raw)
+
+    async def embed(self, text: str) -> List[float]:
+        """
+        Generate a vector embedding for the given text using Ollama.
+        Returns a zero vector of the correct dimension if Ollama is unavailable.
+        """
+        _EMBEDDING_DIMS = {
+            "nomic-embed-text": 768,
+            "all-MiniLM-L6-v2": 384,
+            "bge-large-en": 1024,
+            "mxbai-embed-large": 1024,
+        }
+        model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        dim = _EMBEDDING_DIMS.get(model, 768)
+
+        try:
+            import httpx
+            from ..config.loader import get_config
+            cfg = get_config()
+            base_url = cfg.get("llm.ollama_base_url", "http://localhost:11434")
+
+            async with httpx.AsyncClient(timeout=30.0) as http:
+                resp = await http.post(
+                    f"{base_url}/api/embeddings",
+                    json={"model": model, "prompt": text[:8000]},
+                )
+                resp.raise_for_status()
+                return resp.json().get("embedding", [0.0] * dim)
+        except Exception as e:
+            logger.warning("Ollama embedding failed: %s", e)
+
+        logger.error("All embedding providers failed. Returning zero vector.")
+        return [0.0] * dim
 
     def get_cost_stats(self) -> Dict[str, int]:
         """Return token usage stats since process start."""
