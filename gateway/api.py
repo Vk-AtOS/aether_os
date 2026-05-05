@@ -722,7 +722,43 @@ def create_app() -> FastAPI:
             "message": f"Pipeline started for: {raw_input[:60]}",
         }
 
-    # ── Factory run endpoints ─────────────────────────────────────────────────
+    @app.post("/account/settings")
+    async def update_settings(
+        req: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Update account settings (e.g. decision_mode, autonomous_mode)."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import update
+        
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = update(Organisation).where(Organisation.id == user["org_id"]).values(req)
+            await session.execute(stmt)
+            await session.commit()
+            return {"status": "ok"}
+
+    @app.get("/factory/runs/{run_id}/test-report")
+    async def get_test_report(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Get the self-test report for a run."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select
+        
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(Run).where(Run.id == run_id, Run.org_id == user["org_id"])
+            result = await session.execute(stmt)
+            run = result.scalar_one_or_none()
+            
+            if not run or not run.self_test_report:
+                raise HTTPException(status_code=404, detail="Report not found")
+            
+            return json.loads(run.self_test_report)
 
     @app.get("/factory/runs")
     async def list_factory_runs(
