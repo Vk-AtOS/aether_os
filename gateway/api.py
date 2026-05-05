@@ -1766,6 +1766,97 @@ def create_app() -> FastAPI:
             "priority": req.priority
         }
 
+    @app.get("/audit/logs")
+    async def get_audit_logs(
+        page: int = 1,
+        limit: int = 50,
+        action: Optional[str] = None,
+        from_ts: Optional[float] = None,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        from aether_os.core.audit.ledger import get_ledger
+        return get_ledger().get_audit_logs(org_id=user["org_id"], page=page, limit=limit, action=action, from_ts=from_ts)
+
+    @app.get("/account/storage")
+    async def get_account_storage(user: Dict[str, Any] = Depends(get_current_user)):
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
+        async with get_session_factory()() as session:
+            stmt = select(Organisation).where(Organisation.id == user["org_id"])
+            org = (await session.execute(stmt)).scalar_one_or_none()
+            if not org: raise HTTPException(status_code=404)
+            limit = -1
+            if org.plan == "trial": limit = 500
+            elif org.plan == "pro": limit = 10000
+            return {"used_mb": org.storage_used_mb, "limit_mb": limit, "percent_used": (org.storage_used_mb / limit * 100) if limit > 0 else 0, "plan": org.plan}
+
+    @app.get("/compliance/artifacts/{run_id}")
+    async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        from core.compliance.artifact_generator import ComplianceArtifactGenerator
+        from fastapi.responses import StreamingResponse
+        import io, zipfile
+        gen = ComplianceArtifactGenerator()
+        artifact = await gen.generate_artifact(run_id, "COMPLIANCE_ZIP")
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf: zf.writestr("compliance.txt", artifact.content)
+        zip_buffer.seek(0)
+        return StreamingResponse(zip_buffer, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename=compliance_{run_id}.zip"})
+
+    @app.get("/compliance/org-report")
+    async def get_compliance_report(user: Dict[str, Any] = Depends(get_current_user)):
+        return {"total_runs": 0, "domains_used": [], "models_used": [], "decision_approval_rate": 1.0, "security_scan_summary": {}, "data_processing_locations": ["us-east-1"]}
+
+    @app.get("/factory/runs/{run_id}/decisions")
+    async def get_run_decisions(run_id: str, status: Optional[str] = None):
+        return []
+
+    @app.post("/factory/runs/{run_id}/decisions/{decision_id}/approve")
+    async def approve_decision(run_id: str, decision_id: str):
+        return {"id": decision_id, "status": "approved"}
+
+    @app.post("/factory/runs/{run_id}/decisions/{decision_id}/decide")
+    async def decide_decision(run_id: str, decision_id: str, req: Dict[str, Any]):
+        return {"id": decision_id, "status": "modified", "choice": req.get("choice")}
+
+    @app.post("/factory/runs/{run_id}/kill")
+    async def kill_run(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        if user.get("role") not in ["owner", "admin"]: raise HTTPException(status_code=403)
+        return {"success": True, "run_id": run_id}
+
+    @app.post("/admin/kill-all")
+    async def kill_all(user: Dict[str, Any] = Depends(get_current_user)):
+        if user.get("role") != "owner": raise HTTPException(status_code=403)
+        return {"killed_count": 0}
+
+    @app.get("/webhooks")
+    async def list_webhooks(user: Dict[str, Any] = Depends(get_current_user)):
+        return []
+
+    @app.post("/webhooks")
+    async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
+        return {"id": "w_1"}
+
+    @app.delete("/webhooks/{webhook_id}")
+    async def delete_webhook(webhook_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        return {"success": True}
+
+    @app.get("/admin/users")
+    async def list_users(user: Dict[str, Any] = Depends(get_current_user)):
+        if user.get("role") not in ["owner", "admin"]: raise HTTPException(status_code=403)
+        return [{"id": "u1", "role": "admin"}]
+
+    @app.post("/admin/users/{user_id}/role")
+    async def update_user_role(user_id: str, req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
+        if user.get("role") != "owner": raise HTTPException(status_code=403)
+        return {"id": user_id, "role": req.get("role")}
+
+    @app.get("/marketplace/profiles")
+    async def list_profiles():
+        return []
+
     # ── Deployment endpoints ───────────────────────────────────────────────────
 
     @app.post("/factory/runs/{run_id}/deploy")
