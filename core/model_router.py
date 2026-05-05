@@ -105,6 +105,7 @@ class ModelRouter:
         system: Optional[str] = None,
         max_tokens: int = 8192,
         trace_name: Optional[str] = None,
+        enforce_local: bool = False,
     ) -> Tuple[str, str]:
         """
         Execute the fallback chain and return (text, provider).
@@ -135,7 +136,11 @@ class ModelRouter:
         errors: List[str] = []
         models_tried = 0
 
-        for spec in FALLBACK_CHAIN:
+        chain = FALLBACK_CHAIN
+        if enforce_local:
+            chain = [s for s in FALLBACK_CHAIN if s.provider == "ollama"]
+
+        for spec in chain:
             if not _is_provider_configured(spec):
                 logger.debug("Router: skipping %s — not configured", spec.provider)
                 continue
