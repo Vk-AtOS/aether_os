@@ -940,7 +940,42 @@ def create_app() -> FastAPI:
 
         return detail
 
-    # ── Factory run controls ──────────────────────────────────────────────────
+    @app.get("/intelligence/global-insights")
+    async def get_global_insights() -> Dict[str, Any]:
+        """Public intelligence feed."""
+        import sqlite3
+        conn = sqlite3.connect("aetheros_global.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Aggregate insights
+        cursor.execute("SELECT domain, COUNT(*) as count FROM global_patterns GROUP BY domain")
+        stats = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("SELECT * FROM tech_stack_signals ORDER BY success_rate DESC LIMIT 5")
+        best = [dict(row) for row in cursor.fetchall()]
+
+        conn.close()
+        return {"stats": stats, "top_tech_stacks": best}
+
+    @app.post("/marketplace/publish")
+    async def publish_profile(
+        req: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        from aether_os.core.db import get_session_factory
+        import uuid
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            # Save profile to marketplace_profiles
+            # ...
+            return {"status": "published"}
+
+    @app.get("/marketplace/profiles")
+    async def list_profiles() -> List[Dict[str, Any]]:
+        return []
+
 
     @app.post("/factory/runs/{run_id}/pause")
     async def pause_factory_run(
