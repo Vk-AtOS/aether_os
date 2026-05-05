@@ -15,6 +15,7 @@ alembic>=1.13.0
 # ── Auth ──────────────────────────────────────────────────────────────────────
 passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
+slowapi>=0.1.9
 
 # ── LLM — Tier 1: Anthropic claude-sonnet-4-6 ────────────────────────────────
 anthropic>=0.30.0
@@ -36,6 +37,8 @@ python-dotenv>=1.0.0
 # ── Analysis ──────────────────────────────────────────────────────────────────
 networkx>=3.2.0             # call graph (DCSP dfle/call_graph.py)
 whatthepatch>=1.0.0         # Bug 1 fix: replaces broken difflib.patch_from_unified_diff
+mcp>=0.1.0                  # Model Context Protocol
+sqlite-vec>=0.1.0           # Vector search for SQLite
 
 # ── Async / Files ─────────────────────────────────────────────────────────────
 aiofiles>=23.0.0
