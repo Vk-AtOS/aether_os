@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, "/Users/apple/Desktop/aether_os")
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -16,8 +19,8 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from aether_os.core.db import Base, _build_db_url
-from aether_os.core.models import *
+from core.db import Base, _build_db_url
+from core.models import *
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

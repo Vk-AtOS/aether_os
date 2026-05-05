@@ -137,7 +137,32 @@ class RerunRequest(BaseModel):
     from_phase: str
 
 
-# ── Auth dependency ────────────────────────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import RedirectResponse
+import os
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'"
+        return response
+
+class HttpsRedirectMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if os.environ.get("FORCE_HTTPS", "false").lower() == "true":
+            proto = request.headers.get("X-Forwarded-Proto")
+            if proto == "http":
+                url = str(request.url).replace("http://", "https://", 1)
+                return RedirectResponse(url=url, status_code=301)
+        return await call_next(request)
+
+# In create_app():
+# app.add_middleware(SecurityHeadersMiddleware)
+# app.add_middleware(HttpsRedirectMiddleware)
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
@@ -512,6 +537,18 @@ def create_app() -> FastAPI:
                     status_code=402, 
                     detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"}
                 )
+
+            # Check storage limit
+            limit = -1
+            if org.plan == "trial": limit = float(os.environ.get("STORAGE_LIMIT_MB_TRIAL", 500))
+            elif org.plan == "pro": limit = float(os.environ.get("STORAGE_LIMIT_MB_PRO", 10000))
+            elif org.plan == "enterprise": limit = -1
+            
+            if limit > 0 and org.storage_used_mb >= limit:
+                 raise HTTPException(
+                    status_code=402,
+                    detail={"error": "storage_limit_reached", "used_mb": org.storage_used_mb, "limit_mb": limit}
+                )
             
             if org:
                 org.trial_runs_used += 1
@@ -633,6 +670,18 @@ def create_app() -> FastAPI:
                 raise HTTPException(
                     status_code=402, 
                     detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"}
+                )
+
+            # Check storage limit
+            limit = -1
+            if org.plan == "trial": limit = float(os.environ.get("STORAGE_LIMIT_MB_TRIAL", 500))
+            elif org.plan == "pro": limit = float(os.environ.get("STORAGE_LIMIT_MB_PRO", 10000))
+            elif org.plan == "enterprise": limit = -1
+            
+            if limit > 0 and org.storage_used_mb >= limit:
+                 raise HTTPException(
+                    status_code=402,
+                    detail={"error": "storage_limit_reached", "used_mb": org.storage_used_mb, "limit_mb": limit}
                 )
             
             if org:
