@@ -75,23 +75,22 @@ class CodeScanner:
                                     line_number=line_no,
                                     message=f"Hardcoded {name} detected"
                                 ))
-# Domain-specific checks (no manual password check, relying on regex detector)
-if domain == "fintech":
-    # Very basic check - would be improved with AST analysis
-    for root, _, files in os.walk(project_dir):
-        for file in files:
-            if file.endswith(".py"):
-                path = Path(root) / file
-                content = path.read_text()
-                if "credit_card" in content and "encrypt" not in content:
-                    findings.append(Finding(
-                        severity="HIGH",
-                        rule_id="FINTECH_NO_ENCRYPTION",
-                        file_path=str(path),
-                        line_number=0,
-                        message="Potential unencrypted credit card data"
-                    ))
 
+        # Domain-specific checks
+        if domain == "fintech":
+            for root, _, files in os.walk(project_dir):
+                for file in files:
+                    if file.endswith(".py"):
+                        path = Path(root) / file
+                        content = path.read_text()
+                        if "credit_card" in content and "encrypt" not in content:
+                            findings.append(Finding(
+                                severity="HIGH",
+                                rule_id="FINTECH_NO_ENCRYPTION",
+                                file_path=str(path),
+                                line_number=0,
+                                message="Potential unencrypted credit card data"
+                            ))
 
         critical = sum(1 for f in findings if f.severity == "CRITICAL")
         high = sum(1 for f in findings if f.severity == "HIGH")
