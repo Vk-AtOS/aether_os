@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -94,6 +95,33 @@ class FactoryPipeline:
         self.pm = get_project_manager()
 
     async def run(self,
+                  client_id: str,
+                  raw_input: str,
+                  domain: str = "general",
+                  project_name: Optional[str] = None,
+                  start_phase: Optional[str] = None,
+                  run_id: Optional[str] = None,
+                  org_id: Optional[str] = None) -> dict:
+
+        timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
+        try:
+            return await asyncio.wait_for(self._execute_pipeline(
+                client_id, raw_input, domain, project_name, start_phase, run_id, org_id
+            ), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
+            if run_id:
+                self.ledger.update_run_status(run_id, "timeout")
+                # Emit failure
+                _q = PIPELINE_EVENTS.get(run_id)
+                if _q:
+                    try:
+                        await _q.put({"type": "pipeline_complete", "status": "timeout", "ts": time.time()})
+                    except Exception:
+                        pass
+            return {"run_id": run_id, "status": "timeout"}
+
+    async def _execute_pipeline(self,
                   client_id: str,
                   raw_input: str,
                   domain: str = "general",

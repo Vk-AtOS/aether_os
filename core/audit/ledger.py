@@ -53,6 +53,17 @@ class DecisionLedger:
                     started_at REAL,
                     finished_at REAL
                 );
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT,
+                    user_id TEXT,
+                    action TEXT,
+                    resource_type TEXT,
+                    resource_id TEXT,
+                    metadata TEXT,
+                    ip_address TEXT,
+                    created_at REAL
+                );
                 CREATE TABLE IF NOT EXISTS events (
                     id TEXT PRIMARY KEY,
                     run_id TEXT,
@@ -110,6 +121,49 @@ class DecisionLedger:
             )
             conn.commit()
             conn.close()
+
+    def log_audit_event(self, org_id: str, user_id: str, action: str, 
+                        resource_type: str, resource_id: str, metadata: Dict[str, Any], 
+                        ip_address: str) -> None:
+        with self._lock:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute(
+                "INSERT INTO audit_log (id, org_id, user_id, action, resource_type, resource_id, metadata, ip_address, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), org_id, user_id, action, resource_type, resource_id, 
+                 json.dumps(metadata), ip_address, time.time()),
+            )
+            conn.commit()
+            conn.close()
+
+    def get_audit_logs(self, org_id: str, page: int = 1, limit: int = 50, 
+                       action: Optional[str] = None, from_ts: Optional[float] = None) -> Dict[str, Any]:
+        with self._lock:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            query = "SELECT * FROM audit_log WHERE org_id = ?"
+            params = [org_id]
+            if action:
+                query += " AND action = ?"
+                params.append(action)
+            if from_ts:
+                query += " AND created_at >= ?"
+                params.append(from_ts)
+            
+            total = conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
+            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params.append(limit)
+            params.append((page - 1) * limit)
+            
+            rows = conn.execute(query, params).fetchall()
+            conn.close()
+            
+        return {
+            "logs": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "pages": (total + limit - 1) // limit if limit > 0 else 1
+        }
 
     def get_run_history(self, org_id: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
         with self._lock:
