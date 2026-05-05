@@ -17,6 +17,7 @@ class Organisation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     trial_runs_used: Mapped[int] = mapped_column(default=0)
     trial_runs_limit: Mapped[int] = mapped_column(default=3)
+    storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
@@ -57,6 +58,7 @@ class Run(Base):
     started_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     finished_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     live_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    run_version: Mapped[int] = mapped_column(default=1)
 
     organisation: Mapped[Optional["Organisation"]] = relationship(back_populates="runs")
     events: Mapped[List["Event"]] = relationship(back_populates="run", cascade="all, delete-orphan")
