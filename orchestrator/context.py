@@ -40,6 +40,8 @@ class ExecutionContext(BaseModel):
 
     # Input
     requirement: str = ""          # Original NL requirement from user
+    domain: str = "general"        # Added field
+    tech_stack: Dict[str, Any] = Field(default_factory=dict) # Added field
     language: str = "python"       # Target programming language
     project_name: str = "untitled"
     output_dir: Optional[str] = None  # Where generated code is written (Bug 9 fix)
