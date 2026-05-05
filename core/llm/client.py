@@ -319,6 +319,7 @@ class LLMClient:
         context: Optional[Dict[str, Any]] = None,
         system: Optional[str] = None,
         max_tokens: int = 8192,
+        org_id: Optional[str] = None,
     ) -> str:
         """
         Call the LLM via the multi-model router.
@@ -326,6 +327,20 @@ class LLMClient:
         Chain: Anthropic claude-sonnet-4-6 → Gemini gemini-2.5-flash → Ollama qwen2.5-coder:3b
         Each model has individual timeouts and retry counts (see core/model_router.py).
         """
+        if org_id:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import Organisation
+            from sqlalchemy import select
+            async with get_session_factory()() as session:
+                stmt = select(Organisation).where(Organisation.id == org_id)
+                result = await session.execute(stmt)
+                org = result.scalar_one_or_none()
+                if org and org.data_region == "local-only":
+                    # enforce ollama/local only
+                    # We might need a mechanism to explicitly route to Ollama
+                    context = context or {}
+                    context["enforce_local"] = True
+
         if context:
             ctx_str = json.dumps(context, indent=2)
             prompt = f"Context:\n{ctx_str}\n\n{prompt}"
@@ -336,6 +351,7 @@ class LLMClient:
             task_type=task_type,
             system=system,
             max_tokens=max_tokens,
+            enforce_local=context and context.get("enforce_local", False)
         )
         self.last_provider = provider
         return text

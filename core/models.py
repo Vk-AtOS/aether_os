@@ -19,6 +19,7 @@ class Organisation(Base):
     trial_runs_limit: Mapped[int] = mapped_column(default=3)
     storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
     autonomous_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    data_region: Mapped[str] = mapped_column(String(20), default="global")
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
