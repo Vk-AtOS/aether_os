@@ -201,10 +201,13 @@ class Pipeline:
                 sm.transition_to(_mid, reason="pass-through")
 
             sm.transition_to(PipelineState.CICD, reason="testing complete")
-            await self._phase_cicd(ctx, sm)
+            # Run CI/CD and Docs in parallel after Testing
+            await asyncio.gather(
+                self._phase_cicd(ctx, sm),
+                self._phase_docs(ctx, sm)
+            )
 
             sm.transition_to(PipelineState.DOCUMENTATION, reason="CI/CD complete")
-            await self._phase_docs(ctx, sm)
 
             sm.transition_to(PipelineState.DEPLOYMENT, reason="docs complete")
             await self._phase_packaging(ctx, sm)
