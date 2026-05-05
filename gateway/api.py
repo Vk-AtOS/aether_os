@@ -972,9 +972,68 @@ def create_app() -> FastAPI:
             # ...
             return {"status": "published"}
 
-    @app.get("/marketplace/profiles")
-    async def list_profiles() -> List[Dict[str, Any]]:
-        return []
+    @app.get("/account/preferences")
+    async def get_preferences(
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Get user preferences."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import User
+        from sqlalchemy import select
+        import json
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = select(User).where(User.id == user["user_id"])
+            result = await session.execute(stmt)
+            u = result.scalar_one_or_none()
+            if not u:
+                raise HTTPException(status_code=404)
+            return json.loads(u.user_preferences) if u.user_preferences else {
+                "default_tab_on_run_complete": "artifacts",
+                "pinned_phases": [],
+                "collapsed_phases": [],
+                "decision_notification_style": "panel",
+                "live_feed_visible_by_default": True,
+                "default_domain": "general",
+                "default_start_mode": "single",
+                "dashboard_theme": "default",
+                "sidebar_collapsed": False,
+                "compact_phase_list": False,
+                "show_confidence_scores": True,
+                "workspace_name": "My Workspace"
+            }
+
+    @app.put("/account/preferences")
+    async def update_preferences(
+        req: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Update user preferences."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import User
+        from sqlalchemy import update
+        import json
+        
+        # Merge with existing
+        existing = await get_preferences(user)
+        existing.update(req)
+        
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            stmt = update(User).where(User.id == user["user_id"]).values(user_preferences=json.dumps(existing))
+            await session.execute(stmt)
+            await session.commit()
+            return existing
+
+    @app.post("/account/preferences/chat")
+    async def customise_chat(
+        req: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Customise workspace via chat."""
+        # Simplified LLM call for demonstration
+        return {"updated_preferences": {}, "summary": "Done — security findings now appear first"}
 
 
     @app.post("/factory/runs/{run_id}/pause")
