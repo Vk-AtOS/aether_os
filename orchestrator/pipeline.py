@@ -251,6 +251,17 @@ class Pipeline:
                         # Generate completion report and notify
                         # TODO: webhook notification
 
+            # Generate project memory
+            from core.memory.memory_manager import MemoryManager
+            MemoryManager.save_project_memory(Path(output_path), {
+                "project_id": ctx.run_id,
+                "project_name": ctx.project_name,
+                "domain": ctx.domain,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "tech_stack": ctx.tech_stack,
+                "changelog": [{"date": time.strftime("%Y-%m-%d"), "entry": "Initial generation", "author": "AetherOS"}]
+            })
+
             sm.transition_to(PipelineState.COMPLETE, reason="all phases complete")
             self.ledger.update_run_status(ctx.run_id, "completed")
 
