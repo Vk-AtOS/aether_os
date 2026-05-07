@@ -1033,7 +1033,7 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Add entry to project changelog."""
-        from core.memory.memory_manager import MemoryManager
+        from aether_os.core.memory.memory_manager import MemoryManager
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import Run
         from sqlalchemy import select
@@ -1795,7 +1795,7 @@ def create_app() -> FastAPI:
 
     @app.get("/compliance/artifacts/{run_id}")
     async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
-        from core.compliance.artifact_generator import ComplianceArtifactGenerator
+        from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
         from fastapi.responses import StreamingResponse
         import io, zipfile
         gen = ComplianceArtifactGenerator()
