@@ -100,7 +100,7 @@ async def init_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables initialised")
+    print(f"Base.metadata.tables: {Base.metadata.tables.keys()}"); logger.info("Database tables initialised")
 
 
 async def close_db() -> None:

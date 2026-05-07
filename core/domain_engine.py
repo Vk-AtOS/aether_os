@@ -36,8 +36,8 @@ DOMAIN_PROFILES: Dict[str, DomainProfile] = {
         description="SCADA-aware, OPC-UA protocols, and real-time sensor data management.",
         preferred_db="timescaledb",
         required_patterns=[
-            "SCADA-aware architecture",
-            "Real-time sensor data streaming",
+            "SCADA-aware architecture (OPC-UA)",
+            "Real-time sensor data streaming (TimescaleDB)",
             "Alarm management system",
             "Redundancy patterns"
         ],

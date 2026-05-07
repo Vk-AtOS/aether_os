@@ -17,7 +17,9 @@ import {
   FileCode,
   Search
 } from 'lucide-react';
-import hljs from 'highlight.js';
+import StorageWidget from '../components/StorageWidget';
+  import hljs from 'highlight.js';
+
 import 'highlight.js/styles/github-dark.css';
 
 const PhaseConfigPanel = ({ phase, config, onSave }) => {
@@ -263,9 +265,12 @@ const Settings = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-12 pb-20">
-      <header>
-        <h1 className="text-2xl font-bold">AetherOS Factory Settings</h1>
-        <p className="text-muted mt-1">Configure the autonomous development engine and monitor system health.</p>
+      <header className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold">AetherOS Factory Settings</h1>
+          <p className="text-muted mt-1">Configure the autonomous development engine and monitor system health.</p>
+        </div>
+        <StorageWidget />
       </header>
 
       <div className="grid grid-cols-3 gap-8">
