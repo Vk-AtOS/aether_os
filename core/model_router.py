@@ -41,12 +41,31 @@ class ModelSpec:
     retry_count: int        # attempts before moving to next model
 
 
-# Canonical fallback chain — order is authoritative
-FALLBACK_CHAIN: List[ModelSpec] = [
-    ModelSpec("anthropic", "claude-sonnet-4-6", 30, 2),
-    ModelSpec("gemini",    "gemini-2.5-flash",  45, 2),
-    ModelSpec("ollama",    "qwen2.5-coder:3b",  90, 2),
-]
+# Canonical fallback chain — built dynamically from environment
+def get_fallback_chain() -> List[ModelSpec]:
+    primary = os.environ.get("PRIMARY_LLM", "anthropic").lower()
+    anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b")
+    ollama_timeout = int(os.environ.get("OLLAMA_TIMEOUT", "120"))
+
+    # Base specs
+    specs = {
+        "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),
+        "gemini":    ModelSpec("gemini",    "gemini-2.5-flash",  45, 2),
+        "ollama":    ModelSpec("ollama",    ollama_model,  ollama_timeout, 2),
+    }
+
+    chain = []
+    if primary in specs:
+        chain.append(specs[primary])
+    
+    # Add others as fallbacks
+    for p in ["anthropic", "gemini", "ollama"]:
+        if p != primary:
+            chain.append(specs[p])
+    return chain
+
+FALLBACK_CHAIN = get_fallback_chain()
 
 # Error-message substrings → retry (transient, worth retrying same model)
 _RETRY_PATTERNS = ("rate limit", "429", "overloaded", "server error", "503", "502")

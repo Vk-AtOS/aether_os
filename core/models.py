@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -117,3 +117,106 @@ class RunMetadata(Base):
     run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     priority: Mapped[str] = mapped_column(String(50), default="normal")
     updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+class Decision(Base):
+    __tablename__ = "decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    decision_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    what: Mapped[str] = mapped_column(Text, nullable=False)
+    why: Mapped[str] = mapped_column(Text, nullable=False)
+    alternatives: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    impact: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    phase: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="pending")
+    human_choice: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    timeout_seconds: Mapped[int] = mapped_column(default=300)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+class Webhook(Base):
+    __tablename__ = "webhooks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    url: Mapped[str] = mapped_column(String(512), nullable=False)
+    events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(255), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    log_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+class SamlConfig(Base):
+    __tablename__ = "saml_configs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    idp_entity_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    idp_sso_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    idp_cert: Mapped[Text] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ArtifactEmbedding(Base):
+    __tablename__ = "artifact_embeddings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    embedding: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class MarketplaceProfile(Base):
+    __tablename__ = "marketplace_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    profile_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False)
+    usage_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class GlobalPattern(Base):
+    __tablename__ = "global_patterns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    pattern_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    pattern_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    success_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    usage_count: Mapped[int] = mapped_column(default=0)
+    avg_quality_score: Mapped[float] = mapped_column(Float, default=0.0)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

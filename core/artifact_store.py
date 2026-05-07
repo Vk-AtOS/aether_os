@@ -38,7 +38,7 @@ class ArtifactStore:
                     run_id TEXT,
                     file_path TEXT,
                     content_hash TEXT,
-                    embedding_json TEXT,
+                    embedding TEXT,
                     PRIMARY KEY (run_id, file_path)
                 )
             """)
@@ -57,7 +57,7 @@ class ArtifactStore:
             
             with self._get_connection() as conn:
                 conn.execute("""
-                    INSERT OR REPLACE INTO artifact_embeddings (run_id, file_path, content_hash, embedding_json)
+                    INSERT OR REPLACE INTO artifact_embeddings (run_id, file_path, content_hash, embedding)
                     VALUES (?, ?, ?, ?)
                 """, (run_id, file_path, content_hash, json.dumps(embedding)))
                 conn.commit()
@@ -77,15 +77,15 @@ class ArtifactStore:
                 # Note: This is an O(N) scan. For a small project this is fine.
                 # In production we would use pgvector or a specialized vector DB.
                 stmt = """
-                    SELECT a.run_id, a.file_path, a.embedding_json
+                    SELECT a.run_id, a.file_path, a.embedding
                     FROM artifact_embeddings a
                     JOIN runs r ON a.run_id = r.id
                     WHERE r.org_id = ?
                 """
                 cursor = conn.execute(stmt, (org_id,))
-                for run_id, file_path, embedding_json in cursor:
+                for run_id, file_path, embedding in cursor:
                     try:
-                        embedding = np.array(json.loads(embedding_json))
+                        embedding = np.array(json.loads(embedding))
                         # Cosine similarity
                         dot = np.dot(query_np, embedding)
                         norm_a = np.linalg.norm(query_np)

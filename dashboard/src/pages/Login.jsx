@@ -4,21 +4,31 @@ import { api } from '../api';
 import { Shield, Loader2 } from 'lucide-react';
 
 const Login = () => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('Velan');
+  const [email, setEmail] = useState('verify@test.com');
+  const [password, setPassword] = useState('Dom@0104!');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
-      await api.login(username, password);
+      await api.login(email, password);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid credentials');
+      if (err.response?.status === 401 || err.response?.status === 422) {
+        setError('Invalid email or password. Please try again.');
+      } else {
+        setError(err.response?.data?.detail || 'An unexpected error occurred. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -38,11 +48,11 @@ const Login = () => {
         <div className="panel p-8 shadow-2xl">
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Username</label>
+              <label className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Email</label>
               <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-bright focus:outline-none focus:border-accent transition-colors"
                 required
               />

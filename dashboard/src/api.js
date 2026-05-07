@@ -44,8 +44,8 @@ export const api = {
   },
   
   // Auth
-  login: async (username, password) => {
-    const res = await client.post('/auth/login', { username, password });
+  login: async (email, password) => {
+    const res = await client.post('/auth/login', { email, password });
     sessionStorage.setItem('aether_token', res.data.access_token);
     return res.data;
   },

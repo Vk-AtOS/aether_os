@@ -1,0 +1,15 @@
+Scanner passed: False
+Critical findings: 2
+High findings: 1
+Medium findings: 1
+
+Findings detail:
+  [LOW] /tmp/aetheros_security_test/vuln_test.py:1 — Consider possible security implications associated with the subprocess module.
+  [HIGH] /tmp/aetheros_security_test/vuln_test.py:6 — subprocess call with shell=True identified, security issue.
+  [LOW] /tmp/aetheros_security_test/vuln_test.py:9 — Possible hardcoded password: 'admin1234'
+  [LOW] /tmp/aetheros_security_test/vuln_test.py:10 — Possible hardcoded password: 'supersecret'
+  [MEDIUM] /tmp/aetheros_security_test/vuln_test.py:16 — Possible SQL injection vector through string-based query construction.
+  [CRITICAL] /tmp/aetheros_security_test/vuln_test.py:9 — Hardcoded PASSWORD detected
+  [CRITICAL] /tmp/aetheros_security_test/vuln_test.py:10 — Hardcoded PASSWORD detected
+
+SECURITY SCANNER: WORKING — caught 3 critical/high issues

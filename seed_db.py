@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 import os
-from aether_os.core.db import get_session_factory, init_db
+from aether_os.core.db import get_session_factory, init_db, get_engine
 from aether_os.core.models import Organisation, User, Run
 from sqlalchemy import select, update
 from passlib.context import CryptContext
@@ -14,7 +14,7 @@ async def seed():
     db_path = Path.home() / ".aether_os" / "aether_os.db"
     url = f"sqlite+aiosqlite:///{db_path.resolve()}"
     print(f"DEBUG: seed_db.py hardcoded engine: {url}")
-    engine = create_async_engine(url)
+    engine = get_engine()
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         # 1. Create default organization

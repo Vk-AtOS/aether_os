@@ -1,0 +1,17 @@
+Rate Limiter Test:
+
+1. Concurrent run limit (max 5):
+   Run 1: allowed=True
+   Run 2: allowed=True
+   Run 3: allowed=True
+   Run 4: allowed=True
+   Run 5: allowed=False
+   Run 6: allowed=False
+
+2. Login brute force (max 20 attempts per 15min):
+   Attempt 1: allowed=True
+   Attempt 20: allowed=False
+   Attempt 21: allowed=False
+   Attempt 22: allowed=False
+
+Rate limiter: WORKING

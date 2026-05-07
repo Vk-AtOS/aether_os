@@ -130,37 +130,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     project_name = data.get("project_name", phase_input.project_id)
     domain = data.get("domain", "general")
     
-    used_cookiecutter = False
-    project_dir = output_dir / project_name
-
-    # Try cookiecutter with matching template
-    template = next((t for k, t in TEMPLATE_MAP.items() if k in backend), None)
-    if template:
-        try:
-            from cookiecutter.main import cookiecutter
-            # Ensure cookiecutter doesn't hang on network if possible
-            cookiecutter(
-                template,
-                no_input=True,
-                output_dir=str(output_dir),
-                extra_context={"project_name": project_name,
-                               "project_slug": project_name.lower().replace(" ", "_")},
-            )
-            used_cookiecutter = True
-            # Find the created directory
-            created = [d for d in output_dir.iterdir() if d.is_dir() and d.name == project_name]
-            if not created:
-                 # Cookiecutter sometimes appends slug
-                 slug = project_name.lower().replace(" ", "_").replace("-", "_")
-                 if (output_dir / slug).exists():
-                     project_dir = output_dir / slug
-            else:
-                project_dir = created[0]
-        except Exception as e:
-            logger.warning("Cookiecutter failed (%s), falling back to local: %s", template, e)
-
-    if not used_cookiecutter:
-        project_dir = create_minimal_scaffold(project_name, tech_stack, output_dir, domain=domain)
+    project_dir = create_minimal_scaffold(project_name, tech_stack, output_dir, domain=domain)
 
     files_created = list(project_dir.rglob("*"))
     file_count = len([f for f in files_created if f.is_file()])
@@ -174,7 +144,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     return TaskResult(
         output_path=str(project_dir),
         confidence=0.9 if not issues else 0.4,
-        metadata={"file_count": file_count, "backend": backend, "used_cookiecutter": used_cookiecutter},
+        metadata={"file_count": file_count, "backend": backend, "used_cookiecutter": False},
         issues=issues,
         success=len(issues) == 0,
     )

@@ -13,6 +13,7 @@ import ast
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -111,7 +112,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     agent  = BackendCodegenAgent()
     domain = data.get("domain", "general")
     generated_files = await agent.generate_backend_code(
-        architecture, raw_input, root_dir, output_dir, client, domain=domain
+        architecture, raw_input, root_dir, output_dir, client, domain=domain, data=data
     )
 
     issues = []
@@ -136,7 +137,8 @@ class BackendCodegenAgent:
             root_dir: Path,
             phase_dir: Path,
             client: LLMClient,
-            domain: str = "general") -> list:
+            domain: str = "general",
+            data: dict = {}) -> list:
         """
         Generate all backend files.
         Writes to root_dir/src/ (project deliverable) AND

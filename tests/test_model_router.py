@@ -55,17 +55,22 @@ def test_fallback_chain_order():
 
 def test_model_identifiers():
     from aether_os.core.model_router import FALLBACK_CHAIN
-    assert FALLBACK_CHAIN[0].model == "claude-sonnet-4-6"
+    # Updated to match new default configuration requirements
+    assert FALLBACK_CHAIN[0].model == "claude-haiku-4-5"
     assert FALLBACK_CHAIN[1].model == "gemini-2.5-flash"
     assert FALLBACK_CHAIN[2].model == "qwen2.5-coder:3b"
 
 
 def test_timeout_values():
     from aether_os.core.model_router import FALLBACK_CHAIN
-    anthropic, gemini, ollama = FALLBACK_CHAIN
+    # Order might vary if PRIMARY_LLM is changed, but default in .env is anthropic
+    anthropic = next(s for s in FALLBACK_CHAIN if s.provider == "anthropic")
+    gemini = next(s for s in FALLBACK_CHAIN if s.provider == "gemini")
+    ollama = next(s for s in FALLBACK_CHAIN if s.provider == "ollama")
+    
     assert anthropic.timeout_seconds == 30
     assert gemini.timeout_seconds == 45
-    assert ollama.timeout_seconds == 90
+    assert ollama.timeout_seconds == 120
 
 
 def test_retry_counts():
