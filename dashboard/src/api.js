@@ -84,6 +84,10 @@ export const api = {
   sendPortalFeedback: (projectId, feedback, phase) => 
     axios.post(`${BASE}/portal/${projectId}/feedback`, { feedback, phase }),
 
+  // Compliance
+  getComplianceReport: () => client.get('/compliance/org-report'),
+  getAuditLogs: () => client.get('/audit/logs'),
+
   // System
   getHealth: () => client.get('/system/health'),
   getCosts: () => client.get('/system/costs'),

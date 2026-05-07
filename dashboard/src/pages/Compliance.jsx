@@ -11,8 +11,8 @@ const Compliance = () => {
       try {
         const [runsRes, reportRes, logsRes] = await Promise.all([
           api.listRuns(),
-          api.get('/compliance/org-report'),
-          api.get('/audit/logs')
+          api.getComplianceReport(),
+          api.getAuditLogs()
         ]);
         setRuns(runsRes.data);
         setOrgReport(reportRes.data);
