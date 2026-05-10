@@ -5,10 +5,13 @@ const StorageWidget = () => {
   const [data, setData] = useState({ used: 0, limit: 1 });
 
   useEffect(() => {
-    api.get('/account/storage').then(res => setData(res.data));
+    // Use api.client (axios instance) — api.get() does not exist on the api object
+    api.client.get('/account/storage')
+      .then(res => setData(res.data))
+      .catch(() => {}); // Storage widget is non-critical; fail silently
   }, []);
 
-  const pct = (data.used / data.limit) * 100;
+  const pct = Math.min((data.used / Math.max(data.limit, 1)) * 100, 100);
   const color = pct < 70 ? 'bg-green-500' : pct < 90 ? 'bg-amber-500' : 'bg-red-500';
 
   return (

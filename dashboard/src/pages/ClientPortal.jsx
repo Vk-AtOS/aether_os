@@ -23,14 +23,11 @@ const ClientPortal = () => {
         const res = await api.getPortalStatus(id);
         setStatus(res.data);
       } catch (err) {
-        // Mock
-        setStatus({
-          project_name: 'AetherOS Factory Project',
-          client_id: 'client-001',
-          phases_completed: ['p00', 'p01', 'p02'],
-          current_phase: 'p02',
-          metadata: { domain: 'general' }
-        });
+        // FIXED: was silently injecting mock data, hiding real errors from the client.
+        // Now show the actual error so the client knows the project ID is wrong or the server is down.
+        console.error('Failed to load portal status', err);
+        const detail = err.response?.data?.detail || err.message || 'Unknown error';
+        setStatus({ _error: true, _detail: detail });
       } finally {
         setLoading(false);
       }
@@ -68,7 +65,19 @@ const ClientPortal = () => {
     }
   };
 
-  if (loading) return <div className="min-h-screen bg-surface flex items-center justify-center text-muted">Loading portal...</div>;
+  if (loading) return <div className="min-h-screen bg-surface flex items-center justify-center text-muted">Loading portal…</div>;
+
+  if (status?._error) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-red-50 border border-red-200 rounded-xl p-8 text-center shadow">
+          <h2 className="text-xl font-bold text-red-700 mb-3">Project Not Found</h2>
+          <p className="text-red-600 text-sm">Could not load the project portal: {status._detail}</p>
+          <p className="text-gray-400 text-xs mt-3">If you received a link, please check it is correct and try again.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (submitted) {
     return (

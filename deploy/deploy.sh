@@ -4,37 +4,93 @@
 #
 # Usage:
 #   cd /opt/aetheros
-#   bash deploy/deploy.sh
+#   bash deploy/deploy.sh [--domain app.example.com]
+#
+# First-time deploy:
+#   bash deploy/setup_vps.sh
+#   bash deploy/deploy.sh --domain app.example.com
 # =============================================================================
 set -euo pipefail
+
 INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="$INSTALL_DIR/venv/bin"
 SERVICE=aetheros
+DOMAIN=""
+
+# Parse optional --domain flag (used to configure nginx on first deploy)
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --domain) DOMAIN="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
 
 echo "=== AetherOS deploy @ $(date) ==="
+echo "→ Install dir: $INSTALL_DIR"
 
 # 1. Pull latest code (preserve .env)
 cd "$INSTALL_DIR"
 git pull --ff-only
 
 # 2. Python deps
+echo "→ Installing Python dependencies..."
+"$VENV/pip" install -q --upgrade pip
 "$VENV/pip" install -q --upgrade -r requirements.txt
 
-# 3. Dashboard rebuild (only if source changed)
+# 3. Install the aether_os package itself in editable mode.
+#    This makes `from aether_os.core.*` and `from aether_os.gateway.*` work
+#    correctly in all uvicorn workers regardless of the directory name on disk.
+echo "→ Installing aether_os package (editable)..."
+"$VENV/pip" install -q -e "$INSTALL_DIR"
+
+# 4. Run database migrations
+echo "→ Running database migrations..."
+cd "$INSTALL_DIR"
+"$VENV/python" -m alembic upgrade head || echo "⚠ Alembic not configured yet — skipping migrations"
+
+# 5. Configure nginx domain (first deploy or when --domain is passed)
+if [[ -n "$DOMAIN" ]]; then
+    echo "→ Configuring nginx domain: $DOMAIN"
+    NGINX_CONF=/etc/nginx/sites-available/aetheros
+    if [[ -f "$NGINX_CONF" ]]; then
+        sed -i "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" "$NGINX_CONF"
+        ln -sfn "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
+        nginx -t && systemctl reload nginx || echo "⚠ nginx reload failed — check config"
+    fi
+fi
+
+# 6. Dashboard rebuild (only if source changed since last deploy)
 if git diff HEAD@{1} HEAD --name-only 2>/dev/null | grep -q "^dashboard/"; then
     echo "→ Rebuilding dashboard..."
-    (cd dashboard && npm ci --silent && npm run build)
+    NODE_VERSION=$(node --version 2>/dev/null || echo "none")
+    if [[ "$NODE_VERSION" == "none" ]]; then
+        echo "⚠ Node.js not found — skipping dashboard build"
+    else
+        (cd dashboard && npm ci --silent && npm run build)
+        echo "✅ Dashboard built"
+    fi
 else
     echo "→ Dashboard unchanged, skipping rebuild"
 fi
 
-# 4. Restart service
+# 7. Restart service
+echo "→ Restarting $SERVICE service..."
 systemctl restart "$SERVICE"
 sleep 3
 systemctl is-active "$SERVICE" && echo "✅ $SERVICE restarted cleanly" || {
-    echo "❌ Restart failed:"
-    journalctl -u "$SERVICE" -n 20 --no-pager
+    echo "❌ Restart failed — last 30 log lines:"
+    journalctl -u "$SERVICE" -n 30 --no-pager
     exit 1
 }
 
-echo "=== Deploy done ==="
+# 8. Health check
+echo "→ Running health check..."
+sleep 2
+HEALTH=$(curl -sf http://127.0.0.1:9200/health 2>/dev/null || echo "FAILED")
+if echo "$HEALTH" | grep -q "ok\|healthy\|running"; then
+    echo "✅ Health check passed"
+else
+    echo "⚠ Health check returned: $HEALTH"
+fi
+
+echo "=== Deploy done @ $(date) ==="

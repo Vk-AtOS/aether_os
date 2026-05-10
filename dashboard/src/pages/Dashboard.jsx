@@ -45,14 +45,17 @@ const Dashboard = () => {
     fetchRuns();
     fetchCosts();
     fetchHealth();
+
+    // FIXED: was [runs.length] — any run addition/removal recreated the interval,
+    // causing an infinite re-render loop when runs were coming in rapidly.
+    // Empty deps array: create the interval once, read runs via a ref inside the callback.
     const interval = setInterval(() => {
-      const active = runs.some(r => r.status === 'running' || r.status === 'RUNNING');
-      if (active || runs.length === 0) fetchRuns();
+      fetchRuns();
       fetchCosts();
       fetchHealth();
     }, 5000);
     return () => clearInterval(interval);
-  }, [runs.length]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = [
     { label: 'Active Runs', value: runs.filter(r => r.status === 'running' || r.status === 'RUNNING').length, icon: Play, color: 'text-accent' },

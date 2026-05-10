@@ -35,6 +35,8 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(50), default="member")  # owner, member
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     user_preferences: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")

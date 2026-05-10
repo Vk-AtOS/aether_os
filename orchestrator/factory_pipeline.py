@@ -28,6 +28,11 @@ from aether_os.core.pipeline_state import (
 )
 from aether_os.core.projects import get_project_manager
 from aether_os.core.audit.ledger import get_ledger
+from aether_os.core.project_memory import (
+    init_memory as _pm_init,
+    update_memory as _pm_update,
+    add_changelog_entry as _pm_changelog,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +146,15 @@ class FactoryPipeline:
         # Create project directory
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
         project_dir.mkdir(parents=True, exist_ok=True)
+
+        # D6: Initialize project living memory
+        _pm_init(
+            project_dir,
+            project_name=project_name or f"project-{run_id[:8]}",
+            requirement=raw_input,
+            domain=domain,
+            run_id=run_id,
+        )
 
         self.ledger.save_run(run_id, f"factory: {raw_input[:60]}", org_id=org_id, status="running")
 
@@ -274,6 +288,13 @@ class FactoryPipeline:
                 # Update state
                 p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
                 await self._update_state(run_id, phase_name, p_status)
+                # D6: Record phase completion in project memory
+                _pm_update(project_dir, {
+                    f"phase_{phase_name}": {
+                        "status": p_status,
+                        "duration_s": phase_result.get("duration_s"),
+                    }
+                })
                 await emit({
                     "type": "phase_complete",
                     "phase": phase_name,
@@ -336,6 +357,10 @@ class FactoryPipeline:
             "duration": round(duration, 1),
             "ts": time.time(),
         })
+
+        # D6: Finalize project living memory
+        _pm_update(project_dir, {"tech_stack": accumulated_context.get("architecture_json", {}).get("tech_stack", {})})
+        _pm_changelog(project_dir, f"Pipeline completed in {round(duration, 1)}s — {len(phases_to_run)} phases", author="system")
 
         # Schedule Redis key cleanup after 5 minutes (B3 + B5: store task ref)
         async def _cleanup():
