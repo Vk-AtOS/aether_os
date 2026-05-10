@@ -255,7 +255,7 @@ class Pipeline:
                         # TODO: webhook notification
 
             # Generate project memory
-            from core.memory.memory_manager import MemoryManager
+            from aether_os.core.memory.memory_manager import MemoryManager
             MemoryManager.save_project_memory(Path(output_path), {
                 "project_id": ctx.run_id,
                 "project_name": ctx.project_name,
