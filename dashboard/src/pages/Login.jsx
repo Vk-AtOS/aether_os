@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { Shield, Loader2 } from 'lucide-react';
 
 const Login = () => {
-  const [email, setEmail] = useState('verify@test.com');
-  const [password, setPassword] = useState('Dom@0104!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [samlAvailable, setSamlAvailable] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    fetch('/api/auth/saml/metadata', { method: 'HEAD' })
+      .then(r => { if (r.ok) setSamlAvailable(true); })
+      .catch(() => {});
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -82,6 +89,25 @@ const Login = () => {
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'START FACTORY'}
             </button>
           </form>
+
+          {samlAvailable && (
+            <div className="mt-6">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-panel px-3 text-muted uppercase tracking-widest">or</span>
+                </div>
+              </div>
+              <button
+                onClick={() => { window.location.href = '/api/auth/saml/login'; }}
+                className="mt-4 w-full border border-border hover:border-accent/50 text-muted hover:text-bright font-bold py-3 rounded-lg transition-all text-sm"
+              >
+                Sign in with SSO
+              </button>
+            </div>
+          )}
         </div>
         
         <p className="text-center text-[10px] text-muted mt-8 uppercase tracking-[0.2em]">

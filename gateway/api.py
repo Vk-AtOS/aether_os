@@ -131,6 +131,7 @@ class RegisterRequest(BaseModel):
     password: str
     name: Optional[str] = None
     org_name: Optional[str] = None
+    terms_accepted: bool = False  # D4: GDPR consent — must be True
 
 
 class LoginResponse(BaseModel):
@@ -437,6 +438,10 @@ def create_app() -> FastAPI:
         if not rl.check_registration_attempts(client_ip):
             raise HTTPException(status_code=429, detail="Too many registration attempts. Please try again later.")
 
+        # D4: GDPR consent gate
+        if not req.terms_accepted:
+            raise HTTPException(status_code=400, detail="You must accept the terms of service to register.")
+
         # Enforce minimum password length
         if len(req.password) < 10:
             raise HTTPException(status_code=422, detail="Password must be at least 10 characters.")
@@ -461,12 +466,14 @@ def create_app() -> FastAPI:
             session.add(org)
 
             # Create owner user — role is always "owner" regardless of request body (B1)
+            from datetime import datetime as _dt
             user = User(
                 id=str(uuid.uuid4()),
                 org_id=org.id,
                 email=req.email,
                 password_hash=get_password_hash(req.password),
                 role="owner",  # B1: hardcoded — never from request
+                consent_at=_dt.utcnow(),  # D4: GDPR consent timestamp
             )
             session.add(user)
             await session.commit()
@@ -605,6 +612,93 @@ def create_app() -> FastAPI:
                 "runs_limit": org.trial_runs_limit if org.plan == "trial" else None,
                 "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used) if org.plan == "trial" else None
             }
+
+    @app.delete("/account")
+    async def delete_account(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, str]:
+        """GDPR erasure: anonymise and soft-delete the calling user's account."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import User, APIKey
+        from aether_os.core.audit.ledger import get_ledger
+        from sqlalchemy import update as _saup
+        from datetime import datetime as _dt
+
+        user_id = user.get("user_id", "")
+        org_id = user.get("org_id", "")
+        sf = get_session_factory()
+        async with sf() as session:
+            db_user = await session.get(User, user_id)
+            if not db_user or db_user.org_id != org_id:
+                raise HTTPException(status_code=404, detail="User not found")
+            db_user.email = f"deleted_{user_id[:8]}@deleted.invalid"
+            db_user.password_hash = "DELETED"
+            db_user.is_active = False
+            db_user.deleted_at = _dt.utcnow()
+            db_user.user_preferences = None
+            await session.execute(_saup(APIKey).where(APIKey.org_id == org_id).values(is_active=False))
+            await session.commit()
+
+        jti = user.get("jti")
+        exp = user.get("exp", 0)
+        if jti:
+            try:
+                from aether_os.core.pipeline_state import get_redis
+                r = await get_redis()
+                if r:
+                    ttl = max(1, int(exp - time.time()))
+                    await r.setex(f"jwt:blacklist:{jti}", ttl, "1")
+            except Exception:
+                pass
+
+        await get_ledger().async_log_audit_event(
+            org_id=org_id, user_id=user_id, action="account.deleted",
+            resource_type="user", resource_id=user_id, metadata={}, ip_address="self",
+        )
+        return {"message": "Account deleted"}
+
+    @app.get("/account/data-export")
+    async def data_export(user: Dict[str, Any] = Depends(get_current_user)):
+        """GDPR portability: return all user data as a downloadable JSON file."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import User, Run
+        from aether_os.core.audit.ledger import get_ledger
+        from sqlalchemy import select
+        from fastapi.responses import StreamingResponse
+        import json as _json
+
+        user_id = user.get("user_id", "")
+        org_id = user.get("org_id", "")
+        sf = get_session_factory()
+        async with sf() as session:
+            db_user = await session.get(User, user_id)
+            runs = (await session.execute(
+                select(Run).where(Run.org_id == org_id)
+                .order_by(Run.started_at.desc()).limit(500)
+            )).scalars().all()
+
+        audit = await get_ledger().async_get_audit_logs(org_id=org_id, page=1, limit=500)
+        export = {
+            "export_version": "1.0",
+            "exported_at": time.time(),
+            "user": {
+                "id": user_id,
+                "email": db_user.email if db_user else None,
+                "role": db_user.role if db_user else None,
+                "created_at": str(db_user.created_at) if db_user else None,
+                "consent_at": str(db_user.consent_at) if db_user and db_user.consent_at else None,
+            },
+            "runs": [
+                {"id": r.id, "project_name": r.project_name, "status": r.status,
+                 "domain": r.domain, "started_at": r.started_at, "cost": r.cost}
+                for r in runs
+            ],
+            "audit_logs": audit.get("logs", []),
+        }
+        payload = _json.dumps(export, indent=2, default=str).encode()
+        return StreamingResponse(
+            iter([payload]),
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="aetheros-data-export.json"'},
+        )
 
     @app.get("/pricing")
     async def pricing():
@@ -1291,12 +1385,72 @@ def create_app() -> FastAPI:
     @app.get("/account/projects")
     async def list_projects(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
         """List all generated projects for the org."""
-        return []
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select, func
+
+        org_id = user["org_id"]
+        sf = get_session_factory()
+        async with sf() as session:
+            rows = (await session.execute(
+                select(
+                    Run.project_name,
+                    Run.domain,
+                    Run.status,
+                    func.count().label("run_count"),
+                    func.max(Run.started_at).label("last_run_at"),
+                    func.max(Run.id).label("run_id"),
+                )
+                .where(Run.org_id == org_id)
+                .group_by(Run.project_name, Run.domain, Run.status)
+                .order_by(func.max(Run.started_at).desc())
+            )).all()
+        return [
+            {
+                "project_name": r.project_name,
+                "domain": r.domain,
+                "run_count": r.run_count,
+                "last_run_at": r.last_run_at,
+                "status": r.status,
+                "run_id": r.run_id,
+            }
+            for r in rows
+        ]
 
     @app.get("/account/projects/search")
     async def search_projects(q: str, user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
         """Search projects by requirement similarity."""
-        return []
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select, func
+
+        org_id = user["org_id"]
+        sf = get_session_factory()
+        async with sf() as session:
+            rows = (await session.execute(
+                select(
+                    Run.project_name,
+                    Run.domain,
+                    Run.status,
+                    func.count().label("run_count"),
+                    func.max(Run.started_at).label("last_run_at"),
+                    func.max(Run.id).label("run_id"),
+                )
+                .where(Run.org_id == org_id, Run.project_name.like(f"%{q}%"))
+                .group_by(Run.project_name, Run.domain, Run.status)
+                .order_by(func.max(Run.started_at).desc())
+            )).all()
+        return [
+            {
+                "project_name": r.project_name,
+                "domain": r.domain,
+                "run_count": r.run_count,
+                "last_run_at": r.last_run_at,
+                "status": r.status,
+                "run_id": r.run_id,
+            }
+            for r in rows
+        ]
 
     @app.get("/intelligence/quality-benchmark")
     async def get_quality_benchmark(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
@@ -2198,14 +2352,70 @@ def create_app() -> FastAPI:
 
     @app.get("/webhooks")
     async def list_webhooks(user: Dict[str, Any] = Depends(get_current_user)):
-        return []
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Webhook
+        from sqlalchemy import select
+
+        org_id = user["org_id"]
+        sf = get_session_factory()
+        async with sf() as session:
+            rows = (await session.execute(
+                select(Webhook).where(Webhook.org_id == org_id)
+            )).scalars().all()
+        return [
+            {
+                "id": w.id,
+                "url": w.url,
+                "events": w.events,
+                "is_active": w.is_active,
+                "created_at": str(w.created_at),
+            }
+            for w in rows
+        ]
 
     @app.post("/webhooks")
     async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
-        return {"id": "w_1"}
+        import secrets as _secrets
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Webhook
+
+        url = req.get("url")
+        if not url:
+            raise HTTPException(status_code=422, detail="url is required")
+        events = req.get("events", [])
+        secret = _secrets.token_hex(32)
+        org_id = user["org_id"]
+
+        sf = get_session_factory()
+        async with sf() as session:
+            new_webhook = Webhook(
+                url=url,
+                events=events,
+                secret=secret,
+                org_id=org_id,
+            )
+            session.add(new_webhook)
+            await session.commit()
+            await session.refresh(new_webhook)
+
+        return {"id": new_webhook.id, "url": new_webhook.url, "is_active": True}
 
     @app.delete("/webhooks/{webhook_id}")
     async def delete_webhook(webhook_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Webhook
+        from sqlalchemy import select
+
+        org_id = user["org_id"]
+        sf = get_session_factory()
+        async with sf() as session:
+            wh = (await session.execute(
+                select(Webhook).where(Webhook.id == webhook_id, Webhook.org_id == org_id)
+            )).scalar_one_or_none()
+            if not wh:
+                raise HTTPException(status_code=404, detail="Webhook not found")
+            await session.delete(wh)
+            await session.commit()
         return {"success": True}
 
     @app.get("/admin/users")
@@ -2248,9 +2458,65 @@ def create_app() -> FastAPI:
             await session.commit()
         return {"id": user_id, "role": new_role}
 
+    @app.post("/admin/users/{user_id}/deactivate")
+    async def deactivate_user(user_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403)
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import User
+        sf = get_session_factory()
+        async with sf() as session:
+            db_user = await session.get(User, user_id)
+            if not db_user or db_user.org_id != user["org_id"]:
+                raise HTTPException(status_code=404, detail="User not found")
+            db_user.is_active = False
+            await session.commit()
+        return {"id": user_id, "is_active": False}
+
+    @app.post("/auth/change-password")
+    async def change_password(req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import User
+        from aether_os.gateway.auth import verify_password, get_password_hash
+        user_id = user.get("user_id", "")
+        current_pw = req.get("current_password", "")
+        new_pw = req.get("new_password", "")
+        if len(new_pw) < 10:
+            raise HTTPException(status_code=422, detail="Password must be at least 10 characters.")
+        sf = get_session_factory()
+        async with sf() as session:
+            db_user = await session.get(User, user_id)
+            if not db_user:
+                raise HTTPException(status_code=404)
+            if not verify_password(current_pw, db_user.password_hash):
+                raise HTTPException(status_code=401, detail="Current password is incorrect.")
+            db_user.password_hash = get_password_hash(new_pw)
+            await session.commit()
+        return {"message": "Password changed"}
+
     @app.get("/marketplace/profiles")
     async def list_profiles():
-        return []
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import MarketplaceProfile
+        from sqlalchemy import select
+
+        sf = get_session_factory()
+        async with sf() as session:
+            rows = (await session.execute(
+                select(MarketplaceProfile).where(MarketplaceProfile.is_published == True)
+            )).scalars().all()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "base_domain": p.base_domain,
+                "description": p.description,
+                "price_usd": p.price_usd,
+                "usage_count": p.usage_count,
+                "org_id": p.org_id,
+            }
+            for p in rows
+        ]
 
     # ── Deployment endpoints ───────────────────────────────────────────────────
 
@@ -2454,6 +2720,66 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("update_preferences failed: %s", exc)
             raise HTTPException(status_code=500, detail="Failed to save preferences")
+
+    @app.get("/factory/runs/{run_id}/artifacts")
+    async def get_run_artifacts(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        import os as _os
+        from pathlib import Path
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select
+        sf = get_session_factory()
+        async with sf() as session:
+            run = (await session.execute(select(Run).where(Run.id == run_id, Run.org_id == user["org_id"]))).scalar_one_or_none()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        project_dir = Path.home() / ".aether_os" / "projects" / run_id
+        artifacts = []
+        if project_dir.exists():
+            for fpath in sorted(project_dir.rglob("*")):
+                if fpath.is_file() and not any(p.startswith('.') for p in fpath.parts[-3:]):
+                    rel = fpath.relative_to(project_dir)
+                    artifacts.append({
+                        "filename": fpath.name,
+                        "path": str(rel),
+                        "phase": rel.parts[0] if len(rel.parts) > 1 else "root",
+                        "size_bytes": fpath.stat().st_size,
+                        "created_at": int(fpath.stat().st_mtime * 1000),
+                    })
+        return artifacts
+
+    @app.get("/admin/platform-health")
+    async def platform_health(user: Dict[str, Any] = Depends(get_current_user)):
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403)
+        import shutil
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select, func as sqlfunc
+
+        sf = get_session_factory()
+        async with sf() as session:
+            active = (await session.execute(select(sqlfunc.count()).select_from(Run).where(Run.status == "running"))).scalar_one()
+
+        disk = shutil.disk_usage("/")
+        disk_pct = round(disk.used / disk.total * 100, 1)
+
+        redis_ok = False
+        try:
+            from aether_os.core.pipeline_state import get_redis
+            r = await get_redis()
+            if r:
+                await r.ping()
+                redis_ok = True
+        except Exception:
+            pass
+
+        return {
+            "redis_connected": redis_ok,
+            "active_pipelines": active,
+            "disk_usage_pct": disk_pct,
+            "disk_free_gb": round(disk.free / 1e9, 1),
+        }
 
     return app
 

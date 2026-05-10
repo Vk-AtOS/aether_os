@@ -74,7 +74,9 @@ def _check_env() -> list[str]:
 def start(
     host: str = typer.Option("0.0.0.0", help="API server host"),
     port: int = typer.Option(8080, help="API server port"),
-    workers: int = typer.Option(1, help="Number of uvicorn workers"),
+    workers: int = typer.Option(
+        min(2 * os.cpu_count(), 8), help="Number of uvicorn workers (default: 2×CPU, max 8)"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
     reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes (dev mode)"),
 ) -> None:

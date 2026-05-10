@@ -363,12 +363,29 @@ const ProjectView = () => {
     if (!run || run.status !== 'running') return;
     if (esRef.current) return; // already connected
 
-    // Get stored token for EventSource (EventSource can't send Authorization header)
-    const token = sessionStorage.getItem('aether_token') || '';
-    const url = `/factory/runs/${id}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    let cancelled = false;
 
-    const es = new EventSource(url);
-    esRef.current = es;
+    const connectSSE = async () => {
+      try {
+        // Exchange the bearer token for a short-lived SSE-only token.
+        // This keeps the full JWT out of the URL (server logs, browser history, Referer headers).
+        const tokenRes = await api.startPipeline
+          ? null  // dummy — real call below
+          : null;
+        const exchRes = await fetch(`/api/factory/runs/${id}/sse-token`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${api.getToken()}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!exchRes.ok || cancelled) return;
+        const { sse_token } = await exchRes.json();
+        if (cancelled) return;
+
+        const url = `/api/factory/runs/${id}/stream?sse_token=${encodeURIComponent(sse_token)}`;
+        const es = new EventSource(url);
+        esRef.current = es;
 
     es.onmessage = (e) => {
       let event;
@@ -407,14 +424,23 @@ const ProjectView = () => {
       }
     };
 
-    es.onerror = () => {
-      es.close();
-      esRef.current = null;
+        es.onerror = () => {
+          es.close();
+          esRef.current = null;
+        };
+      } catch (err) {
+        console.error('SSE connect failed:', err);
+      }
     };
 
+    connectSSE();
+
     return () => {
-      es.close();
-      esRef.current = null;
+      cancelled = true;
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
     };
   }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -746,7 +772,8 @@ const ProjectView = () => {
                 >
                   <span>🚀</span>
                   <span>LAUNCH APP</span>
-                  <span className="opacity-70">:{run.live_url.split(':').pop()}</span>
+                  {/* Guard: live_url may be a bare hostname without a port */}
+                  <span className="opacity-70">:{run.live_url?.split(':').pop() ?? ''}</span>
                 </a>
                 <button
                   onClick={handleStopDeploy}

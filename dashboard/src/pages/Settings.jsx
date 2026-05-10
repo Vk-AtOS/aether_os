@@ -90,7 +90,8 @@ const Settings = () => {
   const [selectedFile, setSelectedFile] = useState('');
   const [loadingFiles, setLoadingFiles] = useState(false);
 
-  // Exact 10-phase names from orchestrator/factory_pipeline.py PHASE_SEQUENCE
+  // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (12 phases).
+  // Previously had 10 phases — missing p07b_self_healing and p11_deployment.
   const PHASES = [
     'p01_intake_requirements',
     'p02_architecture',
@@ -99,9 +100,11 @@ const Settings = () => {
     'p05_frontend',
     'p06_review_security',
     'p07_testing',
+    'p07b_self_healing',
     'p08_cicd_deployment',
     'p09_observability',
     'p10_docs_delivery',
+    'p11_deployment',
   ];
 
   const PHASE_NAMES = {
@@ -112,9 +115,11 @@ const Settings = () => {
     p05_frontend:            'Frontend',
     p06_review_security:     'Review & Security',
     p07_testing:             'Testing',
+    p07b_self_healing:       'Self-Healing',
     p08_cicd_deployment:     'CI/CD & Deployment',
     p09_observability:       'Observability',
     p10_docs_delivery:       'Docs & Delivery',
+    p11_deployment:          'Deployment',
   };
 
   useEffect(() => {

@@ -127,11 +127,17 @@ const PhaseDetail = () => {
   }, [id]);
 
   // ── Loading guard ─────────────────────────────────────────────────────────
-  if (!phaseData && phaseData !== null) {
-    return <div className="p-8 text-center text-muted">Loading phase details…</div>;
-  }
+  // FIXED: `!phaseData && phaseData !== null` is always false (undefined !== null but
+  // !undefined is true... except useState initialises to null, so it's always null here).
+  // Correct check: phaseData === null means still loading; phaseData === undefined or {}
+  // means the phase has no data yet.
   if (phaseData === null) {
-    return <div className="p-8 text-center text-muted">Loading phase details…</div>;
+    return (
+      <div className="p-8 flex items-center justify-center space-x-2 text-muted">
+        <Loader2 className="w-5 h-5 animate-spin" />
+        <span>Loading phase details…</span>
+      </div>
+    );
   }
 
   // ── Derived values ────────────────────────────────────────────────────────

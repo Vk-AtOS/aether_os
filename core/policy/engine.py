@@ -349,3 +349,74 @@ def evaluate_operation(
         effective_risk=effective_risk,
     )
 
+
+# ---------------------------------------------------------------------------
+# AetherOS service wrapper (used by PipelineService and other callers)
+# ---------------------------------------------------------------------------
+
+_PLAN_RISK_MAP: Dict[str, str] = {
+    "trial": "LOW",
+    "starter": "LOW",
+    "growth": "LOW",
+    "enterprise": "LOW",
+    "fintech": "MEDIUM",
+    "healthcare": "MEDIUM",
+}
+
+_PLAN_PROFILE_MAP: Dict[str, str] = {
+    "fintech": "FINTECH",
+    "healthcare": "HEALTHCARE",
+}
+
+
+class AetherPolicyEngine:
+    """
+    High-level wrapper around the deterministic policy engine.
+    Used by PipelineService, factory pipeline, and API handlers.
+    All operations are synchronous (pure-python, no I/O).
+    """
+
+    def check_pipeline_start(self, org_id: str, plan: str) -> tuple[bool, str]:
+        """
+        Decide whether an org is allowed to start a new pipeline run.
+        Returns (allowed: bool, reason: str).
+        """
+        plan_lower = (plan or "trial").lower()
+        profile = _PLAN_PROFILE_MAP.get(plan_lower, "DEFAULT")
+        risk = _PLAN_RISK_MAP.get(plan_lower, "LOW")
+        policy = preset_policy(profile)
+
+        decision = evaluate_operation(
+            policy,
+            operation_type="pipeline_start",
+            risk_level=risk,
+            is_guarded=True,
+        )
+        return decision.allowed, decision.reason
+
+    def check_operation(
+        self,
+        org_id: str,
+        plan: str,
+        operation_type: str,
+        risk_level: str = "MEDIUM",
+        is_guarded: bool = True,
+    ) -> tuple[bool, str]:
+        """General-purpose operation check for any pipeline phase."""
+        plan_lower = (plan or "trial").lower()
+        profile = _PLAN_PROFILE_MAP.get(plan_lower, "DEFAULT")
+        policy = preset_policy(profile)
+        decision = evaluate_operation(policy, operation_type, risk_level, is_guarded)
+        return decision.allowed, decision.reason
+
+
+_policy_engine: Optional[AetherPolicyEngine] = None
+
+
+def get_policy_engine() -> AetherPolicyEngine:
+    """Return the singleton AetherPolicyEngine instance."""
+    global _policy_engine
+    if _policy_engine is None:
+        _policy_engine = AetherPolicyEngine()
+    return _policy_engine
+

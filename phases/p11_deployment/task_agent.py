@@ -87,11 +87,13 @@ class TaskAgent:
             capture_output=True,
         )
 
+        await self._ensure_network()
+
         build_result = await self._docker_build(app_dir, image_name)
         if not build_result["success"]:
             return build_result
 
-        run_result = await self._docker_run(image_name, container_name, port)
+        run_result = await self._docker_run(image_name, container_name, port, run_id)
         if not run_result["success"]:
             return run_result
 
@@ -266,6 +268,8 @@ class TaskAgent:
                 sentry-sdk[fastapi] sqlalchemy \\
                 prometheus-client httpx requests \\
                 python-dotenv 2>/dev/null || true
+            RUN useradd -u 1001 -r -s /sbin/nologin appuser && chown -R appuser /app
+            USER 1001
             EXPOSE 8000
             CMD ["uvicorn", "{module_path}:app", \\
                 "--host", "0.0.0.0", "--port", "8000"]
@@ -298,15 +302,53 @@ class TaskAgent:
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
+    async def _ensure_network(self) -> None:
+        """Create the aetheros-isolated bridge network if it doesn't exist."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "network", "inspect", "aetheros-isolated",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=10)
+            if proc.returncode != 0:
+                create = await asyncio.create_subprocess_exec(
+                    "docker", "network", "create",
+                    "--driver", "bridge",
+                    "--internal",
+                    "aetheros-isolated",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(create.communicate(), timeout=15)
+        except Exception:
+            pass
+
     async def _docker_run(
-        self, image_name: str, container_name: str, port: int
+        self, image_name: str, container_name: str, port: int, run_id: str = ""
     ) -> Dict[str, Any]:
         try:
             proc = await asyncio.create_subprocess_exec(
                 "docker", "run", "-d",
                 "--name", container_name,
-                "-p", f"{port}:8000",
+                # D7: bind only to loopback; reverse proxy exposes externally
+                "-p", f"127.0.0.1:{port}:8000",
                 "--restart", "unless-stopped",
+                # D7: network isolation
+                "--network", "aetheros-isolated",
+                # D7: non-root
+                "--user", "1001:1001",
+                # D7: read-only root filesystem, writable /tmp only
+                "--read-only",
+                "--tmpfs", "/tmp:size=64m,mode=1777",
+                # D7: resource limits
+                "--memory", "512m",
+                "--cpus", "0.5",
+                # D7: capability hardening
+                "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges",
+                # label for cleanup cron
+                "--label", f"aetheros.run={run_id or 'unknown'}",
                 image_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
