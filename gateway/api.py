@@ -44,7 +44,38 @@ load_dotenv(pathlib.Path(__file__).parent.parent / ".env", override=True)
 
 DASHBOARD_DIST = pathlib.Path(__file__).parent.parent / "dashboard" / "dist"
 
+# C11: structured JSON logging — must run before any logger.* calls
+try:
+    from aether_os.core.logging_config import configure_logging
+    configure_logging()
+except Exception:
+    logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
+
+# C10: Sentry error tracking
+def _init_sentry() -> None:
+    dsn = os.environ.get("SENTRY_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        sentry_sdk.init(
+            dsn=dsn,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            environment=os.environ.get("ENVIRONMENT", "development"),
+            send_default_pii=False,
+        )
+        logger.info("Sentry error tracking enabled")
+    except ImportError:
+        logger.warning("sentry-sdk not installed — error tracking disabled")
+    except Exception as exc:
+        logger.warning("Sentry init failed: %s", exc)
+
+_init_sentry()
 
 # B5: Strong references prevent GC from silently killing in-flight background tasks.
 _background_tasks: set = set()
@@ -189,6 +220,17 @@ async def get_current_user(
     # 1. Try JWT
     payload = decode_access_token(token)
     if payload:
+        jti = payload.get("jti")
+        if jti:
+            try:
+                from aether_os.core.pipeline_state import get_redis
+                r = await get_redis()
+                if r and await r.exists(f"jwt:blacklist:{jti}"):
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+            except HTTPException:
+                raise
+            except Exception:
+                pass
         return payload
     
     # 2. Try API Key
@@ -347,6 +389,20 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # C9: Prometheus metrics — /metrics endpoint for Prometheus scraping
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore
+        Instrumentator(
+            should_group_status_codes=True,
+            should_ignore_untemplated=True,
+            excluded_handlers=["/health", "/metrics"],
+        ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+        logger.info("Prometheus metrics enabled at /metrics")
+    except ImportError:
+        logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
+    except Exception as exc:
+        logger.warning("Prometheus init failed: %s", exc)
+
     # ── Routes ────────────────────────────────────────────────────────────────
 
     @app.get("/")
@@ -457,8 +513,11 @@ def create_app() -> FastAPI:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid credentials",
                 )
-            
+
             user, org = row
+            if not user.is_active:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+
             token = create_access_token({
                 "sub": user.email,
                 "user_id": user.id,
@@ -473,6 +532,22 @@ def create_app() -> FastAPI:
                 org_id=org.id,
                 plan=org.plan
             )
+
+    @app.post("/auth/logout")
+    async def logout(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, str]:
+        """Invalidate the current JWT by adding its jti to Redis blacklist."""
+        jti = user.get("jti")
+        exp = user.get("exp", 0)
+        if jti and isinstance(exp, (int, float)):
+            try:
+                from aether_os.core.pipeline_state import get_redis
+                r = await get_redis()
+                if r:
+                    ttl = max(1, int(exp - time.time()))
+                    await r.setex(f"jwt:blacklist:{jti}", ttl, "1")
+            except Exception:
+                pass
+        return {"message": "Logged out"}
 
     @app.post("/auth/api-keys")
     async def create_api_key(
@@ -750,6 +825,14 @@ def create_app() -> FastAPI:
         logger.info("MCP router mounted at /mcp")
     except Exception as exc:
         logger.warning("MCP router not loaded (non-fatal): %s", exc)
+
+    # Wire SAML SSO router (C8)
+    try:
+        from aether_os.gateway.auth_saml import saml_router
+        app.include_router(saml_router)
+        logger.info("SAML SSO router mounted at /auth/saml")
+    except Exception as exc:
+        logger.warning("SAML router not loaded (non-fatal): %s", exc)
 
     @app.post("/factory/start")
     async def start_factory_run(
@@ -2086,13 +2169,32 @@ def create_app() -> FastAPI:
 
     @app.post("/factory/runs/{run_id}/kill")
     async def kill_run(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
-        if user.get("role") not in ["owner", "admin"]: raise HTTPException(status_code=403)
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403)
+        from aether_os.core.pipeline_state import set_control
+        from aether_os.core.db_utils import update_run_status
+        await set_control(run_id, "cancel")
+        await update_run_status(run_id, "cancelled", org_id=user["org_id"])
         return {"success": True, "run_id": run_id}
 
     @app.post("/admin/kill-all")
     async def kill_all(user: Dict[str, Any] = Depends(get_current_user)):
-        if user.get("role") != "owner": raise HTTPException(status_code=403)
-        return {"killed_count": 0}
+        if user.get("role") != "owner":
+            raise HTTPException(status_code=403)
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run as _Run
+        from aether_os.core.pipeline_state import set_control
+        from aether_os.core.db_utils import update_run_status
+        from sqlalchemy import select
+        sf = get_session_factory()
+        async with sf() as _sess:
+            run_ids = (await _sess.execute(
+                select(_Run.id).where(_Run.org_id == user["org_id"], _Run.status == "running")
+            )).scalars().all()
+        for rid in run_ids:
+            await set_control(rid, "cancel")
+            await update_run_status(rid, "cancelled", org_id=user["org_id"])
+        return {"killed_count": len(run_ids)}
 
     @app.get("/webhooks")
     async def list_webhooks(user: Dict[str, Any] = Depends(get_current_user)):

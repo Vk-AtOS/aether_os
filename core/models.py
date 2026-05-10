@@ -33,6 +33,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="member")  # owner, member
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     user_preferences: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -55,15 +56,25 @@ class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    org_id: Mapped[Optional[str]] = mapped_column(ForeignKey("organisations.id"), nullable=True)
+    org_id: Mapped[Optional[str]] = mapped_column(ForeignKey("organisations.id"), nullable=True, index=True)
     command: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    started_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    started_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True, index=True)
     finished_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     live_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
     run_version: Mapped[int] = mapped_column(default=1)
     parallel_run_group_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     self_test_report: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Pipeline input/output fields
+    raw_input: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    requirement: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    project_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    domain: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="general")
+    client_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    current_phase: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    phases: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     organisation: Mapped[Optional["Organisation"]] = relationship(back_populates="runs")
     events: Mapped[List["Event"]] = relationship(back_populates="run", cascade="all, delete-orphan")
@@ -99,6 +110,7 @@ class PhaseCompletion(Base):
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), primary_key=True)
     phase_name: Mapped[str] = mapped_column(String(255), primary_key=True)
     status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    duration_s: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     run: Mapped["Run"] = relationship(back_populates="phase_completions")
@@ -220,3 +232,66 @@ class GlobalPattern(Base):
     usage_count: Mapped[int] = mapped_column(default=0)
     avg_quality_score: Mapped[float] = mapped_column(Float, default=0.0)
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ── LLM Cache (replaces ~/.aether_os/llm_cache.db) ───────────────────────────
+
+class LLMCacheEntry(Base):
+    """Shared LLM response cache — replaces per-process SQLite file."""
+    __tablename__ = "llm_cache_entries"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)  # SHA-256 hex
+    task_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    response: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(default=0)
+    hit_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    last_hit_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+# ── Token Budget (replaces ~/.aether_os/token_budget.db) ─────────────────────
+
+class TokenBudgetRecord(Base):
+    """Per-org monthly token usage — replaces per-process SQLite file."""
+    __tablename__ = "token_budget_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    month: Mapped[str] = mapped_column(String(7), nullable=False)       # "YYYY-MM"
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    runs: Mapped[int] = mapped_column(default=0)
+    cache_hits: Mapped[int] = mapped_column(default=0)
+    cache_misses: Mapped[int] = mapped_column(default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+# ── Plugin Registry (replaces ~/.aether_os/plugins.db) ───────────────────────
+
+class LLMCallRecord(Base):
+    """Individual LLM call record for cost/usage tracking (replaces billing.db)."""
+    __tablename__ = "llm_call_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    phase: Mapped[str] = mapped_column(String(100), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class InstalledPluginRecord(Base):
+    """Installed plugins per org — replaces per-process SQLite file."""
+    __tablename__ = "installed_plugins"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    plugin_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    config_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # encrypted JSON
+    installed_at: Mapped[float] = mapped_column(Float, default=time.time)
+    last_tested_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    test_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # ok | fail

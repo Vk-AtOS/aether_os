@@ -1,0 +1,22 @@
+# PgBouncer userlist — scram-sha-256 hashed passwords.
+#
+# Generate a hash with:
+#   python3 -c "
+#   import base64, hashlib, os, secrets
+#   pw = input('Password: ')
+#   salt = os.urandom(16)
+#   digest = hashlib.pbkdf2_hmac('sha256', pw.encode(), salt, 4096)
+#   print('SCRAM-SHA-256$4096:' + base64.b64encode(salt).decode() + '$' +
+#         base64.b64encode(digest).decode() + ':' + base64.b64encode(
+#             hashlib.sha256(digest).digest()).decode())
+#   "
+#
+# Or use psql:  SELECT rolname, rolpassword FROM pg_authid WHERE rolname='aetheros';
+#
+# Format: "username" "SCRAM-SHA-256$..." (one per line, double-quoted)
+#
+# IMPORTANT: Never commit real passwords. Replace the placeholder below with
+# the actual SCRAM hash from your PostgreSQL instance.
+#
+"aetheros" "SCRAM-SHA-256$REPLACE_WITH_REAL_HASH"
+"pgbouncer_admin" "SCRAM-SHA-256$REPLACE_WITH_REAL_HASH"

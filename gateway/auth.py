@@ -52,9 +52,10 @@ def _get_secret_key() -> str:
 
 def create_access_token(
     data: Dict[str, Any],
-    expires_hours: int = 24,
+    expires_hours: int = 168,  # 7 days default — avoids 80K simultaneous re-login storms
 ) -> str:
     """Create a signed JWT access token."""
+    import uuid as _uuid
     try:
         from jose import jwt  # type: ignore
     except ImportError as exc:
@@ -64,6 +65,7 @@ def create_access_token(
     expire = datetime.now(timezone.utc) + timedelta(hours=expires_hours)
     payload["exp"] = expire
     payload["iat"] = datetime.now(timezone.utc)
+    payload.setdefault("jti", str(_uuid.uuid4()))  # unique token ID for blacklisting
     return jwt.encode(payload, _get_secret_key(), algorithm=_ALGORITHM)
 
 

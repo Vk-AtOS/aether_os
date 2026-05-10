@@ -1,26 +1,24 @@
-"""AetherOS — Per-project usage and billing tracker."""
+"""AetherOS — Per-project usage and billing tracker — ORM edition (C1).
+
+Migrated from billing.db (sqlite3) to the shared PostgreSQL ORM.
+External API (`record_llm_call`, `record_phase_completion`, `get_project_cost`) unchanged.
+"""
 from __future__ import annotations
-import json
+
+import asyncio
 import logging
-import sqlite3
-import threading
+import time
 from dataclasses import dataclass
-from pathlib import Path
-from pathlib import Path as _Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-(_Path.home() / ".aether_os").mkdir(parents=True, exist_ok=True)
-
-_DB_PATH = _Path.home() / ".aether_os" / "billing.db"
-
 # Anthropic pricing (USD per 1M tokens, as of 2025)
 _TOKEN_PRICES: Dict[str, Dict[str, float]] = {
-    "claude-sonnet-4-6":    {"input": 3.00,  "output": 15.00},
-    "claude-haiku-4-5":     {"input": 0.25,  "output": 1.25},
-    "claude-opus-4-6":      {"input": 15.00, "output": 75.00},
-    "default":              {"input": 3.00,  "output": 15.00},
+    "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00},
+    "claude-haiku-4-5":  {"input": 0.25,  "output": 1.25},
+    "claude-opus-4-6":   {"input": 15.00, "output": 75.00},
+    "default":           {"input": 3.00,  "output": 15.00},
 }
 
 
@@ -34,40 +32,6 @@ class CostSummary:
 
 
 class UsageTracker:
-    def __init__(self, db_path: Optional[Path] = None) -> None:
-        self._path = db_path or _DB_PATH
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._init_db()
-
-    def _conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self._path))
-
-    def _init_db(self) -> None:
-        with self._lock, self._conn() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS llm_calls (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_id TEXT NOT NULL,
-                    phase TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    input_tokens INTEGER NOT NULL,
-                    output_tokens INTEGER NOT NULL,
-                    cost_usd REAL NOT NULL,
-                    ts REAL NOT NULL DEFAULT (unixepoch('now'))
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS phase_completions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_id TEXT NOT NULL,
-                    phase TEXT NOT NULL,
-                    duration_s REAL NOT NULL,
-                    ts REAL NOT NULL DEFAULT (unixepoch('now'))
-                )
-            """)
-            conn.commit()
-
     @staticmethod
     def _calc_cost(model: str, input_tokens: int, output_tokens: int) -> float:
         prices = _TOKEN_PRICES.get(model, _TOKEN_PRICES["default"])
@@ -78,52 +42,120 @@ class UsageTracker:
                         cost_usd: Optional[float] = None) -> None:
         if cost_usd is None:
             cost_usd = self._calc_cost(model, input_tokens, output_tokens)
-        with self._lock, self._conn() as conn:
-            conn.execute(
-                "INSERT INTO llm_calls(project_id,phase,model,input_tokens,"
-                "output_tokens,cost_usd) VALUES(?,?,?,?,?,?)",
-                (project_id, phase, model, input_tokens, output_tokens, cost_usd),
-            )
-            conn.commit()
+        _run_async(self._async_record_llm_call(project_id, phase, model, input_tokens, output_tokens, cost_usd))
 
     def record_phase_completion(self, project_id: str, phase: str,
                                 duration_s: float) -> None:
-        with self._lock, self._conn() as conn:
-            conn.execute(
-                "INSERT INTO phase_completions(project_id,phase,duration_s) VALUES(?,?,?)",
-                (project_id, phase, duration_s),
-            )
-            conn.commit()
+        _run_async(self._async_record_phase_completion(project_id, phase, duration_s))
 
     def get_project_cost(self, project_id: str) -> CostSummary:
-        with self._lock, self._conn() as conn:
-            row = conn.execute(
-                "SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),"
-                " COALESCE(SUM(cost_usd),0) FROM llm_calls WHERE project_id=?",
-                (project_id,),
-            ).fetchone()
-            phase_rows = conn.execute(
-                "SELECT phase, COALESCE(SUM(cost_usd),0) FROM llm_calls "
-                "WHERE project_id=? GROUP BY phase",
-                (project_id,),
-            ).fetchall()
-        return CostSummary(
+        return _run_async(self._async_get_project_cost(project_id)) or CostSummary(
             project_id=project_id,
-            total_input_tokens=row[0],
-            total_output_tokens=row[1],
-            total_cost_usd=round(row[2], 6),
-            phase_breakdown={r[0]: round(r[1], 6) for r in phase_rows},
+            total_input_tokens=0, total_output_tokens=0,
+            total_cost_usd=0.0, phase_breakdown={},
         )
 
     def get_phase_cost(self, project_id: str, phase: str) -> float:
-        with self._lock, self._conn() as conn:
-            row = conn.execute(
-                "SELECT COALESCE(SUM(cost_usd),0) FROM llm_calls "
-                "WHERE project_id=? AND phase=?",
-                (project_id, phase),
-            ).fetchone()
-        return round(row[0], 6)
+        return _run_async(self._async_get_phase_cost(project_id, phase)) or 0.0
 
+    # ── Async implementations ─────────────────────────────────────────────────
+
+    async def _async_record_llm_call(self, project_id: str, phase: str, model: str,
+                                     input_tokens: int, output_tokens: int,
+                                     cost_usd: float) -> None:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import LLMCallRecord
+            sf = get_session_factory()
+            async with sf() as session:
+                session.add(LLMCallRecord(
+                    project_id=project_id, phase=phase, model=model,
+                    input_tokens=input_tokens, output_tokens=output_tokens,
+                    cost_usd=cost_usd, created_at=time.time(),
+                ))
+                await session.commit()
+        except Exception as exc:
+            logger.debug("record_llm_call failed: %s", exc)
+
+    async def _async_record_phase_completion(self, project_id: str, phase: str,
+                                             duration_s: float) -> None:
+        try:
+            from aether_os.core.db_utils import record_phase_completion
+            await record_phase_completion(
+                run_id=project_id, phase_name=phase,
+                status="completed", duration_s=duration_s,
+            )
+        except Exception as exc:
+            logger.debug("record_phase_completion failed: %s", exc)
+
+    async def _async_get_project_cost(self, project_id: str) -> CostSummary:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import LLMCallRecord
+            from sqlalchemy import select, func
+
+            sf = get_session_factory()
+            async with sf() as session:
+                row = (await session.execute(
+                    select(
+                        func.coalesce(func.sum(LLMCallRecord.input_tokens), 0),
+                        func.coalesce(func.sum(LLMCallRecord.output_tokens), 0),
+                        func.coalesce(func.sum(LLMCallRecord.cost_usd), 0.0),
+                    ).where(LLMCallRecord.project_id == project_id)
+                )).one()
+
+                phase_rows = (await session.execute(
+                    select(LLMCallRecord.phase, func.coalesce(func.sum(LLMCallRecord.cost_usd), 0.0))
+                    .where(LLMCallRecord.project_id == project_id)
+                    .group_by(LLMCallRecord.phase)
+                )).all()
+
+            return CostSummary(
+                project_id=project_id,
+                total_input_tokens=int(row[0]),
+                total_output_tokens=int(row[1]),
+                total_cost_usd=round(float(row[2]), 6),
+                phase_breakdown={r[0]: round(float(r[1]), 6) for r in phase_rows},
+            )
+        except Exception as exc:
+            logger.debug("get_project_cost failed: %s", exc)
+            return CostSummary(
+                project_id=project_id,
+                total_input_tokens=0, total_output_tokens=0,
+                total_cost_usd=0.0, phase_breakdown={},
+            )
+
+    async def _async_get_phase_cost(self, project_id: str, phase: str) -> float:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import LLMCallRecord
+            from sqlalchemy import select, func
+
+            sf = get_session_factory()
+            async with sf() as session:
+                row = (await session.execute(
+                    select(func.coalesce(func.sum(LLMCallRecord.cost_usd), 0.0))
+                    .where(LLMCallRecord.project_id == project_id, LLMCallRecord.phase == phase)
+                )).scalar_one()
+            return round(float(row), 6)
+        except Exception as exc:
+            logger.debug("get_phase_cost failed: %s", exc)
+            return 0.0
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+def _run_async(coro):
+    try:
+        asyncio.get_running_loop()
+        # Inside an event loop — fire-and-forget
+        asyncio.ensure_future(coro)
+        return None
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
 _tracker: Optional[UsageTracker] = None
 
