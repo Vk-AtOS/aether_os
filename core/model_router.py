@@ -125,9 +125,18 @@ class ModelRouter:
         max_tokens: int = 8192,
         trace_name: Optional[str] = None,
         enforce_local: bool = False,
+        org_id: Optional[str] = None,
+        plan: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Execute the fallback chain and return (text, provider).
+
+        Cost reduction layers applied in order:
+          1. Semantic cache check (skips LLM entirely if hit)
+          2. Token budget check (downgrades model or blocks on trial plan)
+          3. Anthropic prompt caching (via cache_control on system prompt)
+          4. Normal fallback chain
+          5. Record usage for budget tracking
 
         trace_name is used as the LangSmith run name.  When omitted it is
         auto-built from ACTIVE_PHASE + ACTIVE_RUN_ID context vars.
@@ -135,6 +144,48 @@ class ModelRouter:
         global _active_model, _fallback_count_today, _fallback_date
         from aether_os.core.errors import LLMUnavailable
         from aether_os.core.telemetry.langsmith_tracer import trace_call
+
+        # ── 1. Semantic cache check ───────────────────────────────────────────
+        if not enforce_local:
+            try:
+                from aether_os.core.llm.cache import get_llm_cache
+                _llm_cache = get_llm_cache()
+                cached = await _llm_cache.get(prompt, task_type, system, org_id=org_id)
+                if cached is not None:
+                    logger.info("Router: cache HIT task=%s (skipping LLM call)", task_type)
+                    self._last_provider = "cache"
+                    _active_model = "cache"
+                    # Record zero-cost usage
+                    if org_id:
+                        try:
+                            from aether_os.core.llm.budget import get_budget_manager
+                            await get_budget_manager().record_usage(
+                                org_id=org_id, input_tokens=0, output_tokens=0,
+                                model="cache", cache_hit=True,
+                            )
+                        except Exception:
+                            pass
+                    return cached, "cache"
+            except Exception as _ce:
+                logger.debug("Cache check failed (continuing): %s", _ce)
+
+        # ── 2. Token budget check ─────────────────────────────────────────────
+        _recommended_model: Optional[str] = None
+        if org_id and plan and not enforce_local:
+            try:
+                from aether_os.core.llm.budget import get_budget_manager
+                _bm = get_budget_manager()
+                allowed, reason, _recommended_model = await _bm.check_budget(
+                    org_id=org_id, plan=plan
+                )
+                if not allowed:
+                    raise LLMUnavailable(f"Token budget exceeded: {reason}")
+                if _recommended_model == "haiku":
+                    logger.info("Router: budget downgrade → Haiku (%s)", reason)
+            except LLMUnavailable:
+                raise
+            except Exception as _be:
+                logger.debug("Budget check failed (continuing): %s", _be)
 
         # Reset daily fallback counter on calendar-day boundary
         today = time.strftime("%Y-%m-%d")
@@ -200,6 +251,32 @@ class ModelRouter:
                         spec.provider, spec.model,
                         attempt + 1, spec.retry_count, task_type,
                     )
+                    # Store in semantic cache (background, non-blocking)
+                    if not enforce_local:
+                        try:
+                            from aether_os.core.llm.cache import get_llm_cache
+                            asyncio.create_task(
+                                get_llm_cache().set(prompt, task_type, result, system, org_id=org_id)
+                            )
+                        except Exception:
+                            pass
+                    # Record token usage for budget tracking (approximate)
+                    if org_id:
+                        try:
+                            _est_input = len(prompt) // 4
+                            _est_output = len(result) // 4
+                            from aether_os.core.llm.budget import get_budget_manager
+                            asyncio.create_task(
+                                get_budget_manager().record_usage(
+                                    org_id=org_id,
+                                    input_tokens=_est_input,
+                                    output_tokens=_est_output,
+                                    model=spec.model,
+                                    cache_hit=False,
+                                )
+                            )
+                        except Exception:
+                            pass
                     return result, spec.provider
 
                 except asyncio.TimeoutError:

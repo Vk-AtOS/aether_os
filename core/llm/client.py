@@ -92,12 +92,22 @@ async def _call_anthropic(
     client = _get_anthropic_client()
     last_exc: Exception | None = None
 
+    # Use prompt caching for the system prompt — reduces cached token cost by 90%.
+    # The system prompt is always the same per task_type, so cache hit rate is high.
+    system_with_cache = [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
     for attempt in range(retries):
         try:
             response = await client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=system_prompt,
+                system=system_with_cache,
                 messages=[{"role": "user", "content": prompt}],
             )
             usage = response.usage
@@ -105,9 +115,13 @@ async def _call_anthropic(
             _cost_registry["completion_tokens"] += usage.output_tokens
             _cost_registry["calls"] += 1
             text = response.content[0].text if response.content else ""
+            # Log prompt cache stats if available
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+            cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
             logger.debug(
-                "Anthropic [%s] attempt=%d tokens=%d+%d",
+                "Anthropic [%s] attempt=%d tokens=%d+%d cache_read=%d cache_write=%d",
                 model, attempt + 1, usage.input_tokens, usage.output_tokens,
+                cache_read, cache_create,
             )
             return text
         except Exception as exc:
@@ -205,7 +219,7 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
 
     # Check if there's an active pipeline run to stream into
     try:
-        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE, PIPELINE_EVENTS
+        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
         run_id = ACTIVE_RUN_ID.get()
         phase  = ACTIVE_PHASE.get()
     except Exception:
@@ -214,9 +228,9 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
 
     url = f"{base_url}/api/generate"
 
-    if run_id and PIPELINE_EVENTS.get(run_id):
-        # Streaming path — emit llm_chunk events as tokens arrive
-        q = PIPELINE_EVENTS[run_id]
+    if run_id:
+        # Streaming path — emit llm_chunk events via Redis pub/sub
+        from aether_os.core.pipeline_state import publish_event as _publish_event
         payload = {"model": model, "prompt": prompt, "stream": True}
         chunks: list[str] = []
         async with httpx.AsyncClient(timeout=timeout) as http:
@@ -234,9 +248,9 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
                         if token:
                             chunks.append(token)
                             try:
-                                q.put_nowait({"type": "llm_chunk", "phase": phase, "text": token})
+                                await _publish_event(run_id, {"type": "llm_chunk", "phase": phase, "text": token})
                             except Exception:
-                                pass  # Queue full — skip token event, keep accumulating
+                                pass
                         if obj.get("done"):
                             break
             except Exception as exc:
@@ -320,38 +334,64 @@ class LLMClient:
         system: Optional[str] = None,
         max_tokens: int = 8192,
         org_id: Optional[str] = None,
+        plan: Optional[str] = None,
     ) -> str:
         """
         Call the LLM via the multi-model router.
 
+        Cost reduction pipeline applied automatically:
+          1. Context compression (Haiku-powered, only when context is large)
+          2. Semantic cache check (in router)
+          3. Token budget enforcement (in router)
+          4. Anthropic prompt caching via cache_control (in _call_anthropic)
+          5. Provider fallback chain: Anthropic → Gemini → Ollama
+
         Chain: Anthropic claude-sonnet-4-6 → Gemini gemini-2.5-flash → Ollama qwen2.5-coder:3b
         Each model has individual timeouts and retry counts (see core/model_router.py).
         """
+        enforce_local = False
+
         if org_id:
-            from aether_os.core.db import get_session_factory
-            from aether_os.core.models import Organisation
-            from sqlalchemy import select
-            async with get_session_factory()() as session:
-                stmt = select(Organisation).where(Organisation.id == org_id)
-                result = await session.execute(stmt)
-                org = result.scalar_one_or_none()
-                if org and org.data_region == "local-only":
-                    # enforce ollama/local only
-                    # We might need a mechanism to explicitly route to Ollama
-                    context = context or {}
-                    context["enforce_local"] = True
+            try:
+                from aether_os.core.db import get_session_factory
+                from aether_os.core.models import Organisation
+                from sqlalchemy import select
+                async with get_session_factory()() as session:
+                    stmt = select(Organisation).where(Organisation.id == org_id)
+                    result = await session.execute(stmt)
+                    org = result.scalar_one_or_none()
+                    if org and getattr(org, "data_region", None) == "local-only":
+                        enforce_local = True
+                        context = context or {}
+                        context["enforce_local"] = True
+            except Exception:
+                pass  # Non-fatal — continue without org check
 
         if context:
             ctx_str = json.dumps(context, indent=2)
-            prompt = f"Context:\n{ctx_str}\n\n{prompt}"
+            full_prompt = f"Context:\n{ctx_str}\n\n{prompt}"
+        else:
+            full_prompt = prompt
+
+        # ── Context compression ──────────────────────────────────────────────
+        # Only compress for heavy tasks when accumulated context is large.
+        # Uses Haiku at ~1/10th the cost of Sonnet — pays for itself many times over.
+        if not enforce_local:
+            try:
+                from aether_os.core.llm.compressor import compress_context
+                full_prompt, _compressed = await compress_context(full_prompt, task_type=task_type)
+            except Exception:
+                pass  # Non-fatal — use uncompressed prompt
 
         from aether_os.core.model_router import get_router
         text, provider = await get_router().call(
-            prompt=prompt,
+            prompt=full_prompt,
             task_type=task_type,
             system=system,
             max_tokens=max_tokens,
-            enforce_local=context and context.get("enforce_local", False)
+            enforce_local=enforce_local,
+            org_id=org_id,
+            plan=plan,
         )
         self.last_provider = provider
         return text

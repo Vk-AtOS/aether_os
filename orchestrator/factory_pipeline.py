@@ -21,7 +21,10 @@ from aether_os.orchestrator.state_machine import (
     PipelineStateMachine, PipelineState, PHASE_TO_STATE,
 )
 from aether_os.orchestrator.events import (
-    PIPELINE_EVENTS, ACTIVE_RUN_ID, ACTIVE_PHASE, emit,
+    ACTIVE_RUN_ID, ACTIVE_PHASE, emit,
+)
+from aether_os.core.pipeline_state import (
+    publish_event, get_control, set_control, clear_run,
 )
 from aether_os.core.projects import get_project_manager
 from aether_os.core.audit.ledger import get_ledger
@@ -101,24 +104,23 @@ class FactoryPipeline:
                   project_name: Optional[str] = None,
                   start_phase: Optional[str] = None,
                   run_id: Optional[str] = None,
-                  org_id: Optional[str] = None) -> dict:
+                  org_id: Optional[str] = None,
+                  org_slug: Optional[str] = None,
+                  plan: Optional[str] = None,
+                  is_change_request: bool = False,
+                  memory_context: Optional[str] = None) -> dict:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
         try:
             return await asyncio.wait_for(self._execute_pipeline(
-                client_id, raw_input, domain, project_name, start_phase, run_id, org_id
+                client_id, raw_input, domain, project_name, start_phase,
+                run_id, org_id, org_slug, plan, is_change_request, memory_context
             ), timeout=timeout)
         except asyncio.TimeoutError:
             logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
             if run_id:
                 self.ledger.update_run_status(run_id, "timeout")
-                # Emit failure
-                _q = PIPELINE_EVENTS.get(run_id)
-                if _q:
-                    try:
-                        await _q.put({"type": "pipeline_complete", "status": "timeout", "ts": time.time()})
-                    except Exception:
-                        pass
+                await publish_event(run_id, {"type": "pipeline_complete", "status": "timeout", "ts": time.time()})
             return {"run_id": run_id, "status": "timeout"}
 
     async def _execute_pipeline(self,
@@ -128,7 +130,11 @@ class FactoryPipeline:
                   project_name: Optional[str] = None,
                   start_phase: Optional[str] = None,
                   run_id: Optional[str] = None,
-                  org_id: Optional[str] = None) -> dict:
+                  org_id: Optional[str] = None,
+                  org_slug: Optional[str] = None,
+                  plan: Optional[str] = None,
+                  is_change_request: bool = False,
+                  memory_context: Optional[str] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
 
@@ -136,20 +142,22 @@ class FactoryPipeline:
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
         project_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create event queue for SSE streaming
-        PIPELINE_EVENTS[run_id] = asyncio.Queue(maxsize=500)
-
         self.ledger.save_run(run_id, f"factory: {raw_input[:60]}", org_id=org_id, status="running")
 
         # Accumulated context passed between phases
         accumulated_context = {
             "run_id": run_id,
             "org_id": org_id,
+            "org_slug": org_slug or "",
+            "plan": plan or "trial",
             "client_id": client_id,
             "raw_input": raw_input,
             "domain": domain,
             "project_name": project_name or f"project-{run_id[:8]}",
-            "project_dir": str(project_dir)
+            "project_dir": str(project_dir),
+            "is_change_request": is_change_request,
+            # Cross-run memory context injected from MemoryService (may be "")
+            "memory_context": memory_context or "",
         }
         
         # 10-phase consolidated pipeline
@@ -293,16 +301,11 @@ class FactoryPipeline:
                 ACTIVE_PHASE.reset(phase_token)
 
             # ── Control signal check after each phase ──────────────────────
-            control = PIPELINE_CONTROL.get(run_id)
+            control = await get_control(run_id)
             if control == "cancel":
                 logger.info("Pipeline %s cancelled after phase %s", run_id, phase_name)
                 self.ledger.update_run_status(run_id, "cancelled")
-                _q2 = PIPELINE_EVENTS.get(run_id)
-                if _q2:
-                    try:
-                        _q2.put_nowait({"type": "pipeline_complete", "status": "cancelled", "ts": time.time()})
-                    except Exception:
-                        pass
+                await publish_event(run_id, {"type": "pipeline_complete", "status": "cancelled", "ts": time.time()})
                 return {
                     "run_id": run_id, "status": "cancelled",
                     "phases": results, "output_dir": str(project_dir),
@@ -310,9 +313,9 @@ class FactoryPipeline:
             if control == "pause":
                 logger.info("Pipeline %s paused after phase %s", run_id, phase_name)
                 self.ledger.update_run_status(run_id, "paused")
-                while PIPELINE_CONTROL.get(run_id) == "pause":
+                while await get_control(run_id) == "pause":
                     await asyncio.sleep(2)
-                if PIPELINE_CONTROL.get(run_id) == "cancel":
+                if await get_control(run_id) == "cancel":
                     self.ledger.update_run_status(run_id, "cancelled")
                     return {
                         "run_id": run_id, "status": "cancelled",
@@ -327,27 +330,46 @@ class FactoryPipeline:
         duration = time.time() - pipeline_start
 
         # Emit pipeline_complete immediately so SSE clients are not blocked
-        _q = PIPELINE_EVENTS.get(run_id)
-        if _q:
-            try:
-                await _q.put({
-                    "type": "pipeline_complete",
-                    "status": "completed",
-                    "duration": round(duration, 1),
-                    "ts": time.time(),
-                })
-            except Exception:
-                pass
+        await publish_event(run_id, {
+            "type": "pipeline_complete",
+            "status": "completed",
+            "duration": round(duration, 1),
+            "ts": time.time(),
+        })
 
-        # Schedule queue cleanup after 5 minutes
+        # Schedule Redis key cleanup after 5 minutes (B3 + B5: store task ref)
         async def _cleanup():
             await asyncio.sleep(300)
-            PIPELINE_EVENTS.pop(run_id, None)
-        asyncio.create_task(_cleanup())
+            await clear_run(run_id)
+            _background_tasks.discard(asyncio.current_task())
+        _t = asyncio.create_task(_cleanup())
+        _background_tasks.add(_t)
+        _t.add_done_callback(_background_tasks.discard)
+
+        # ── Store outcome in cross-run memory for future learning (background) ──
+        async def _store_memory():
+            if not org_id:
+                return
+            try:
+                from aether_os.core.services.memory_service import get_memory_service
+                ms = get_memory_service()
+                await ms.store_run_outcome(
+                    org_id=org_id,
+                    run_id=run_id,
+                    raw_input=raw_input,
+                    status="completed",
+                    domain=domain,
+                    phase_outputs={k: v.get("artifacts", {}) for k, v in results.items()},
+                )
+            except Exception as _me:
+                logger.debug("[pipeline] Memory store skipped: %s", _me)
+        _t2 = asyncio.create_task(_store_memory())
+        _background_tasks.add(_t2)
+        _t2.add_done_callback(_background_tasks.discard)
 
         # ── PART 2: Embed artifacts for semantic search (background, non-blocking)
         async def _embed_artifacts():
-            if PIPELINE_CONTROL.get(run_id) == "cancel":
+            if await get_control(run_id) == "cancel":
                 return
             try:
                 from aether_os.core.artifact_store import get_artifact_store
@@ -355,7 +377,7 @@ class FactoryPipeline:
                 _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
                 _count = 0
                 for _phase in results:
-                    if PIPELINE_CONTROL.get(run_id) == "cancel":
+                    if await get_control(run_id) == "cancel":
                         break
                     _phase_dir = project_dir / _phase
                     if _phase_dir.exists():
@@ -373,7 +395,9 @@ class FactoryPipeline:
                 logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
             except Exception as e:
                 logger.warning("[pipeline] Artifact embedding skipped: %s", e)
-        asyncio.create_task(_embed_artifacts())
+        _t3 = asyncio.create_task(_embed_artifacts())
+        _background_tasks.add(_t3)
+        _t3.add_done_callback(_background_tasks.discard)
 
         return {
             "run_id": run_id,
@@ -464,10 +488,8 @@ class FactoryPipeline:
         )
 
 
-# Pipeline control signals — keyed by run_id: "pause" | "cancel" | None
-# Set by API endpoints; checked after each phase in the loop.
-PIPELINE_CONTROL: Dict[str, Optional[str]] = {}
-
+# B5: Strong references to background tasks prevent GC from silently killing them.
+_background_tasks: set = set()
 
 _factory: Optional[FactoryPipeline] = None
 
