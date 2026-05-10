@@ -111,6 +111,6 @@ gpt-researcher>=0.8.0
 # celery>=5.3.0
 # redis>=5.0.0
 
-# ── Optional — PostgreSQL (replace SQLite for production) ────────────────────
-# asyncpg>=0.29.0
+# ── PostgreSQL async driver — required when DATABASE_URL=postgresql:// ────────
+asyncpg>=0.29.0
 # psycopg2-binary>=2.9.0

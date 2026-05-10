@@ -13,13 +13,21 @@ WorkingDirectory=/opt/aetheros
 # Load secrets from environment file (not committed to git)
 EnvironmentFile=/opt/aetheros/.env
 
-# Start the gateway
-ExecStart=/opt/aetheros/venv/bin/uvicorn main:app \
+# Ensure `from aether_os.*` imports resolve correctly.
+# The package is installed editable via `pip install -e .` in deploy.sh which
+# registers the package-dir mapping. PYTHONPATH here is a belt-and-suspenders
+# fallback in case the package install is missing or stale.
+Environment=PYTHONPATH=/opt
+
+# Start the gateway — entry point is the FastAPI app, NOT the Typer CLI (main.py)
+ExecStart=/opt/aetheros/venv/bin/uvicorn aether_os.gateway.api:app \
     --host 127.0.0.1 \
     --port 9200 \
-    --workers 2 \
+    --workers 8 \
     --log-level info \
-    --timeout-keep-alive 120
+    --timeout-keep-alive 120 \
+    --backlog 2048 \
+    --limit-concurrency 1000
 
 # Graceful restart — let SSE streams drain
 ExecReload=/bin/kill -HUP $MAINPID
@@ -35,10 +43,10 @@ StartLimitBurst=5
 
 # Security hardening
 NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/opt/aetheros /var/log/aetheros
+PrivateTmp=false
+ProtectSystem=full
+ProtectHome=no
+ReadWritePaths=/opt/aetheros /var/log/aetheros /var/lib/aetheros /home/aetheros
 CapabilityBoundingSet=
 AmbientCapabilities=
 
