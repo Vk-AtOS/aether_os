@@ -107,9 +107,9 @@ gpt-researcher>=0.8.0
 # ── Optional — Docker sandbox (p08 CI/CD phase) ──────────────────────────────
 # docker>=7.0.0
 
-# ── Optional — Production queue (replace asyncio.Queue for high volume) ───────
+# ── Production queue — Redis for pipeline state, SSE, rate limiting ──────────
 # celery>=5.3.0
-# redis>=5.0.0
+redis[asyncio]>=5.0.0
 
 # ── PostgreSQL async driver — required when DATABASE_URL=postgresql:// ────────
 asyncpg>=0.29.0

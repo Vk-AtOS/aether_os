@@ -47,6 +47,14 @@ fi
 if ! command -v ollama &>/dev/null; then
     curl -fsSL https://ollama.com/install.sh | sh
 fi
+
+# B10: bind Ollama to localhost only — prevent free public access and security risk
+mkdir -p /etc/systemd/system/ollama.service.d
+cat > /etc/systemd/system/ollama.service.d/override.conf <<'OVERRIDE'
+[Service]
+Environment=OLLAMA_HOST=127.0.0.1
+OVERRIDE
+systemctl daemon-reload
 systemctl enable --now ollama
 
 # ── 4. Create system user ─────────────────────────────────────────────────────
@@ -113,6 +121,8 @@ certbot --nginx -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive --re
 # ── 14. Firewall ──────────────────────────────────────────────────────────────
 ufw allow 'Nginx Full'
 ufw allow OpenSSH
+# B10: block Ollama from public internet — localhost only
+ufw deny 11434
 ufw --force enable
 
 # ── 15. Start service ─────────────────────────────────────────────────────────
