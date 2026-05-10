@@ -35,6 +35,7 @@ apt-get install -y \
     python3.11 python3.11-venv python3.11-dev \
     build-essential curl git \
     nginx certbot python3-certbot-nginx \
+    pgbouncer postgresql-client \
     ufw
 
 # ── 2. Node 20 (via NodeSource) ───────────────────────────────────────────────
@@ -101,6 +102,21 @@ chmod 640 "$INSTALL_DIR/.env"
 # ── 10. Log dir ───────────────────────────────────────────────────────────────
 mkdir -p /var/log/aetheros
 chown "$SERVICE_USER:$SERVICE_USER" /var/log/aetheros
+
+# ── 11a. PgBouncer — connection pooler (C6) ───────────────────────────────────
+if [[ -f "$REPO_DIR/deploy/pgbouncer.ini" ]]; then
+    cp "$REPO_DIR/deploy/pgbouncer.ini" /etc/pgbouncer/pgbouncer.ini
+    # Only copy userlist template if not already populated with real hashes
+    if [[ ! -f /etc/pgbouncer/userlist.txt ]] || grep -q "REPLACE_WITH_REAL_HASH" /etc/pgbouncer/userlist.txt 2>/dev/null; then
+        cp "$REPO_DIR/deploy/pgbouncer_userlist.txt" /etc/pgbouncer/userlist.txt
+        echo "⚠️  /etc/pgbouncer/userlist.txt contains placeholder hashes — update before starting PgBouncer!"
+    fi
+    chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+    chmod 640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+    systemctl enable --now pgbouncer || echo "PgBouncer enable failed — check /etc/pgbouncer/userlist.txt"
+    echo "→ PgBouncer listening on 127.0.0.1:6432"
+    echo "→ Update DATABASE_URL in .env to: postgresql+asyncpg://aetheros:<pw>@127.0.0.1:6432/aetheros"
+fi
 
 # ── 11. systemd service ───────────────────────────────────────────────────────
 cp "$REPO_DIR/deploy/aetheros.service" /etc/systemd/system/

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aether_os.phases.p08_cicd.patch_reuse.fingerprint import FailureFingerprint
+from aether_os.phases._legacy.p08_cicd.patch_reuse.fingerprint import FailureFingerprint
 
 FUZZY_THRESHOLD = 0.85
 

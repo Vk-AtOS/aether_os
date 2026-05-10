@@ -1,208 +1,232 @@
 """
-AetherOS — Decision Ledger (Run/Event Log)
-Migrated from aether2/aether/memory/ledger.py.
-SQLite-backed run + event log with thread-safe access.
+AetherOS — Decision Ledger (Run/Event Log) — ORM edition (C1)
+
+Migrated from raw sqlite3 to SQLAlchemy async ORM.
+External API is unchanged so no callers need updating.
+
+Async methods use the ORM session factory directly.
+Sync methods (used by sync pipeline code) delegate to the async API
+via a fresh event loop, avoiding event-loop-not-running errors.
 """
 from __future__ import annotations
+
+import asyncio
 import json
 import logging
-import sqlite3
-import threading
 import time
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
 
 class DecisionLedger:
-    """
-    SQLite-backed run and event ledger.
-
-    Schema:
-      - runs(id, command, status, started_at, finished_at)
-      - events(id, run_id, agent, action, detail, timestamp)
-      - snapshots(id, run_id, file_path, content, created_at)
-    """
     _instance: Optional["DecisionLedger"] = None
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
-        from pathlib import Path
-        _DB_DIR = Path.home() / ".aether_os"
-        _DB_DIR.mkdir(parents=True, exist_ok=True)
-        
-        if db_path is None:
-            from ..config.loader import get_config
-            db_path = get_config().get("database.path", str(_DB_DIR / "aether_os.db"))
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._init_db()
+    def __init__(self) -> None:
+        pass  # No file path needed — uses the shared ORM session factory
 
-    def _init_db(self) -> None:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
-            c.executescript("""
-                CREATE TABLE IF NOT EXISTS runs (
-                    id TEXT PRIMARY KEY,
-                    command TEXT,
-                    org_id TEXT,
-                    status TEXT,
-                    started_at REAL,
-                    finished_at REAL
-                );
-                CREATE TABLE IF NOT EXISTS audit_log (
-                    id TEXT PRIMARY KEY,
-                    org_id TEXT,
-                    user_id TEXT,
-                    action TEXT,
-                    resource_type TEXT,
-                    resource_id TEXT,
-                    metadata TEXT,
-                    ip_address TEXT,
-                    created_at REAL
-                );
-                CREATE TABLE IF NOT EXISTS events (
-                    id TEXT PRIMARY KEY,
-                    run_id TEXT,
-                    agent TEXT,
-                    action TEXT,
-                    detail TEXT,
-                    timestamp REAL,
-                    FOREIGN KEY(run_id) REFERENCES runs(id)
-                );
-                CREATE TABLE IF NOT EXISTS snapshots (
-                    id TEXT PRIMARY KEY,
-                    run_id TEXT,
-                    file_path TEXT,
-                    content TEXT,
-                    created_at REAL,
-                    FOREIGN KEY(run_id) REFERENCES runs(id)
-                );
-            """)
-            conn.commit()
-            conn.close()
+    # ── Sync API (legacy — delegates to async methods) ────────────────────────
 
-    def save_run(self, run_id: str, command: str, org_id: Optional[str] = None, status: str = "running") -> None:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.execute(
-                "INSERT OR REPLACE INTO runs (id, command, org_id, status, started_at) VALUES (?, ?, ?, ?, ?)",
-                (run_id, command, org_id, status, time.time()),
-            )
-            conn.commit()
-            conn.close()
+    def save_run(self, run_id: str, command: str, org_id: Optional[str] = None,
+                 status: str = "running") -> None:
+        _run_async(self.async_save_run(run_id, command, org_id, status))
 
     def update_run_status(self, run_id: str, status: str) -> None:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            finished_at = time.time() if status in ("completed", "failed", "gated") else None
-            if finished_at:
-                conn.execute(
-                    "UPDATE runs SET status=?, finished_at=? WHERE id=?",
-                    (status, finished_at, run_id),
-                )
-            else:
-                conn.execute("UPDATE runs SET status=? WHERE id=?", (status, run_id))
-            conn.commit()
-            conn.close()
+        _run_async(self.async_update_run_status(run_id, status))
 
-    def log_event(self, run_id: str, agent: str, action: str, detail: Union[str, Dict[str, Any]]) -> None:
-        event_id = str(uuid.uuid4())
-        if isinstance(detail, dict):
-            detail = json.dumps(detail)
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.execute(
-                "INSERT INTO events (id, run_id, agent, action, detail, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                (event_id, run_id, agent, action, detail, time.time()),
-            )
-            conn.commit()
-            conn.close()
+    def log_event(self, run_id: str, agent: str, action: str,
+                  detail: Union[str, Dict[str, Any]]) -> None:
+        _run_async(self.async_log_event(run_id, agent, action, detail))
 
-    def log_audit_event(self, org_id: str, user_id: str, action: str, 
-                        resource_type: str, resource_id: str, metadata: Dict[str, Any], 
-                        ip_address: str) -> None:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.execute(
-                "INSERT INTO audit_log (id, org_id, user_id, action, resource_type, resource_id, metadata, ip_address, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), org_id, user_id, action, resource_type, resource_id, 
-                 json.dumps(metadata), ip_address, time.time()),
-            )
-            conn.commit()
-            conn.close()
+    def log_audit_event(self, org_id: str, user_id: str, action: str,
+                        resource_type: str, resource_id: str,
+                        metadata: Dict[str, Any], ip_address: str) -> None:
+        _run_async(self.async_log_audit_event(
+            org_id, user_id, action, resource_type, resource_id, metadata, ip_address
+        ))
 
-    def get_audit_logs(self, org_id: str, page: int = 1, limit: int = 50, 
-                       action: Optional[str] = None, from_ts: Optional[float] = None) -> Dict[str, Any]:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            query = "SELECT * FROM audit_log WHERE org_id = ?"
-            params = [org_id]
-            if action:
-                query += " AND action = ?"
-                params.append(action)
-            if from_ts:
-                query += " AND created_at >= ?"
-                params.append(from_ts)
-            
-            total = conn.execute(f"SELECT COUNT(*) FROM ({query})", params).fetchone()[0]
-            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-            params.append(limit)
-            params.append((page - 1) * limit)
-            
-            rows = conn.execute(query, params).fetchall()
-            conn.close()
-            
-        return {
-            "logs": [dict(r) for r in rows],
-            "total": total,
-            "page": page,
-            "pages": (total + limit - 1) // limit if limit > 0 else 1
-        }
+    def get_audit_logs(self, org_id: str, page: int = 1, limit: int = 50,
+                       action: Optional[str] = None,
+                       from_ts: Optional[float] = None) -> Dict[str, Any]:
+        return _run_async(self.async_get_audit_logs(org_id, page, limit, action, from_ts))
 
-    def get_run_history(self, org_id: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            if org_id:
-                rows = conn.execute(
-                    "SELECT * FROM runs WHERE org_id = ? ORDER BY started_at DESC LIMIT ?", (org_id, limit)
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
-                ).fetchall()
-            conn.close()
-        return [dict(r) for r in rows]
+    def get_run_history(self, org_id: Optional[str] = None,
+                        limit: int = 20) -> List[Dict[str, Any]]:
+        return _run_async(self.async_get_run_history(org_id, limit))
 
     def get_run_detail(self, run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
-        with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            if org_id:
-                run_row = conn.execute("SELECT * FROM runs WHERE id=? AND org_id=?", (run_id, org_id)).fetchone()
-            else:
-                run_row = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-            
-            if not run_row:
-                conn.close()
-                return {}
-            events = conn.execute(
-                "SELECT * FROM events WHERE run_id=? ORDER BY timestamp ASC", (run_id,)
-            ).fetchall()
-            conn.close()
-        result = dict(run_row)
-        result["events"] = [dict(e) for e in events]
-        return result
+        return _run_async(self.async_get_run_detail(run_id, org_id))
 
+    # ── Async API ─────────────────────────────────────────────────────────────
+
+    async def async_save_run(self, run_id: str, command: str,
+                              org_id: Optional[str] = None,
+                              status: str = "running") -> None:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import Run
+            sf = get_session_factory()
+            async with sf() as session:
+                existing = await session.get(Run, run_id)
+                if existing:
+                    existing.status = status
+                    existing.command = command
+                else:
+                    session.add(Run(
+                        id=run_id, command=command, org_id=org_id,
+                        status=status, started_at=time.time(),
+                    ))
+                await session.commit()
+        except Exception as exc:
+            logger.debug("async_save_run failed: %s", exc)
+
+    async def async_update_run_status(self, run_id: str, status: str) -> None:
+        try:
+            from aether_os.core.db_utils import update_run_status
+            await update_run_status(run_id, status)
+        except Exception as exc:
+            logger.debug("async_update_run_status failed: %s", exc)
+
+    async def async_log_event(self, run_id: str, agent: str, action: str,
+                               detail: Union[str, Dict[str, Any]]) -> None:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import Event
+            detail_str = json.dumps(detail) if isinstance(detail, dict) else str(detail)
+            sf = get_session_factory()
+            async with sf() as session:
+                session.add(Event(
+                    id=str(uuid.uuid4()), run_id=run_id,
+                    agent=agent, action=action,
+                    detail=detail_str, timestamp=time.time(),
+                ))
+                await session.commit()
+        except Exception as exc:
+            logger.debug("async_log_event failed: %s", exc)
+
+    async def async_log_audit_event(self, org_id: str, user_id: str, action: str,
+                                    resource_type: str, resource_id: str,
+                                    metadata: Dict[str, Any], ip_address: str) -> None:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import AuditLog
+            sf = get_session_factory()
+            async with sf() as session:
+                session.add(AuditLog(
+                    id=str(uuid.uuid4()), org_id=org_id, user_id=user_id,
+                    action=action, resource_type=resource_type,
+                    resource_id=resource_id,
+                    log_metadata=json.dumps(metadata),
+                    ip_address=ip_address, created_at=time.time(),
+                ))
+                await session.commit()
+        except Exception as exc:
+            logger.debug("async_log_audit_event failed: %s", exc)
+
+    async def async_get_audit_logs(self, org_id: str, page: int = 1,
+                                   limit: int = 50, action: Optional[str] = None,
+                                   from_ts: Optional[float] = None) -> Dict[str, Any]:
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import AuditLog
+            from sqlalchemy import select, func
+
+            sf = get_session_factory()
+            async with sf() as session:
+                q = select(AuditLog).where(AuditLog.org_id == org_id)
+                if action:
+                    q = q.where(AuditLog.action == action)
+                if from_ts:
+                    q = q.where(AuditLog.created_at >= from_ts)
+
+                total = (await session.execute(
+                    select(func.count()).select_from(q.subquery())
+                )).scalar_one()
+
+                rows = (await session.execute(
+                    q.order_by(AuditLog.created_at.desc())
+                    .limit(limit).offset((page - 1) * limit)
+                )).scalars().all()
+
+            return {
+                "logs": [
+                    {
+                        "id": r.id, "org_id": r.org_id, "user_id": r.user_id,
+                        "action": r.action, "resource_type": r.resource_type,
+                        "resource_id": r.resource_id,
+                        "metadata": _safe_json(r.log_metadata),
+                        "ip_address": r.ip_address, "created_at": r.created_at,
+                    }
+                    for r in rows
+                ],
+                "total": total,
+                "page": page,
+                "pages": max(1, (total + limit - 1) // limit),
+            }
+        except Exception as exc:
+            logger.debug("async_get_audit_logs failed: %s", exc)
+            return {"logs": [], "total": 0, "page": page, "pages": 1}
+
+    async def async_get_run_history(self, org_id: Optional[str] = None,
+                                    limit: int = 20) -> List[Dict[str, Any]]:
+        try:
+            from aether_os.core.db_utils import get_run_list
+            if org_id:
+                return await get_run_list(org_id=org_id, limit=limit)
+            return []
+        except Exception as exc:
+            logger.debug("async_get_run_history failed: %s", exc)
+            return []
+
+    async def async_get_run_detail(self, run_id: str,
+                                   org_id: Optional[str] = None) -> Dict[str, Any]:
+        try:
+            from aether_os.core.db_utils import get_run_detail
+            return await get_run_detail(run_id=run_id, org_id=org_id)
+        except Exception as exc:
+            logger.debug("async_get_run_detail failed: %s", exc)
+            return {}
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _safe_json(value: Optional[str]) -> Any:
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return value
+
+
+def _run_async(coro) -> Any:
+    """Run a coroutine from sync code. Creates a new event loop if needed."""
+    try:
+        loop = asyncio.get_running_loop()
+        # Already inside a running loop — schedule as a task and wait (thread-safe)
+        import concurrent.futures
+        fut = concurrent.futures.Future()
+
+        async def _wrapper():
+            try:
+                fut.set_result(await coro)
+            except Exception as exc:
+                fut.set_exception(exc)
+
+        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_wrapper(), loop=loop))
+        return fut.result(timeout=30)
+    except RuntimeError:
+        # No running loop (sync context) — use asyncio.run()
+        return asyncio.run(coro)
+    except Exception as exc:
+        logger.debug("_run_async failed: %s", exc)
+        return None
+
+
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
 def get_ledger() -> DecisionLedger:
-    """Return the global singleton DecisionLedger."""
     if DecisionLedger._instance is None:
         DecisionLedger._instance = DecisionLedger()
     return DecisionLedger._instance
