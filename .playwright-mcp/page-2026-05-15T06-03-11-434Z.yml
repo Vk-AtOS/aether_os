@@ -1,0 +1,251 @@
+- generic [ref=e3]:
+  - navigation "Main navigation" [ref=e5]:
+    - generic [ref=e6]:
+      - heading "AetherOS Factory" [level=1] [ref=e7]
+      - paragraph [ref=e8]: Factory Control
+    - navigation "Sidebar navigation" [ref=e9]:
+      - link "Dashboard" [ref=e10] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e11]
+        - text: Dashboard
+      - link "New Project" [ref=e16] [cursor=pointer]:
+        - /url: /dashboard/new-project
+        - img [ref=e17]
+        - text: New Project
+      - link "Projects" [ref=e19] [cursor=pointer]:
+        - /url: /dashboard/projects
+        - img [ref=e20]
+        - text: Projects
+      - link "Marketplace" [ref=e21] [cursor=pointer]:
+        - /url: /dashboard/marketplace
+        - img [ref=e22]
+        - text: Marketplace
+      - link "Settings" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard/settings
+        - img [ref=e27]
+        - text: Settings
+      - link "Compliance" [ref=e30] [cursor=pointer]:
+        - /url: /dashboard/compliance
+        - img [ref=e31]
+        - text: Compliance
+      - button "Tools" [ref=e33]:
+        - img [ref=e34]
+        - generic [ref=e36]: Tools
+        - img [ref=e37]
+      - link "Connectors" [ref=e39] [cursor=pointer]:
+        - /url: /dashboard/connectors
+        - img [ref=e40]
+        - text: Connectors
+      - link "Skills" [ref=e42] [cursor=pointer]:
+        - /url: /dashboard/skills
+        - img [ref=e43]
+        - text: Skills
+      - link "Memory" [ref=e45] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e46]
+        - text: Memory
+      - link "Costs" [ref=e54] [cursor=pointer]:
+        - /url: /dashboard/costs
+        - img [ref=e55]
+        - text: Costs
+      - link "Webhooks" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/settings/webhooks
+        - img [ref=e58]
+        - text: Webhooks
+      - link "Frontend Builder" [ref=e62] [cursor=pointer]:
+        - /url: /dashboard/frontend-builder
+        - img [ref=e63]
+        - text: Frontend Builder
+      - link "Backend Builder" [ref=e65] [cursor=pointer]:
+        - /url: /dashboard/backend-builder
+        - img [ref=e66]
+        - text: Backend Builder
+      - link "Prompt Input" [ref=e70] [cursor=pointer]:
+        - /url: /dashboard/prompt
+        - img [ref=e71]
+        - text: Prompt Input
+      - generic [ref=e73]: Admin
+      - link "Users" [ref=e74] [cursor=pointer]:
+        - /url: /dashboard/admin/users
+        - img [ref=e75]
+        - text: Users
+      - link "Audit Logs" [ref=e80] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e81]
+        - text: Audit Logs
+      - link "Billing" [ref=e84] [cursor=pointer]:
+        - /url: /dashboard/admin/billing
+        - img [ref=e85]
+        - text: Billing
+      - generic [ref=e87]:
+        - img [ref=e88]
+        - generic [ref=e93]: Client Portal
+        - generic [ref=e94]: no runs
+    - generic [ref=e95]:
+      - link "admin" [ref=e96] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - img [ref=e97]
+        - generic [ref=e101]: admin
+      - button "Sign Out" [ref=e102]:
+        - img [ref=e103]
+        - text: Sign Out
+      - generic [ref=e108]:
+        - generic [ref=e109]: Active LLM
+        - generic [ref=e110]: Checking...
+  - generic [ref=e111]:
+    - generic [ref=e112]:
+      - button "Toggle sidebar" [ref=e113]:
+        - img [ref=e114]
+      - banner [ref=e115]:
+        - generic [ref=e116]:
+          - img [ref=e117]
+          - generic [ref=e121]:
+            - generic [ref=e122]: AetherOS
+            - generic [ref=e123]: Factory
+        - generic [ref=e124]:
+          - generic [ref=e125]:
+            - generic [ref=e126]: $0.00
+            - generic [ref=e127]: today
+          - button "New Project" [ref=e128]:
+            - img [ref=e129]
+            - generic [ref=e130]: New Project
+          - button "Notifications" [ref=e132]:
+            - img [ref=e133]
+          - button "Sign out" [ref=e136]:
+            - img [ref=e137]
+    - main [ref=e140]:
+      - generic [ref=e141]:
+        - generic [ref=e142]:
+          - heading "Skill Library" [level=1] [ref=e143]
+          - paragraph [ref=e144]: AI-powered code generators · 10 skills available
+        - generic [ref=e145]:
+          - img [ref=e146]
+          - textbox "Search skills..." [ref=e149]
+        - generic [ref=e150]:
+          - 'button "Auth Skill Generate complete authentication systems: JWT, OAuth, magic links, MFA jwt_auth oauth_google oauth_github magic_link +1 more" [ref=e152]':
+            - generic [ref=e153]:
+              - generic [ref=e154]:
+                - img [ref=e156]
+                - generic [ref=e159]:
+                  - heading "Auth Skill" [level=3] [ref=e160]
+                  - paragraph [ref=e161]: "Generate complete authentication systems: JWT, OAuth, magic links, MFA"
+              - img [ref=e162]
+            - generic [ref=e164]:
+              - generic [ref=e165]: jwt_auth
+              - generic [ref=e166]: oauth_google
+              - generic [ref=e167]: oauth_github
+              - generic [ref=e168]: magic_link
+              - generic [ref=e169]: +1 more
+          - button "CRUD Skill Generate full CRUD API with validation, pagination, filtering rest_crud graphql_crud openapi_spec" [ref=e171]:
+            - generic [ref=e172]:
+              - generic [ref=e173]:
+                - img [ref=e175]
+                - generic [ref=e178]:
+                  - heading "CRUD Skill" [level=3] [ref=e179]
+                  - paragraph [ref=e180]: Generate full CRUD API with validation, pagination, filtering
+              - img [ref=e181]
+            - generic [ref=e183]:
+              - generic [ref=e184]: rest_crud
+              - generic [ref=e185]: graphql_crud
+              - generic [ref=e186]: openapi_spec
+          - 'button "Payment Skill Generate payment flows: Stripe checkout, subscriptions, webhooks stripe_checkout stripe_subscription stripe_webhook" [ref=e188]':
+            - generic [ref=e189]:
+              - generic [ref=e190]:
+                - img [ref=e192]
+                - generic [ref=e194]:
+                  - heading "Payment Skill" [level=3] [ref=e195]
+                  - paragraph [ref=e196]: "Generate payment flows: Stripe checkout, subscriptions, webhooks"
+              - img [ref=e197]
+            - generic [ref=e199]:
+              - generic [ref=e200]: stripe_checkout
+              - generic [ref=e201]: stripe_subscription
+              - generic [ref=e202]: stripe_webhook
+          - 'button "Email Skill Generate email systems: transactional, templates, queue sendgrid_integration resend_integration email_templates" [ref=e204]':
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - img [ref=e208]
+                - generic [ref=e211]:
+                  - heading "Email Skill" [level=3] [ref=e212]
+                  - paragraph [ref=e213]: "Generate email systems: transactional, templates, queue"
+              - img [ref=e214]
+            - generic [ref=e216]:
+              - generic [ref=e217]: sendgrid_integration
+              - generic [ref=e218]: resend_integration
+              - generic [ref=e219]: email_templates
+          - 'button "Search Skill Generate search: full-text, vector/semantic, faceted postgres_fts typesense_integration vector_search" [ref=e221]':
+            - generic [ref=e222]:
+              - generic [ref=e223]:
+                - img [ref=e225]
+                - generic [ref=e228]:
+                  - heading "Search Skill" [level=3] [ref=e229]
+                  - paragraph [ref=e230]: "Generate search: full-text, vector/semantic, faceted"
+              - img [ref=e231]
+            - generic [ref=e233]:
+              - generic [ref=e234]: postgres_fts
+              - generic [ref=e235]: typesense_integration
+              - generic [ref=e236]: vector_search
+          - 'button "File Upload Skill Generate file upload: S3/GCS/R2, image processing, virus scan s3_upload r2_upload image_resize pdf_extract" [ref=e238]':
+            - generic [ref=e239]:
+              - generic [ref=e240]:
+                - img [ref=e242]
+                - generic [ref=e245]:
+                  - heading "File Upload Skill" [level=3] [ref=e246]
+                  - paragraph [ref=e247]: "Generate file upload: S3/GCS/R2, image processing, virus scan"
+              - img [ref=e248]
+            - generic [ref=e250]:
+              - generic [ref=e251]: s3_upload
+              - generic [ref=e252]: r2_upload
+              - generic [ref=e253]: image_resize
+              - generic [ref=e254]: pdf_extract
+          - 'button "Notifications Skill Generate notification systems: push, SMS, in-app, webhooks push_fcm sms_twilio in_app_notifications webhooks" [ref=e256]':
+            - generic [ref=e257]:
+              - generic [ref=e258]:
+                - img [ref=e260]
+                - generic [ref=e263]:
+                  - heading "Notifications Skill" [level=3] [ref=e264]
+                  - paragraph [ref=e265]: "Generate notification systems: push, SMS, in-app, webhooks"
+              - img [ref=e266]
+            - generic [ref=e268]:
+              - generic [ref=e269]: push_fcm
+              - generic [ref=e270]: sms_twilio
+              - generic [ref=e271]: in_app_notifications
+              - generic [ref=e272]: webhooks
+          - 'button "Analytics Skill Generate analytics: events, dashboards, funnels, retention event_tracking posthog_integration mixpanel_integration" [ref=e274]':
+            - generic [ref=e275]:
+              - generic [ref=e276]:
+                - img [ref=e278]
+                - generic [ref=e279]:
+                  - heading "Analytics Skill" [level=3] [ref=e280]
+                  - paragraph [ref=e281]: "Generate analytics: events, dashboards, funnels, retention"
+              - img [ref=e282]
+            - generic [ref=e284]:
+              - generic [ref=e285]: event_tracking
+              - generic [ref=e286]: posthog_integration
+              - generic [ref=e287]: mixpanel_integration
+          - 'button "Admin Panel Skill Generate admin panels: user management, data tables, exports user_management data_tables csv_export role_management" [ref=e289]':
+            - generic [ref=e290]:
+              - generic [ref=e291]:
+                - img [ref=e293]
+                - generic [ref=e295]:
+                  - heading "Admin Panel Skill" [level=3] [ref=e296]
+                  - paragraph [ref=e297]: "Generate admin panels: user management, data tables, exports"
+              - img [ref=e298]
+            - generic [ref=e300]:
+              - generic [ref=e301]: user_management
+              - generic [ref=e302]: data_tables
+              - generic [ref=e303]: csv_export
+              - generic [ref=e304]: role_management
+          - 'button "i18n Skill Generate internationalization: translation files, locale switching react_i18n next_i18n translation_files" [ref=e306]':
+            - generic [ref=e307]:
+              - generic [ref=e308]:
+                - img [ref=e310]
+                - generic [ref=e313]:
+                  - heading "i18n Skill" [level=3] [ref=e314]
+                  - paragraph [ref=e315]: "Generate internationalization: translation files, locale switching"
+              - img [ref=e316]
+            - generic [ref=e318]:
+              - generic [ref=e319]: react_i18n
+              - generic [ref=e320]: next_i18n
+              - generic [ref=e321]: translation_files
+    - contentinfo [ref=e322]:
+      - paragraph [ref=e323]: © 2026 VKatOS Private Limited — AetherOS Factory v1.0

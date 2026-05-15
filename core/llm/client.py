@@ -46,28 +46,53 @@ _cost_registry: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "c
 # ── Anthropic ─────────────────────────────────────────────────────────────────
 
 def _get_anthropic_client():
-    """Lazy-import Anthropic SDK and return a client instance."""
+    """Lazy-import Anthropic SDK and return a client instance.
+
+    Supports OpenRouter (or any OpenAI-compatible endpoint) via:
+      ANTHROPIC_API_KEY=<openrouter-key>
+      ANTHROPIC_BASE_URL=https://openrouter.ai/api
+    """
     try:
         import anthropic  # type: ignore
     except ImportError as exc:
         raise ImportError("anthropic SDK not installed. Run: pip install anthropic") from exc
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # Support ANTHROPIC_AUTH_TOKEN as alias (used by Claude Code's settings.local.json)
+    api_key = (
+        os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    )
     if not api_key:
         raise RuntimeError(
-            "ANTHROPIC_API_KEY environment variable is not set. "
-            "Get your key from https://console.anthropic.com"
+            "ANTHROPIC_API_KEY environment variable is not set."
         )
-    return anthropic.AsyncAnthropic(api_key=api_key)
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    kwargs = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return anthropic.AsyncAnthropic(**kwargs)
 
 
 def _select_model(task_type: str) -> str:
-    """Route task type to the appropriate Anthropic model."""
+    """Route task type to the appropriate model.
+
+    When routing through OpenRouter the model strings are provider/model slugs
+    (e.g. 'minimax/minimax-m2.5:free').  Fall back to env vars so the .env
+    overrides take effect without requiring a config file.
+    """
     from ..config.loader import get_config
     cfg = get_config()
+    # Env-var overrides mirror Claude Code's settings.local.json naming
     if task_type in _LIGHT_TASKS:
-        return cfg.get("models.haiku", "claude-haiku-4-5-20251001")
-    return cfg.get("models.primary", "claude-sonnet-4-6")
+        return (
+            os.environ.get("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+            or cfg.get("models.haiku", "minimax/minimax-m2.5:free")
+        )
+    return (
+        os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL")
+        or os.environ.get("ANTHROPIC_DEFAULT_OPUS_MODEL")
+        or cfg.get("models.primary", "minimax/minimax-m2.5:free")
+    )
 
 
 async def _call_anthropic(
@@ -114,7 +139,12 @@ async def _call_anthropic(
             _cost_registry["prompt_tokens"] += usage.input_tokens
             _cost_registry["completion_tokens"] += usage.output_tokens
             _cost_registry["calls"] += 1
-            text = response.content[0].text if response.content else ""
+            # Some models (e.g. minimax via OpenRouter) return ThinkingBlocks
+            # alongside TextBlocks — extract the first TextBlock only.
+            text = next(
+                (b.text for b in response.content if hasattr(b, "text")),
+                ""
+            )
             # Log prompt cache stats if available
             cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
             cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
@@ -495,9 +525,38 @@ Task: {prompt[:200]}"""
 _instance: Optional[LLMClient] = None
 
 
-def get_llm_client() -> LLMClient:
-    """Return the global singleton LLMClient."""
+def get_llm_client(provider: Optional[str] = None) -> LLMClient:
+    """Return the global singleton LLMClient.
+
+    When *provider* is given the returned client pins that provider as the
+    primary tier (by temporarily setting PRIMARY_LLM in the environment before
+    the first call).  Pass provider=None for the default multi-tier client.
+    """
     global _instance
+    if provider is not None:
+        # Provider-pinned client: always create a fresh instance so that the
+        # caller gets a clean last_provider state without side-effects on the
+        # process-level singleton.
+        client = LLMClient()
+        # Patch PRIMARY_LLM for this client's lifetime via a subclass hook.
+        # The model_router reads PRIMARY_LLM at call time from os.environ, so we
+        # temporarily override it inside the call.
+        _orig_call = client.call
+
+        async def _pinned_call(*args, **kwargs):
+            _old = os.environ.get("PRIMARY_LLM")
+            os.environ["PRIMARY_LLM"] = provider
+            try:
+                return await _orig_call(*args, **kwargs)
+            finally:
+                if _old is None:
+                    os.environ.pop("PRIMARY_LLM", None)
+                else:
+                    os.environ["PRIMARY_LLM"] = _old
+
+        client.call = _pinned_call  # type: ignore[method-assign]
+        return client
+
     if _instance is None:
         _instance = LLMClient()
     return _instance

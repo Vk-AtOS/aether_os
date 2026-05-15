@@ -17,16 +17,31 @@ import PluginManager from './pages/PluginManager';
 import MemoryInspector from './pages/MemoryInspector';
 import CostDashboard from './pages/CostDashboard';
 import AdminUsers from './pages/AdminUsers';
+import Billing from './pages/Billing';
 import Profile from './pages/Profile';
 import WebhookSettings from './pages/WebhookSettings';
+import FrontendBuilder from './pages/FrontendBuilder';
+import BackendBuilder from './pages/BackendBuilder';
+import PromptInput from './pages/PromptInput';
+import AuditLogs from './pages/AuditLogs';
+import OAuthCallback from './pages/OAuthCallback';
+import Learning from './pages/Learning';
+import Legal from './pages/Legal';
 import { api, setNavigate } from './api';
+import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const ProtectedRoute = ({ children }) => {
   const token = api.getToken();
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!token) return <Navigate to="/login" replace />;
+  return children;
+};
+
+const AdminRoute = ({ children }) => {
+  const token = api.getToken();
+  if (!token) return <Navigate to="/login" replace />;
+  const { isAdmin } = useRole();
+  if (!isAdmin) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -52,8 +67,10 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/portal/:id" element={<ClientPortal />} />
+      <Route path="/login" element={<ErrorBoundary><Login /></ErrorBoundary>} />
+      <Route path="/legal" element={<ErrorBoundary><Legal /></ErrorBoundary>} />
+      <Route path="/auth/callback" element={<OAuthCallback />} />
+      <Route path="/portal/:id" element={<ErrorBoundary><ClientPortal /></ErrorBoundary>} />
 
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
@@ -69,9 +86,18 @@ function App() {
         <Route path="skills" element={<ErrorBoundary><PluginManager /></ErrorBoundary>} />
         <Route path="memory" element={<ErrorBoundary><MemoryInspector /></ErrorBoundary>} />
         <Route path="costs" element={<ErrorBoundary><CostDashboard /></ErrorBoundary>} />
-        <Route path="admin/users" element={<ErrorBoundary><AdminUsers /></ErrorBoundary>} />
+        <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
+        <Route path="frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
+        <Route path="project/:id/frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
+        <Route path="backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
+        <Route path="project/:id/backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
+        <Route path="prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
+        <Route path="project/:id/prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
+        <Route path="audit" element={<ErrorBoundary><AuditLogs /></ErrorBoundary>} />
+        <Route path="learning" element={<ErrorBoundary><Learning /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

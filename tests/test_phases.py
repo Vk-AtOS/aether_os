@@ -519,7 +519,7 @@ def test_p06_security_report_written(tmp_path):
 
     with patch.object(task_agent, "get_llm_client", return_value=mock_llm):
         out_dir = tmp_path / "security_out"
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             task_agent.run(PhaseInput(), [], out_dir)
         )
 
@@ -549,7 +549,7 @@ def test_p06_security_scans_src_subdir(tmp_path):
 
     with patch.object(task_agent, "get_llm_client", return_value=mock_llm):
         out_dir = tmp_path / "security_out"
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             task_agent.run(PhaseInput(), [], out_dir)
         )
 
@@ -681,7 +681,7 @@ def test_p08_ci_yml_has_required_steps(tmp_path):
         input_data = {"project_name": "MyApp", "project_dir": str(tmp_path)}
 
     agent = CICDAgent()
-    asyncio.get_event_loop().run_until_complete(agent.run(PhaseInput()))
+    asyncio.run(agent.run(PhaseInput()))
 
     content = (tmp_path / "cicd_out" / "ci.yml").read_text()
     assert "actions/checkout" in content

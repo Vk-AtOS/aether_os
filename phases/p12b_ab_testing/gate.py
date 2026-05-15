@@ -1,13 +1,15 @@
-"""Gate for p12b_ab_testing."""
 from __future__ import annotations
 from pathlib import Path
-from aether_os.phases.base import GateOutcome, TaskResult
+from typing import Any
+from aether_os.phases.base import TaskResult, GateOutcome
 
-def validate(result: TaskResult) -> GateOutcome:
+async def validate(result: TaskResult, phase_input: Any) -> GateOutcome:
     issues = list(result.issues)
-    if not result.success:
-        issues = issues or ["Task did not succeed"]
-    if result.output_path and not Path(result.output_path).exists():
-        issues.append("Output path does not exist")
-    return GateOutcome(passed=len(issues)==0, issues=issues,
-                       confidence=result.confidence if not issues else 0.3)
+    output = Path(result.output_path)
+    if not (output / "ab_testing.py").exists():
+        issues.append("ab_testing.py missing")
+    if not (output.parent / "migrations/add_ab_testing.sql").exists():
+        issues.append("add_ab_testing.sql missing")
+    if not (output.parent / "tests/test_ab_testing.py").exists():
+        issues.append("test_ab_testing.py missing")
+    return GateOutcome(passed=len(issues) == 0, issues=issues, confidence=result.confidence)

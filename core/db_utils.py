@@ -227,7 +227,62 @@ async def update_run_status(
         if status in ("completed", "failed", "cancelled", "gated"):
             run.finished_at = time.time()
         await session.commit()
+        if status in ("completed", "failed") and run.org_id:
+            _emit_run_notification(run, status)
     return True
+
+
+def _emit_run_notification(run, status: str) -> None:
+    """Fire-and-forget task to create an in-app notification and send email on run completion/failure."""
+    import asyncio
+    async def _create():
+        try:
+            from .db import get_session_factory as _gsf
+            from .models import Notification, User
+            import time as _t
+            from sqlalchemy import select as _sel
+            title = (
+                f"Run completed: {run.project_name or run.id[:8]}"
+                if status == "completed"
+                else f"Run failed: {run.project_name or run.id[:8]}"
+            )
+            msg = "Pipeline finished successfully." if status == "completed" else "Pipeline encountered an error."
+            notif = Notification(
+                org_id=run.org_id,
+                user_id=run.user_id,
+                type=f"run_{status}",
+                title=title,
+                message=msg,
+                link=f"/project/{run.id}",
+            )
+            async with _gsf()() as sess:
+                sess.add(notif)
+                await sess.commit()
+                # Get user email for email notification
+                if run.user_id:
+                    db_user = await sess.get(User, run.user_id)
+                    if db_user and db_user.email and not db_user.email.endswith("@deleted.invalid"):
+                        from .notifications.email import get_email_notifier
+                        import os
+                        notifier = get_email_notifier()
+                        frontend_url = os.getenv("FRONTEND_URL", "")
+                        if status == "completed":
+                            await notifier.notify_run_complete(
+                                db_user.email, run.project_name or run.id[:8], run.id,
+                                run.cost or 0.0, frontend_url,
+                            )
+                        else:
+                            await notifier.notify_run_failed(
+                                db_user.email, run.project_name or run.id[:8], run.id, frontend_url,
+                            )
+        except Exception:
+            pass
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_create())
+    except Exception:
+        pass
 
 
 async def create_run(

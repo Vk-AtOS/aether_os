@@ -177,8 +177,11 @@ def test_llm_client_cost_stats():
     assert "calls" in stats
 
 
-def test_llm_model_routing_heavy_tasks():
+def test_llm_model_routing_heavy_tasks(monkeypatch):
     """Test that heavy tasks route to Sonnet, light tasks to Haiku."""
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6")
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5")
+
     from aether_os.core.llm.client import _select_model
     import aether_os.core.config.loader as cfg_mod
     cfg_mod.AetherConfig._instance = None

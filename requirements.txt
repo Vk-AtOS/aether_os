@@ -17,6 +17,7 @@ passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
 slowapi>=0.1.9
 python3-saml>=1.16.0
+pyotp>=2.9.0
 
 # ── LLM — Tier 1: Anthropic claude-sonnet-4-6 ────────────────────────────────
 anthropic>=0.30.0

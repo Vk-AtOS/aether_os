@@ -11,10 +11,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 async def seed():
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
     from pathlib import Path
-    db_path = Path.home() / ".aether_os" / "aether_os.db"
-    url = f"sqlite+aiosqlite:///{db_path.resolve()}"
-    print(f"DEBUG: seed_db.py hardcoded engine: {url}")
-    engine = get_engine()
+    
+    # Use environment URL or local default
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        db_path = Path("aether_os.db")
+        url = f"sqlite+aiosqlite:///{db_path.resolve()}"
+    
+    if "postgresql" in url and "asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+    print(f"DEBUG: seed_db.py using engine: {url}")
+    engine = create_async_engine(url)
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         # 1. Create default organization
@@ -35,9 +43,9 @@ async def seed():
         else:
             print(f"Organization {org_slug} already exists.")
 
-        # 2. Create admin user
+        # 2. Create/Update admin user
         admin_email = os.environ.get("AETHER_ADMIN_EMAIL", "admin@aetheros.ai")
-        admin_pass = os.environ.get("AETHER_ADMIN_PASSWORD", "admin")
+        admin_pass = os.environ.get("AETHER_ADMIN_PASSWORD", "password123")
         
         stmt = select(User).where(User.email == admin_email)
         result = await session.execute(stmt)
@@ -54,7 +62,9 @@ async def seed():
             session.add(user)
             print(f"Created admin user: {user.email}")
         else:
-            print(f"Admin user {admin_email} already exists.")
+            user.password_hash = pwd_context.hash(admin_pass)
+            user.org_id = org.id # ensure correct org
+            print(f"Updated admin user {admin_email} password.")
 
         # 3. Update existing runs
         stmt = update(Run).where(Run.org_id == None).values(org_id=org.id)
@@ -62,6 +72,7 @@ async def seed():
         print(f"Updated {result.rowcount} existing runs with org_id.")
 
         await session.commit()
+    await engine.dispose()
 
 if __name__ == "__main__":
     asyncio.run(seed())

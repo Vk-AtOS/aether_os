@@ -12,6 +12,9 @@ const client = axios.create({
   baseURL: BASE,
 });
 
+// Track in-flight refresh to avoid stampede — multiple 401s share one refresh attempt.
+let _refreshPromise = null;
+
 client.interceptors.request.use((config) => {
   // Use localStorage so the session persists across tab closes/reopens.
   // sessionStorage was clearing auth state on every new tab, forcing re-login.
@@ -24,14 +27,39 @@ client.interceptors.request.use((config) => {
 
 client.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
+  async (error) => {
+    const original = error.config;
+    if (
+      error.response?.status === 401 &&
+      !original._retried &&
+      !original.url?.includes('/auth/refresh') &&
+      !original.url?.includes('/auth/login')
+    ) {
+      const refreshToken = localStorage.getItem('aether_refresh_token');
+      if (refreshToken) {
+        original._retried = true;
+        try {
+          if (!_refreshPromise) {
+            _refreshPromise = axios
+              .post(`${BASE}/auth/refresh`, { refresh_token: refreshToken })
+              .finally(() => { _refreshPromise = null; });
+          }
+          const res = await _refreshPromise;
+          localStorage.setItem('aether_token', res.data.access_token);
+          if (res.data.refresh_token) {
+            localStorage.setItem('aether_refresh_token', res.data.refresh_token);
+          }
+          original.headers.Authorization = `Bearer ${res.data.access_token}`;
+          return client(original);
+        } catch (_) {
+          // Refresh failed — fall through to logout
+        }
+      }
       localStorage.removeItem('aether_token');
+      localStorage.removeItem('aether_refresh_token');
       if (_navigate) {
-        // React Router navigation — no hard reload, SPA stays alive
         _navigate('/login', { replace: true });
       }
-      // (no window.location fallback — hard reloads break SPA routing)
     }
     return Promise.reject(error);
   }
@@ -41,27 +69,31 @@ export const api = {
   // Expose the raw axios instance so pages can call api.client.get/post directly
   client,
 
-  setToken: (newToken) => {
+  setToken: (newToken, refreshToken) => {
     localStorage.setItem('aether_token', newToken);
+    if (refreshToken) localStorage.setItem('aether_refresh_token', refreshToken);
   },
   getToken: () => localStorage.getItem('aether_token'),
   clearToken: () => {
     localStorage.removeItem('aether_token');
+    localStorage.removeItem('aether_refresh_token');
   },
 
   // Auth
   login: async (email, password) => {
     const res = await client.post('/auth/login', { email, password });
     localStorage.setItem('aether_token', res.data.access_token);
+    if (res.data.refresh_token) localStorage.setItem('aether_refresh_token', res.data.refresh_token);
     return res.data;
   },
   logout: () => {
     localStorage.removeItem('aether_token');
+    localStorage.removeItem('aether_refresh_token');
   },
 
   // Factory
   startPipeline: (data) => client.post('/factory/start', data),
-  listRuns: () => client.get('/factory/runs'),
+  listRuns: (page = 1, limit = 50) => client.get('/factory/runs', { params: { page, limit } }),
   getRun: (runId) => client.get(`/factory/runs/${runId}`),
   getRunFiles: (runId) => client.get(`/factory/runs/${runId}/files`),
   getFileContent: (runId, path) => client.get(`/factory/runs/${runId}/file-content`, { params: { path } }),
@@ -74,8 +106,10 @@ export const api = {
   cancelRun: (runId) => client.post(`/factory/runs/${runId}/cancel`),
   setRunPriority: (runId, priority) =>
     client.post(`/factory/runs/${runId}/priority`, { priority }),
-  rerunFromPhase: (runId, fromPhase) =>
-    client.post(`/factory/runs/${runId}/rerun`, { from_phase: fromPhase }),
+  rerunFromPhase: (runId, fromPhase, extraInput) =>
+    client.post(`/factory/runs/${runId}/rerun`, { from_phase: fromPhase, extra_input: extraInput }),
+  branchRun: (runId, branchPhase, extraInput) =>
+    client.post(`/factory/runs/${runId}/branch`, { branch_phase: branchPhase, extra_input: extraInput }),
 
   // Deployment
   deployRun:       (runId) => client.post(`/factory/runs/${runId}/deploy`),
@@ -108,6 +142,33 @@ export const api = {
   testProvider: (provider) => client.post('/settings/test-provider', { provider }),
   getPhaseConfigs: () => client.get('/settings/phases/config'),
   savePhaseConfig: (phase, config) => client.post(`/settings/phases/${phase}/config`, config),
+  getLlmConfig: () => client.get('/settings/llm-config'),
+  updateLlmConfig: (cfg) => client.put('/settings/llm-config', cfg),
+  getAvailableModels: () => client.get('/settings/models'),
+  testModel: (model) => client.post('/settings/models/test', { model }),
+  getCouncilConfig: () => client.get('/settings/council-config'),
+  updateCouncilConfig: (cfg) => client.put('/settings/council-config', cfg),
+
+  // Artifacts & Download
+  getRunArtifacts: (runId) => client.get(`/factory/runs/${runId}/artifacts`),
+  downloadRunZip: (runId) => client.get(`/factory/runs/${runId}/download`, { responseType: 'blob' }),
+
+  // GitHub push
+  pushToGitHub: (runId, data) => client.post(`/factory/runs/${runId}/push-github`, data),
+
+  // Cost estimate
+  estimateCost: (data) => client.post('/factory/estimate', data),
+
+  // Templates
+  getTemplates: () => client.get('/templates'),
+
+  // File upload for requirements
+  uploadRequirementFile: (formData) => client.post('/factory/upload-requirement', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+
+  // GitHub repo fetch
+  fetchGitHubRepo: (data) => client.post('/factory/fetch-github-repo', data),
 
   // Memory
   searchMemory: (query, top_k = 5) => client.post('/memory/search', { query, top_k }),

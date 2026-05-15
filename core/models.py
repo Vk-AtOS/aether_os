@@ -38,6 +38,8 @@ class User(Base):
     consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    mfa_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
 
@@ -74,9 +76,14 @@ class Run(Base):
     project_name: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     domain: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="general")
     client_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     current_phase: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     phases: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    council_preflight: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    council_delivery: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    parent_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    branch_phase: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     organisation: Mapped[Optional["Organisation"]] = relationship(back_populates="runs")
     events: Mapped[List["Event"]] = relationship(back_populates="run", cascade="all, delete-orphan")
@@ -87,7 +94,7 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
     agent: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     action: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -99,7 +106,7 @@ class Snapshot(Base):
     __tablename__ = "snapshots"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
     file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -120,6 +127,7 @@ class PhaseCompletion(Base):
 class PhaseConfig(Base):
     __tablename__ = "phase_configs"
 
+    org_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     phase_name: Mapped[str] = mapped_column(String(255), primary_key=True)
     enabled: Mapped[int] = mapped_column(default=1)
     priority: Mapped[str] = mapped_column(String(50), default="normal")
@@ -136,8 +144,8 @@ class Decision(Base):
     __tablename__ = "decisions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     decision_type: Mapped[str] = mapped_column(String(100), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     what: Mapped[str] = mapped_column(Text, nullable=False)
@@ -155,7 +163,7 @@ class Webhook(Base):
     __tablename__ = "webhooks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
     events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     secret: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -167,7 +175,7 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -297,3 +305,78 @@ class InstalledPluginRecord(Base):
     installed_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_tested_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     test_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # ok | fail
+
+
+class LlmConfig(Base):
+    """Per-org (or global) LLM provider configuration persisted in DB."""
+    __tablename__ = "llm_config"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="openrouter")
+    heavy_model: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    light_model: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    prefer_paid: Mapped[bool] = mapped_column(default=False)
+    council_enabled: Mapped[bool] = mapped_column(default=True)
+    council_strict_mode: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=time.time)
+
+
+class UserLearningPattern(Base):
+    """Per-user isolated learning patterns. Every query MUST filter by org_id AND user_id."""
+    __tablename__ = "user_learning_patterns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    pattern_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    pattern_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    pattern_value: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    occurrence_count: Mapped[int] = mapped_column(default=1)
+    source_run_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of run IDs
+    last_updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LearningClarificationPending(Base):
+    """Project-scoped clarification questions pending user answer."""
+    __tablename__ = "learning_clarifications_pending"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    question_type: Mapped[str] = mapped_column(String(32), nullable=False, default="clarification")
+    context: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    answer: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class RunSpec(Base):
+    """Stores frontend/backend spec JSON attached to a run (from Builder tabs)."""
+    __tablename__ = "run_specs"
+
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    spec_type: Mapped[str] = mapped_column(String(32), primary_key=True)  # 'frontend' | 'backend'
+    spec: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Notification(Base):
+    """In-app notification for org members."""
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # None = org-wide
+    type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    link: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)

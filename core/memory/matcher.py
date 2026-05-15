@@ -1,15 +1,31 @@
 """
-Fingerprint similarity matching for patch reuse.
+Fingerprint similarity matching for patch reuse and cross-run project matching.
 
-Matches a failure fingerprint against historical patch records
-with exact and fuzzy scoring.
+Contains two matchers:
+  - match()          — CI failure fingerprint matching for patch reuse
+  - ProjectMatcher   — matches new projects against past successful runs
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from aether_os.phases._legacy.p08_cicd.patch_reuse.fingerprint import FailureFingerprint
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FailureFingerprint:
+    """Deterministic fingerprint of a CI failure for patch reuse matching."""
+
+    error_type: str
+    stack_trace_pattern: str
+    failing_test: str
+    target_module: str
+    fingerprint_hash: str
 
 FUZZY_THRESHOLD = 0.85
 
@@ -113,3 +129,36 @@ def match(
         patch_diff="",
         match_type="none",
     )
+
+
+# ── Project-level cross-run matcher ──────────────────────────────────────────
+
+
+class ProjectMatcher:
+    """
+    Matches a new project fingerprint against past successful runs.
+
+    Uses the fingerprinter SQLite store to find similar historical projects
+    and returns them sorted by similarity score.
+    """
+
+    def find_similar(
+        self,
+        fingerprint: str,
+        org_id: str,
+        top_k: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return up to top_k past runs similar to the given fingerprint string.
+
+        Delegates to ProjectFingerprinter.search() which queries the local
+        SQLite fingerprint store. Returns empty list on any failure so the
+        caller can proceed without cross-run memory.
+        """
+        try:
+            from aether_os.core.memory.fingerprinter import ProjectFingerprinter
+            fp = ProjectFingerprinter()
+            return fp.search(fingerprint=fingerprint, org_id=org_id, top_k=top_k)
+        except Exception as exc:
+            logger.debug("ProjectMatcher.find_similar failed: %s", exc)
+            return []

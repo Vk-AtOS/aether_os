@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useRole } from '../hooks/useRole';
 import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
 import {
@@ -21,6 +22,9 @@ import {
   Monitor,
   ExternalLink as OpenTab,
   Radio,
+  Download,
+  GitBranch,
+  Zap,
 } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -244,6 +248,7 @@ const TerminalLine = ({ text }) => {
 const ProjectView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isViewer } = useRole();
 
   const [run, setRun]                   = useState(null);
   const [elapsed, setElapsed]           = useState(0);
@@ -277,6 +282,7 @@ const ProjectView = () => {
   const feedEndRef                  = useRef(null);
   const esRef                       = useRef(null);   // EventSource ref
   const llmLineRef                  = useRef('');     // accumulate llm_chunk tokens
+  const reconnectAttempts           = useRef(0);
 
   // Re-run dropdown (managed inside RerunDropdown component)
 
@@ -364,14 +370,19 @@ const ProjectView = () => {
     if (esRef.current) return; // already connected
 
     let cancelled = false;
+    let done = false;
+
+    const scheduleReconnect = () => {
+      if (cancelled || done) return;
+      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
+      reconnectAttempts.current += 1;
+      setTimeout(() => { if (!cancelled && !done) connectSSE(); }, delay);
+    };
 
     const connectSSE = async () => {
       try {
         // Exchange the bearer token for a short-lived SSE-only token.
         // This keeps the full JWT out of the URL (server logs, browser history, Referer headers).
-        const tokenRes = await api.startPipeline
-          ? null  // dummy — real call below
-          : null;
         const exchRes = await fetch(`/api/factory/runs/${id}/sse-token`, {
           method: 'POST',
           headers: {
@@ -379,7 +390,7 @@ const ProjectView = () => {
             'Content-Type': 'application/json',
           },
         });
-        if (!exchRes.ok || cancelled) return;
+        if (!exchRes.ok || cancelled) { if (!exchRes.ok) scheduleReconnect(); return; }
         const { sse_token } = await exchRes.json();
         if (cancelled) return;
 
@@ -387,52 +398,56 @@ const ProjectView = () => {
         const es = new EventSource(url);
         esRef.current = es;
 
-    es.onmessage = (e) => {
-      let event;
-      try { event = JSON.parse(e.data); } catch { return; }
+        es.onmessage = (e) => {
+          let event;
+          try { event = JSON.parse(e.data); } catch { return; }
 
-      if (event.type === 'llm_chunk') {
-        // Accumulate tokens until we see a newline, then flush as one line
-        llmLineRef.current += event.text || '';
-        const nl = llmLineRef.current.lastIndexOf('\n');
-        if (nl !== -1) {
-          const flushed = llmLineRef.current.slice(0, nl);
-          llmLineRef.current = llmLineRef.current.slice(nl + 1);
-          flushed.split('\n').forEach((l) => appendLine(l));
-        }
-      } else {
-        // Flush any pending LLM line before a structural event
-        if (llmLineRef.current) {
-          appendLine(llmLineRef.current);
-          llmLineRef.current = '';
-        }
-        const line = formatEvent(event);
-        if (line) appendLine(line);
-      }
+          if (event.type === 'llm_chunk') {
+            // Accumulate tokens until we see a newline, then flush as one line
+            llmLineRef.current += event.text || '';
+            const nl = llmLineRef.current.lastIndexOf('\n');
+            if (nl !== -1) {
+              const flushed = llmLineRef.current.slice(0, nl);
+              llmLineRef.current = llmLineRef.current.slice(nl + 1);
+              flushed.split('\n').forEach((l) => appendLine(l));
+            }
+          } else {
+            // Flush any pending LLM line before a structural event
+            if (llmLineRef.current) {
+              appendLine(llmLineRef.current);
+              llmLineRef.current = '';
+            }
+            const line = formatEvent(event);
+            if (line) appendLine(line);
+          }
 
-      if (event.type === 'pipeline_complete') {
-        // Flush remainder
-        if (llmLineRef.current) {
-          appendLine(llmLineRef.current);
-          llmLineRef.current = '';
-        }
-        setFeedDone(true);
-        es.close();
-        esRef.current = null;
-        fetchRunDetail();
-        fetchFileTree();
-      }
-    };
+          if (event.type === 'pipeline_complete') {
+            // Flush remainder
+            if (llmLineRef.current) {
+              appendLine(llmLineRef.current);
+              llmLineRef.current = '';
+            }
+            done = true;
+            setFeedDone(true);
+            es.close();
+            esRef.current = null;
+            fetchRunDetail();
+            fetchFileTree();
+          }
+        };
 
         es.onerror = () => {
           es.close();
           esRef.current = null;
+          scheduleReconnect();
         };
       } catch (err) {
         console.error('SSE connect failed:', err);
+        scheduleReconnect();
       }
     };
 
+    reconnectAttempts.current = 0;
     connectSSE();
 
     return () => {
@@ -568,6 +583,59 @@ const ProjectView = () => {
     }
   };
 
+  const handleDownload = async () => {
+    try {
+      const res = await api.downloadRunZip(id);
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${run?.project_name || id}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast('Download failed: ' + (e.message || 'unknown'));
+    }
+  };
+
+  const [showGitHubModal, setShowGitHubModal] = useState(false);
+  const [showAddFeatureModal, setShowAddFeatureModal] = useState(false);
+  const [gitHubToken, setGitHubToken] = useState('');
+  const [gitHubRepoName, setGitHubRepoName] = useState('');
+  const [gitHubPushing, setGitHubPushing] = useState(false);
+  const [addFeatureText, setAddFeatureText] = useState('');
+  const [addingFeature, setAddingFeature] = useState(false);
+
+  const handlePushGitHub = async () => {
+    if (!gitHubToken || !gitHubRepoName) return showToast('GitHub token and repo name required');
+    setGitHubPushing(true);
+    try {
+      const res = await api.pushToGitHub(id, { github_token: gitHubToken, repo_name: gitHubRepoName });
+      showToast('✅ Pushed to GitHub: ' + (res.data?.html_url || gitHubRepoName));
+      setShowGitHubModal(false);
+    } catch (e) {
+      showToast('Push failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setGitHubPushing(false);
+    }
+  };
+
+  const handleAddFeature = async () => {
+    if (!addFeatureText.trim()) return showToast('Describe the feature to add');
+    setAddingFeature(true);
+    const branchPhase = window._branchPhase || 'p04_backend';
+    delete window._branchPhase;
+    try {
+      const res = await api.branchRun(id, branchPhase, addFeatureText.trim());
+      showToast('🚀 Branch run started');
+      setShowAddFeatureModal(false);
+      navigate(`/project/${res.data?.run_id}`);
+    } catch (e) {
+      showToast('Failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setAddingFeature(false);
+    }
+  };
+
   // ── Effects ────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -581,11 +649,17 @@ const ProjectView = () => {
 
   useEffect(() => {
     if (!run?.started_at) return;
-    const timer = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - run.started_at) / 1000));
-    }, 1000);
+    // For finished runs show the actual duration; for active runs count up live
+    const isDone = ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status);
+    if (isDone && run.finished_at) {
+      setElapsed(Math.floor((run.finished_at - run.started_at) / 1000));
+      return;
+    }
+    const tick = () => setElapsed(Math.floor((Date.now() - run.started_at) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [run?.started_at]);
+  }, [run?.started_at, run?.finished_at, run?.status]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -658,6 +732,26 @@ const ProjectView = () => {
   const successRate  = completedPhases > 0 ? Math.round((passedCount / completedPhases) * 100) : 0;
   const artifactCount = fileTree ? countFiles(fileTree) : 0;
 
+  // Security findings count from p06 output
+  const secFindings = (() => {
+    const p06 = phases?.p06_review_security?.output;
+    if (!p06) return null;
+    // security_total is injected by the API from security_report.json
+    if (typeof p06.security_total === 'number') return p06.security_total;
+    if (Array.isArray(p06.security_findings)) return p06.security_findings.length;
+    const findings = p06?.phases?.security?.metadata?.findings || p06?.findings || [];
+    return Array.isArray(findings) ? findings.length : null;
+  })();
+
+  const secGrade = (() => {
+    if (secFindings === null) return null;
+    if (secFindings === 0) return { grade: 'A', color: 'text-emerald-400 bg-emerald-900/40 border-emerald-700' };
+    if (secFindings <= 2) return { grade: 'B', color: 'text-green-400 bg-green-900/40 border-green-700' };
+    if (secFindings <= 5) return { grade: 'C', color: 'text-yellow-400 bg-yellow-900/40 border-yellow-700' };
+    if (secFindings <= 10) return { grade: 'D', color: 'text-orange-400 bg-orange-900/40 border-orange-700' };
+    return { grade: 'F', color: 'text-red-400 bg-red-900/40 border-red-700' };
+  })();
+
   const curlCmd = `curl -s http://localhost:8000/health`;
   const copyCurl = () => {
     navigator.clipboard.writeText(curlCmd);
@@ -711,19 +805,34 @@ const ProjectView = () => {
             const isFailed = st === 'failed';
 
             return (
-              <button
-                key={p}
-                onClick={() => navigate(`/project/${id}/phase/${p}`)}
-                className={`w-full flex items-center px-4 py-2.5 text-xs transition-colors group text-left ${
-                  isActive ? 'bg-accent/10 border-r-2 border-accent text-accent' : 'hover:bg-white/[0.03] text-muted hover:text-bright'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 ${
-                  isDone2 ? 'bg-emerald-500' : isActive ? 'bg-accent animate-pulse' : isFailed ? 'bg-danger' : 'bg-slate-700'
-                }`} />
-                <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
-                {dur && <span className="text-[9px] text-muted ml-1 shrink-0 font-mono">{dur}</span>}
-              </button>
+              <div key={p} className="relative group/phase">
+                <button
+                  onClick={() => navigate(`/project/${id}/phase/${p}`)}
+                  className={`w-full flex items-center px-4 py-2.5 text-xs transition-colors group text-left ${
+                    isActive ? 'bg-accent/10 border-r-2 border-accent text-accent' : 'hover:bg-white/[0.03] text-muted hover:text-bright'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 ${
+                    isDone2 ? 'bg-emerald-500' : isActive ? 'bg-accent animate-pulse' : isFailed ? 'bg-danger' : 'bg-slate-700'
+                  }`} />
+                  <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
+                  {dur && <span className="text-[9px] text-muted ml-1 shrink-0 font-mono">{dur}</span>}
+                </button>
+                {(isDone2 || isFailed) && (
+                  <button
+                    onClick={() => {
+                      setShowAddFeatureModal(true);
+                      setAddFeatureText('');
+                      // Store branch phase for the modal
+                      window._branchPhase = p;
+                    }}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/phase:opacity-100 p-1 rounded hover:bg-accent/20 text-muted hover:text-accent transition-all"
+                    title={`Branch from ${PHASE_NAMES[p]}`}
+                  >
+                    <GitBranch className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -750,16 +859,31 @@ const ProjectView = () => {
             </h1>
             <PhaseBadge status={run.status} size="md" />
 
-            {/* Priority badge */}
-            <button
-              onClick={handlePriorityCycle}
-              className={`flex items-center space-x-1.5 text-xs font-bold px-2.5 py-1 rounded-full border border-border/50 hover:bg-border/30 transition-colors ${priConf.color}`}
-              title="Click to change priority"
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${priConf.dot}`} />
-              <span>{priConf.label}</span>
-            </button>
+            {/* Priority badge — interactive for non-viewers */}
+            {isViewer ? (
+              <span className={`flex items-center space-x-1.5 text-xs font-bold px-2.5 py-1 rounded-full border border-border/50 ${priConf.color}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${priConf.dot}`} />
+                <span>{priConf.label}</span>
+              </span>
+            ) : (
+              <button
+                onClick={handlePriorityCycle}
+                className={`flex items-center space-x-1.5 text-xs font-bold px-2.5 py-1 rounded-full border border-border/50 hover:bg-border/30 transition-colors ${priConf.color}`}
+                title="Click to change priority"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${priConf.dot}`} />
+                <span>{priConf.label}</span>
+              </button>
+            )}
           </div>
+
+          {/* Security grade badge */}
+          {secGrade && (
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-bold ${secGrade.color}`} title={`Security grade: ${secFindings} findings`}>
+              <span>🔒</span><span>{secGrade.grade}</span>
+            </div>
+          )}
+
           <div className="flex items-center space-x-2">
             {/* Live App — shown when container is running */}
             {run.live_url ? (
@@ -800,8 +924,77 @@ const ProjectView = () => {
             >
               <ExternalLink className="w-3.5 h-3.5 mr-2" /> VIEW PORTAL
             </button>
+            <button
+              onClick={handleDownload}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium transition-colors"
+              title="Download project as ZIP"
+            >
+              <Download className="w-3.5 h-3.5" /><span>ZIP</span>
+            </button>
+            <button
+              onClick={() => setShowGitHubModal(true)}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium transition-colors"
+              title="Push to GitHub"
+            >
+              <GitBranch className="w-3.5 h-3.5" /><span>GitHub</span>
+            </button>
+            {(run.status === 'completed' || run.status === 'running') && (
+              <button
+                onClick={() => setShowAddFeatureModal(true)}
+                className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium transition-colors"
+                title="Add a feature to this project"
+              >
+                <Zap className="w-3.5 h-3.5" /><span>Add Feature</span>
+              </button>
+            )}
           </div>
         </header>
+
+        {/* GitHub Push Modal */}
+        {showGitHubModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="bg-panel border border-border rounded-xl p-6 w-96 space-y-4">
+              <h3 className="text-base font-bold text-bright">Push to GitHub</h3>
+              <div>
+                <label className="block text-xs text-muted mb-1">GitHub Personal Access Token</label>
+                <input type="password" value={gitHubToken} onChange={e => setGitHubToken(e.target.value)}
+                  placeholder="ghp_..." className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent" />
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">New Repo Name</label>
+                <input type="text" value={gitHubRepoName} onChange={e => setGitHubRepoName(e.target.value)}
+                  placeholder="my-aetheros-app" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent" />
+              </div>
+              <div className="flex space-x-3 pt-1">
+                <button onClick={() => setShowGitHubModal(false)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-bright transition-colors">Cancel</button>
+                <button onClick={handlePushGitHub} disabled={gitHubPushing} className="flex-1 py-2 bg-accent hover:bg-accent/90 rounded-lg text-sm text-white font-bold transition-colors disabled:opacity-50">
+                  {gitHubPushing ? 'Pushing…' : 'Push'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Feature Modal */}
+        {showAddFeatureModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="bg-panel border border-border rounded-xl p-6 w-[480px] space-y-4">
+              <h3 className="text-base font-bold text-bright">Add a Feature</h3>
+              <p className="text-xs text-muted">Describe the feature to add. A new run will branch from p04_backend with your existing architecture.</p>
+              <textarea
+                value={addFeatureText} onChange={e => setAddFeatureText(e.target.value)}
+                rows={4} placeholder="Add Stripe payments with webhook support..."
+                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent resize-none"
+              />
+              <div className="flex space-x-3">
+                <button onClick={() => setShowAddFeatureModal(false)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-bright transition-colors">Cancel</button>
+                <button onClick={handleAddFeature} disabled={addingFeature} className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm text-white font-bold transition-colors disabled:opacity-50">
+                  {addingFeature ? 'Starting…' : 'Add Feature'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Run Summary card */}
         <section className="panel p-5 space-y-4">
@@ -821,19 +1014,21 @@ const ProjectView = () => {
               </div>
             </div>
             <div>
-              <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Health Check</div>
-              <button
-                onClick={copyCurl}
-                className="flex items-center space-x-1.5 text-xs font-mono text-accent hover:text-accent/80 transition-colors bg-accent/10 border border-accent/20 rounded px-2 py-1"
-              >
-                <Terminal className="w-3 h-3 shrink-0" />
-                <span>{curlCopied ? '✓ Copied!' : 'Copy curl'}</span>
-              </button>
+              <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Security</div>
+              {secFindings === null ? (
+                <div className="text-lg font-bold text-muted">—</div>
+              ) : secFindings === 0 ? (
+                <div className="text-lg font-bold text-emerald-400">✓ Clean</div>
+              ) : (
+                <div className={`text-lg font-bold ${secFindings >= 5 ? 'text-danger' : 'text-warning'}`}>
+                  {secFindings} finding{secFindings !== 1 ? 's' : ''}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Controls row — large prominent buttons */}
-          {(isRunning || isPaused || isDone) && (
+          {!isViewer && (isRunning || isPaused || isDone) && (
             <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-border/50">
               {isRunning && (
                 <>
@@ -904,7 +1099,12 @@ const ProjectView = () => {
             <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />
             <div>
               <span className="text-xs text-muted uppercase font-bold tracking-wider">Currently: </span>
-              <span className="text-sm font-bold text-bright">{PHASE_NAMES[run.current_phase] || 'Initializing…'}</span>
+              <span className="text-sm font-bold text-bright">
+                {PHASE_NAMES[run.current_phase] ||
+                  (run.current_phase
+                    ? run.current_phase.replace(/^p\d+[a-z]?_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    : 'Initializing…')}
+              </span>
             </div>
             <div className="flex-1 max-w-xs ml-auto">
               <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -932,6 +1132,7 @@ const ProjectView = () => {
                   { id: 'live',      label: 'Live',      icon: Radio,    showDot: isRunning },
                   { id: 'artifacts', label: 'Artifacts', icon: FileCode  },
                   { id: 'preview',   label: 'Preview',   icon: Monitor   },
+                  ...(run?.live_url ? [{ id: 'iframe', label: 'App Preview', icon: OpenTab }] : []),
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1157,6 +1358,24 @@ const ProjectView = () => {
                 )}
               </div>
             )}
+          {/* ── App Preview (iframe of live_url) ──────────────────────────── */}
+          {activeArtifactTab === 'iframe' && run?.live_url && (
+            <div className="flex flex-col" style={{ height: '480px' }}>
+              <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-border/10 shrink-0">
+                <span className="text-[10px] font-mono text-muted truncate">{run.live_url}</span>
+                <a href={run.live_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0 ml-2">
+                  <OpenTab className="w-3 h-3" /> Open in tab
+                </a>
+              </div>
+              <iframe
+                src={run.live_url}
+                className="flex-1 w-full border-0 bg-white"
+                title="Live App Preview"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+              />
+            </div>
+          )}
           </div>
         </section>
 

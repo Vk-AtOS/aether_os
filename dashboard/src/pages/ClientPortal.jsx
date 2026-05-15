@@ -138,25 +138,34 @@ const ClientPortal = () => {
                </div>
                <div className="p-8 prose prose-invert max-w-none">
                   <h3 className="text-accent text-lg font-bold mb-4">Core Requirements</h3>
-                  <ul className="space-y-3 list-none p-0">
-                    <li className="flex items-start">
-                      <ChevronRight className="w-4 h-4 text-accent mr-3 mt-1 shrink-0" />
-                      <span>Automated payroll processing with local compliance rules.</span>
-                    </li>
-                    <li className="flex items-start">
-                      <ChevronRight className="w-4 h-4 text-accent mr-3 mt-1 shrink-0" />
-                      <span>Employee self-service portal for leave management and tax documents.</span>
-                    </li>
-                    <li className="flex items-start">
-                      <ChevronRight className="w-4 h-4 text-accent mr-3 mt-1 shrink-0" />
-                      <span>Integration with existing PostgreSQL legacy database.</span>
-                    </li>
-                    <li className="flex items-start">
-                      <ChevronRight className="w-4 h-4 text-accent mr-3 mt-1 shrink-0" />
-                      <span>JWT-based security with role-based access control (RBAC).</span>
-                    </li>
-                  </ul>
-                  
+                  {(() => {
+                    const reqs = status.requirements || status.metadata?.requirements || [];
+                    const spec = status.specification || status.metadata?.specification;
+                    const desc = status.description || status.metadata?.description;
+                    return (
+                      <>
+                        {spec && <p className="text-sm text-muted leading-relaxed mb-6 whitespace-pre-wrap">{spec}</p>}
+                        {Array.isArray(reqs) && reqs.length > 0 ? (
+                          <ul className="space-y-3 list-none p-0">
+                            {reqs.map((req, i) => (
+                              <li key={i} className="flex items-start">
+                                <ChevronRight className="w-4 h-4 text-accent mr-3 mt-1 shrink-0" />
+                                <span>{req}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : !spec && (
+                          <p className="text-muted text-sm italic">No requirements have been captured yet for this project.</p>
+                        )}
+                        {desc && (
+                          <div className="mt-6 text-sm text-muted leading-relaxed">
+                            <strong className="text-bright">Project Description:</strong> {desc}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+
                   <div className="mt-10 p-4 rounded-lg bg-accent/5 border border-accent/20 text-sm italic text-muted leading-relaxed">
                     This specification was autonomously generated based on your initial prompt and cross-referenced with enterprise patterns.
                   </div>
@@ -205,9 +214,9 @@ const ClientPortal = () => {
         <footer className="py-12 border-t border-border flex flex-col items-center">
            <div className="text-[10px] font-bold text-muted uppercase tracking-[0.3em] mb-4">Powered by AetherOS Factory</div>
            <div className="flex items-center space-x-6">
-              <span className="text-[10px] text-muted font-medium hover:text-bright transition-colors cursor-pointer">PRIVACY POLICY</span>
-              <span className="text-[10px] text-muted font-medium hover:text-bright transition-colors cursor-pointer">TERMS OF SERVICE</span>
-              <span className="text-[10px] text-muted font-medium hover:text-bright transition-colors cursor-pointer">SUPPORT</span>
+              <a href="/api/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted font-medium hover:text-bright transition-colors">PRIVACY POLICY</a>
+              <a href="/api/legal/tos" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted font-medium hover:text-bright transition-colors">TERMS OF SERVICE</a>
+              <a href="/api/legal/dpa" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted font-medium hover:text-bright transition-colors">DPA</a>
            </div>
         </footer>
       </div>

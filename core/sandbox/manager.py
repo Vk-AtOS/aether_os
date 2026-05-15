@@ -255,11 +255,13 @@ class LocalSandboxBackend:
                 cmd = self._build_command(req, temp_dir=tmp)
 
                 if req.language.strip().lower() in ("shell", "bash", "sh"):
-                    shell = True
-                    args = cmd
+                    shell = False
+                    args = ["/bin/sh", "-c", cmd]
                 else:
-                    shell = True  # we already built the string command
-                    args = cmd
+                    # Python command was built with shlex.quote, safe to split
+                    import shlex as _shlex_split
+                    shell = False
+                    args = _shlex_split.split(cmd)
 
                 def preexec() -> None:
                     # New process group for safe kill
@@ -364,7 +366,14 @@ class DeviceSandboxBackend:
         error_msg: Optional[str] = None
 
         client = paramiko.SSHClient()  # type: ignore[call-arg]
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # type: ignore[attr-defined]
+        # RejectPolicy refuses unknown host keys — prevents MITM on SSH sandbox connections.
+        # Known hosts must be pre-populated via cfg.known_hosts_file or the system's known_hosts.
+        known_hosts = getattr(cfg, "known_hosts_file", None)
+        if known_hosts:
+            client.load_host_keys(known_hosts)
+        else:
+            client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())  # type: ignore[attr-defined]
 
         try:
             connect_args: Dict[str, Any] = {

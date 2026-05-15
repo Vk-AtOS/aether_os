@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
+import { useRuns } from '../contexts/RunsContext';
 
 // 10-phase list in order
 const PHASES = [
@@ -94,9 +95,10 @@ const EmptyState = ({ onNewProject }) => (
 const ProjectsList = () => {
   const ctx = useOutletContext() || {};
   const onNewProject = ctx.openNewProject || (() => {});
-  const [runs, setRuns]           = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const { runs, loading, refresh } = useRuns();
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [domainFilter, setDomainFilter] = useState('');
   const [actionLoading, setActionLoading] = useState({}); // { [runId]: 'pause'|'resume'|'cancel' }
   const navigate = useNavigate();
 
@@ -107,7 +109,7 @@ const ProjectsList = () => {
       if (action === 'pause')  await api.pauseRun(runId);
       if (action === 'resume') await api.resumeRun(runId);
       if (action === 'cancel') await api.cancelRun(runId);
-      await fetchRuns();
+      refresh();
     } catch {
       /* silent fail */
     } finally {
@@ -144,29 +146,14 @@ const ProjectsList = () => {
     }
   };
 
-  const fetchRuns = async () => {
-    try {
-      const res = await api.listRuns();
-      setRuns(res.data || []);
-    } catch (err) {
-      console.error('Failed to fetch runs', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchRuns();
-    const interval = setInterval(fetchRuns, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  const domains = [...new Set(runs.map(r => r.domain).filter(Boolean))].sort();
 
   const filtered = runs.filter((run) => {
     const term = searchTerm.toLowerCase();
-    return (
-      run.project_name?.toLowerCase().includes(term) ||
-      (run.run_id || run.id)?.toLowerCase().includes(term)
-    );
+    const matchText = run.project_name?.toLowerCase().includes(term) || (run.run_id || run.id)?.toLowerCase().includes(term);
+    const matchStatus = !statusFilter || run.status === statusFilter;
+    const matchDomain = !domainFilter || run.domain === domainFilter;
+    return matchText && matchStatus && matchDomain;
   });
 
   const truncate = (str, n) =>
@@ -195,7 +182,7 @@ const ProjectsList = () => {
             {runs.length} {runs.length === 1 ? 'project' : 'projects'} total
           </p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-3 flex-wrap gap-2">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
@@ -203,9 +190,29 @@ const ProjectsList = () => {
               placeholder="Search projects…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-panel border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-bright focus:outline-none focus:border-accent w-64 transition-colors"
+              className="bg-panel border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-bright focus:outline-none focus:border-accent w-52 transition-colors"
             />
           </div>
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="bg-panel border border-border rounded-lg px-3 py-2 text-xs text-bright focus:outline-none focus:border-accent"
+          >
+            <option value="">All statuses</option>
+            {['running', 'completed', 'failed', 'cancelled', 'paused', 'interrupted'].map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          {domains.length > 0 && (
+            <select
+              value={domainFilter}
+              onChange={e => setDomainFilter(e.target.value)}
+              className="bg-panel border border-border rounded-lg px-3 py-2 text-xs text-bright focus:outline-none focus:border-accent"
+            >
+              <option value="">All domains</option>
+              {domains.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          )}
           <button
             onClick={onNewProject}
             className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg"

@@ -17,7 +17,12 @@ os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "identity.db")
 SQLALCHEMY_DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
-SECRET_KEY = os.environ.get("AETHERONE_JWT_SECRET", "dev-secret-use-secure-in-prod")
+_raw_secret = os.environ.get("AETHERONE_JWT_SECRET") or os.environ.get("AETHER_SECRET_KEY")
+if not _raw_secret:
+    raise RuntimeError(
+        "JWT secret not configured. Set AETHERONE_JWT_SECRET or AETHER_SECRET_KEY environment variable."
+    )
+SECRET_KEY = _raw_secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # default 1 week
 

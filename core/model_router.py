@@ -41,31 +41,64 @@ class ModelSpec:
     retry_count: int        # attempts before moving to next model
 
 
-# Canonical fallback chain — built dynamically from environment
+_DEFAULT_FALLBACK_MODELS = (
+    "minimax/minimax-m2.5:free,"
+    "deepseek/deepseek-r1:free,"
+    "meta-llama/llama-4-maverick:free,"
+    "mistralai/mistral-7b-instruct:free"
+)
+
+
 def get_fallback_chain() -> List[ModelSpec]:
+    """Build fallback chain from environment.  Re-called on every request so
+    settings changes take effect immediately without a server restart."""
     primary = os.environ.get("PRIMARY_LLM", "anthropic").lower()
     anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b")
     ollama_timeout = int(os.environ.get("OLLAMA_TIMEOUT", "120"))
 
-    # Base specs
-    specs = {
+    # Ordered list of OpenRouter models to cycle through on rate-limit
+    fallback_env = os.environ.get("OPENROUTER_FALLBACK_MODELS", "").strip()
+    if fallback_env:
+        openrouter_models = [m.strip() for m in fallback_env.split(",") if m.strip()]
+    else:
+        # Fall back to individual heavy/light env vars, then built-in defaults
+        heavy = os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free")
+        defaults = [m.strip() for m in _DEFAULT_FALLBACK_MODELS.split(",")]
+        openrouter_models = list(dict.fromkeys([heavy] + defaults))  # dedup, preserve order
+
+    non_openrouter = {
         "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),
-        "gemini":    ModelSpec("gemini",    "gemini-2.5-flash",  45, 2),
-        "ollama":    ModelSpec("ollama",    ollama_model,  ollama_timeout, 2),
+        "gemini":    ModelSpec("gemini",    "gemini-2.5-flash", 45, 2),
+        "ollama":    ModelSpec("ollama",    ollama_model, ollama_timeout, 1),
     }
 
-    chain = []
-    if primary in specs:
-        chain.append(specs[primary])
-    
-    # Add others as fallbacks
-    for p in ["anthropic", "gemini", "ollama"]:
-        if p != primary:
-            chain.append(specs[p])
+    chain: List[ModelSpec] = []
+
+    if primary in non_openrouter:
+        chain.append(non_openrouter[primary])
+
+    if primary == "openrouter":
+        # OpenRouter is primary — put all its models first
+        for m in openrouter_models:
+            chain.append(ModelSpec("openrouter", m, 60, 2))
+        for p in ("anthropic", "gemini", "ollama"):
+            if p != primary:
+                chain.append(non_openrouter[p])
+    else:
+        # Non-OpenRouter primary — Anthropic/Gemini first, then each OpenRouter
+        # model in order, then Ollama as last resort
+        for p in ("anthropic", "gemini"):
+            if p != primary:
+                chain.append(non_openrouter[p])
+        for m in openrouter_models:
+            chain.append(ModelSpec("openrouter", m, 60, 2))
+        if primary != "ollama":
+            chain.append(non_openrouter["ollama"])
+
     return chain
 
-FALLBACK_CHAIN = get_fallback_chain()
+FALLBACK_CHAIN = get_fallback_chain()  # legacy alias — do not use; call get_fallback_chain() directly
 
 # Error-message substrings → retry (transient, worth retrying same model)
 _RETRY_PATTERNS = ("rate limit", "429", "overloaded", "server error", "503", "502")
@@ -100,6 +133,8 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
     if spec.provider == "gemini":
         key = os.environ.get("GOOGLE_API_KEY", "").strip()
         return bool(key) and key != "REPLACE_WITH_YOUR_GEMINI_KEY"
+    if spec.provider == "openrouter":
+        return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
     # Ollama: always attempt — will fail at call time if not running
     return True
 
@@ -206,9 +241,9 @@ class ModelRouter:
         errors: List[str] = []
         models_tried = 0
 
-        chain = FALLBACK_CHAIN
+        chain = get_fallback_chain()
         if enforce_local:
-            chain = [s for s in FALLBACK_CHAIN if s.provider == "ollama"]
+            chain = [s for s in chain if s.provider == "ollama"]
 
         for spec in chain:
             if not _is_provider_configured(spec):
@@ -261,10 +296,10 @@ class ModelRouter:
                         except Exception:
                             pass
                     # Record token usage for budget tracking (approximate)
+                    _est_input = len(prompt) // 4
+                    _est_output = len(result) // 4
                     if org_id:
                         try:
-                            _est_input = len(prompt) // 4
-                            _est_output = len(result) // 4
                             from aether_os.core.llm.budget import get_budget_manager
                             asyncio.create_task(
                                 get_budget_manager().record_usage(
@@ -277,6 +312,90 @@ class ModelRouter:
                             )
                         except Exception:
                             pass
+                    # Record cost to billing ledger using active run context vars
+                    try:
+                        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
+                        _run_id = ACTIVE_RUN_ID.get(None)
+                        _phase = ACTIVE_PHASE.get("unknown")
+                        if _run_id:
+                            _COST_PER_1M = {
+                                "anthropic":  (3.0, 15.0),
+                                "gemini":     (0.35, 1.05),
+                                "ollama":     (0.0, 0.0),
+                                "openrouter": (0.5, 1.5),
+                            }
+                            _in_rate, _out_rate = _COST_PER_1M.get(spec.provider, (0.5, 1.5))
+                            _cost_usd = (_est_input * _in_rate + _est_output * _out_rate) / 1_000_000
+                            # Write to LLMCallRecord (per-run billing detail)
+                            from aether_os.core.billing import get_billing_tracker
+                            asyncio.create_task(
+                                get_billing_tracker()._async_record_llm_call(
+                                    project_id=_run_id,
+                                    phase=_phase,
+                                    model=f"{spec.provider}/{spec.model}",
+                                    input_tokens=_est_input,
+                                    output_tokens=_est_output,
+                                    cost_usd=_cost_usd,
+                                )
+                            )
+                            # Also write to TokenBudgetRecord (org-level dashboard stats)
+                            if not org_id:
+                                # Resolve org_id from run record
+                                try:
+                                    from aether_os.core.db import get_session_factory as _gsf_mr
+                                    from aether_os.core.models import Run as _Run_mr
+                                    from sqlalchemy import select as _sel_mr
+                                    async def _get_org():
+                                        async with _gsf_mr()() as _s:
+                                            r = await _s.execute(_sel_mr(_Run_mr.org_id).where(_Run_mr.id == _run_id))
+                                            return r.scalar_one_or_none()
+                                    _resolved_org = await _get_org()
+                                except Exception:
+                                    _resolved_org = None
+                            else:
+                                _resolved_org = org_id
+                            if _resolved_org:
+                                from aether_os.core.llm.budget import get_budget_manager
+                                asyncio.create_task(
+                                    get_budget_manager().record_usage(
+                                        org_id=_resolved_org,
+                                        input_tokens=_est_input,
+                                        output_tokens=_est_output,
+                                        model=spec.model,
+                                        cache_hit=False,
+                                    )
+                                )
+                    except Exception:
+                        pass
+                    # ── Placeholder guard ────────────────────────────────────
+                    # Some models return "...", "TODO", bare whitespace, or
+                    # near-empty strings when they hit context limits or refuse
+                    # the task. These are treated as transient failures so we
+                    # retry the same model then fall back to the next tier.
+                    _stripped = result.strip()
+                    _PLACEHOLDER_PATTERNS = {
+                        "...", "…", "todo", "n/a", "none", "null",
+                        "[code here]", "[insert code]", "[your code here]",
+                        "# TODO", "# todo",
+                    }
+                    _is_placeholder = (
+                        len(_stripped) < 50
+                        or _stripped.lower() in _PLACEHOLDER_PATTERNS
+                        or _stripped in {"...", "…"}
+                        or (_stripped.endswith("...") and len(_stripped) < 120)
+                    )
+                    if _is_placeholder:
+                        msg = (
+                            f"{spec.provider}/{spec.model} returned placeholder "
+                            f"response (len={len(_stripped)}): {_stripped[:80]!r}"
+                        )
+                        logger.warning("Router: %s — will retry", msg)
+                        errors.append(msg)
+                        error_class = "retry"
+                        if attempt < spec.retry_count - 1:
+                            await asyncio.sleep(1.5 ** attempt)
+                        continue
+                    # ─────────────────────────────────────────────────────────
                     return result, spec.provider
 
                 except asyncio.TimeoutError:
@@ -329,6 +448,11 @@ class ModelRouter:
             return await _llm_mod._call_gemini(
                 prompt, task_type, system=system, max_tokens=max_tokens
             )
+        if spec.provider == "openrouter":
+            from aether_os.core.llm.openrouter_client import call_openrouter
+            return await call_openrouter(
+                prompt, task_type, system=system, max_tokens=max_tokens
+            )
         if spec.provider == "ollama":
             return await _llm_mod._call_ollama_with_model(prompt, task_type, spec.model)
 
@@ -336,12 +460,14 @@ class ModelRouter:
 
     def get_status(self) -> Dict[str, Any]:
         """Return routing stats for the /health and /system/health endpoints."""
+        chain = get_fallback_chain()
         return {
             "active_model": _active_model,
             "fallback_count_today": _fallback_count_today,
+            "fallback_chain": [f"{s.provider}/{s.model}" for s in chain],
             "model_availability": {
                 spec.provider: _is_provider_configured(spec)
-                for spec in FALLBACK_CHAIN
+                for spec in chain
             },
         }
 

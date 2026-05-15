@@ -1,0 +1,25 @@
+- generic [ref=e327]:
+  - generic [ref=e328]:
+    - img [ref=e330]
+    - heading "AetherOS Factory" [level=1] [ref=e332]
+    - paragraph [ref=e333]: Autonomous Software Factory
+  - generic [ref=e334]:
+    - generic [ref=e335]:
+      - generic [ref=e336]:
+        - generic [ref=e337]: Email
+        - textbox [ref=e338]
+      - generic [ref=e339]:
+        - generic [ref=e340]: Password
+        - textbox [ref=e341]
+      - button "START FACTORY" [ref=e342]
+    - generic [ref=e343]:
+      - generic [ref=e348]: or continue with
+      - generic [ref=e349]:
+        - button "Google" [ref=e350]:
+          - img [ref=e351]
+          - text: Google
+        - button "GitHub" [ref=e356]:
+          - img [ref=e357]
+          - text: GitHub
+      - button "Sign in with SSO (Azure AD / Okta / Google Workspace)" [ref=e360]
+  - paragraph [ref=e361]: Powered by VKatOS • Secure Enterprise Mesh

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LogOut, Plus, Coins } from 'lucide-react';
 import { api } from '../api';
 import { useNavigate, useLocation } from 'react-router-dom';
+import NotificationBell from './NotificationBell';
 
 // Hexagon SVG logo mark
 const HexLogo = () => (
@@ -55,7 +56,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const isHealthy = health?.status === 'ok' || health?.status === 'healthy';
 
   return (
-    <header className="h-14 border-b border-border bg-panel flex items-center justify-between px-6 shrink-0">
+    <header className="h-14 border-b border-border bg-panel flex items-center justify-between px-6 shrink-0 flex-1 min-w-0" role="banner">
       {/* Left: Logo + title */}
       <div className="flex items-center space-x-3">
         <HexLogo />
@@ -113,6 +114,8 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
           <Plus className="w-3.5 h-3.5" />
           <span>New Project</span>
         </button>
+
+        <NotificationBell />
 
         <button
           onClick={() => { api.logout(); navigate('/login'); }}

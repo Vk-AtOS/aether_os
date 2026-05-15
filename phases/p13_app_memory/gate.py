@@ -1,13 +1,15 @@
-"""Gate for p13_app_memory."""
 from __future__ import annotations
 from pathlib import Path
-from aether_os.phases.base import GateOutcome, TaskResult
+from typing import Any
+from aether_os.phases.base import TaskResult, GateOutcome
 
-def validate(result: TaskResult) -> GateOutcome:
+async def validate(result: TaskResult, phase_input: Any) -> GateOutcome:
     issues = list(result.issues)
-    if not result.success:
-        issues = issues or ["Task did not succeed"]
-    if result.output_path and not Path(result.output_path).exists():
-        issues.append("Output path does not exist")
-    return GateOutcome(passed=len(issues)==0, issues=issues,
-                       confidence=result.confidence if not issues else 0.3)
+    output = Path(result.output_path)
+    if not (output / "memory_service.py").exists():
+        issues.append("memory_service.py missing")
+    if not (output / "knowledge_graph.py").exists():
+        issues.append("knowledge_graph.py missing")
+    if not (output.parent / "migrations/add_memory.sql").exists():
+        issues.append("add_memory.sql missing")
+    return GateOutcome(passed=len(issues) == 0, issues=issues, confidence=result.confidence)

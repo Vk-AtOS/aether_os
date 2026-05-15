@@ -1,10 +1,13 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 
+// Stateless wrapper — changing its key forces a full remount of children
+const ChildMount = ({ children }) => children;
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, retryKey: 0 };
   }
 
   static getDerivedStateFromError(error) {
@@ -14,6 +17,11 @@ class ErrorBoundary extends React.Component {
   componentDidCatch(error, info) {
     console.error('ErrorBoundary caught:', error, info);
   }
+
+  handleRetry = () => {
+    // Increment retryKey so ChildMount remounts with a new key, giving children a fresh instance
+    this.setState(prev => ({ hasError: false, error: null, retryKey: prev.retryKey + 1 }));
+  };
 
   render() {
     if (this.state.hasError) {
@@ -26,7 +34,7 @@ class ErrorBoundary extends React.Component {
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
             <button
-              onClick={() => this.setState({ hasError: false, error: null })}
+              onClick={this.handleRetry}
               className="px-6 py-2 bg-red-700/50 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors border border-red-600/40"
             >
               RETRY
@@ -35,7 +43,7 @@ class ErrorBoundary extends React.Component {
         </div>
       );
     }
-    return this.props.children;
+    return <ChildMount key={this.state.retryKey}>{this.props.children}</ChildMount>;
   }
 }
 

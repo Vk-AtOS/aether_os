@@ -114,7 +114,7 @@ export default function CostDashboard() {
         <div>
           <p className={`font-semibold ${onTarget ? "text-green-700" : "text-amber-700"}`}>
             {onTarget
-              ? `✓ On target — ${costPerRun.toFixed(3)}/run (goal: $${COST_TARGET})`
+              ? `✓ On target — $${costPerRun.toFixed(3)}/run (goal: $${COST_TARGET})`
               : `${reductionNeeded}% cost reduction still needed to hit $${COST_TARGET}/run target`}
           </p>
           <p className="text-xs opacity-70 mt-0.5">

@@ -55,8 +55,9 @@ class ExecutionContext(BaseModel):
     security_report: Optional[Dict[str, Any]] = None  # p06
     test_results: Optional[Dict[str, Any]] = None   # p07
     ci_result: Optional[Dict[str, Any]] = None      # p08
-    docs: Optional[str] = None                      # p09
-    packaging_artifact: Optional[str] = None        # p10
+    observability_config: Optional[Dict[str, Any]] = None  # p09_observability
+    docs: Optional[str] = None                      # p10
+    packaging_artifact: Optional[str] = None        # p11
 
     # Retry state
     retry_count: int = 0
