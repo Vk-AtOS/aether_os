@@ -22,7 +22,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StorageWidget from '../components/StorageWidget';
-  import hljs from 'highlight.js';
+import { useSettings } from '../contexts/SettingsContext';
+import hljs from 'highlight.js';
 
 import 'highlight.js/styles/github-dark.css';
 
@@ -80,6 +81,7 @@ const PhaseConfigPanel = ({ phase, config, onSave }) => {
 };
 
 const Settings = () => {
+  const { updateLlmConfig: ctxUpdateLlmConfig } = useSettings();
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
   const [expandedPhase, setExpandedPhase] = useState(null);
@@ -260,6 +262,7 @@ const Settings = () => {
     setLlmSaveStatus('saving');
     try {
       await api.updateLlmConfig(llmConfig);
+      ctxUpdateLlmConfig(llmConfig);
       setLlmSaveStatus('saved');
       setTimeout(() => setLlmSaveStatus(null), 3000);
     } catch {

@@ -5,6 +5,7 @@ import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
+import { SkeletonTable } from '../components/Skeleton';
 
 // 10-phase list in order
 const PHASES = [
@@ -164,10 +165,9 @@ const ProjectsList = () => {
       <div className="space-y-6">
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-bright">Factory Projects</h1>
+          <div className="h-9 w-48 bg-border/40 rounded-lg animate-pulse" />
         </header>
-        <div className="panel p-12 flex items-center justify-center text-muted text-sm">
-          Loading projects…
-        </div>
+        <SkeletonTable rows={6} cols={5} />
       </div>
     );
   }

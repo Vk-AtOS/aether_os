@@ -1,0 +1,94 @@
+{
+  "name": "aetheros-factory",
+  "displayName": "AetherOS Factory",
+  "description": "Build production-ready apps from a prompt — right inside VS Code",
+  "version": "1.0.0",
+  "publisher": "aetheros",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "AI"],
+  "keywords": ["ai", "code generation", "factory", "aetheros"],
+  "icon": "media/icon.png",
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "aetheros.newRun",       "title": "AetherOS: New Factory Run",         "icon": "$(play)" },
+      { "command": "aetheros.listRuns",     "title": "AetherOS: List Runs",               "icon": "$(list-unordered)" },
+      { "command": "aetheros.showStatus",   "title": "AetherOS: Show Run Status" },
+      { "command": "aetheros.streamLogs",   "title": "AetherOS: Stream Run Logs" },
+      { "command": "aetheros.cancelRun",    "title": "AetherOS: Cancel Run" },
+      { "command": "aetheros.openDashboard","title": "AetherOS: Open Dashboard" },
+      { "command": "aetheros.configure",    "title": "AetherOS: Configure Gateway URL" },
+      { "command": "aetheros.refreshRuns",  "title": "Refresh",                           "icon": "$(refresh)" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aetheros",
+          "title": "AetherOS Factory",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "aetheros": [
+        { "id": "aetheros.runsView",   "name": "Factory Runs",    "when": "true" },
+        { "id": "aetheros.statusView", "name": "Run Details",     "when": "true" }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "aetheros.newRun",
+          "when": "view == aetheros.runsView",
+          "group": "navigation"
+        },
+        {
+          "command": "aetheros.refreshRuns",
+          "when": "view == aetheros.runsView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        { "command": "aetheros.showStatus", "when": "viewItem == run", "group": "inline" },
+        { "command": "aetheros.streamLogs", "when": "viewItem == run", "group": "inline" },
+        { "command": "aetheros.cancelRun",  "when": "viewItem == run && viewItem != completedRun", "group": "inline" }
+      ]
+    },
+    "configuration": {
+      "title": "AetherOS Factory",
+      "properties": {
+        "aetheros.gatewayUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL of the AetherOS gateway"
+        },
+        "aetheros.token": {
+          "type": "string",
+          "default": "",
+          "description": "JWT auth token (set via AetherOS: Configure)"
+        },
+        "aetheros.autoRefreshSeconds": {
+          "type": "number",
+          "default": 15,
+          "description": "How often (seconds) to auto-refresh the runs list"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "watch":   "tsc -watch -p tsconfig.json",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node":   "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript":    "^5.3.0",
+    "@vscode/vsce":  "^2.22.0"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}

@@ -85,12 +85,18 @@ const NewProjectWizard = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
-  // GitHub / existing codebase
-  const [githubUrl, setGithubUrl] = useState('');
-  const [githubToken, setGithubToken] = useState('');
+  // Repo / existing codebase
+  const [repoUrl, setRepoUrl] = useState('');
+  const [repoType, setRepoType] = useState('github'); // github | gitlab | ssh
+  const [repoToken, setRepoToken] = useState('');
+  const [repoSshKey, setRepoSshKey] = useState('');
+  const [gitlabUrl, setGitlabUrl] = useState('https://gitlab.com');
   const [fetchingRepo, setFetchingRepo] = useState(false);
   const [repoContext, setRepoContext] = useState('');
   const [repoFetched, setRepoFetched] = useState('');
+  // keep old names for compatibility
+  const githubUrl = repoUrl; const setGithubUrl = setRepoUrl;
+  const githubToken = repoToken; const setGithubToken = setRepoToken;
 
   // Step 3 — configure
   const [models, setModels] = useState(DEFAULT_MODELS);
@@ -171,13 +177,18 @@ const NewProjectWizard = () => {
   };
 
   const handleFetchRepo = async () => {
-    if (!githubUrl.trim()) return;
+    if (!repoUrl.trim()) return;
     setFetchingRepo(true);
     setRepoContext('');
+    setUploadError('');
     try {
-      const res = await api.fetchGitHubRepo({ repo_url: githubUrl.trim(), github_token: githubToken.trim() });
+      const payload = { type: repoType, url: repoUrl.trim() };
+      if (repoToken.trim())  payload.token     = repoToken.trim();
+      if (repoSshKey.trim()) payload.ssh_key   = repoSshKey.trim();
+      if (repoType === 'gitlab' && gitlabUrl.trim()) payload.gitlab_url = gitlabUrl.trim();
+      const res = await api.client.post('/factory/fetch-repo', payload);
       setRepoContext(res.data?.context || '');
-      setRepoFetched(res.data?.repo || githubUrl);
+      setRepoFetched(res.data?.url || repoUrl);
     } catch (e) {
       setUploadError('Repo fetch failed: ' + (e.response?.data?.detail || e.message));
     } finally {
@@ -281,17 +292,37 @@ const NewProjectWizard = () => {
             {uploadError && <p className="text-xs text-danger">{uploadError}</p>}
           </div>
 
-          {/* Existing codebase GitHub section */}
+          {/* Existing codebase section — GitHub / GitLab / SSH */}
           {projectMode === 'existing' && (
             <div className="space-y-3 bg-surface border border-border rounded-xl p-4">
               <p className="text-xs font-semibold text-muted uppercase tracking-wider">Connect Existing Codebase</p>
-              <input type="url" value={githubUrl} onChange={e => setGithubUrl(e.target.value)}
-                placeholder="https://github.com/owner/repo"
+              {/* Repo type tabs */}
+              <div className="flex gap-2">
+                {[['github','GitHub'],['gitlab','GitLab'],['ssh','SSH']].map(([t,label]) => (
+                  <button key={t} onClick={() => setRepoType(t)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${repoType === t ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {repoType === 'gitlab' && (
+                <input type="url" value={gitlabUrl} onChange={e => setGitlabUrl(e.target.value)}
+                  placeholder="https://gitlab.com (or self-hosted URL)"
+                  className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent" />
+              )}
+              <input type={repoType === 'ssh' ? 'text' : 'url'} value={repoUrl} onChange={e => setRepoUrl(e.target.value)}
+                placeholder={repoType === 'ssh' ? 'git@github.com:owner/repo.git' : `https://${repoType === 'gitlab' ? 'gitlab.com' : 'github.com'}/owner/repo`}
                 className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent" />
-              <input type="password" value={githubToken} onChange={e => setGithubToken(e.target.value)}
-                placeholder="GitHub Personal Access Token (for private repos)"
-                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent" />
-              <button onClick={handleFetchRepo} disabled={fetchingRepo || !githubUrl.trim()}
+              {repoType !== 'ssh' ? (
+                <input type="password" value={repoToken} onChange={e => setRepoToken(e.target.value)}
+                  placeholder={`${repoType === 'gitlab' ? 'GitLab' : 'GitHub'} Personal Access Token (private repos)`}
+                  className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent" />
+              ) : (
+                <textarea value={repoSshKey} onChange={e => setRepoSshKey(e.target.value)} rows={4}
+                  placeholder="Paste your PEM private SSH key (-----BEGIN OPENSSH PRIVATE KEY-----)"
+                  className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-bright font-mono focus:outline-none focus:border-accent resize-none" />
+              )}
+              <button onClick={handleFetchRepo} disabled={fetchingRepo || !repoUrl.trim()}
                 className="px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors">
                 {fetchingRepo ? 'Fetching…' : 'Fetch Repo Context'}
               </button>
