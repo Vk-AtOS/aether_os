@@ -4,11 +4,13 @@ import {
   LayoutDashboard, PlusCircle, List, Users, Settings,
   Plug, Wrench, Brain, DollarSign, ChevronDown, ChevronRight,
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
-  ScrollText, CreditCard, Building2, GraduationCap,
+  ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
+  Activity, Sparkles,
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
 import { useRuns } from '../contexts/RunsContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 const decodeToken = (token) => {
   try {
@@ -24,9 +26,9 @@ const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { latestRunId } = useRuns();
+  const { orgName } = useSettings();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [userRole, setUserRole] = useState('member');
-  const [orgName, setOrgName] = useState('');
   const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
@@ -36,11 +38,8 @@ const Sidebar = () => {
       if (payload?.role) setUserRole(payload.role);
       if (payload?.sub) setUserEmail(payload.sub);
     }
-    api.client.get('/account/usage').then(res => {
-      if (res.data?.org_name) setOrgName(res.data.org_name);
-    }).catch(() => {});
 
-    if (['/connectors', '/skills', '/memory', '/costs', '/frontend-builder', '/backend-builder', '/prompt', '/learning'].some(p => location.pathname.startsWith(p))) {
+    if (['/connectors', '/skills', '/memory', '/costs', '/frontend-builder', '/backend-builder', '/prompt', '/learning', '/settings/webhooks'].some(p => location.pathname.startsWith(p))) {
       setToolsOpen(true);
     }
   }, []);
@@ -55,12 +54,16 @@ const Sidebar = () => {
   const isViewer = userRole === 'viewer';
 
   const staticItems = [
-    { name: 'Dashboard',   path: '/',           icon: LayoutDashboard },
+    { name: 'Dashboard',   path: '/',              icon: LayoutDashboard },
     !isViewer && { name: 'New Project', path: '/new-project', icon: PlusCircle },
-    { name: 'Projects',    path: '/projects',   icon: List },
-    { name: 'Marketplace', path: '/marketplace', icon: Store },
-    { name: 'Settings',    path: '/settings',   icon: Settings },
-    { name: 'Compliance',  path: '/compliance', icon: Shield },
+    { name: 'Projects',    path: '/projects',      icon: List },
+    { name: 'Search',      path: '/search',        icon: Search },
+    { name: 'Deployments', path: '/deployments',   icon: Rocket },
+    { name: 'Marketplace', path: '/marketplace',   icon: Store },
+    { name: 'Intelligence',path: '/intelligence',  icon: Sparkles },
+    { name: 'System Health',path: '/health',       icon: Activity },
+    { name: 'Settings',    path: '/settings',      icon: Settings },
+    { name: 'Compliance',  path: '/compliance',    icon: Shield },
   ].filter(Boolean);
 
   const toolItems = [

@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import NewProjectModal from './NewProjectModal';
 import { RunsProvider, useRuns } from '../contexts/RunsContext';
+import { SettingsProvider } from '../contexts/SettingsContext';
 import { Menu, X } from 'lucide-react';
 
 function LayoutInner() {
@@ -65,9 +66,11 @@ function LayoutInner() {
 }
 
 const Layout = () => (
-  <RunsProvider>
-    <LayoutInner />
-  </RunsProvider>
+  <SettingsProvider>
+    <RunsProvider>
+      <LayoutInner />
+    </RunsProvider>
+  </SettingsProvider>
 );
 
 export default Layout;

@@ -27,6 +27,10 @@ import AuditLogs from './pages/AuditLogs';
 import OAuthCallback from './pages/OAuthCallback';
 import Learning from './pages/Learning';
 import Legal from './pages/Legal';
+import IntelligenceHub from './pages/IntelligenceHub';
+import SearchPage from './pages/SearchPage';
+import Deployments from './pages/Deployments';
+import SystemHealth from './pages/SystemHealth';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -98,6 +102,10 @@ function App() {
         <Route path="project/:id/prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
         <Route path="audit" element={<ErrorBoundary><AuditLogs /></ErrorBoundary>} />
         <Route path="learning" element={<ErrorBoundary><Learning /></ErrorBoundary>} />
+        <Route path="intelligence" element={<ErrorBoundary><IntelligenceHub /></ErrorBoundary>} />
+        <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
+        <Route path="deployments" element={<ErrorBoundary><Deployments /></ErrorBoundary>} />
+        <Route path="health" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

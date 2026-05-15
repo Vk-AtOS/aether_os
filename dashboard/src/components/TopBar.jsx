@@ -1,131 +1,186 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, Plus, Coins } from 'lucide-react';
+import { LogOut, Plus, Coins, Zap, Search } from 'lucide-react';
 import { api } from '../api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
+import { useSettings } from '../contexts/SettingsContext';
 
-// Hexagon SVG logo mark
 const HexLogo = () => (
   <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <polygon
-      points="14,2 25,8 25,20 14,26 3,20 3,8"
-      fill="none"
-      stroke="#6366f1"
-      strokeWidth="1.5"
-    />
-    <polygon
-      points="14,7 20,10.5 20,17.5 14,21 8,17.5 8,10.5"
-      fill="#6366f1"
-      opacity="0.25"
-    />
+    <polygon points="14,2 25,8 25,20 14,26 3,20 3,8" fill="none" stroke="#6366f1" strokeWidth="1.5" />
+    <polygon points="14,7 20,10.5 20,17.5 14,21 8,17.5 8,10.5" fill="#6366f1" opacity="0.25" />
     <circle cx="14" cy="14" r="3" fill="#6366f1" />
   </svg>
 );
 
+const PROVIDER_COLORS = {
+  anthropic: 'text-orange-400',
+  openrouter: 'text-purple-400',
+  gemini: 'text-blue-400',
+  ollama: 'text-green-400',
+};
+
 const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ today_usd: 0, tokens_today: '—' });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const isOnWizard = location.pathname === '/new-project';
 
-  const fetchHealth = async () => {
-    try {
-      const res = await api.getHealth();
-      setHealth(res.data);
-    } catch {}
-  };
-
-  const fetchCosts = async () => {
-    try {
-      const res = await api.getCosts();
-      setCosts(res.data);
-    } catch {}
-  };
+  // Live settings from context — updates instantly when settings are saved
+  const { activeProvider, activeModel } = useSettings();
 
   useEffect(() => {
-    fetchHealth();
-    fetchCosts();
-    const interval = setInterval(() => {
-      fetchHealth();
-      fetchCosts();
-    }, 30000);
-    return () => clearInterval(interval);
+    const fetchHealth = async () => {
+      try { setHealth((await api.getHealth()).data); } catch {}
+    };
+    const fetchCosts = async () => {
+      try { setCosts((await api.getCosts()).data); } catch {}
+    };
+    fetchHealth(); fetchCosts();
+    const iv = setInterval(() => { fetchHealth(); fetchCosts(); }, 30_000);
+    return () => clearInterval(iv);
   }, []);
 
+  // Keyboard shortcut: Cmd+K / Ctrl+K opens search
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(v => !v);
+      }
+      if (e.key === 'Escape') setSearchOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleSearch = (e) => {
+    if (e.key === 'Enter' && searchQ.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchQ.trim())}`);
+      setSearchOpen(false);
+      setSearchQ('');
+    }
+  };
+
   const isHealthy = health?.status === 'ok' || health?.status === 'healthy';
+  const providerColor = PROVIDER_COLORS[activeProvider] || 'text-muted';
 
   return (
-    <header className="h-14 border-b border-border bg-panel flex items-center justify-between px-6 shrink-0 flex-1 min-w-0" role="banner">
-      {/* Left: Logo + title */}
-      <div className="flex items-center space-x-3">
-        <HexLogo />
-        <div className="flex items-baseline space-x-1.5">
-          <span className="text-base font-bold text-bright tracking-tight">AetherOS</span>
-          <span className="text-base font-light text-muted tracking-tight">Factory</span>
-        </div>
-
-        {/* Active runs pulse indicator */}
-        {activeRunCount > 0 && (
-          <div className="flex items-center space-x-1.5 ml-4 bg-accent/10 border border-accent/30 rounded-full px-2.5 py-0.5">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
-            </span>
-            <span className="text-[10px] font-bold text-accent uppercase tracking-wider">
-              {activeRunCount} running
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Center: system status */}
-      {health && (
-        <div className="flex items-center text-xs space-x-4">
-          <div className="flex items-center space-x-1.5">
-            <span
-              className={`w-2 h-2 rounded-full ${isHealthy ? 'bg-success' : 'bg-warning animate-pulse'}`}
-            />
-            <span className="text-muted">
-              {isHealthy ? 'Nominal' : 'Degraded'}
-            </span>
-          </div>
-          <div className="flex items-center space-x-1.5 border-l border-border pl-4">
-            <Coins className="w-3.5 h-3.5 text-accent" />
-            <span className="text-muted">{costs.tokens_today || '—'} tokens</span>
+    <>
+      {/* Search overlay */}
+      {searchOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSearchOpen(false)}>
+          <div className="bg-panel border border-border rounded-2xl shadow-2xl w-full max-w-xl mx-4"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+              <Search className="w-4 h-4 text-muted shrink-0" />
+              <input
+                autoFocus
+                value={searchQ}
+                onChange={e => setSearchQ(e.target.value)}
+                onKeyDown={handleSearch}
+                placeholder="Search runs, artifacts, code… (Enter to go)"
+                className="flex-1 bg-transparent text-bright placeholder-muted text-sm focus:outline-none"
+              />
+              <kbd className="text-[10px] text-muted border border-border rounded px-1.5 py-0.5 font-mono">ESC</kbd>
+            </div>
+            <div className="px-4 py-2.5 text-xs text-muted">
+              Press <kbd className="font-mono bg-border/30 rounded px-1">Enter</kbd> to search · <kbd className="font-mono bg-border/30 rounded px-1">Esc</kbd> to close
+            </div>
           </div>
         </div>
       )}
 
-      {/* Right: actions */}
-      <div className="flex items-center space-x-3">
-        <div className="bg-border/30 px-3 py-1 rounded-full flex items-center space-x-1.5 border border-border">
-          <span className="text-xs font-mono font-medium text-success">
-            ${costs.today_usd?.toFixed(2) || '0.00'}
-          </span>
-          <span className="text-[10px] text-muted">today</span>
+      <header className="h-14 border-b border-border bg-panel flex items-center justify-between px-6 shrink-0 flex-1 min-w-0" role="banner">
+        {/* Left: Logo + active runs */}
+        <div className="flex items-center space-x-3">
+          <HexLogo />
+          <div className="flex items-baseline space-x-1.5">
+            <span className="text-base font-bold text-bright tracking-tight">AetherOS</span>
+            <span className="text-base font-light text-muted tracking-tight">Factory</span>
+          </div>
+
+          {activeRunCount > 0 && (
+            <div className="flex items-center space-x-1.5 ml-4 bg-accent/10 border border-accent/30 rounded-full px-2.5 py-0.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+              </span>
+              <span className="text-[10px] font-bold text-accent uppercase tracking-wider">
+                {activeRunCount} running
+              </span>
+            </div>
+          )}
         </div>
 
-        <button
-          onClick={() => isOnWizard ? null : navigate('/new-project')}
-          disabled={isOnWizard}
-          className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Project</span>
-        </button>
+        {/* Center: search bar + system status */}
+        <div className="flex items-center gap-4">
+          {/* Inline search trigger */}
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="hidden md:flex items-center gap-2 bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-muted hover:text-bright hover:border-accent/40 transition-colors w-48"
+          >
+            <Search className="w-3 h-3" />
+            <span>Search…</span>
+            <kbd className="ml-auto font-mono bg-border/30 rounded px-1 text-[10px]">⌘K</kbd>
+          </button>
 
-        <NotificationBell />
+          {health && (
+            <div className="flex items-center text-xs space-x-4">
+              <div className="flex items-center space-x-1.5">
+                <span className={`w-2 h-2 rounded-full ${isHealthy ? 'bg-success' : 'bg-warning animate-pulse'}`} />
+                <span className="text-muted">{isHealthy ? 'Nominal' : 'Degraded'}</span>
+              </div>
+              <div className="flex items-center space-x-1.5 border-l border-border pl-4">
+                <Coins className="w-3.5 h-3.5 text-accent" />
+                <span className="text-muted">{costs.tokens_today || '—'} tokens</span>
+              </div>
+            </div>
+          )}
+        </div>
 
-        <button
-          onClick={() => { api.logout(); navigate('/login'); }}
-          className="text-muted hover:text-danger transition-colors p-1.5"
-          title="Sign out"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
-      </div>
-    </header>
+        {/* Right: LLM badge + cost + actions */}
+        <div className="flex items-center space-x-3">
+          {/* Live LLM provider — updates instantly when settings change */}
+          <div className="hidden sm:flex items-center gap-1.5 bg-border/20 border border-border/50 rounded-full px-2.5 py-1">
+            <Zap className={`w-3 h-3 ${providerColor}`} />
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${providerColor}`}>
+              {activeProvider}
+            </span>
+          </div>
+
+          <div className="bg-border/30 px-3 py-1 rounded-full flex items-center space-x-1.5 border border-border">
+            <span className="text-xs font-mono font-medium text-success">
+              ${costs.today_usd?.toFixed(2) || '0.00'}
+            </span>
+            <span className="text-[10px] text-muted">today</span>
+          </div>
+
+          <button
+            onClick={() => isOnWizard ? null : navigate('/new-project')}
+            disabled={isOnWizard}
+            className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg disabled:opacity-50"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Project</span>
+          </button>
+
+          <NotificationBell />
+
+          <button
+            onClick={() => { api.logout?.(); api.clearToken?.(); navigate('/login'); }}
+            className="text-muted hover:text-danger transition-colors p-1.5"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+    </>
   );
 };
 
