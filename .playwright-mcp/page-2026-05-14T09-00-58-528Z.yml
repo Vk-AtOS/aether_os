@@ -1,0 +1,176 @@
+- generic [ref=e21]:
+  - complementary [ref=e22]:
+    - generic [ref=e23]:
+      - heading "AetherOS Factory" [level=1] [ref=e24]
+      - paragraph [ref=e25]: Factory Control
+    - navigation [ref=e26]:
+      - link "Dashboard" [ref=e27] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e28]
+        - text: Dashboard
+      - link "New Project" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/new-project
+        - img [ref=e34]
+        - text: New Project
+      - link "Projects" [ref=e36] [cursor=pointer]:
+        - /url: /dashboard/projects
+        - img [ref=e37]
+        - text: Projects
+      - link "Settings" [ref=e38] [cursor=pointer]:
+        - /url: /dashboard/settings
+        - img [ref=e39]
+        - text: Settings
+      - link "Compliance" [ref=e42] [cursor=pointer]:
+        - /url: /dashboard/compliance
+        - img [ref=e43]
+        - text: Compliance
+      - button "Tools" [ref=e45]:
+        - img [ref=e46]
+        - generic [ref=e48]: Tools
+        - img [ref=e437]
+      - link "Connectors" [ref=e439] [cursor=pointer]:
+        - /url: /dashboard/connectors
+        - img [ref=e440]
+        - text: Connectors
+      - link "Skills" [ref=e442] [cursor=pointer]:
+        - /url: /dashboard/skills
+        - img [ref=e443]
+        - text: Skills
+      - link "Memory" [ref=e445] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e446]
+        - text: Memory
+      - link "Costs" [active] [ref=e454] [cursor=pointer]:
+        - /url: /dashboard/costs
+        - img [ref=e455]
+        - text: Costs
+      - link "Webhooks" [ref=e457] [cursor=pointer]:
+        - /url: /dashboard/settings/webhooks
+        - img [ref=e458]
+        - text: Webhooks
+      - generic [ref=e51]: Admin
+      - link "Users" [ref=e52] [cursor=pointer]:
+        - /url: /dashboard/admin/users
+        - img [ref=e53]
+        - text: Users
+      - generic [ref=e58]:
+        - img [ref=e59]
+        - generic [ref=e64]: Client Portal
+        - generic [ref=e65]: no runs
+    - generic [ref=e66]:
+      - link "Profile" [ref=e67] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - img [ref=e68]
+        - text: Profile
+      - button "Sign Out" [ref=e72]:
+        - img [ref=e73]
+        - text: Sign Out
+      - generic [ref=e78]:
+        - generic [ref=e79]: Active LLM
+        - generic [ref=e80]: anthropic
+  - generic [ref=e81]:
+    - banner [ref=e82]:
+      - generic [ref=e83]:
+        - img [ref=e84]
+        - generic [ref=e88]:
+          - generic [ref=e89]: AetherOS
+          - generic [ref=e90]: Factory
+      - generic [ref=e91]:
+        - generic [ref=e94]: Degraded
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - generic [ref=e101]: — tokens
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - generic [ref=e104]: $0.00
+          - generic [ref=e105]: today
+        - button "New Project" [ref=e106]:
+          - img [ref=e107]
+          - generic [ref=e108]: New Project
+        - button "Sign out" [ref=e109]:
+          - img [ref=e110]
+    - main [ref=e113]:
+      - generic [ref=e944]:
+        - generic [ref=e945]:
+          - generic [ref=e946]:
+            - heading "Cost Dashboard" [level=1] [ref=e947]
+            - paragraph [ref=e948]: "API cost tracking · Target: $0.35/run"
+          - button "Refresh" [ref=e949]:
+            - img [ref=e950]
+            - text: Refresh
+        - generic [ref=e955]:
+          - img [ref=e956]
+          - generic [ref=e960]:
+            - paragraph [ref=e961]: "✓ On target — 0.000/run (goal: $0.35)"
+            - paragraph [ref=e962]: "At scale (80K users, 1% DAU): ~$0/day"
+        - generic [ref=e963]:
+          - generic [ref=e964]:
+            - generic [ref=e965]:
+              - img [ref=e966]
+              - generic [ref=e968]: Cost / Run
+            - generic [ref=e969]: $0.0000
+            - generic [ref=e970]: vs $0.35 target
+          - generic [ref=e971]:
+            - generic [ref=e972]:
+              - img [ref=e973]
+              - generic [ref=e975]: Cache Hit Rate
+            - generic [ref=e976]: 0.0%
+            - generic [ref=e977]: 0 hits / 0 calls
+          - generic [ref=e978]:
+            - generic [ref=e979]:
+              - img [ref=e980]
+              - generic [ref=e984]: Tokens This Month
+            - generic [ref=e985]: "0"
+            - generic [ref=e986]: 0 runs · 0 avg/run
+          - generic [ref=e987]:
+            - generic [ref=e988]:
+              - img [ref=e989]
+              - generic [ref=e992]: Monthly Spend
+            - generic [ref=e993]: $0.00
+            - generic [ref=e994]: 0% of plan budget
+        - generic [ref=e995]:
+          - heading "Cost Per Run — Monthly Trend" [level=2] [ref=e996]
+          - generic [ref=e997]:
+            - generic [ref=e998]:
+              - generic [ref=e999]: 2026-05
+              - generic [ref=e1000]: $0.000
+            - generic [ref=e1002]:
+              - generic [ref=e1003]: $0
+              - generic [ref=e1004]: target $0.35
+              - generic [ref=e1005]: $3.00
+        - generic [ref=e1006]:
+          - generic [ref=e1007]:
+            - heading "Semantic Cache" [level=3] [ref=e1008]:
+              - img [ref=e1009]
+              - text: Semantic Cache
+            - generic [ref=e1011]: 0.0%
+            - paragraph [ref=e1012]: "hit rate (target: 25%+)"
+            - generic [ref=e1013]:
+              - generic [ref=e1014]: 0 cached responses
+              - generic [ref=e1015]: 0 total cache hits
+          - generic [ref=e1016]:
+            - heading "Prompt Caching" [level=3] [ref=e1017]:
+              - img [ref=e1018]
+              - text: Prompt Caching
+            - generic [ref=e1021]: 90%
+            - paragraph [ref=e1022]: discount on cached system tokens
+            - generic [ref=e1023]:
+              - generic [ref=e1024]: Anthropic cache_control enabled
+              - generic [ref=e1025]: System prompt cached after 1st call
+          - generic [ref=e1026]:
+            - heading "Context Compression" [level=3] [ref=e1027]:
+              - img [ref=e1028]
+              - text: Context Compression
+            - generic [ref=e1032]: ~70%
+            - paragraph [ref=e1033]: token reduction when triggered
+            - generic [ref=e1034]:
+              - generic [ref=e1035]: Haiku-powered summarization
+              - generic [ref=e1036]: Triggers at 6K+ token context
+        - generic [ref=e1037]:
+          - heading "Monthly Budget" [level=2] [ref=e1038]
+          - generic [ref=e1039]:
+            - generic [ref=e1040]: Tokens used this month
+            - generic [ref=e1041]: 0 / 500,000
+          - paragraph [ref=e1043]: 0.0% used · Resets on the 1st of next month
+    - contentinfo [ref=e171]:
+      - paragraph [ref=e172]: © 2026 VKatOS Private Limited — AetherOS Factory v1.0

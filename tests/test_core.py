@@ -149,27 +149,73 @@ def test_audit_logger_filter(tmp_path):
 # ── Decision Ledger ───────────────────────────────────────────────────────────
 
 def test_ledger_save_and_retrieve(tmp_path):
-    from aether_os.core.audit.ledger import DecisionLedger
-    ledger = DecisionLedger(db_path=str(tmp_path / "test.db"))
-    ledger.save_run("run-001", "test command", "running")
-    ledger.log_event("run-001", "agent_x", "start", "beginning")
-    ledger.update_run_status("run-001", "completed")
+    import asyncio
+    import os
+    import aether_os.core.db as _db_mod
 
-    history = ledger.get_run_history()
-    assert len(history) >= 1
-    assert history[0]["id"] == "run-001"
-    assert history[0]["status"] == "completed"
+    old_db = os.environ.get("DATABASE_URL")
+    _db_mod._engine = None
+    _db_mod._session_factory = None
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path}/ledger_test.db"
+    try:
+        from aether_os.core.db import init_db, get_session_factory
+        from aether_os.core.models import Organisation
+        asyncio.run(init_db())
 
-    detail = ledger.get_run_detail("run-001")
-    assert detail["id"] == "run-001"
-    assert len(detail["events"]) >= 1
+        async def _create_org():
+            sf = get_session_factory()
+            async with sf() as session:
+                session.add(Organisation(id="test-org", name="Test", slug="test-ledger"))
+                await session.commit()
+
+        asyncio.run(_create_org())
+
+        from aether_os.core.audit.ledger import DecisionLedger
+        ledger = DecisionLedger()
+        ledger.save_run("run-001", "test command", org_id="test-org", status="running")
+        ledger.log_event("run-001", "agent_x", "start", "beginning")
+        ledger.update_run_status("run-001", "completed")
+
+        history = ledger.get_run_history("test-org")
+        assert len(history) >= 1
+        assert history[0]["id"] == "run-001"
+        assert history[0]["status"] == "completed"
+
+        detail = ledger.get_run_detail("run-001")
+        assert detail["id"] == "run-001"
+        assert len(detail["events"]) >= 1
+    finally:
+        _db_mod._engine = None
+        _db_mod._session_factory = None
+        if old_db is not None:
+            os.environ["DATABASE_URL"] = old_db
+        else:
+            os.environ.pop("DATABASE_URL", None)
 
 
 def test_ledger_not_found_returns_empty(tmp_path):
-    from aether_os.core.audit.ledger import DecisionLedger
-    ledger = DecisionLedger(db_path=str(tmp_path / "test2.db"))
-    result = ledger.get_run_detail("nonexistent-run")
-    assert result == {}
+    import asyncio
+    import os
+    import aether_os.core.db as _db_mod
+
+    old_db = os.environ.get("DATABASE_URL")
+    _db_mod._engine = None
+    _db_mod._session_factory = None
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path}/ledger_test2.db"
+    try:
+        from aether_os.core.db import init_db
+        asyncio.run(init_db())
+        from aether_os.core.audit.ledger import DecisionLedger
+        ledger = DecisionLedger()
+        result = ledger.get_run_detail("nonexistent-run")
+        assert result == {}
+    finally:
+        _db_mod._engine = None
+        _db_mod._session_factory = None
+        if old_db is not None:
+            os.environ["DATABASE_URL"] = old_db
+        else:
+            os.environ.pop("DATABASE_URL", None)
 
 
 # ── Memory Store ──────────────────────────────────────────────────────────────

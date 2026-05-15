@@ -3,10 +3,12 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, PlusCircle, List, Users, Settings,
   Plug, Wrench, Brain, DollarSign, ChevronDown, ChevronRight,
-  Shield, UserCircle, Webhook, LogOut,
+  Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
+  ScrollText, CreditCard, Building2, GraduationCap,
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
+import { useRuns } from '../contexts/RunsContext';
 
 const decodeToken = (token) => {
   try {
@@ -21,25 +23,24 @@ const decodeToken = (token) => {
 const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [latestRunId, setLatestRunId] = useState(null);
+  const { latestRunId } = useRuns();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [userRole, setUserRole] = useState('member');
+  const [orgName, setOrgName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
     const token = api.getToken();
     if (token) {
       const payload = decodeToken(token);
       if (payload?.role) setUserRole(payload.role);
+      if (payload?.sub) setUserEmail(payload.sub);
     }
+    api.client.get('/account/usage').then(res => {
+      if (res.data?.org_name) setOrgName(res.data.org_name);
+    }).catch(() => {});
 
-    api.listRuns()
-      .then(res => {
-        const runs = res.data || [];
-        if (runs.length > 0) setLatestRunId(runs[0].id || runs[0].run_id || null);
-      })
-      .catch(() => {});
-
-    if (['/connectors', '/skills', '/memory', '/costs'].some(p => location.pathname.startsWith(p))) {
+    if (['/connectors', '/skills', '/memory', '/costs', '/frontend-builder', '/backend-builder', '/prompt', '/learning'].some(p => location.pathname.startsWith(p))) {
       setToolsOpen(true);
     }
   }, []);
@@ -54,10 +55,11 @@ const Sidebar = () => {
   const isViewer = userRole === 'viewer';
 
   const staticItems = [
-    { name: 'Dashboard',   path: '/',         icon: LayoutDashboard },
+    { name: 'Dashboard',   path: '/',           icon: LayoutDashboard },
     !isViewer && { name: 'New Project', path: '/new-project', icon: PlusCircle },
-    { name: 'Projects',    path: '/projects',  icon: List },
-    { name: 'Settings',    path: '/settings',  icon: Settings },
+    { name: 'Projects',    path: '/projects',   icon: List },
+    { name: 'Marketplace', path: '/marketplace', icon: Store },
+    { name: 'Settings',    path: '/settings',   icon: Settings },
     { name: 'Compliance',  path: '/compliance', icon: Shield },
   ].filter(Boolean);
 
@@ -67,10 +69,16 @@ const Sidebar = () => {
     { name: 'Memory',     path: '/memory',     icon: Brain },
     { name: 'Costs',      path: '/costs',      icon: DollarSign },
     { name: 'Webhooks',   path: '/settings/webhooks', icon: Webhook },
+    { name: 'Frontend Builder', path: '/frontend-builder', icon: Layout },
+    { name: 'Backend Builder',  path: '/backend-builder',  icon: Database },
+    { name: 'Prompt Input',     path: '/prompt',            icon: MessageSquare },
+    { name: 'Learning',         path: '/learning',          icon: GraduationCap },
   ];
 
   const adminItems = isAdmin ? [
-    { name: 'Users',  path: '/admin/users', icon: Users },
+    { name: 'Users',      path: '/admin/users',    icon: Users },
+    { name: 'Audit Logs', path: '/audit',          icon: ScrollText },
+    { name: 'Billing',    path: '/admin/billing',  icon: CreditCard },
   ] : [];
 
   const isActiveRoute = (path) => {
@@ -86,13 +94,13 @@ const Sidebar = () => {
     }`;
 
   return (
-    <aside className="w-60 bg-panel border-r border-border flex flex-col">
+    <aside className="w-60 bg-panel border-r border-border flex flex-col h-full" role="navigation" aria-label="Main navigation">
       <div className="p-6">
         <h1 className="text-xl font-bold text-bright tracking-wider">AetherOS Factory</h1>
         <p className="text-xs text-muted mt-1 uppercase">Factory Control</p>
       </div>
 
-      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto">
+      <nav className="flex-1 px-4 space-y-2 mt-4 overflow-y-auto" aria-label="Sidebar navigation">
         {staticItems.map((item) => {
           const active = isActiveRoute(item.path);
           return (
@@ -159,12 +167,22 @@ const Sidebar = () => {
       </nav>
 
       <div className="p-4 border-t border-border space-y-2">
+        {/* Org context */}
+        {orgName && (
+          <div className="px-4 py-2 mb-1 flex items-center gap-2 rounded-md bg-border/20 border border-border/50">
+            <Building2 className="w-3.5 h-3.5 text-accent shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[9px] font-bold text-muted/60 uppercase tracking-widest">Organisation</div>
+              <div className="text-xs font-semibold text-bright truncate">{orgName}</div>
+            </div>
+          </div>
+        )}
         <NavLink
           to="/profile"
           className={linkClass(location.pathname.startsWith('/profile'))}
         >
           <UserCircle className="w-4 h-4 mr-3" />
-          Profile
+          {userEmail ? <span className="truncate">{userEmail.split('@')[0]}</span> : 'Profile'}
         </NavLink>
         <button
           onClick={handleLogout}

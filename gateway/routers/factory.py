@@ -36,6 +36,12 @@ class RerunRequest(BaseModel):
     from_phase: str
 
 
+class ChangeRequestBody(BaseModel):
+    change_description: str
+    affected_areas: List[str] = []  # e.g. ["backend", "frontend"]
+    client_id: Optional[str] = None
+
+
 # ── Dependency injection ───────────────────────────────────────────────────────
 
 def _svc():
@@ -179,6 +185,51 @@ async def rerun_from_phase(
         return {**result, "from_phase": req.from_phase}
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
+
+
+
+@router.post("/projects/{project_id}/change-request")
+async def submit_change_request(
+    project_id: str,
+    req: ChangeRequestBody,
+    user: Dict[str, Any] = _auth(),
+) -> Dict[str, Any]:
+    """Start a partial re-run from the first affected phase for a change request.
+
+    Loads the original project's context so all prior phase outputs remain
+    visible to re-run phases. Only phases at or after the first affected area
+    are executed.
+    """
+    from aether_os.orchestrator.factory_pipeline import get_factory
+    factory = get_factory()
+    import asyncio, uuid
+    run_id = str(uuid.uuid4())
+    # Register in DB before spawning the task
+    try:
+        from aether_os.core.db_utils import create_run
+        await create_run(
+            run_id=run_id,
+            command=f"change_request: {req.change_description[:60]}",
+            org_id=user["org_id"],
+            project_name=f"cr-{project_id[:8]}",
+            domain="general",
+            client_id=req.client_id,
+            raw_input=req.change_description,
+        )
+    except Exception as exc:
+        logger.warning("CR run DB create failed: %s", exc)
+
+    asyncio.create_task(
+        factory.run_change_request(
+            project_id=project_id,
+            client_id=req.client_id or user.get("sub", "operator"),
+            change_description=req.change_description,
+            affected_areas=req.affected_areas,
+            org_id=user["org_id"],
+            run_id=run_id,
+        )
+    )
+    return {"run_id": run_id, "status": "started", "project_id": project_id}
 
 
 # ── SSE streaming ──────────────────────────────────────────────────────────────

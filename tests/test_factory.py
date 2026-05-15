@@ -238,66 +238,89 @@ def test_project_not_found(tmp_path):
 # UsageTracker (Billing)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _tracker_with_sqlite(tmp_path, db_name):
+    """Return an isolated UsageTracker backed by a per-test SQLite file."""
+    import asyncio, os
+    import aether_os.core.db as _db_mod
+    old_db = os.environ.get("DATABASE_URL")
+    _db_mod._engine = None
+    _db_mod._session_factory = None
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path}/{db_name}"
+    from aether_os.core.db import init_db
+    asyncio.run(init_db())
+    from aether_os.core.billing import UsageTracker
+    tracker = UsageTracker()
+    return tracker, _db_mod, old_db
+
+
+def _tracker_cleanup(_db_mod, old_db):
+    import os
+    _db_mod._engine = None
+    _db_mod._session_factory = None
+    if old_db is not None:
+        os.environ["DATABASE_URL"] = old_db
+    else:
+        os.environ.pop("DATABASE_URL", None)
+
+
 def test_usage_tracker_record_llm_call(tmp_path):
     """record_llm_call stores a row; get_project_cost returns a CostSummary."""
-    from aether_os.core.billing import UsageTracker
-
-    db_path = tmp_path / "billing.db"
-    tracker = UsageTracker(db_path=db_path)
-    tracker.record_llm_call(
-        project_id="proj-1", phase="p01_requirements",
-        model="claude-sonnet-4-6", input_tokens=500,
-        output_tokens=200, cost_usd=0.003,
-    )
-    summary = tracker.get_project_cost("proj-1")
-    assert summary.total_cost_usd > 0
-    assert summary.total_input_tokens == 500
-    assert summary.total_output_tokens == 200
+    tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing.db")
+    try:
+        tracker.record_llm_call(
+            project_id="proj-1", phase="p01_requirements",
+            model="claude-sonnet-4-6", input_tokens=500,
+            output_tokens=200, cost_usd=0.003,
+        )
+        summary = tracker.get_project_cost("proj-1")
+        assert summary.total_cost_usd > 0
+        assert summary.total_input_tokens == 500
+        assert summary.total_output_tokens == 200
+    finally:
+        _tracker_cleanup(_db_mod, old_db)
 
 
 def test_usage_tracker_record_phase_completion(tmp_path):
     """record_phase_completion stores duration in DB."""
-    from aether_os.core.billing import UsageTracker
-
-    db_path = tmp_path / "billing2.db"
-    tracker = UsageTracker(db_path=db_path)
-    tracker.record_phase_completion("proj-2", "p03_scaffolding", duration_s=12.5)
-    # No error = success; phase cost is 0 if no LLM calls recorded
-    phase_cost = tracker.get_phase_cost("proj-2", "p03_scaffolding")
-    assert phase_cost >= 0
+    tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing2.db")
+    try:
+        tracker.record_phase_completion("proj-2", "p03_scaffolding", duration_s=12.5)
+        phase_cost = tracker.get_phase_cost("proj-2", "p03_scaffolding")
+        assert phase_cost >= 0
+    finally:
+        _tracker_cleanup(_db_mod, old_db)
 
 
 def test_usage_tracker_token_pricing(tmp_path):
     """Token pricing accumulates correctly across multiple calls."""
-    from aether_os.core.billing import UsageTracker
-
-    db_path = tmp_path / "billing3.db"
-    tracker = UsageTracker(db_path=db_path)
-
-    tracker.record_llm_call(
-        project_id="proj-3", phase="p04a", model="claude-sonnet-4-6",
-        input_tokens=1000, output_tokens=500, cost_usd=0.01,
-    )
-    tracker.record_llm_call(
-        project_id="proj-3", phase="p06_security", model="claude-haiku-4-5",
-        input_tokens=500, output_tokens=100, cost_usd=0.001,
-    )
-    summary = tracker.get_project_cost("proj-3")
-    assert abs(summary.total_cost_usd - 0.011) < 0.0001
-    assert "p04a" in summary.phase_breakdown
-    assert "p06_security" in summary.phase_breakdown
+    tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing3.db")
+    try:
+        tracker.record_llm_call(
+            project_id="proj-3", phase="p04a", model="claude-sonnet-4-6",
+            input_tokens=1000, output_tokens=500, cost_usd=0.01,
+        )
+        tracker.record_llm_call(
+            project_id="proj-3", phase="p06_security", model="claude-haiku-4-5",
+            input_tokens=500, output_tokens=100, cost_usd=0.001,
+        )
+        summary = tracker.get_project_cost("proj-3")
+        assert abs(summary.total_cost_usd - 0.011) < 0.0001
+        assert "p04a" in summary.phase_breakdown
+        assert "p06_security" in summary.phase_breakdown
+    finally:
+        _tracker_cleanup(_db_mod, old_db)
 
 
 def test_usage_tracker_get_phase_cost(tmp_path):
     """get_phase_cost returns only the cost for that phase."""
-    from aether_os.core.billing import UsageTracker
-
-    db_path = tmp_path / "billing4.db"
-    tracker = UsageTracker(db_path=db_path)
-    tracker.record_llm_call("p4", "p01", "claude-sonnet-4-6", 100, 50, 0.002)
-    tracker.record_llm_call("p4", "p02", "claude-sonnet-4-6", 200, 100, 0.004)
-    assert abs(tracker.get_phase_cost("p4", "p01") - 0.002) < 0.00001
-    assert abs(tracker.get_phase_cost("p4", "p02") - 0.004) < 0.00001
+    tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing4.db")
+    try:
+        tracker.record_llm_call("p4", "p01", "claude-sonnet-4-6", 100, 50, 0.002)
+        tracker.record_llm_call("p4", "p02", "claude-sonnet-4-6", 200, 100, 0.004)
+        assert abs(tracker.get_phase_cost("p4", "p01") - 0.002) < 0.00001
+        assert abs(tracker.get_phase_cost("p4", "p02") - 0.004) < 0.00001
+    finally:
+        _tracker_cleanup(_db_mod, old_db)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -308,7 +331,6 @@ def test_usage_tracker_get_phase_cost(tmp_path):
 async def test_factory_pipeline_smoke(tmp_path):
     """FactoryPipeline.run() completes with mocked supervisors."""
     from aether_os.core.projects import ProjectManager
-    from aether_os.core.billing import UsageTracker
     from aether_os.phases.base import TaskResult
 
     mock_result = TaskResult(
@@ -337,8 +359,7 @@ async def test_factory_pipeline_smoke(tmp_path):
         fp.pm = ProjectManager(root=tmp_path / "projects")
         fp.ledger = mock_ledger.return_value
 
-        billing_tracker = UsageTracker(db_path=tmp_path / "billing.db")
-        with patch("aether_os.core.billing.get_usage_tracker", return_value=billing_tracker):
+        with patch("aether_os.core.billing.get_usage_tracker", return_value=MagicMock()):
             result = await fp.run(
                 client_id="client-test",
                 raw_input="Build a task management app with user authentication",
@@ -355,7 +376,6 @@ async def test_factory_pipeline_smoke(tmp_path):
 async def test_factory_pipeline_start_phase(tmp_path):
     """start_phase parameter skips earlier phases."""
     from aether_os.core.projects import ProjectManager
-    from aether_os.core.billing import UsageTracker
     from aether_os.phases.base import TaskResult
 
     mock_result = TaskResult(
@@ -380,8 +400,7 @@ async def test_factory_pipeline_start_phase(tmp_path):
         fp.pm = ProjectManager(root=tmp_path / "projects")
         fp.ledger = mock_ledger.return_value
 
-        billing_tracker = UsageTracker(db_path=tmp_path / "billing.db")
-        with patch("aether_os.core.billing.get_usage_tracker", return_value=billing_tracker):
+        with patch("aether_os.core.billing.get_usage_tracker", return_value=MagicMock()):
             result = await fp.run(
                 client_id="c1",
                 raw_input="Build app",
@@ -427,7 +446,7 @@ def test_phase_to_state_covers_all_phases():
     """PHASE_TO_STATE maps all 26 main phases plus p15."""
     from aether_os.orchestrator.state_machine import PHASE_TO_STATE
 
-    assert len(PHASE_TO_STATE) == 27  # 26 + p15
+    assert len(PHASE_TO_STATE) == 37  # 12 consolidated + 25 legacy
     assert "p00_intake" in PHASE_TO_STATE
     assert "p14_client_portal" in PHASE_TO_STATE
     assert "p15_change_requests" in PHASE_TO_STATE

@@ -77,12 +77,15 @@ def get_engine() -> AsyncEngine:
             engine_kwargs["connect_args"] = connect_args
 
         elif is_postgres:
-            # PostgreSQL: tune pool for 80K concurrent users
-            # 8 uvicorn workers × pool_size=20 = 160 total connections max.
-            # Ensure PostgreSQL max_connections > 200.
+            # T3-04: pool_size per worker must fit within PG max_connections.
+            # With WORKERS=8 (default): 8 × (pool_size + max_overflow) ≤ max_connections.
+            # DB_POOL_SIZE default=3 → 8×(3+7)=80 connections, safe under PG default of 100.
+            # Use PgBouncer in production to allow larger effective concurrency.
+            _pool_size = int(os.environ.get("DB_POOL_SIZE", "3"))
+            _max_overflow = int(os.environ.get("DB_MAX_OVERFLOW", "7"))
             engine_kwargs.update({
-                "pool_size": 20,
-                "max_overflow": 40,
+                "pool_size": _pool_size,
+                "max_overflow": _max_overflow,
                 "pool_timeout": 30,
                 "pool_recycle": 300,    # recycle every 5 min — cloud DBs drop idle conns
                 "pool_pre_ping": True,  # test conn before use; prevents "closed conn" 500s
@@ -173,7 +176,14 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS ix_decisions_org_id      ON decisions(org_id)",
             "CREATE INDEX IF NOT EXISTS ix_decisions_run_id      ON decisions(run_id)",
             "CREATE INDEX IF NOT EXISTS ix_audit_log_org_id      ON audit_log(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_audit_log_run_id      ON audit_log(run_id)",
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_created_at  ON audit_log(created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_webhooks_org_id       ON webhooks(org_id)",
+            "CREATE INDEX IF NOT EXISTS ix_workspaces_org_id     ON workspaces(org_id)",
+            # Learning loop isolation — both filters required on every query
+            "CREATE INDEX IF NOT EXISTS ix_learning_patterns_user ON user_learning_patterns(org_id, user_id, pattern_type)",
+            "CREATE INDEX IF NOT EXISTS ix_learning_clarif_user   ON learning_clarifications_pending(org_id, user_id)",
+            # Run specs lookup by run
+            "CREATE INDEX IF NOT EXISTS ix_run_specs_run_id       ON run_specs(run_id)",
         ]
         for ddl in index_ddl:
             try:

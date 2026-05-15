@@ -1,13 +1,13 @@
-"""Gate for p11d_alerting."""
 from __future__ import annotations
 from pathlib import Path
-from aether_os.phases.base import GateOutcome, TaskResult
+from typing import Any
+from aether_os.phases.base import TaskResult, GateOutcome
 
-def validate(result: TaskResult) -> GateOutcome:
+async def validate(result: TaskResult, phase_input: Any) -> GateOutcome:
     issues = list(result.issues)
-    if not result.success:
-        issues = issues or ["Task did not succeed"]
-    if result.output_path and not Path(result.output_path).exists():
-        issues.append("Output path does not exist")
-    return GateOutcome(passed=len(issues)==0, issues=issues,
-                       confidence=result.confidence if not issues else 0.3)
+    output = Path(result.output_path)
+    if not (output / "alertmanager.yml").exists():
+        issues.append("alertmanager.yml missing")
+    if len(list((output / "alert_runbooks").glob("*.md"))) < 3:
+        issues.append("less than 3 runbooks found")
+    return GateOutcome(passed=len(issues) == 0, issues=issues, confidence=result.confidence)

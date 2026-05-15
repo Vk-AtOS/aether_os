@@ -168,5 +168,14 @@ No explanation. No markdown. No code fences. Just valid Python."""
 
 
 def _find_file(project_dir: Path, pattern: str) -> Optional[Path]:
-    matches = list(project_dir.rglob(pattern))
+    _SKIP_DIRS = {"__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "p03_scaffolding"}
+    matches = [
+        p for p in project_dir.rglob(pattern)
+        if not any(part in _SKIP_DIRS for part in p.parts)
+    ]
+    if not matches:
+        # Second pass: include scaffolding as fallback when backend codegen hasn't run
+        matches = list(project_dir.rglob(pattern))
+    # Prefer deeper paths — p04 backend output is always deeper than p03 scaffolding
+    matches.sort(key=lambda p: len(p.parts), reverse=True)
     return matches[0] if matches else None

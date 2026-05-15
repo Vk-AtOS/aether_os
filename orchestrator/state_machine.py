@@ -84,11 +84,24 @@ PIPELINE_SEQUENCE: List[PipelineState] = [
 ]
 
 # Phase name → state mapping
+# Includes both legacy 26-phase names and current 12-phase consolidated names.
 PHASE_TO_STATE: Dict[str, PipelineState] = {
+    # ── Current 12-phase consolidated pipeline ────────────────────────────────
+    "p01_intake_requirements": PipelineState.REQUIREMENTS,
+    "p02_architecture":        PipelineState.ARCHITECTURE,
+    "p03_scaffolding":         PipelineState.SCAFFOLDING,
+    "p04_backend":             PipelineState.BACKEND_CODEGEN,
+    "p05_frontend":            PipelineState.FRONTEND_CODEGEN,
+    "p06_review_security":     PipelineState.SECURITY,
+    "p07_testing":             PipelineState.UNIT_TESTING,
+    "p07b_self_healing":       PipelineState.UNIT_TESTING,   # self-healing runs in testing state
+    "p08_cicd_deployment":     PipelineState.CICD,
+    "p09_observability":       PipelineState.MONITORING,
+    "p10_docs_delivery":       PipelineState.DOCUMENTATION,
+    "p11_deployment":          PipelineState.DEPLOYMENT,
+    # ── Legacy 26-phase names (kept for partial re-runs and history) ──────────
     "p00_intake":               PipelineState.INTAKE,
     "p01_requirements":         PipelineState.REQUIREMENTS,
-    "p02_architecture":         PipelineState.ARCHITECTURE,
-    "p03_scaffolding":          PipelineState.SCAFFOLDING,
     "p04a_backend_codegen":     PipelineState.BACKEND_CODEGEN,
     "p04b_uiux_design":         PipelineState.UIUX_DESIGN,
     "p04c_frontend_codegen":    PipelineState.FRONTEND_CODEGEN,

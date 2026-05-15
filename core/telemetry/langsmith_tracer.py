@@ -44,8 +44,11 @@ def init_langsmith() -> bool:
 
     try:
         import langsmith  # noqa: F401 — confirms package is installed
-        # Wire the standard LangChain env vars so any langchain calls are also traced
-        os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+        # Only enable LangChain tracing if the operator has explicitly opted in.
+        # Default is false — operators must set LANGCHAIN_TRACING_V2=true AND
+        # LANGSMITH_API_KEY to enable tracing. Prevents data leakage for orgs
+        # that set LANGSMITH_API_KEY without intending to enable call tracing.
+        os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
         os.environ.setdefault("LANGCHAIN_PROJECT", "aetheros-factory")
         os.environ["LANGCHAIN_API_KEY"] = api_key
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
-import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff, ShieldCheck, QrCode, Trash2, AlertTriangle } from 'lucide-react';
 
 const Profile = () => {
   const [userData, setUserData] = useState(null);
@@ -11,6 +11,29 @@ const Profile = () => {
   const [pwError, setPwError] = useState('');
   const [copied, setCopied] = useState({});
   const [showPw, setShowPw] = useState({});
+  // MFA state
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [mfaSetup, setMfaSetup] = useState(null); // { secret, provisioning_uri }
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaStatus, setMfaStatus] = useState(null); // null | 'loading' | 'verifying' | 'ok' | 'error' | 'disabling'
+  const [mfaError, setMfaError] = useState('');
+  const [eraseConfirm, setEraseConfirm] = useState('');
+  const [erasing, setErasing] = useState(false);
+  const [eraseError, setEraseError] = useState('');
+
+  const handleEraseAccount = async () => {
+    if (eraseConfirm !== 'DELETE') return;
+    setErasing(true);
+    setEraseError('');
+    try {
+      await api.client.delete('/account');
+      api.clearToken();
+      window.location.href = '/dashboard/login';
+    } catch (e) {
+      setEraseError(e.response?.data?.detail || 'Erasure failed. Please try again.');
+      setErasing(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -28,6 +51,14 @@ const Profile = () => {
         setUserData(prev => ({ ...prev, ...(usageRes.data ?? {}) }));
         const keysRes = await api.client.get('/settings/api-keys');
         setApiKeys(keysRes.data ? Object.entries(keysRes.data).map(([k, v]) => ({ provider: k, key: v })) : []);
+        // Check MFA status from JWT claims
+        const tok = api.getToken();
+        if (tok) {
+          try {
+            const p = JSON.parse(atob(tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+            // mfa_enabled not in JWT — check via profile endpoint if available
+          } catch (_) {}
+        }
       } catch {
         // non-fatal
       } finally {
@@ -67,6 +98,51 @@ const Profile = () => {
     } catch (err) {
       setPwStatus('error');
       setPwError(err.response?.data?.detail || 'Failed to change password.');
+    }
+  };
+
+  const handleMfaSetup = async () => {
+    setMfaStatus('loading');
+    setMfaError('');
+    try {
+      const res = await api.client.post('/auth/mfa/setup');
+      setMfaSetup(res.data);
+      setMfaStatus(null);
+    } catch (err) {
+      setMfaError(err.response?.data?.detail || 'Failed to initiate MFA setup.');
+      setMfaStatus('error');
+    }
+  };
+
+  const handleMfaVerify = async (e) => {
+    e.preventDefault();
+    setMfaStatus('verifying');
+    setMfaError('');
+    try {
+      await api.client.post('/auth/mfa/verify-setup', { code: mfaCode });
+      setMfaEnabled(true);
+      setMfaSetup(null);
+      setMfaCode('');
+      setMfaStatus('ok');
+      setTimeout(() => setMfaStatus(null), 3000);
+    } catch (err) {
+      setMfaError(err.response?.data?.detail || 'Invalid code. Try again.');
+      setMfaStatus('error');
+    }
+  };
+
+  const handleMfaDisable = async (e) => {
+    e.preventDefault();
+    setMfaStatus('disabling');
+    setMfaError('');
+    try {
+      await api.client.post('/auth/mfa/disable', { code: mfaCode });
+      setMfaEnabled(false);
+      setMfaCode('');
+      setMfaStatus(null);
+    } catch (err) {
+      setMfaError(err.response?.data?.detail || 'Invalid code. Try again.');
+      setMfaStatus('error');
     }
   };
 
@@ -135,6 +211,100 @@ const Profile = () => {
         </div>
       </section>
 
+      {/* MFA Setup */}
+      <section className="panel overflow-hidden">
+        <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center justify-between">
+          <div className="flex items-center">
+            <ShieldCheck className="w-4 h-4 mr-2 text-accent" />
+            <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Two-Factor Authentication</h3>
+          </div>
+          {mfaEnabled && (
+            <span className="text-[10px] font-bold bg-success/20 text-success border border-success/30 px-2 py-0.5 rounded uppercase tracking-wider">Enabled</span>
+          )}
+        </div>
+        <div className="p-6 space-y-4">
+          {mfaStatus === 'ok' && <p className="text-xs text-success font-medium">MFA {mfaEnabled ? 'enabled' : 'disabled'} successfully.</p>}
+          {mfaError && <p className="text-xs text-danger">{mfaError}</p>}
+
+          {!mfaEnabled && !mfaSetup && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted">Protect your account with a time-based one-time password (TOTP) authenticator app such as Google Authenticator or Authy.</p>
+              <button
+                onClick={handleMfaSetup}
+                disabled={mfaStatus === 'loading'}
+                className="bg-accent/20 text-accent border border-accent/30 hover:bg-accent/30 disabled:opacity-50 text-xs font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
+              >
+                {mfaStatus === 'loading' ? 'Loading…' : 'Set Up MFA'}
+              </button>
+            </div>
+          )}
+
+          {mfaSetup && !mfaEnabled && (
+            <div className="space-y-4">
+              <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
+                <p className="text-xs font-bold text-muted uppercase tracking-wider">1. Scan this URI in your authenticator app</p>
+                <div className="font-mono text-[10px] text-accent break-all bg-panel px-3 py-2 rounded border border-border">{mfaSetup.provisioning_uri}</div>
+                <p className="text-xs font-bold text-muted uppercase tracking-wider">Or enter this secret key manually:</p>
+                <div className="font-mono text-sm text-bright bg-panel px-3 py-2 rounded border border-border tracking-widest">{mfaSetup.secret}</div>
+              </div>
+              <form onSubmit={handleMfaVerify} className="space-y-3">
+                <p className="text-xs font-bold text-muted uppercase tracking-wider">2. Enter the 6-digit code from your app to confirm</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={mfaCode}
+                  onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="000000"
+                  className="w-32 bg-surface border border-border rounded-lg px-4 py-2 text-bright text-center text-xl font-mono tracking-widest focus:outline-none focus:border-accent"
+                  autoFocus
+                />
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={mfaCode.length !== 6 || mfaStatus === 'verifying'}
+                    className="bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
+                  >
+                    {mfaStatus === 'verifying' ? 'Verifying…' : 'Confirm & Enable MFA'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMfaSetup(null); setMfaCode(''); setMfaError(''); }}
+                    className="text-muted hover:text-bright text-xs transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {mfaEnabled && (
+            <form onSubmit={handleMfaDisable} className="space-y-3">
+              <p className="text-xs text-muted">To disable MFA, enter a code from your authenticator app.</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={mfaCode}
+                onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="000000"
+                className="w-32 bg-surface border border-border rounded-lg px-4 py-2 text-bright text-center text-xl font-mono tracking-widest focus:outline-none focus:border-accent"
+              />
+              <button
+                type="submit"
+                disabled={mfaCode.length !== 6 || mfaStatus === 'disabling'}
+                className="bg-danger/20 text-danger border border-danger/30 hover:bg-danger/30 disabled:opacity-50 text-xs font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
+              >
+                {mfaStatus === 'disabling' ? 'Disabling…' : 'Disable MFA'}
+              </button>
+            </form>
+          )}
+        </div>
+      </section>
+
       {/* Change password */}
       <section className="panel overflow-hidden">
         <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
@@ -165,6 +335,61 @@ const Profile = () => {
             {pwStatus === 'saving' ? 'Saving…' : pwStatus === 'ok' ? '✓ Changed' : 'Change Password'}
           </button>
         </form>
+      </section>
+      {/* GDPR — Data & Account Erasure */}
+      <section className="panel overflow-hidden border-danger/30">
+        <div className="bg-danger/10 px-6 py-4 border-b border-danger/20 flex items-center">
+          <AlertTriangle className="w-4 h-4 mr-2 text-danger" />
+          <h3 className="text-xs font-bold text-danger uppercase tracking-widest">Data &amp; Privacy</h3>
+        </div>
+        <div className="p-6 space-y-5">
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-bright">Download your data</p>
+              <p className="text-xs text-muted mt-0.5">Export all your account data as a machine-readable JSON file (GDPR Art. 20 — right to portability).</p>
+            </div>
+            <a
+              href="/api/account/data-export"
+              download
+              className="shrink-0 text-xs font-bold px-4 py-2 rounded-lg border border-accent text-accent hover:bg-accent/10 transition-colors uppercase tracking-wider"
+            >
+              Export Data
+            </a>
+          </div>
+
+          <div className="flex gap-4">
+            <a href="/dashboard/legal?doc=privacy" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Privacy Policy ↗</a>
+            <a href="/dashboard/legal?doc=tos" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Terms of Service ↗</a>
+            <a href="/dashboard/legal?doc=dpa" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">DPA ↗</a>
+          </div>
+
+          <div className="border-t border-border/50 pt-5 space-y-3">
+            <p className="text-sm font-semibold text-danger flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> Delete Account (GDPR Erasure)
+            </p>
+            <p className="text-xs text-muted">
+              Permanently anonymises your account and deletes all associated runs and artifacts. This cannot be undone.
+              Type <strong className="text-bright font-mono">DELETE</strong> to confirm.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={eraseConfirm}
+                onChange={e => setEraseConfirm(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright font-mono focus:outline-none focus:border-danger"
+              />
+              <button
+                onClick={handleEraseAccount}
+                disabled={eraseConfirm !== 'DELETE' || erasing}
+                className="shrink-0 bg-danger hover:bg-danger/90 disabled:opacity-40 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
+              >
+                {erasing ? 'Erasing…' : 'Erase Account'}
+              </button>
+            </div>
+            {eraseError && <p className="text-xs text-danger">{eraseError}</p>}
+          </div>
+        </div>
       </section>
     </div>
   );

@@ -1,0 +1,13 @@
+[Unit]
+Description=AetherOS Daily Backup Timer
+# RTO target: 4 hours (time to restore from latest pg_dump)
+# RPO target: 24 hours (one backup per day — max data loss 24h)
+# For RPO < 1h: enable PostgreSQL WAL archiving to object storage (e.g. wal-g/pgbackrest)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

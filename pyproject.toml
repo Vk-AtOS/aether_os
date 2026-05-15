@@ -1,13 +1,25 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools>=70", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "aether_os"
 version = "1.0.0"
+description = "AetherOS — Autonomous AI Software Factory"
+requires-python = ">=3.11"
+
+# Map the `aether_os` package root to the project root directory.
+# This makes `from aether_os.core.db import ...` resolve to ./core/db.py
+# regardless of what the project directory is named on disk.
+# After `pip install -e .`, all aether_os.* imports work correctly.
+[tool.setuptools]
+package-dir = {"aether_os" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+# Add the project parent to sys.path so aether_os.* imports resolve in tests
+pythonpath = [".."]
+testpaths = ["tests"]

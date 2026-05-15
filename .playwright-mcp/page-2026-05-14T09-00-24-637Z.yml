@@ -1,0 +1,270 @@
+- generic [ref=e21]:
+  - complementary [ref=e22]:
+    - generic [ref=e23]:
+      - heading "AetherOS Factory" [level=1] [ref=e24]
+      - paragraph [ref=e25]: Factory Control
+    - navigation [ref=e26]:
+      - link "Dashboard" [ref=e27] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e28]
+        - text: Dashboard
+      - link "New Project" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/new-project
+        - img [ref=e34]
+        - text: New Project
+      - link "Projects" [ref=e36] [cursor=pointer]:
+        - /url: /dashboard/projects
+        - img [ref=e37]
+        - text: Projects
+      - link "Settings" [ref=e38] [cursor=pointer]:
+        - /url: /dashboard/settings
+        - img [ref=e39]
+        - text: Settings
+      - link "Compliance" [ref=e42] [cursor=pointer]:
+        - /url: /dashboard/compliance
+        - img [ref=e43]
+        - text: Compliance
+      - button "Tools" [ref=e45]:
+        - img [ref=e46]
+        - generic [ref=e48]: Tools
+        - img [ref=e437]
+      - link "Connectors" [active] [ref=e439] [cursor=pointer]:
+        - /url: /dashboard/connectors
+        - img [ref=e440]
+        - text: Connectors
+      - link "Skills" [ref=e442] [cursor=pointer]:
+        - /url: /dashboard/skills
+        - img [ref=e443]
+        - text: Skills
+      - link "Memory" [ref=e445] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e446]
+        - text: Memory
+      - link "Costs" [ref=e454] [cursor=pointer]:
+        - /url: /dashboard/costs
+        - img [ref=e455]
+        - text: Costs
+      - link "Webhooks" [ref=e457] [cursor=pointer]:
+        - /url: /dashboard/settings/webhooks
+        - img [ref=e458]
+        - text: Webhooks
+      - generic [ref=e51]: Admin
+      - link "Users" [ref=e52] [cursor=pointer]:
+        - /url: /dashboard/admin/users
+        - img [ref=e53]
+        - text: Users
+      - generic [ref=e58]:
+        - img [ref=e59]
+        - generic [ref=e64]: Client Portal
+        - generic [ref=e65]: no runs
+    - generic [ref=e66]:
+      - link "Profile" [ref=e67] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - img [ref=e68]
+        - text: Profile
+      - button "Sign Out" [ref=e72]:
+        - img [ref=e73]
+        - text: Sign Out
+      - generic [ref=e78]:
+        - generic [ref=e79]: Active LLM
+        - generic [ref=e80]: anthropic
+  - generic [ref=e81]:
+    - banner [ref=e82]:
+      - generic [ref=e83]:
+        - img [ref=e84]
+        - generic [ref=e88]:
+          - generic [ref=e89]: AetherOS
+          - generic [ref=e90]: Factory
+      - generic [ref=e91]:
+        - generic [ref=e94]: Degraded
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - generic [ref=e101]: — tokens
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - generic [ref=e104]: $0.00
+          - generic [ref=e105]: today
+        - button "New Project" [ref=e106]:
+          - img [ref=e107]
+          - generic [ref=e108]: New Project
+        - button "Sign out" [ref=e109]:
+          - img [ref=e110]
+    - main [ref=e113]:
+      - generic [ref=e462]:
+        - generic [ref=e463]:
+          - heading "Connector Hub" [level=1] [ref=e464]
+          - paragraph [ref=e465]: Connect your tools · 0 connected · 13 available
+        - generic [ref=e467]:
+          - img [ref=e468]
+          - textbox "Search connectors..." [ref=e471]
+        - heading "Available" [level=2] [ref=e472]
+        - generic [ref=e473]:
+          - generic [ref=e475]:
+            - generic [ref=e476]:
+              - generic [ref=e477]:
+                - img [ref=e479]
+                - generic [ref=e483]:
+                  - heading "GitHub" [level=3] [ref=e485]
+                  - paragraph [ref=e486]: "Full GitHub integration: repos, PRs, issues, Actions CI/CD"
+              - button "Connect" [ref=e488]:
+                - img [ref=e489]
+                - text: Connect
+            - generic [ref=e490]:
+              - generic [ref=e491]: vcs
+              - generic [ref=e492]: devtools
+          - generic [ref=e494]:
+            - generic [ref=e495]:
+              - generic [ref=e496]:
+                - img [ref=e498]
+                - generic [ref=e502]:
+                  - heading "GitLab" [level=3] [ref=e504]
+                  - paragraph [ref=e505]: "GitLab integration: repos, MRs, pipelines, issues"
+              - button "Connect" [ref=e507]:
+                - img [ref=e508]
+                - text: Connect
+            - generic [ref=e509]:
+              - generic [ref=e510]: vcs
+              - generic [ref=e511]: devtools
+          - generic [ref=e513]:
+            - generic [ref=e514]:
+              - generic [ref=e515]:
+                - img [ref=e517]
+                - generic [ref=e520]:
+                  - heading "Jira" [level=3] [ref=e522]
+                  - paragraph [ref=e523]: "Jira integration: issues, sprints, epics, projects"
+              - button "Connect" [ref=e525]:
+                - img [ref=e526]
+                - text: Connect
+            - generic [ref=e527]:
+              - generic [ref=e528]: pm
+              - generic [ref=e529]: agile
+          - generic [ref=e531]:
+            - generic [ref=e532]:
+              - generic [ref=e533]:
+                - img [ref=e535]
+                - generic [ref=e538]:
+                  - heading "Linear" [level=3] [ref=e540]
+                  - paragraph [ref=e541]: "Linear integration: issues, cycles, projects, teams"
+              - button "Connect" [ref=e543]:
+                - img [ref=e544]
+                - text: Connect
+            - generic [ref=e545]:
+              - generic [ref=e546]: pm
+              - generic [ref=e547]: agile
+          - generic [ref=e549]:
+            - generic [ref=e550]:
+              - generic [ref=e551]:
+                - img [ref=e553]
+                - generic [ref=e555]:
+                  - heading "Slack" [level=3] [ref=e557]
+                  - paragraph [ref=e558]: "Slack integration: messages, channels, notifications"
+              - button "Connect" [ref=e560]:
+                - img [ref=e561]
+                - text: Connect
+            - generic [ref=e563]: comms
+          - generic [ref=e565]:
+            - generic [ref=e566]:
+              - generic [ref=e567]:
+                - img [ref=e569]
+                - generic [ref=e571]:
+                  - heading "Figma" [level=3] [ref=e573]
+                  - paragraph [ref=e574]: "Figma integration: export components, read design tokens"
+              - button "Connect" [ref=e576]:
+                - img [ref=e577]
+                - text: Connect
+            - generic [ref=e579]: design
+          - generic [ref=e581]:
+            - generic [ref=e582]:
+              - generic [ref=e583]:
+                - img [ref=e585]
+                - generic [ref=e588]:
+                  - heading "Vercel" [level=3] [ref=e590]
+                  - paragraph [ref=e591]: "Deploy to Vercel: projects, deployments, domains, env vars"
+              - button "Connect" [ref=e593]:
+                - img [ref=e594]
+                - text: Connect
+            - generic [ref=e595]:
+              - generic [ref=e596]: deploy
+              - generic [ref=e597]: cloud
+          - generic [ref=e599]:
+            - generic [ref=e600]:
+              - generic [ref=e601]:
+                - img [ref=e603]
+                - generic [ref=e605]:
+                  - heading "AWS" [level=3] [ref=e607]
+                  - paragraph [ref=e608]: "AWS: EC2, S3, Lambda, RDS, ECS, CloudFormation"
+              - generic [ref=e609]:
+                - generic [ref=e610]: growth+
+                - button "Connect" [ref=e611]:
+                  - img [ref=e612]
+                  - text: Connect
+            - generic [ref=e613]:
+              - generic [ref=e614]: cloud
+              - generic [ref=e615]: deploy
+          - generic [ref=e617]:
+            - generic [ref=e618]:
+              - generic [ref=e619]:
+                - img [ref=e621]
+                - generic [ref=e623]:
+                  - heading "Google Cloud" [level=3] [ref=e625]
+                  - paragraph [ref=e626]: "GCP: Cloud Run, GCS, Cloud SQL, Cloud Build"
+              - generic [ref=e627]:
+                - generic [ref=e628]: growth+
+                - button "Connect" [ref=e629]:
+                  - img [ref=e630]
+                  - text: Connect
+            - generic [ref=e631]:
+              - generic [ref=e632]: cloud
+              - generic [ref=e633]: deploy
+          - generic [ref=e635]:
+            - generic [ref=e636]:
+              - generic [ref=e637]:
+                - img [ref=e639]
+                - generic [ref=e641]:
+                  - heading "Stripe" [level=3] [ref=e643]
+                  - paragraph [ref=e644]: "Stripe: generate payment integration code, test mode support"
+              - button "Connect" [ref=e646]:
+                - img [ref=e647]
+                - text: Connect
+            - generic [ref=e648]:
+              - generic [ref=e649]: payments
+              - generic [ref=e650]: fintech
+          - generic [ref=e652]:
+            - generic [ref=e653]:
+              - generic [ref=e654]:
+                - img [ref=e656]
+                - generic [ref=e660]:
+                  - heading "Supabase" [level=3] [ref=e662]
+                  - paragraph [ref=e663]: "Supabase: tables, auth, storage, realtime, edge functions"
+              - button "Connect" [ref=e665]:
+                - img [ref=e666]
+                - text: Connect
+            - generic [ref=e667]:
+              - generic [ref=e668]: database
+              - generic [ref=e669]: backend
+          - generic [ref=e671]:
+            - generic [ref=e672]:
+              - generic [ref=e673]:
+                - img [ref=e675]
+                - generic [ref=e679]:
+                  - heading "PlanetScale" [level=3] [ref=e681]
+                  - paragraph [ref=e682]: "PlanetScale MySQL: branches, deploy requests, schema management"
+              - button "Connect" [ref=e684]:
+                - img [ref=e685]
+                - text: Connect
+            - generic [ref=e687]: database
+          - generic [ref=e689]:
+            - generic [ref=e690]:
+              - generic [ref=e691]:
+                - img [ref=e693]
+                - generic [ref=e696]:
+                  - heading "Sentry" [level=3] [ref=e698]
+                  - paragraph [ref=e699]: "Sentry: error tracking, release management, source maps"
+              - button "Connect" [ref=e701]:
+                - img [ref=e702]
+                - text: Connect
+            - generic [ref=e703]:
+              - generic [ref=e704]: observability
+              - generic [ref=e705]: monitoring
+    - contentinfo [ref=e171]:
+      - paragraph [ref=e172]: © 2026 VKatOS Private Limited — AetherOS Factory v1.0

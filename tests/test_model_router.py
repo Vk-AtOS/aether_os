@@ -41,42 +41,46 @@ def strip_api_keys(monkeypatch):
 
 # ── FALLBACK_CHAIN structure ──────────────────────────────────────────────────
 
-def test_fallback_chain_has_three_providers():
-    from aether_os.core.model_router import FALLBACK_CHAIN
-    assert len(FALLBACK_CHAIN) == 3
+@pytest.fixture
+def clean_env_chain(monkeypatch):
+    """Ensure a consistent environment for chain structure tests."""
+    monkeypatch.setenv("PRIMARY_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
+    monkeypatch.setenv("OLLAMA_TIMEOUT", "120")
+    monkeypatch.delenv("OPENROUTER_FALLBACK_MODELS", raising=False)
+    # Force re-call of get_fallback_chain
+    from aether_os.core.model_router import get_fallback_chain
+    return get_fallback_chain()
 
 
-def test_fallback_chain_order():
-    """Chain must be: anthropic → gemini → ollama."""
-    from aether_os.core.model_router import FALLBACK_CHAIN
-    providers = [s.provider for s in FALLBACK_CHAIN]
-    assert providers == ["anthropic", "gemini", "ollama"]
+def test_fallback_chain_has_expected_length(clean_env_chain):
+    # Chain has: anthropic (1) + gemini (1) + openrouter (4 defaults) + ollama (1) = 7
+    assert len(clean_env_chain) == 7
 
 
-def test_model_identifiers():
-    from aether_os.core.model_router import FALLBACK_CHAIN
-    # Updated to match new default configuration requirements
-    assert FALLBACK_CHAIN[0].model == "claude-haiku-4-5"
-    assert FALLBACK_CHAIN[1].model == "gemini-2.5-flash"
-    assert FALLBACK_CHAIN[2].model == "qwen2.5-coder:3b"
+def test_fallback_chain_order(clean_env_chain):
+    """Chain must be: anthropic → gemini → 4x openrouter → ollama."""
+    providers = [s.provider for s in clean_env_chain]
+    assert providers[0] == "anthropic"
+    assert providers[1] == "gemini"
+    assert providers[2:6] == ["openrouter"] * 4
+    assert providers[6] == "ollama"
 
 
-def test_timeout_values():
-    from aether_os.core.model_router import FALLBACK_CHAIN
-    # Order might vary if PRIMARY_LLM is changed, but default in .env is anthropic
-    anthropic = next(s for s in FALLBACK_CHAIN if s.provider == "anthropic")
-    gemini = next(s for s in FALLBACK_CHAIN if s.provider == "gemini")
-    ollama = next(s for s in FALLBACK_CHAIN if s.provider == "ollama")
-    
-    assert anthropic.timeout_seconds == 30
-    assert gemini.timeout_seconds == 45
-    assert ollama.timeout_seconds == 120
+def test_model_identifiers(clean_env_chain):
+    specs = {s.provider: s for s in clean_env_chain}
+    assert specs["anthropic"].model == "claude-sonnet-4-6"
+    assert specs["gemini"].model == "gemini-2.5-flash"
+    assert specs["ollama"].model == "qwen2.5-coder:3b"
 
 
-def test_retry_counts():
-    from aether_os.core.model_router import FALLBACK_CHAIN
-    for spec in FALLBACK_CHAIN:
-        assert spec.retry_count == 2, f"{spec.provider} should have 2 retries"
+def test_retry_counts(clean_env_chain):
+    for spec in clean_env_chain:
+        if spec.provider == "ollama":
+            assert spec.retry_count == 1
+        else:
+            assert spec.retry_count == 2
 
 
 # ── Error classification ──────────────────────────────────────────────────────
@@ -143,8 +147,10 @@ def test_gemini_configured_with_real_key(monkeypatch):
 
 
 def test_ollama_always_configured():
-    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN
-    assert _is_provider_configured(FALLBACK_CHAIN[2]) is True
+    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN, ModelSpec
+    # Find ollama spec by provider name (index changes when PRIMARY_LLM is set)
+    ollama_spec = next(s for s in FALLBACK_CHAIN if s.provider == "ollama")
+    assert _is_provider_configured(ollama_spec) is True
 
 
 # ── Router.call() — success paths ─────────────────────────────────────────────

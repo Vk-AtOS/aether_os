@@ -1,0 +1,154 @@
+- generic [ref=e39]:
+  - navigation "Main navigation" [ref=e41]:
+    - generic [ref=e42]:
+      - heading "AetherOS Factory" [level=1] [ref=e43]
+      - paragraph [ref=e44]: Factory Control
+    - navigation "Sidebar navigation" [ref=e45]:
+      - link "Dashboard" [ref=e46] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e47]
+        - text: Dashboard
+      - link "New Project" [ref=e52] [cursor=pointer]:
+        - /url: /dashboard/new-project
+        - img [ref=e53]
+        - text: New Project
+      - link "Projects" [ref=e55] [cursor=pointer]:
+        - /url: /dashboard/projects
+        - img [ref=e56]
+        - text: Projects
+      - link "Marketplace" [ref=e57] [cursor=pointer]:
+        - /url: /dashboard/marketplace
+        - img [ref=e58]
+        - text: Marketplace
+      - link "Settings" [ref=e62] [cursor=pointer]:
+        - /url: /dashboard/settings
+        - img [ref=e63]
+        - text: Settings
+      - link "Compliance" [ref=e66] [cursor=pointer]:
+        - /url: /dashboard/compliance
+        - img [ref=e67]
+        - text: Compliance
+      - button "Tools" [ref=e69]:
+        - img [ref=e70]
+        - generic [ref=e72]: Tools
+        - img [ref=e73]
+      - generic [ref=e75]: Admin
+      - link "Users" [ref=e76] [cursor=pointer]:
+        - /url: /dashboard/admin/users
+        - img [ref=e77]
+        - text: Users
+      - link "Audit Logs" [ref=e82] [cursor=pointer]:
+        - /url: /dashboard/audit
+        - img [ref=e83]
+        - text: Audit Logs
+      - link "Billing" [ref=e86] [cursor=pointer]:
+        - /url: /dashboard/admin/billing
+        - img [ref=e87]
+        - text: Billing
+      - generic [ref=e89]:
+        - img [ref=e90]
+        - generic [ref=e95]: Client Portal
+        - generic [ref=e96]: no runs
+    - generic [ref=e97]:
+      - generic [ref=e98]:
+        - img [ref=e99]
+        - generic [ref=e103]:
+          - generic [ref=e104]: Organisation
+          - generic [ref=e105]: AetherOS Demo
+      - link "demo" [ref=e106] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - img [ref=e107]
+        - generic [ref=e111]: demo
+      - button "Sign Out" [ref=e112]:
+        - img [ref=e113]
+        - text: Sign Out
+      - generic [ref=e118]:
+        - generic [ref=e119]: Active LLM
+        - generic [ref=e120]: openrouter
+  - generic [ref=e121]:
+    - banner [ref=e123]:
+      - generic [ref=e124]:
+        - img [ref=e125]
+        - generic [ref=e129]:
+          - generic [ref=e130]: AetherOS
+          - generic [ref=e131]: Factory
+      - generic [ref=e132]:
+        - generic [ref=e135]: Nominal
+        - generic [ref=e136]:
+          - img [ref=e137]
+          - generic [ref=e142]: — tokens
+      - generic [ref=e143]:
+        - generic [ref=e144]:
+          - generic [ref=e145]: $0.00
+          - generic [ref=e146]: today
+        - button "New Project" [ref=e147]:
+          - img [ref=e148]
+          - generic [ref=e149]: New Project
+        - button "Notifications" [ref=e151]:
+          - img [ref=e152]
+        - button "Sign out" [ref=e155]:
+          - img [ref=e156]
+    - main [ref=e159]:
+      - generic [ref=e160]:
+        - generic [ref=e161]:
+          - generic [ref=e162]:
+            - generic [ref=e163]:
+              - heading "Welcome to AetherOS Factory" [level=2] [ref=e164]
+              - paragraph [ref=e165]: 1/2 steps complete
+            - button "Dismiss onboarding" [ref=e166]:
+              - img [ref=e167]
+          - generic [ref=e172]:
+            - generic [ref=e173]:
+              - img [ref=e175]
+              - generic [ref=e179]: Add an LLM API key
+            - generic [ref=e180]:
+              - img [ref=e182]
+              - generic [ref=e184]:
+                - generic [ref=e185]: Run your first pipeline
+                - generic [ref=e186]: Describe your project and AetherOS will generate production-ready code.
+              - button "Start Project" [ref=e187]
+        - generic [ref=e188]:
+          - generic [ref=e189]:
+            - img [ref=e190]
+            - generic [ref=e192]: Emergency Kill Switch
+          - button "Kill All Runs" [ref=e193]
+        - generic [ref=e194]:
+          - generic [ref=e195]:
+            - generic [ref=e196]:
+              - generic [ref=e197]: Active Runs
+              - img [ref=e198]
+            - generic [ref=e200]: "0"
+          - generic [ref=e201]:
+            - generic [ref=e202]:
+              - generic [ref=e203]: Completed Today
+              - img [ref=e204]
+            - generic [ref=e207]: "0"
+          - generic [ref=e208]:
+            - generic [ref=e209]:
+              - generic [ref=e210]: Total Cost Today
+              - img [ref=e211]
+            - generic [ref=e214]: $0.00
+          - generic [ref=e215]:
+            - generic [ref=e216]:
+              - generic [ref=e217]: Tokens Today
+              - img [ref=e218]
+            - generic [ref=e223]: —
+        - generic [ref=e224]:
+          - generic [ref=e225]:
+            - heading "Active Factory Runs" [level=3] [ref=e226]
+            - button "NEW PIPELINE" [ref=e227]:
+              - img [ref=e228]
+              - text: NEW PIPELINE
+          - table [ref=e231]:
+            - rowgroup [ref=e232]:
+              - row "Project Status Phase Progress Cost Actions" [ref=e233]:
+                - columnheader "Project" [ref=e234]
+                - columnheader "Status" [ref=e235]
+                - columnheader "Phase Progress" [ref=e236]
+                - columnheader "Cost" [ref=e237]
+                - columnheader "Actions" [ref=e238]
+            - rowgroup [ref=e239]:
+              - row "No active runs found. Start a new pipeline to begin." [ref=e240]:
+                - cell "No active runs found. Start a new pipeline to begin." [ref=e241]
+    - contentinfo [ref=e242]:
+      - paragraph [ref=e243]: © 2026 VKatOS Private Limited — AetherOS Factory v1.0

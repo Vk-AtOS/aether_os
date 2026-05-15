@@ -8,7 +8,7 @@ const DecisionsPanel = ({ runId }) => {
 
   const fetchDecisions = async () => {
     try {
-      const res = await api.get(`/factory/runs/${runId}/decisions`);
+      const res = await api.client.get(`/factory/runs/${runId}/decisions`);
       setDecisions(res.data);
       setLoading(false);
     } catch (e) {
@@ -29,7 +29,7 @@ const DecisionsPanel = ({ runId }) => {
 
   const approveDecision = async (id, decision) => {
     try {
-      await api.post(`/factory/runs/${runId}/decisions/${id}/approve`, { decision });
+      await api.client.post(`/factory/runs/${runId}/decisions/${id}/approve`, { decision });
       fetchDecisions();
     } catch (e) {
       console.error("Failed to approve decision", e);
@@ -41,27 +41,28 @@ const DecisionsPanel = ({ runId }) => {
   return (
     <div className="space-y-4">
       {decisions.map(d => (
-        <div key={d.id} className="border p-4 rounded-lg shadow-sm">
+        <div key={d.id} className="border border-border bg-panel p-4 rounded-lg">
           <div className="flex justify-between items-center mb-2">
-            <h3 className="font-bold">{d.title}</h3>
-            <span className={`px-2 py-1 rounded text-xs ${
-              d.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-              d.status === 'approved' ? 'bg-green-100 text-green-800' :
-              d.status === 'modified' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+            <h3 className="font-bold text-bright text-sm">{d.title}</h3>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+              d.status === 'pending' ? 'bg-warning/20 text-warning border border-warning/30' :
+              d.status === 'approved' ? 'bg-success/20 text-success border border-success/30' :
+              d.status === 'modified' ? 'bg-accent/20 text-accent border border-accent/30' :
+              'bg-border/50 text-muted border border-border'
             }`}>
               {d.status}
             </span>
           </div>
-          <p className="text-sm mb-2 text-slate-600">What: {d.what}</p>
-          <p className="text-sm mb-4 text-slate-500">Why: {d.why}</p>
+          <p className="text-xs mb-1 text-muted"><span className="font-semibold text-bright">What:</span> {d.what}</p>
+          <p className="text-xs mb-4 text-muted"><span className="font-semibold text-bright">Why:</span> {d.why}</p>
           {d.status === 'pending' && (
             <div className="flex gap-2">
               {d.alternatives ? d.alternatives.map(alt => (
-                <button key={alt} onClick={() => approveDecision(d.id, alt)} className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
-                  Approve {alt}
+                <button key={alt} onClick={() => approveDecision(d.id, alt)} className="px-3 py-1 bg-accent text-white rounded text-xs font-bold hover:bg-accent/90">
+                  {alt}
                 </button>
               )) : (
-                <button onClick={() => approveDecision(d.id, 'approve')} className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
+                <button onClick={() => approveDecision(d.id, 'approve')} className="px-3 py-1 bg-success/20 text-success border border-success/30 rounded text-xs font-bold hover:bg-success/30">
                   Approve
                 </button>
               )}

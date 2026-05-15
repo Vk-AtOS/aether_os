@@ -17,6 +17,7 @@ class TaskResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     issues: List[str] = field(default_factory=list)
     success: bool = True
+    escalated: bool = False  # True when all retries failed and a human ticket was filed
 
 
 @dataclass
@@ -163,31 +164,27 @@ class PhaseBase:
                 self.logger.error("[%s] Task error attempt %d: %s",
                                   self.phase_name, attempt, e)
 
-        # All retries exhausted — escalate
+        # All retries exhausted — escalate and signal the pipeline to block
         await self._escalate(phase_input, last_error)
         return TaskResult(
             output_path="",
             confidence=0.0,
             success=False,
+            escalated=True,
             issues=[last_error],
         )
 
     async def _escalate(self, phase_input: Any, reason: str) -> None:
-        """Create human approval ticket and pause via bus."""
-        try:
-            from aether_os.core.approval.store import get_approvals_store
-            store = get_approvals_store()
-            ticket_id = store.create_ticket(
-                run_id=phase_input.run_id,
-                phase=self.phase_name,
-                reason=reason,
-                context={"input": str(phase_input.input_data)[:500]},
-            )
-            self.logger.warning("[%s] Escalated: ticket=%s reason=%s",
-                                self.phase_name, ticket_id, reason)
-        except Exception as e:
-            self.logger.error("Escalation ticket creation failed: %s", e)
+        """Signal the pipeline that human approval is required.
 
+        Publishes an "escalated" phase message to the bus so SSE clients see it
+        immediately. The pipeline loop in factory_pipeline.py detects the
+        "escalated" status on the returned TaskResult and calls
+        _await_human_approval() which registers the Decision and blocks until
+        an operator resolves it via POST /decisions/{id}/approve.
+        """
+        self.logger.warning("[%s] All retries exhausted — escalating to human. reason=%s",
+                            self.phase_name, reason)
         await self.communicate(
             run_id=phase_input.run_id,
             phase=self.phase_name,

@@ -28,10 +28,14 @@ def _make_app(tmp_path=None):
     # Reset singletons before creating app
     import aether_os.core.config.loader as cfg_mod
     cfg_mod.AetherConfig._instance = None
-    
+
     import aether_os.core.db as db_mod
     db_mod._engine = None
     db_mod._session_factory = None
+
+    import aether_os.core.rate_limiter as _rl_mod
+    _rl_mod._mem = _rl_mod._MemoryStore()
+    _rl_mod._instance = None
 
     from aether_os.gateway.api import create_app
     return create_app()
@@ -45,7 +49,9 @@ def client(tmp_path):
         c.post("/auth/register", json={
             "email": "testadmin@example.com",
             "password": "testpass123",
-            "org_name": "Test Org"
+            "org_name": "Test Org",
+            "terms_accepted": True,
+            "dpa_accepted": True,
         })
         yield c
 
@@ -88,6 +94,7 @@ def test_protected_endpoint_with_token(client):
         "email": "testadmin@example.com",
         "password": "testpass123",
     })
+    assert login_resp.status_code == 200, f"Login failed: {login_resp.status_code} {login_resp.text}"
     token = login_resp.json()["access_token"]
 
     # Access protected endpoint

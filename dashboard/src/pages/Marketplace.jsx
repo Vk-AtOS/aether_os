@@ -113,7 +113,17 @@ const Marketplace = () => {
                     <span>{p.usage_count ?? 0} uses</span>
                   </div>
                 </div>
-                <button className="mt-3 w-full py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors">
+                <button
+                  className="mt-3 w-full py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"
+                  onClick={async () => {
+                    try {
+                      await api.client.post(`/marketplace/install/${p.id}`);
+                      alert(`${p.name} installed successfully`);
+                    } catch (err) {
+                      alert('Install failed: ' + (err.response?.data?.detail || err.message));
+                    }
+                  }}
+                >
                   Install
                 </button>
               </div>

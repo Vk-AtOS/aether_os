@@ -31,9 +31,26 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(api_key: str) -> str:
-    """Hash an API key for storage."""
+    """Hash an API key for DB storage and lookup.
+
+    Uses SHA-256 (not bcrypt) because the key has 128-bit entropy from
+    secrets.token_hex(16) — making preimage attacks computationally infeasible.
+    Bcrypt cannot be used here since it is non-deterministic and the hash is
+    used as a DB lookup key (WHERE key_hash = ?).
+    """
     import hashlib
     return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def verify_api_key(raw_key: str, stored_hash: str) -> bool:
+    """Verify an API key. Supports bcrypt hashes and SHA-256 hashes."""
+    if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
+        try:
+            return bcrypt.checkpw(raw_key.encode(), stored_hash.encode())
+        except Exception:
+            return False
+    import hashlib
+    return hashlib.sha256(raw_key.encode()).hexdigest() == stored_hash
 
 
 def _get_secret_key() -> str:
@@ -48,6 +65,14 @@ def _get_secret_key() -> str:
             f"Set the {_SECRET_KEY_ENV} environment variable to a strong random secret."
         )
     return key
+
+
+def create_refresh_token(data: Dict[str, Any], expires_days: int = 30) -> str:
+    """Create a long-lived refresh token (30 days). Must not be used as an access token."""
+    return create_access_token(
+        {**data, "token_type": "refresh"},
+        expires_hours=expires_days * 24,
+    )
 
 
 def create_access_token(

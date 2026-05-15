@@ -1,0 +1,109 @@
+- generic [ref=e21]:
+  - complementary [ref=e22]:
+    - generic [ref=e23]:
+      - heading "AetherOS Factory" [level=1] [ref=e24]
+      - paragraph [ref=e25]: Factory Control
+    - navigation [ref=e26]:
+      - link "Dashboard" [ref=e27] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e28]
+        - text: Dashboard
+      - link "New Project" [ref=e33] [cursor=pointer]:
+        - /url: /dashboard/new-project
+        - img [ref=e34]
+        - text: New Project
+      - link "Projects" [ref=e36] [cursor=pointer]:
+        - /url: /dashboard/projects
+        - img [ref=e37]
+        - text: Projects
+      - link "Settings" [ref=e38] [cursor=pointer]:
+        - /url: /dashboard/settings
+        - img [ref=e39]
+        - text: Settings
+      - link "Compliance" [ref=e42] [cursor=pointer]:
+        - /url: /dashboard/compliance
+        - img [ref=e43]
+        - text: Compliance
+      - button "Tools" [ref=e45]:
+        - img [ref=e46]
+        - generic [ref=e48]: Tools
+        - img [ref=e437]
+      - link "Connectors" [ref=e439] [cursor=pointer]:
+        - /url: /dashboard/connectors
+        - img [ref=e440]
+        - text: Connectors
+      - link "Skills" [ref=e442] [cursor=pointer]:
+        - /url: /dashboard/skills
+        - img [ref=e443]
+        - text: Skills
+      - link "Memory" [ref=e445] [cursor=pointer]:
+        - /url: /dashboard/memory
+        - img [ref=e446]
+        - text: Memory
+      - link "Costs" [ref=e454] [cursor=pointer]:
+        - /url: /dashboard/costs
+        - img [ref=e455]
+        - text: Costs
+      - link "Webhooks" [active] [ref=e457] [cursor=pointer]:
+        - /url: /dashboard/settings/webhooks
+        - img [ref=e458]
+        - text: Webhooks
+      - generic [ref=e51]: Admin
+      - link "Users" [ref=e52] [cursor=pointer]:
+        - /url: /dashboard/admin/users
+        - img [ref=e53]
+        - text: Users
+      - generic [ref=e58]:
+        - img [ref=e59]
+        - generic [ref=e64]: Client Portal
+        - generic [ref=e65]: no runs
+    - generic [ref=e66]:
+      - link "Profile" [ref=e67] [cursor=pointer]:
+        - /url: /dashboard/profile
+        - img [ref=e68]
+        - text: Profile
+      - button "Sign Out" [ref=e72]:
+        - img [ref=e73]
+        - text: Sign Out
+      - generic [ref=e78]:
+        - generic [ref=e79]: Active LLM
+        - generic [ref=e80]: anthropic
+  - generic [ref=e81]:
+    - banner [ref=e82]:
+      - generic [ref=e83]:
+        - img [ref=e84]
+        - generic [ref=e88]:
+          - generic [ref=e89]: AetherOS
+          - generic [ref=e90]: Factory
+      - generic [ref=e91]:
+        - generic [ref=e94]: Degraded
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - generic [ref=e101]: — tokens
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - generic [ref=e104]: $0.00
+          - generic [ref=e105]: today
+        - button "New Project" [ref=e106]:
+          - img [ref=e107]
+          - generic [ref=e108]: New Project
+        - button "Sign out" [ref=e109]:
+          - img [ref=e110]
+    - main [ref=e113]:
+      - generic [ref=e1044]:
+        - generic [ref=e1045]:
+          - generic [ref=e1046]:
+            - heading "Webhooks" [level=1] [ref=e1047]
+            - paragraph [ref=e1048]: Receive real-time events when pipeline actions occur.
+          - button "Add Webhook" [ref=e1049]:
+            - img [ref=e1050]
+            - generic [ref=e1051]: Add Webhook
+        - generic [ref=e1052]:
+          - generic [ref=e1053]:
+            - img [ref=e1054]
+            - heading "Configured Webhooks (0)" [level=3] [ref=e1058]
+          - generic [ref=e1059]:
+            - img [ref=e1060]
+            - paragraph [ref=e1064]: No webhooks configured. Add one to receive events.
+    - contentinfo [ref=e171]:
+      - paragraph [ref=e172]: © 2026 VKatOS Private Limited — AetherOS Factory v1.0
