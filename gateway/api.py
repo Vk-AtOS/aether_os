@@ -3049,12 +3049,15 @@ def create_app() -> FastAPI:
             new_lines.append(f"{var_name}={req.key}")
 
         env_path.write_text("\n".join(new_lines) + "\n")
-        logger.info("API key updated for %s", req.provider)
+        # Hot-reload: update os.environ immediately so the running process uses the new key
+        # without needing a restart.
+        os.environ[var_name] = req.key
+        logger.info("API key updated and hot-reloaded for %s", req.provider)
 
         return {
             "success": True,
             "provider": req.provider,
-            "message": "Key saved. Restart server to apply changes."
+            "message": "Key saved and active immediately.",
         }
 
     @app.post("/settings/test-provider")
@@ -3091,16 +3094,16 @@ def create_app() -> FastAPI:
                     "message": "Connected"
                 }
             except asyncio.TimeoutError:
-                return {"success": False, "error": "timeout"}
+                raise HTTPException(status_code=504, detail="Anthropic timeout")
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                raise HTTPException(status_code=400, detail=f"Anthropic error: {str(e)[:200]}")
 
         elif req.provider == "gemini":
             try:
                 import google.genai as genai
                 api_key = os.environ.get("GOOGLE_API_KEY", "")
                 client = genai.Client(api_key=api_key)
-                
+
                 async def _call():
                     return client.models.generate_content(
                         model="gemini-2.0-flash",
@@ -3118,9 +3121,9 @@ def create_app() -> FastAPI:
                     "message": "Connected"
                 }
             except asyncio.TimeoutError:
-                return {"success": False, "error": "timeout"}
+                raise HTTPException(status_code=504, detail="Gemini timeout")
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                raise HTTPException(status_code=400, detail=f"Gemini error: {str(e)[:200]}")
 
         elif req.provider == "openrouter":
             try:
@@ -3131,9 +3134,9 @@ def create_app() -> FastAPI:
                 )
                 return {"success": True, "provider": "openrouter", "message": "Connected", "response": result[:50]}
             except asyncio.TimeoutError:
-                return {"success": False, "error": "timeout"}
+                raise HTTPException(status_code=504, detail="OpenRouter timeout — key may be valid but model is slow")
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                raise HTTPException(status_code=400, detail=f"OpenRouter error: {str(e)[:200]}")
 
         raise HTTPException(status_code=400, detail="Invalid provider")
 
@@ -3152,6 +3155,8 @@ def create_app() -> FastAPI:
                     env_vars[k.strip()] = v.strip()
         raw_fallback = env_vars.get("OPENROUTER_FALLBACK_MODELS", "")
         fallback_list = [m.strip() for m in raw_fallback.split(",") if m.strip()] if raw_fallback else []
+        # Include the live active model from the router so the UI shows what actually served last
+        from aether_os.core.model_router import _active_model as _live_model
         return {
             "primary_llm": env_vars.get("PRIMARY_LLM", "anthropic"),
             "anthropic_model": env_vars.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
@@ -3160,6 +3165,7 @@ def create_app() -> FastAPI:
             "openrouter_light_model": env_vars.get("OPENROUTER_LIGHT_MODEL", "mistralai/mistral-7b-instruct:free"),
             "openrouter_prefer_paid": env_vars.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
             "openrouter_fallback_models": fallback_list,
+            "active_model": _live_model,  # e.g. "openrouter/deepseek/deepseek-r1:free" after first call
         }
 
     @app.put("/settings/llm-config")
