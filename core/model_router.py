@@ -451,7 +451,8 @@ class ModelRouter:
         if spec.provider == "openrouter":
             from aether_os.core.llm.openrouter_client import call_openrouter
             return await call_openrouter(
-                prompt, task_type, system=system, max_tokens=max_tokens
+                prompt, task_type, system=system, max_tokens=max_tokens,
+                model=spec.model,
             )
         if spec.provider == "ollama":
             return await _llm_mod._call_ollama_with_model(prompt, task_type, spec.model)
