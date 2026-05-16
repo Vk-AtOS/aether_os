@@ -257,7 +257,7 @@ const IntelligenceHub = () => {
                         <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">{k.replace(/_/g,' ')}</p>
                         <p className="text-xs text-bright break-words">
                           {typeof v === 'boolean' ? (v ? '✓ Pass' : '✗ Fail')
-                           : typeof v === 'number' ? `${Math.round(v * 100)}%`
+                           : typeof v === 'number' ? `${normPct(v)}%`
                            : String(v)}
                         </p>
                       </div>

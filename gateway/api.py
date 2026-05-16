@@ -483,6 +483,16 @@ def create_app() -> FastAPI:
             return FileResponse(_landing, media_type="text/html")
         return RedirectResponse(url="/dashboard/")
 
+    @app.get("/favicon.ico")
+    @app.get("/favicon.svg")
+    async def favicon():
+        """Serve the AetherOS favicon."""
+        _svg = os.path.join(os.path.dirname(__file__), "../public/favicon.svg")
+        if os.path.isfile(_svg):
+            return FileResponse(_svg, media_type="image/svg+xml")
+        from fastapi.responses import Response
+        return Response(status_code=204)
+
     @app.get("/health")
     @api_router.get("/health")
     async def health() -> Dict[str, Any]:
@@ -500,8 +510,10 @@ def create_app() -> FastAPI:
         result: Dict[str, Any] = {}
         try:
             import psutil
+            loop = asyncio.get_event_loop()
+            cpu_pct = await loop.run_in_executor(None, lambda: psutil.cpu_percent(interval=0.1))
             result["system"] = {
-                "cpu_pct":    psutil.cpu_percent(interval=0.1),
+                "cpu_pct":    cpu_pct,
                 "mem_pct":    psutil.virtual_memory().percent,
                 "disk_pct":   psutil.disk_usage("/").percent,
                 "swap_pct":   psutil.swap_memory().percent,
@@ -2546,13 +2558,14 @@ def create_app() -> FastAPI:
     @app.get("/factory/search")
     async def search_artifacts(
         q: str,
+        limit: int = 30,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> List[Dict[str, Any]]:
         """Semantic search across all generated artifacts for the organisation."""
         from aether_os.core.artifact_store import get_artifact_store
         org_id = user.get("org_id")
         store = get_artifact_store()
-        return await store.search(q, org_id)
+        return await store.search(q, org_id, limit=limit)
 
     @app.get("/factory/runs/{run_id}/preview")
     async def preview_run_html(
