@@ -111,6 +111,10 @@ const Settings = () => {
   const [dataRegion, setDataRegion] = useState('global');
   const [regionSaveStatus, setRegionSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
 
+  // LangSmith observability
+  const [langsmithConfig, setLangsmithConfig] = useState({ opt_in: false, api_key: '', project: 'aetheros-factory', api_key_set: false });
+  const [langsmithSaveStatus, setLangsmithSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+
   // SSO / SAML config (T6-04)
   const [ssoConfig, setSsoConfig] = useState(null);
   const [ssoForm, setSsoForm] = useState({ idp_entity_id: '', idp_sso_url: '', idp_cert: '' });
@@ -192,6 +196,17 @@ const Settings = () => {
         if (modelsRes.status === 'fulfilled') {
           setAvailableModels(modelsRes.value.data?.openrouter || {});
         }
+        // LangSmith settings
+        try {
+          const lsRes = await api.client.get('/settings/langsmith');
+          setLangsmithConfig(c => ({
+            ...c,
+            opt_in: lsRes.data.opt_in ?? false,
+            api_key_set: lsRes.data.api_key_set ?? false,
+            project: lsRes.data.project || 'aetheros-factory',
+          }));
+        } catch (_) {}
+
         // SSO config
         try {
           const ssoRes = await api.client.get('/settings/sso');
@@ -309,6 +324,21 @@ const Settings = () => {
       }
     }
     return paths;
+  };
+
+  const handleSaveLangsmith = async () => {
+    setLangsmithSaveStatus('saving');
+    try {
+      const payload = { opt_in: langsmithConfig.opt_in, project: langsmithConfig.project };
+      if (langsmithConfig.api_key) payload.api_key = langsmithConfig.api_key;
+      await api.client.post('/settings/langsmith', payload);
+      setLangsmithConfig(c => ({ ...c, api_key: '', api_key_set: c.api_key_set || !!langsmithConfig.api_key }));
+      setLangsmithSaveStatus('saved');
+      setTimeout(() => setLangsmithSaveStatus(null), 3000);
+    } catch {
+      setLangsmithSaveStatus('error');
+      setTimeout(() => setLangsmithSaveStatus(null), 3000);
+    }
   };
 
   const handleSaveDataRegion = async () => {
@@ -621,6 +651,68 @@ const Settings = () => {
               >
                 {councilSaveStatus === 'saving' ? '...' : councilSaveStatus === 'saved' ? '✓ Saved' : councilSaveStatus === 'error' ? '✗ Error' : 'Save Council Config'}
               </button>
+            </div>
+          </section>
+
+          {/* Observability / LangSmith Section */}
+          <section className="panel overflow-hidden">
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
+              <BarChart3 className="w-4 h-4 mr-2 text-accent" />
+              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Observability — LangSmith Tracing</h3>
+              {langsmithConfig.opt_in && (
+                <span className="ml-3 text-[10px] font-bold bg-success/20 text-success border border-success/30 px-2 py-0.5 rounded uppercase tracking-wider">Opt-in Active</span>
+              )}
+            </div>
+            <div className="p-6 space-y-5">
+              <p className="text-[11px] text-muted">
+                LangSmith traces every LLM call through the factory pipeline. Enabling this sends structured traces to your LangSmith workspace. Explicit opt-in is required — your API key alone does not enable tracing.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Tracing Consent</label>
+                  <select
+                    value={langsmithConfig.opt_in ? 'Enabled' : 'Disabled'}
+                    onChange={(e) => setLangsmithConfig(c => ({ ...c, opt_in: e.target.value === 'Enabled' }))}
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+                  >
+                    <option>Disabled</option>
+                    <option>Enabled</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">LangChain Project</label>
+                  <input
+                    type="text"
+                    placeholder="aetheros-factory"
+                    value={langsmithConfig.project}
+                    onChange={(e) => setLangsmithConfig(c => ({ ...c, project: e.target.value }))}
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">
+                  LangSmith API Key
+                  {langsmithConfig.api_key_set && <span className="ml-2 text-success font-normal normal-case">— key on file</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder={langsmithConfig.api_key_set ? '••••••••••••••••  (key saved)' : 'ls-...'}
+                  value={langsmithConfig.api_key}
+                  onChange={(e) => setLangsmithConfig(c => ({ ...c, api_key: e.target.value }))}
+                  className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleSaveLangsmith}
+                  disabled={langsmithSaveStatus === 'saving'}
+                  className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-4 py-1.5 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors disabled:opacity-50"
+                >
+                  {langsmithSaveStatus === 'saving' ? '...' : langsmithSaveStatus === 'saved' ? '✓ Saved & Active' : langsmithSaveStatus === 'error' ? '✗ Error' : 'Save Observability Config'}
+                </button>
+                <p className="text-[10px] text-muted">Changes apply immediately — no restart required.</p>
+              </div>
             </div>
           </section>
 

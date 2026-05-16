@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { ShieldCheck, Search, RefreshCw, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShieldCheck, Search, RefreshCw, Download, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 
 const AuditLogs = () => {
   const [logs, setLogs] = useState([]);
@@ -8,6 +8,8 @@ const AuditLogs = () => {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [purging, setPurging] = useState(false);
+  const [purgeResult, setPurgeResult] = useState(null);
   const LIMIT = 50;
 
   const fetchLogs = useCallback(async () => {
@@ -47,6 +49,25 @@ const AuditLogs = () => {
     }
   };
 
+  const handlePurge = async () => {
+    const daysInput = window.prompt('Delete logs older than how many days? (minimum 30)', '90');
+    if (daysInput === null) return;
+    const days = parseInt(daysInput, 10);
+    if (isNaN(days) || days < 30) { alert('Minimum retention is 30 days.'); return; }
+    if (!window.confirm(`Permanently delete audit logs older than ${days} days?\n\nThis cannot be undone.`)) return;
+    setPurging(true);
+    setPurgeResult(null);
+    try {
+      const res = await api.client.delete(`/audit/logs/purge`, { params: { days_to_keep: days } });
+      setPurgeResult({ ok: true, deleted: res.data.deleted, days });
+      fetchLogs();
+    } catch (e) {
+      setPurgeResult({ ok: false, message: e.response?.data?.detail || 'Purge failed.' });
+    } finally {
+      setPurging(false);
+    }
+  };
+
   const actionBadge = (action) => {
     const colors = {
       login: 'bg-blue-900/40 text-blue-300',
@@ -78,6 +99,13 @@ const AuditLogs = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={handlePurge}
+            disabled={purging}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm bg-panel border border-danger/40 rounded-lg text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" /> {purging ? 'Purging…' : 'Purge Logs'}
+          </button>
+          <button
             onClick={handleExport}
             className="flex items-center gap-1.5 px-3 py-2 text-sm bg-panel border border-border rounded-lg text-muted hover:text-bright transition-colors"
           >
@@ -91,6 +119,16 @@ const AuditLogs = () => {
           </button>
         </div>
       </header>
+
+      {/* Purge result */}
+      {purgeResult && (
+        <div className={`flex items-center gap-3 p-3 rounded-lg border text-sm ${purgeResult.ok ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-danger'}`}>
+          {purgeResult.ok
+            ? `✓ Deleted ${purgeResult.deleted} log entries older than ${purgeResult.days} days.`
+            : `✗ ${purgeResult.message}`}
+          <button onClick={() => setPurgeResult(null)} className="ml-auto text-xs text-muted hover:text-bright">✕</button>
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative">

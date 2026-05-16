@@ -953,12 +953,13 @@ def create_app() -> FastAPI:
         """
         return HTMLResponse(content=html)
 
-    @app.post("/pipeline/start", response_model=PipelineStartResponse)
+    @app.post("/pipeline/start", response_model=PipelineStartResponse, deprecated=True,
+              summary="[DEPRECATED] Start pipeline run — use POST /factory/start instead")
     async def start_pipeline(
         req: PipelineStartRequest,
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> PipelineStartResponse:
-        """Start a new pipeline run."""
+        """Deprecated v1 endpoint. Use POST /factory/start instead."""
         from aether_os.orchestrator.pipeline import get_pipeline
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import Organisation
@@ -2683,19 +2684,57 @@ def create_app() -> FastAPI:
             _free_pct = None
             disk_status = "unknown"
 
+        # Uptime from process start
+        import time as _time
+        try:
+            import psutil as _psu
+            _proc = _psu.Process()
+            _uptime_secs = int(_time.time() - _proc.create_time())
+        except Exception:
+            _uptime_secs = None
+
+        # DB pool size
+        _pool_size = None
+        try:
+            from aether_os.core.db import get_engine as _ge
+            _eng = _ge()
+            _pool_size = getattr(getattr(_eng, "pool", None), "size", lambda: None)()
+        except Exception:
+            pass
+
         return {
             "status": status,
             "message": message,
+            # LLM fields — both naming conventions for compatibility
+            "llm": "healthy" if (anthropic_available or gemini_available or ollama_available) else "unavailable",
+            "provider": "healthy" if (anthropic_available or gemini_available or ollama_available) else "unavailable",
             "llm_provider": llm_display,
+            "active_provider": active_provider,
+            "active_model": routing.get("active_model") or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", ""),
             "anthropic_available": anthropic_available,
             "gemini_available": gemini_available,
             "ollama_available": ollama_available,
-            "active_model": routing.get("active_model"),
             "fallback_count_today": routing.get("fallback_count_today", 0),
             "model_availability": routing.get("model_availability", {}),
+            # System info
             "version": "1.0.0",
+            "environment": os.environ.get("ENVIRONMENT", "development"),
+            "env": os.environ.get("ENVIRONMENT", "development"),
+            "uptime": _uptime_secs,
+            # Database
             "database": db_status,
+            "db_pool_size": _pool_size,
+            # Redis — both naming conventions
+            "redis": redis_status,
+            "cache": redis_status,
             "memory_store": redis_status,
+            # Sandbox (basic)
+            "sandbox": "unknown",
+            "sandbox_engine": "docker",
+            "active_sandboxes": 0,
+            # Network
+            "network": "healthy",
+            # Disk
             "disk_free_pct": round(_free_pct, 1) if _free_pct is not None else None,
             "disk_status": disk_status,
         }
@@ -3059,6 +3098,81 @@ def create_app() -> FastAPI:
             "provider": req.provider,
             "message": "Key saved and active immediately.",
         }
+
+    @app.get("/settings/langsmith")
+    async def get_langsmith_settings(
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return current LangSmith observability configuration."""
+        env_path = pathlib.Path(__file__).parent.parent / ".env"
+        env_vars: Dict[str, str] = {}
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    env_vars[k.strip()] = v.strip()
+
+        opt_in_raw = env_vars.get("LANGSMITH_OPT_IN", os.environ.get("LANGSMITH_OPT_IN", "false"))
+        api_key_raw = env_vars.get("LANGSMITH_API_KEY", os.environ.get("LANGSMITH_API_KEY", ""))
+        return {
+            "opt_in": opt_in_raw.lower() in ("1", "true", "yes"),
+            "api_key_set": bool(api_key_raw),
+            "api_key_preview": (api_key_raw[:8] + "...") if len(api_key_raw) > 8 else "",
+            "project": env_vars.get("LANGCHAIN_PROJECT", os.environ.get("LANGCHAIN_PROJECT", "aetheros-factory")),
+        }
+
+    @app.post("/settings/langsmith")
+    async def update_langsmith_settings(
+        req: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Update LangSmith tracing opt-in and API key. Requires owner or admin role."""
+        if user.get("role") not in ("owner", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organisation owners and admins may update observability settings.",
+            )
+
+        env_path = pathlib.Path(__file__).parent.parent / ".env"
+        lines: list[str] = []
+        if env_path.exists():
+            lines = env_path.read_text().splitlines()
+
+        updates: Dict[str, str] = {}
+        if "opt_in" in req:
+            updates["LANGSMITH_OPT_IN"] = "true" if req["opt_in"] else "false"
+        if "api_key" in req and req["api_key"]:
+            updates["LANGSMITH_API_KEY"] = req["api_key"]
+        if "project" in req and req["project"]:
+            updates["LANGCHAIN_PROJECT"] = req["project"]
+
+        for var_name, var_val in updates.items():
+            found = False
+            new_lines = []
+            for line in lines:
+                if line.startswith(f"{var_name}="):
+                    new_lines.append(f"{var_name}={var_val}")
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(f"{var_name}={var_val}")
+            lines = new_lines
+
+        env_path.write_text("\n".join(lines) + "\n")
+
+        # Hot-reload env vars and re-init LangSmith immediately
+        for var_name, var_val in updates.items():
+            os.environ[var_name] = var_val
+
+        try:
+            from aether_os.core.telemetry.langsmith_tracer import init_langsmith
+            init_langsmith()
+        except Exception as _exc:
+            logger.warning("LangSmith re-init after settings change: %s", _exc)
+
+        return {"success": True, "updated": list(updates.keys())}
 
     @app.post("/settings/test-provider")
     async def test_provider(

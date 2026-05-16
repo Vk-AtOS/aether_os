@@ -28,13 +28,23 @@ def init_langsmith() -> bool:
     """
     Initialise LangSmith from environment variables.
 
-    Required env var: LANGSMITH_API_KEY
+    Required env vars: LANGSMITH_OPT_IN=true AND LANGSMITH_API_KEY
     Optional env vars: LANGCHAIN_TRACING_V2, LANGCHAIN_PROJECT
+
+    Both opt-in AND api_key must be set — having only the key does not
+    automatically enable tracing. This prevents silent data exfiltration
+    for operators who set the key without intending to enable call tracing.
 
     Returns True if successfully connected, False if disabled or failed.
     Logs the outcome at INFO level — never raises.
     """
     global _connected, _ls_client
+
+    opt_in = os.environ.get("LANGSMITH_OPT_IN", "").lower() in ("1", "true", "yes")
+    if not opt_in:
+        logger.info("LangSmith: disabled — LANGSMITH_OPT_IN not enabled (explicit consent required)")
+        _connected = False
+        return False
 
     api_key = os.environ.get("LANGSMITH_API_KEY", "").strip()
     if not api_key:

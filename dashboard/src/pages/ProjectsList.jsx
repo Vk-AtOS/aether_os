@@ -96,7 +96,7 @@ const EmptyState = ({ onNewProject }) => (
 const ProjectsList = () => {
   const ctx = useOutletContext() || {};
   const onNewProject = ctx.openNewProject || (() => {});
-  const { runs, loading, refresh } = useRuns();
+  const { runs, loading, refresh, hasMore, loadMore, total } = useRuns();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [domainFilter, setDomainFilter] = useState('');
@@ -381,6 +381,18 @@ const ProjectsList = () => {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Load more */}
+      {hasMore && !searchTerm && !statusFilter && !domainFilter && (
+        <div className="flex flex-col items-center gap-1 py-4">
+          <button
+            onClick={loadMore}
+            className="px-6 py-2 text-xs font-bold text-muted border border-border rounded-lg hover:text-bright hover:border-accent/40 transition-colors"
+          >
+            Load more ({runs.length} of {total} shown)
+          </button>
         </div>
       )}
     </div>

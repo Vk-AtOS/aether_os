@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
+import { Download, ChevronDown, ChevronRight, CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
 
 const INDIA_FRAMEWORKS = [
   {
@@ -155,6 +156,69 @@ function IndiaCompliancePanel() {
   );
 }
 
+const STATUS_META = {
+  completed: { icon: CheckCircle2, color: 'text-emerald-400' },
+  failed:    { icon: XCircle,      color: 'text-red-400' },
+  running:   { icon: Loader2,      color: 'text-accent animate-spin' },
+  pending:   { icon: Clock,        color: 'text-yellow-400' },
+};
+
+const RunArtifactRow = ({ run, onDownload }) => {
+  const [open, setOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const runId = run.run_id || run.id;
+  const status = run.status || 'unknown';
+  const meta = STATUS_META[status] || { icon: Clock, color: 'text-muted' };
+  const StatusIcon = meta.icon;
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try { await onDownload(runId); } finally { setDownloading(false); }
+  };
+
+  return (
+    <div className="border border-border rounded-lg overflow-hidden mb-2">
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface/50 transition-colors text-left"
+        onClick={() => setOpen(v => !v)}
+      >
+        {open ? <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />}
+        <StatusIcon className={`w-3.5 h-3.5 shrink-0 ${meta.color}`} />
+        <span className="font-mono text-sm text-bright flex-1 truncate">{runId}</span>
+        {run.domain && <span className="text-[10px] font-bold bg-accent/10 text-accent px-2 py-0.5 rounded-full">{run.domain}</span>}
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${meta.color}`}>{status}</span>
+        <button
+          onClick={e => { e.stopPropagation(); handleDownload(); }}
+          disabled={downloading}
+          className="flex items-center gap-1.5 text-xs text-accent hover:text-bright border border-accent/30 hover:border-accent px-3 py-1 rounded transition-colors disabled:opacity-50 ml-2 shrink-0"
+        >
+          {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+          {downloading ? 'Downloading…' : 'Artifacts ZIP'}
+        </button>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-1 border-t border-border/40 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Run ID',    value: runId },
+            { label: 'Status',    value: status },
+            { label: 'Domain',    value: run.domain || '—' },
+            { label: 'Model',     value: run.model || run.llm_model || '—' },
+            { label: 'Started',   value: run.started_at ? new Date(run.started_at * 1000).toLocaleString() : (run.created_at ? new Date(run.created_at).toLocaleString() : '—') },
+            { label: 'Finished',  value: run.finished_at ? new Date(run.finished_at * 1000).toLocaleString() : '—' },
+            { label: 'Phases',    value: run.phases_completed ?? run.phase ?? '—' },
+            { label: 'Artifacts', value: run.artifact_count ?? '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="space-y-0.5">
+              <div className="text-[10px] font-bold text-muted uppercase tracking-wider">{label}</div>
+              <div className="text-xs text-bright font-mono truncate">{String(value)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Compliance = () => {
   const [runs, setRuns] = useState([]);
   const [orgReport, setOrgReport] = useState(null);
@@ -281,24 +345,15 @@ const Compliance = () => {
       </div>
 
       <div className="bg-panel p-4 border border-border rounded shadow">
-        <h2 className="text-xl font-bold mb-4">Recent Runs Compliance</h2>
+        <h2 className="text-xl font-bold mb-4">Recent Runs — Compliance Artifacts</h2>
         {runs.length === 0 ? (
-          <p className="text-muted text-sm">No runs found.</p>
+          <p className="text-muted text-sm">No runs found. Start a pipeline to generate compliance artifacts.</p>
         ) : (
-          runs.map(run => {
-            const runId = run.run_id || run.id;
-            return (
-              <div key={runId} className="flex justify-between items-center py-2 border-b border-border">
-                <span className="font-mono text-sm">{runId}</span>
-                <button
-                  onClick={() => downloadArtifacts(runId)}
-                  className="text-accent hover:underline text-sm"
-                >
-                  Download ZIP
-                </button>
-              </div>
-            );
-          })
+          <div className="space-y-1">
+            {runs.map(run => (
+              <RunArtifactRow key={run.run_id || run.id} run={run} onDownload={downloadArtifacts} />
+            ))}
+          </div>
         )}
       </div>
 

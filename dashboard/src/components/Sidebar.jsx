@@ -108,8 +108,13 @@ const Sidebar = () => {
         {staticItems.map((item) => {
           const active = isActiveRoute(item.path);
           return (
-            <NavLink key={item.name} to={item.path} className={linkClass(active)}>
-              <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} />
+            <NavLink
+              key={item.name}
+              to={item.path}
+              className={linkClass(active)}
+              aria-current={active ? 'page' : undefined}
+            >
+              <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} aria-hidden="true" />
               {item.name}
             </NavLink>
           );
@@ -118,33 +123,49 @@ const Sidebar = () => {
         {/* Tools section */}
         <button
           onClick={() => setToolsOpen(!toolsOpen)}
+          aria-expanded={toolsOpen}
+          aria-controls="tools-submenu"
           className="flex items-center w-full px-4 py-2.5 text-sm font-medium rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
         >
-          <Wrench className="w-4 h-4 mr-3" />
+          <Wrench className="w-4 h-4 mr-3" aria-hidden="true" />
           <span className="flex-1 text-left">Tools</span>
-          {toolsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          {toolsOpen
+            ? <ChevronDown className="w-3 h-3" aria-hidden="true" />
+            : <ChevronRight className="w-3 h-3" aria-hidden="true" />}
         </button>
-        {toolsOpen && toolItems.map((item) => {
-          const active = location.pathname.startsWith(item.path);
-          return (
-            <NavLink key={item.name} to={item.path} className={`ml-3 ${linkClass(active)}`}>
-              <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} />
-              {item.name}
-            </NavLink>
-          );
-        })}
+        <div id="tools-submenu" role="region" aria-label="Tools submenu">
+          {toolsOpen && toolItems.map((item) => {
+            const active = location.pathname.startsWith(item.path);
+            return (
+              <NavLink
+                key={item.name}
+                to={item.path}
+                className={`ml-3 ${linkClass(active)}`}
+                aria-current={active ? 'page' : undefined}
+              >
+                <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} aria-hidden="true" />
+                {item.name}
+              </NavLink>
+            );
+          })}
+        </div>
 
         {/* Admin section */}
         {adminItems.length > 0 && (
           <>
-            <div className="px-4 pt-4 pb-1">
+            <div className="px-4 pt-4 pb-1" role="separator" aria-label="Admin section">
               <span className="text-[9px] font-bold text-muted/50 uppercase tracking-widest">Admin</span>
             </div>
             {adminItems.map((item) => {
               const active = location.pathname.startsWith(item.path);
               return (
-                <NavLink key={item.name} to={item.path} className={linkClass(active)}>
-                  <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} />
+                <NavLink
+                  key={item.name}
+                  to={item.path}
+                  className={linkClass(active)}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} aria-hidden="true" />
                   {item.name}
                 </NavLink>
               );
@@ -157,15 +178,20 @@ const Sidebar = () => {
           <NavLink
             to={`/portal/${latestRunId}`}
             className={linkClass(location.pathname.startsWith('/portal/'))}
+            aria-current={location.pathname.startsWith('/portal/') ? 'page' : undefined}
           >
-            <Users className={`w-4 h-4 mr-3 ${location.pathname.startsWith('/portal/') ? 'text-white' : ''}`} />
+            <Users className={`w-4 h-4 mr-3 ${location.pathname.startsWith('/portal/') ? 'text-white' : ''}`} aria-hidden="true" />
             Client Portal
           </NavLink>
         ) : (
-          <div className="flex items-center px-4 py-2.5 text-sm font-medium rounded-md text-gray-600 cursor-default select-none">
-            <Users className="w-4 h-4 mr-3" />
+          <div
+            className="flex items-center px-4 py-2.5 text-sm font-medium rounded-md text-gray-600 cursor-default select-none"
+            aria-disabled="true"
+            aria-label="Client Portal — no runs available"
+          >
+            <Users className="w-4 h-4 mr-3" aria-hidden="true" />
             <span>Client Portal</span>
-            <span className="ml-auto text-[10px] text-gray-700 uppercase font-bold">no runs</span>
+            <span className="ml-auto text-[10px] text-gray-700 uppercase font-bold" aria-hidden="true">no runs</span>
           </div>
         )}
       </nav>
@@ -184,15 +210,18 @@ const Sidebar = () => {
         <NavLink
           to="/profile"
           className={linkClass(location.pathname.startsWith('/profile'))}
+          aria-current={location.pathname.startsWith('/profile') ? 'page' : undefined}
+          aria-label={userEmail ? `Profile — ${userEmail}` : 'Profile'}
         >
-          <UserCircle className="w-4 h-4 mr-3" />
+          <UserCircle className="w-4 h-4 mr-3" aria-hidden="true" />
           {userEmail ? <span className="truncate">{userEmail.split('@')[0]}</span> : 'Profile'}
         </NavLink>
         <button
           onClick={handleLogout}
+          aria-label="Sign out of AetherOS"
           className="flex items-center w-full px-4 py-2.5 text-sm font-medium rounded-md text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
         >
-          <LogOut className="w-4 h-4 mr-3" />
+          <LogOut className="w-4 h-4 mr-3" aria-hidden="true" />
           Sign Out
         </button>
         <ProviderBadge />

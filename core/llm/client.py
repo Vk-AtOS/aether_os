@@ -324,7 +324,7 @@ def safe_parse_json(text: str) -> dict:
     # Try direct parse
     try:
         return json.loads(text.strip())
-    except:
+    except (json.JSONDecodeError, ValueError, AttributeError):
         pass
     # Find JSON block anywhere in response
     for pattern in [r'\{[^{}]*\}', r'\{.*?\}']:
@@ -332,7 +332,7 @@ def safe_parse_json(text: str) -> dict:
         if match:
             try:
                 return json.loads(match.group())
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
     # Last resort - return structured default
     return {"content": text.strip(), "parse_error": True, "raw": text[:1000]}

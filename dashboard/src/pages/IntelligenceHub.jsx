@@ -3,6 +3,7 @@ import { api } from '../api';
 import {
   Sparkles, RefreshCw, Loader2, CheckCircle2, AlertTriangle,
   TrendingUp, Shield, Scale, Lightbulb, Brain, ChevronDown, ChevronRight,
+  GitMerge, Wrench, RotateCcw, Play, X,
 } from 'lucide-react';
 
 // API returns scores either as 0-1 fractions OR 0-100 integers — normalise either way
@@ -70,6 +71,301 @@ const ExpandableSection = ({ label, children }) => {
   );
 };
 
+const ToolCard = ({ title, icon: Icon, iconColor, children }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-panel border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full px-5 py-4 flex items-center gap-2 hover:bg-surface/50 transition-colors text-left"
+      >
+        <Icon className={`w-4 h-4 ${iconColor}`} />
+        <h3 className="text-sm font-semibold text-bright flex-1">{title}</h3>
+        {open ? <ChevronDown className="w-3.5 h-3.5 text-muted" /> : <ChevronRight className="w-3.5 h-3.5 text-muted" />}
+      </button>
+      {open && <div className="px-5 pb-5 border-t border-border">{children}</div>}
+    </div>
+  );
+};
+
+const ConflictResolverTool = () => {
+  const [req, setReq] = useState('');
+  const [constraints, setConstraints] = useState('');
+  const [archDoc, setArchDoc] = useState('');
+  const [detecting, setDetecting] = useState(false);
+  const [resolving, setResolving] = useState(null);
+  const [conflicts, setConflicts] = useState(null);
+  const [error, setError] = useState('');
+
+  const detect = async () => {
+    setDetecting(true);
+    setError('');
+    setConflicts(null);
+    try {
+      const res = await api.client.post('/intelligence/conflict-resolver/detect', {
+        requirements: req, constraints, architecture_doc: archDoc,
+      });
+      setConflicts(res.data);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Detection failed');
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const resolve = async (conflict_id) => {
+    const resolution = window.prompt('Describe the resolution for this conflict:');
+    if (!resolution) return;
+    setResolving(conflict_id);
+    try {
+      await api.client.post('/intelligence/conflict-resolver/resolve', { conflict_id, resolution, run_id: '' });
+      setConflicts(c => {
+        const items = c?.conflicts || c?.items || [];
+        return { ...c, conflicts: items.map(ci => ci.id === conflict_id ? { ...ci, resolved: true } : ci) };
+      });
+    } catch (e) {
+      alert('Resolve failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setResolving(null);
+    }
+  };
+
+  const conflictList = conflicts?.conflicts || conflicts?.items || (Array.isArray(conflicts) ? conflicts : []);
+
+  return (
+    <div className="pt-4 space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {[
+          { label: 'Requirements', value: req, set: setReq, placeholder: 'Describe system requirements…' },
+          { label: 'Constraints', value: constraints, set: setConstraints, placeholder: 'List constraints (budget, tech stack…)' },
+          { label: 'Architecture Doc', value: archDoc, set: setArchDoc, placeholder: 'Paste architecture summary…' },
+        ].map(({ label, value, set, placeholder }) => (
+          <div key={label}>
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1 block">{label}</label>
+            <textarea
+              value={value}
+              onChange={e => set(e.target.value)}
+              placeholder={placeholder}
+              rows={4}
+              className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs text-bright resize-none focus:outline-none focus:border-accent"
+            />
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+      <button
+        onClick={detect}
+        disabled={detecting}
+        className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+      >
+        {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+        {detecting ? 'Detecting…' : 'Detect Conflicts'}
+      </button>
+      {conflicts && (
+        <div className="space-y-2">
+          {conflictList.length === 0
+            ? <p className="text-xs text-emerald-400 flex items-center gap-2"><CheckCircle2 className="w-3.5 h-3.5" /> No conflicts detected.</p>
+            : conflictList.map((c, i) => {
+              const id = c.id || String(i);
+              const msg = typeof c === 'string' ? c : c.description || c.message || JSON.stringify(c);
+              return (
+                <div key={id} className={`flex items-start gap-3 p-3 rounded-lg border text-xs ${c.resolved ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
+                  {c.resolved ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 mt-0.5 shrink-0" />}
+                  <span className="flex-1 text-bright/90">{msg}</span>
+                  {!c.resolved && (
+                    <button
+                      onClick={() => resolve(id)}
+                      disabled={resolving === id}
+                      className="shrink-0 text-[10px] font-bold text-accent hover:text-bright border border-accent/30 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                    >
+                      {resolving === id ? '…' : 'Resolve'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MaintenanceEngineTool = () => {
+  const [mode, setMode] = useState('deps'); // 'deps' | 'code' | 'run'
+  const [depsText, setDepsText] = useState('');
+  const [codeText, setCodeText] = useState('');
+  const [language, setLanguage] = useState('python');
+  const [runId, setRunId] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const scan = async () => {
+    setScanning(true);
+    setError('');
+    setResult(null);
+    try {
+      const payload = {};
+      if (mode === 'deps' && depsText) payload.requirements_txt = depsText;
+      if (mode === 'code' && codeText) { payload.code = codeText; payload.language = language; }
+      if (mode === 'run' && runId) payload.run_id = runId;
+      const res = await api.client.post('/intelligence/maintenance-engine/scan', payload);
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Scan failed');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  return (
+    <div className="pt-4 space-y-4">
+      <div className="flex gap-2">
+        {[['deps','Dependencies'], ['code','Code Debt'], ['run','Project Health']].map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${mode === m ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-bright'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {mode === 'deps' && (
+        <div>
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1 block">requirements.txt contents</label>
+          <textarea
+            value={depsText}
+            onChange={e => setDepsText(e.target.value)}
+            placeholder={'fastapi==0.100.0\nsqlalchemy>=2.0\nredis>=4.5'}
+            rows={5}
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright resize-none focus:outline-none focus:border-accent"
+          />
+        </div>
+      )}
+      {mode === 'code' && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Language</label>
+            <select
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              className="bg-surface border border-border rounded px-2 py-1 text-xs text-bright focus:outline-none"
+            >
+              {['python','javascript','typescript','go','java','rust'].map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+          <textarea
+            value={codeText}
+            onChange={e => setCodeText(e.target.value)}
+            placeholder="Paste code for tech debt analysis…"
+            rows={6}
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright resize-none focus:outline-none focus:border-accent"
+          />
+        </div>
+      )}
+      {mode === 'run' && (
+        <div>
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1 block">Run ID</label>
+          <input
+            value={runId}
+            onChange={e => setRunId(e.target.value)}
+            placeholder="Paste a run ID to check its health…"
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+          />
+        </div>
+      )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+      <button
+        onClick={scan}
+        disabled={scanning}
+        className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+      >
+        {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+        {scanning ? 'Scanning…' : 'Run Scan'}
+      </button>
+      {result && (
+        <pre className="text-[11px] font-mono text-bright/80 bg-surface border border-border rounded-lg p-4 overflow-auto max-h-64 leading-relaxed whitespace-pre-wrap">
+          {JSON.stringify(result, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+};
+
+const ImprovementLoopTool = () => {
+  const [runId, setRunId] = useState('');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const runCycle = async () => {
+    if (!runId.trim()) { setError('Run ID is required'); return; }
+    setRunning(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await api.client.post(`/intelligence/improvement-loop/cycle?run_id=${encodeURIComponent(runId.trim())}`);
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Improvement loop failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const improvements = result?.improvements || result?.suggestions || (Array.isArray(result) ? result : []);
+
+  return (
+    <div className="pt-4 space-y-4">
+      <div>
+        <label className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1 block">Run ID</label>
+        <input
+          value={runId}
+          onChange={e => setRunId(e.target.value)}
+          placeholder="Enter a completed run ID to generate improvements…"
+          className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+        />
+        <p className="text-[10px] text-muted mt-1">Analyses the run's output and generates actionable improvement suggestions.</p>
+      </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+      <button
+        onClick={runCycle}
+        disabled={running || !runId.trim()}
+        className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+      >
+        {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+        {running ? 'Running cycle…' : 'Run Improvement Cycle'}
+      </button>
+      {result && (
+        improvements.length === 0
+          ? <p className="text-xs text-muted">No specific improvements generated. The run may already be optimal.</p>
+          : <div className="space-y-2">
+              {improvements.map((imp, i) => {
+                const msg = typeof imp === 'string' ? imp : imp.suggestion || imp.message || JSON.stringify(imp);
+                const priority = imp.priority || 'info';
+                const color = priority === 'high' ? 'text-yellow-400' : 'text-accent';
+                return (
+                  <div key={i} className="flex items-start gap-2.5 py-2 border-b border-border/40 last:border-0">
+                    <Sparkles className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${color}`} />
+                    <p className="text-xs text-bright/90 leading-relaxed">{msg}</p>
+                  </div>
+                );
+              })}
+            </div>
+      )}
+    </div>
+  );
+};
+
+const ANALYSIS_TIMEOUT_MS = 20000;
+
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Analysis timed out — click Refresh to retry')), ms)),
+  ]);
+
 const IntelligenceHub = () => {
   const [insights, setInsights]         = useState(null);
   const [benchmark, setBenchmark]       = useState(null);
@@ -78,51 +374,57 @@ const IntelligenceHub = () => {
   const [truth, setTruth]               = useState(null);
   const [errors, setErrors]             = useState({});
   const [loading, setLoading]           = useState({});
+  const [analysisRun, setAnalysisRun]   = useState(false);
   const [lastRefresh, setLastRefresh]   = useState(null);
 
   const setL = (key, v) => setLoading(p => ({ ...p, [key]: v }));
   const setE = (key, v) => setErrors(p => ({ ...p, [key]: v }));
 
-  const load = useCallback(async () => {
+  const loadGets = useCallback(() => {
     setLastRefresh(new Date());
 
-    // Global insights
     setL('insights', true);
     api.client.get('/intelligence/global-insights')
       .then(r => setInsights(r.data))
-      .catch(e => setE('insights', e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('insights', e.response?.data?.detail || 'Failed to load insights'))
       .finally(() => setL('insights', false));
 
-    // Quality benchmark
     setL('benchmark', true);
     api.client.get('/intelligence/quality-benchmark')
       .then(r => setBenchmark(r.data))
-      .catch(e => setE('benchmark', e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('benchmark', e.response?.data?.detail || 'Failed to load benchmark'))
       .finally(() => setL('benchmark', false));
+  }, []);
 
-    // Arch governor (POST, run_id=global for platform-wide review)
+  const runAnalysis = useCallback(() => {
+    setAnalysisRun(true);
+    setLastRefresh(new Date());
+
     setL('arch', true);
-    api.client.post('/intelligence/arch-governor/review', { run_id: 'global' })
+    setE('arch', null);
+    withTimeout(api.client.post('/intelligence/arch-governor/review', { run_id: 'global' }), ANALYSIS_TIMEOUT_MS)
       .then(r => setArchReview(r.data))
-      .catch(e => setE('arch', e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('arch', e.message || e.response?.data?.detail || 'Failed'))
       .finally(() => setL('arch', false));
 
-    // Tradeoff engine
     setL('tradeoff', true);
-    api.client.post('/intelligence/tradeoff-engine/analyze', { scope: 'platform' })
+    setE('tradeoff', null);
+    withTimeout(api.client.post('/intelligence/tradeoff-engine/analyze', { scope: 'platform' }), ANALYSIS_TIMEOUT_MS)
       .then(r => setTradeoff(r.data))
-      .catch(e => setE('tradeoff', e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('tradeoff', e.message || e.response?.data?.detail || 'Failed'))
       .finally(() => setL('tradeoff', false));
 
-    // Truth engine
     setL('truth', true);
-    api.client.post('/intelligence/truth-engine/validate', { scope: 'platform' })
+    setE('truth', null);
+    withTimeout(api.client.post('/intelligence/truth-engine/validate', { scope: 'platform' }), ANALYSIS_TIMEOUT_MS)
       .then(r => setTruth(r.data))
-      .catch(e => setE('truth', e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('truth', e.message || e.response?.data?.detail || 'Failed'))
       .finally(() => setL('truth', false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(() => { loadGets(); runAnalysis(); }, [loadGets, runAnalysis]);
+
+  useEffect(() => { loadGets(); }, [loadGets]);
 
   const insightsList = insights?.insights || insights?.items || (Array.isArray(insights) ? insights : []);
   const benchmarkScore = benchmark?.overall_score ?? benchmark?.score ?? null;
@@ -147,6 +449,12 @@ const IntelligenceHub = () => {
           className="flex items-center gap-2 px-4 py-2 bg-surface border border-border rounded-lg text-xs font-bold text-muted hover:text-bright hover:border-accent/40 transition-colors">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh All
         </button>
+        {!analysisRun && (
+          <button onClick={runAnalysis}
+            className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 rounded-lg text-xs font-bold text-white transition-colors">
+            <Sparkles className="w-3.5 h-3.5" /> Run Analysis
+          </button>
+        )}
       </div>
 
       {/* Stat row */}
@@ -219,33 +527,39 @@ const IntelligenceHub = () => {
         {/* Architecture Governor */}
         <Card title="Architecture Governor" icon={Shield} iconColor="text-blue-400"
           loading={loading.arch} error={errors.arch}>
-          {archIssues.length === 0
-            ? <div className="flex items-center gap-2 text-emerald-400 text-sm"><CheckCircle2 className="w-4 h-4" /> No architectural violations detected</div>
-            : archIssues.map((issue, i) => (
-                <InsightItem key={i}
-                  text={typeof issue === 'string' ? issue : issue.message || JSON.stringify(issue)}
-                  type={issue.severity === 'critical' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'} />
-              ))}
+          {!analysisRun && !loading.arch
+            ? <p className="text-xs text-muted">Click <strong>Run Analysis</strong> to check for architectural violations.</p>
+            : archIssues.length === 0
+              ? <div className="flex items-center gap-2 text-emerald-400 text-sm"><CheckCircle2 className="w-4 h-4" /> No architectural violations detected</div>
+              : archIssues.map((issue, i) => (
+                  <InsightItem key={i}
+                    text={typeof issue === 'string' ? issue : issue.message || JSON.stringify(issue)}
+                    type={issue.severity === 'critical' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'} />
+                ))}
           {archReview?.summary && <ExpandableSection label="Full review">{archReview.summary}</ExpandableSection>}
         </Card>
 
         {/* Tradeoff Engine */}
         <Card title="Tradeoff Analysis" icon={Scale} iconColor="text-purple-400"
           loading={loading.tradeoff} error={errors.tradeoff}>
-          {tradeoffs.length === 0
-            ? <p className="text-xs text-muted">No tradeoff recommendations available.</p>
-            : tradeoffs.map((t, i) => (
-                <InsightItem key={i}
-                  text={typeof t === 'string' ? t : t.recommendation || t.message || JSON.stringify(t)}
-                  type={t.priority === 'high' ? 'warning' : 'info'} />
-              ))}
+          {!analysisRun && !loading.tradeoff
+            ? <p className="text-xs text-muted">Click <strong>Run Analysis</strong> to analyse platform tradeoffs.</p>
+            : tradeoffs.length === 0
+              ? <p className="text-xs text-muted">No tradeoff recommendations available.</p>
+              : tradeoffs.map((t, i) => (
+                  <InsightItem key={i}
+                    text={typeof t === 'string' ? t : t.recommendation || t.message || JSON.stringify(t)}
+                    type={t.priority === 'high' ? 'warning' : 'info'} />
+                ))}
         </Card>
 
         {/* Truth Engine (full width) */}
         <div className="lg:col-span-2">
           <Card title="Truth Engine — Output Validation" icon={Brain} iconColor="text-pink-400"
             loading={loading.truth} error={errors.truth}>
-            {!truth
+            {!analysisRun && !loading.truth
+              ? <p className="text-xs text-muted">Click <strong>Run Analysis</strong> to validate platform output integrity.</p>
+              : !truth
               ? <p className="text-xs text-muted">No validation data yet.</p>
               : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -265,6 +579,22 @@ const IntelligenceHub = () => {
                 </div>
               )}
           </Card>
+        </div>
+      </div>
+
+      {/* Interactive AI Tools */}
+      <div>
+        <h2 className="text-xs font-bold text-muted/60 uppercase tracking-widest mb-3">Interactive AI Tools</h2>
+        <div className="space-y-3">
+          <ToolCard title="Conflict Resolver — Detect & Resolve Requirements Conflicts" icon={GitMerge} iconColor="text-orange-400">
+            <ConflictResolverTool />
+          </ToolCard>
+          <ToolCard title="Maintenance Engine — Dependency & Tech Debt Scanner" icon={Wrench} iconColor="text-cyan-400">
+            <MaintenanceEngineTool />
+          </ToolCard>
+          <ToolCard title="Improvement Loop — Generate Actionable Run Improvements" icon={RotateCcw} iconColor="text-violet-400">
+            <ImprovementLoopTool />
+          </ToolCard>
         </div>
       </div>
     </div>
