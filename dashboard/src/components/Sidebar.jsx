@@ -5,7 +5,7 @@ import {
   Plug, Wrench, Brain, DollarSign, ChevronDown, ChevronRight,
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
-  Activity, Sparkles,
+  Activity, Sparkles, Zap,
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
@@ -62,6 +62,7 @@ const Sidebar = () => {
     { name: 'Marketplace', path: '/marketplace',   icon: Store },
     { name: 'Intelligence',path: '/intelligence',  icon: Sparkles },
     { name: 'System Health',path: '/health',       icon: Activity },
+    { name: 'Pricing',      path: '/pricing',      icon: Zap },
     { name: 'Settings',    path: '/settings',      icon: Settings },
     { name: 'Compliance',  path: '/compliance',    icon: Shield },
   ].filter(Boolean);

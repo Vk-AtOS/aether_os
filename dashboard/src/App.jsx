@@ -31,6 +31,8 @@ import IntelligenceHub from './pages/IntelligenceHub';
 import SearchPage from './pages/SearchPage';
 import Deployments from './pages/Deployments';
 import SystemHealth from './pages/SystemHealth';
+import Signup from './pages/Signup';
+import Pricing from './pages/Pricing';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -71,8 +73,10 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<ErrorBoundary><Login /></ErrorBoundary>} />
-      <Route path="/legal" element={<ErrorBoundary><Legal /></ErrorBoundary>} />
+      <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
+      <Route path="/signup"  element={<ErrorBoundary><Signup /></ErrorBoundary>} />
+      <Route path="/pricing" element={<ErrorBoundary><Pricing /></ErrorBoundary>} />
+      <Route path="/legal"   element={<ErrorBoundary><Legal /></ErrorBoundary>} />
       <Route path="/auth/callback" element={<OAuthCallback />} />
       <Route path="/portal/:id" element={<ErrorBoundary><ClientPortal /></ErrorBoundary>} />
 
