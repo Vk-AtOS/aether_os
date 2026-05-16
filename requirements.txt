@@ -54,6 +54,7 @@ ruff>=0.1.0
 
 # ── Optional — CI/CD phase (GitHub/GitLab PR API) ────────────────────────────
 requests>=2.31.0
+razorpay>=1.4.2                # Razorpay payment gateway
 
 # ── Optional — WebSocket support ─────────────────────────────────────────────
 websockets>=12.0

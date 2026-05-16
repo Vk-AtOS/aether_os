@@ -1,14 +1,45 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import PhaseBar from '../components/PhaseBar';
 import PhaseBadge from '../components/PhaseBadge';
 import CostPill from '../components/CostPill';
-import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap } from 'lucide-react';
+import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { useRole } from '../hooks/useRole';
+import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../api';
 import { SkeletonTable } from '../components/Skeleton';
 import OnboardingBanner from '../components/OnboardingBanner';
+
+const TrialBanner = () => {
+  const [usage, setUsage] = useState(null);
+  useEffect(() => {
+    api.client.get('/account/usage').then(r => setUsage(r.data)).catch(() => {});
+  }, []);
+  if (!usage || usage.plan !== 'trial') return null;
+  const remaining = usage.runs_remaining ?? (usage.runs_limit - usage.runs_used);
+  const pct = Math.round(((usage.runs_limit - remaining) / usage.runs_limit) * 100);
+  return (
+    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-center gap-4">
+      <Rocket className="w-5 h-5 text-amber-400 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-amber-300">
+          Trial — {remaining} run{remaining !== 1 ? 's' : ''} remaining
+        </p>
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
+            <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <span className="text-[10px] text-muted">{usage.runs_used}/{usage.runs_limit} used</span>
+        </div>
+      </div>
+      <Link to="/pricing"
+        className="shrink-0 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-lg transition-colors">
+        Upgrade
+      </Link>
+    </div>
+  );
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -64,6 +95,8 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8">
+      {/* Trial banner — shown to trial users with run count */}
+      <TrialBanner />
       {/* Onboarding banner — shown to new users until steps complete */}
       {!loading && runs.length === 0 && <OnboardingBanner hasRuns={false} hasApiKey={hasApiKey} />}
 

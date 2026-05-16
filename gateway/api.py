@@ -1365,6 +1365,174 @@ def create_app() -> FastAPI:
             "files": deleted_files[:50],
         }
 
+    # ── Razorpay billing ──────────────────────────────────────────────────────
+
+    RAZORPAY_PLANS: Dict[str, Dict] = {
+        "pro":        {"name": "Pro",        "amount": 99900,  "currency": "INR", "period": "monthly"},
+        "enterprise": {"name": "Enterprise", "amount": 499900, "currency": "INR", "period": "monthly"},
+    }
+
+    def _razorpay_client():
+        import razorpay
+        key_id     = os.environ.get("RAZORPAY_KEY_ID", "")
+        key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+        if not key_id or not key_secret:
+            raise HTTPException(status_code=503, detail="Payment gateway not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.")
+        return razorpay.Client(auth=(key_id, key_secret))
+
+    @app.get("/billing/plans")
+    async def list_plans():
+        """Return available subscription plans (public endpoint)."""
+        return {
+            "plans": [
+                {
+                    "id": "trial",
+                    "name": "Trial",
+                    "price_inr": 0,
+                    "period": "forever",
+                    "runs": 3,
+                    "storage_gb": 0.5,
+                    "features": ["3 factory runs", "500 MB artifact storage", "All 12 phases", "Community support"],
+                    "cta": "Start Free Trial",
+                },
+                {
+                    "id": "pro",
+                    "name": "Pro",
+                    "price_inr": 999,
+                    "period": "month",
+                    "runs": None,  # unlimited
+                    "storage_gb": 10,
+                    "features": ["Unlimited runs", "10 GB storage", "Priority queue", "Email support",
+                                 "Codebase import (GitHub/GitLab/SSH)", "CLI + VS Code extension"],
+                    "cta": "Upgrade to Pro",
+                    "highlight": True,
+                },
+                {
+                    "id": "enterprise",
+                    "name": "Enterprise",
+                    "price_inr": 4999,
+                    "period": "month",
+                    "runs": None,
+                    "storage_gb": 100,
+                    "features": ["Everything in Pro", "100 GB storage", "Dedicated support SLA",
+                                 "SSO / SAML", "Custom LLM models", "On-prem deployment", "SLA 99.9%"],
+                    "cta": "Contact Sales",
+                },
+            ]
+        }
+
+    @app.post("/billing/create-order")
+    async def create_order(req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
+        """Create a Razorpay order for a plan upgrade."""
+        import uuid as _uuid_rz
+        plan_id = req.get("plan", "pro").lower()
+        if plan_id not in RAZORPAY_PLANS:
+            raise HTTPException(status_code=422, detail=f"Unknown plan: {plan_id}. Choose pro or enterprise.")
+        plan = RAZORPAY_PLANS[plan_id]
+        client = _razorpay_client()
+        receipt = f"aether_{user['org_id'][:8]}_{plan_id}_{int(time.time())}"
+        order = client.order.create({
+            "amount":   plan["amount"],
+            "currency": plan["currency"],
+            "receipt":  receipt,
+            "notes": {
+                "org_id":  user["org_id"],
+                "plan":    plan_id,
+                "user_id": user["user_id"],
+            },
+        })
+        return {
+            "order_id":   order["id"],
+            "amount":     order["amount"],
+            "currency":   order["currency"],
+            "plan":       plan_id,
+            "plan_name":  plan["name"],
+            "key_id":     os.environ.get("RAZORPAY_KEY_ID", ""),
+        }
+
+    @app.post("/billing/verify-payment")
+    async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
+        """Verify Razorpay payment signature and upgrade org plan."""
+        import hmac as _hmac, hashlib as _hashlib
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select as _sel, update as _upd
+
+        order_id   = req.get("razorpay_order_id", "")
+        payment_id = req.get("razorpay_payment_id", "")
+        signature  = req.get("razorpay_signature", "")
+        plan_id    = req.get("plan", "pro").lower()
+
+        if not order_id or not payment_id or not signature:
+            raise HTTPException(status_code=422, detail="razorpay_order_id, razorpay_payment_id, razorpay_signature are required")
+        if plan_id not in RAZORPAY_PLANS:
+            raise HTTPException(status_code=422, detail="Invalid plan")
+
+        key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+        if not key_secret:
+            raise HTTPException(status_code=503, detail="Payment gateway not configured")
+
+        # Verify HMAC-SHA256 signature
+        msg = f"{order_id}|{payment_id}".encode()
+        expected = _hmac.new(key_secret.encode(), msg, _hashlib.sha256).hexdigest()
+        if not _hmac.compare_digest(expected, signature):
+            raise HTTPException(status_code=400, detail="Payment signature verification failed")
+
+        # Upgrade org plan in DB
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            await session.execute(
+                _upd(Organisation)
+                .where(Organisation.id == user["org_id"])
+                .values(plan=plan_id)
+            )
+            await session.commit()
+
+        # Log payment
+        logger.info(f"Payment verified: org={user['org_id']} plan={plan_id} payment={payment_id}")
+        return {
+            "success": True,
+            "plan":    plan_id,
+            "message": f"Successfully upgraded to {RAZORPAY_PLANS[plan_id]['name']}",
+        }
+
+    @app.post("/billing/webhook")
+    async def razorpay_webhook(request: Request):
+        """Handle Razorpay webhook events (payment.captured, subscription events)."""
+        import hmac as _hmac_wh, hashlib as _hashlib_wh
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import update as _upd_wh
+
+        webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+        body = await request.body()
+
+        if webhook_secret:
+            sig = request.headers.get("X-Razorpay-Signature", "")
+            expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
+            if not _hmac_wh.compare_digest(expected, sig):
+                raise HTTPException(status_code=400, detail="Webhook signature invalid")
+
+        payload = await request.json()
+        event   = payload.get("event", "")
+        entity  = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        notes   = entity.get("notes", {})
+        org_id  = notes.get("org_id", "")
+        plan_id = notes.get("plan", "")
+
+        if event in ("payment.captured", "order.paid") and org_id and plan_id in RAZORPAY_PLANS:
+            session_factory = get_session_factory()
+            async with session_factory() as session:
+                await session.execute(
+                    _upd_wh(Organisation)
+                    .where(Organisation.id == org_id)
+                    .values(plan=plan_id)
+                )
+                await session.commit()
+            logger.info(f"Webhook: upgraded org={org_id} to plan={plan_id}")
+
+        return {"received": True}
+
     @app.get("/templates")
     async def list_templates(user: Dict[str, Any] = Depends(get_current_user)):
         """Return available project templates."""

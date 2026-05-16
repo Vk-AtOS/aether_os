@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { Link } from 'react-router-dom';
 import { Shield, Loader2 } from 'lucide-react';
 
 const GoogleIcon = () => (
@@ -251,7 +252,11 @@ const Login = () => {
           )}
         </div>
         
-        <p className="text-center text-[10px] text-muted mt-8 uppercase tracking-[0.2em]">
+        <p className="text-center text-sm text-muted mt-6">
+          Don't have an account?{' '}
+          <Link to="/signup" className="text-accent font-semibold hover:underline">Start free trial →</Link>
+        </p>
+        <p className="text-center text-[10px] text-muted mt-4 uppercase tracking-[0.2em]">
           Powered by VKatOS • Secure Enterprise Mesh
         </p>
         <div className="flex items-center justify-center gap-4 mt-3">
