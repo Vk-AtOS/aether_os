@@ -33,6 +33,7 @@ import Deployments from './pages/Deployments';
 import SystemHealth from './pages/SystemHealth';
 import Signup from './pages/Signup';
 import Pricing from './pages/Pricing';
+import Agents from './pages/Agents';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -110,6 +111,7 @@ function App() {
         <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
         <Route path="deployments" element={<ErrorBoundary><Deployments /></ErrorBoundary>} />
         <Route path="health" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
+        <Route path="agents" element={<ErrorBoundary><Agents /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

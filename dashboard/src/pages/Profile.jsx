@@ -20,6 +20,24 @@ const Profile = () => {
   const [eraseConfirm, setEraseConfirm] = useState('');
   const [erasing, setErasing] = useState(false);
   const [eraseError, setEraseError] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportData = async () => {
+    setExporting(true);
+    try {
+      const res = await api.client.get('/account/data-export', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'aetheros-data-export.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Export failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleEraseAccount = async () => {
     if (eraseConfirm !== 'DELETE') return;
@@ -348,13 +366,13 @@ const Profile = () => {
               <p className="text-sm font-semibold text-bright">Download your data</p>
               <p className="text-xs text-muted mt-0.5">Export all your account data as a machine-readable JSON file (GDPR Art. 20 — right to portability).</p>
             </div>
-            <a
-              href="/api/account/data-export"
-              download
-              className="shrink-0 text-xs font-bold px-4 py-2 rounded-lg border border-accent text-accent hover:bg-accent/10 transition-colors uppercase tracking-wider"
+            <button
+              onClick={handleExportData}
+              disabled={exporting}
+              className="shrink-0 text-xs font-bold px-4 py-2 rounded-lg border border-accent text-accent hover:bg-accent/10 disabled:opacity-50 transition-colors uppercase tracking-wider"
             >
-              Export Data
-            </a>
+              {exporting ? 'Exporting…' : 'Export Data'}
+            </button>
           </div>
 
           <div className="flex gap-4">

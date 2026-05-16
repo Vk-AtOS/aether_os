@@ -3,6 +3,7 @@ import { api } from '../api';
 import {
   Activity, RefreshCw, Loader2, CheckCircle2, AlertTriangle, XCircle,
   Server, Database, Cpu, HardDrive, Wifi, Clock, Zap, MemoryStick,
+  ShieldCheck, Eye,
 } from 'lucide-react';
 
 const STATUS = {
@@ -69,23 +70,29 @@ const ServiceCard = ({ name, icon: Icon, status, details = [] }) => {
 };
 
 const SystemHealth = () => {
-  const [health, setHealth]   = useState(null);
-  const [metrics, setMetrics] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
-  const [lastTs, setLastTs]   = useState(null);
+  const [health, setHealth]         = useState(null);
+  const [metrics, setMetrics]       = useState(null);
+  const [sla, setSla]               = useState(null);
+  const [observability, setObs]     = useState(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+  const [lastTs, setLastTs]         = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [hRes, mRes] = await Promise.allSettled([
+      const [hRes, mRes, slaRes, obsRes] = await Promise.allSettled([
         api.getHealth(),
         api.client.get('/system/metrics').catch(() => api.client.get('/health/metrics')),
+        api.client.get('/health/sla'),
+        api.client.get('/health/observability'),
       ]);
       if (hRes.status === 'fulfilled') setHealth(hRes.value.data);
       else setError('Could not reach gateway');
       if (mRes.status === 'fulfilled') setMetrics(mRes.value.data);
+      if (slaRes.status === 'fulfilled') setSla(slaRes.value.data);
+      if (obsRes.status === 'fulfilled') setObs(obsRes.value.data);
       setLastTs(new Date());
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load health data');
@@ -215,6 +222,76 @@ const SystemHealth = () => {
             {systemMetrics.swap_pct    !== undefined && <MetricBar label="Swap"   value={systemMetrics.swap_pct}                                 warn={50} crit={80} />}
             {systemMetrics.load_1m     !== undefined && <MetricBar label="Load 1m" value={systemMetrics.load_1m} max={systemMetrics.cpu_cores||8} unit="" warn={60} crit={90} />}
             {systemMetrics.load_5m     !== undefined && <MetricBar label="Load 5m" value={systemMetrics.load_5m} max={systemMetrics.cpu_cores||8} unit="" warn={60} crit={90} />}
+          </div>
+        </div>
+      )}
+
+      {/* SLA Metrics */}
+      {sla && (
+        <div className="bg-panel border border-border rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-bright mb-4 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-accent" /> SLA Metrics
+            <span className="ml-auto text-[10px] font-bold text-muted uppercase tracking-wider">
+              Last {sla.window_days}d · {sla.sla_tier} tier · Target: {sla.sla_target}
+            </span>
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Total Runs', value: sla.total_runs ?? '—' },
+              { label: 'Completed', value: sla.completed_runs ?? '—' },
+              { label: 'Failed', value: sla.failed_runs ?? '—' },
+              {
+                label: 'Completion Rate',
+                value: sla.completion_rate != null ? `${(sla.completion_rate * 100).toFixed(1)}%` : '—',
+              },
+            ].map(({ label, value }) => (
+              <div key={label} className="space-y-1">
+                <div className="text-[10px] font-bold text-muted uppercase tracking-wider">{label}</div>
+                <div className="text-lg font-bold text-bright font-mono">{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              { label: 'P50 Duration', value: sla.duration_p50_s != null ? `${sla.duration_p50_s}s` : '—' },
+              { label: 'P95 Duration', value: sla.duration_p95_s != null ? `${sla.duration_p95_s}s` : '—' },
+              {
+                label: 'SLA Met',
+                value: sla.uptime_sla_met === true ? '✓ Yes' : sla.uptime_sla_met === false ? '✗ No' : '—',
+                color: sla.uptime_sla_met === true ? 'text-emerald-400' : sla.uptime_sla_met === false ? 'text-red-400' : 'text-muted',
+              },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex justify-between items-center py-2 border-b border-border/30 last:border-0 sm:border-0">
+                <span className="text-xs text-muted">{label}</span>
+                <span className={`text-xs font-mono font-bold ${color || 'text-bright'}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Observability */}
+      {observability && (
+        <div className="bg-panel border border-border rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-bright mb-4 flex items-center gap-2">
+            <Eye className="w-4 h-4 text-accent" /> Observability
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              {
+                label: 'LangSmith',
+                value: observability.langsmith ?? '—',
+                color: observability.langsmith === 'ok' || observability.langsmith === 'healthy' ? 'text-emerald-400'
+                     : observability.langsmith === 'disabled' ? 'text-muted' : 'text-red-400',
+              },
+              { label: 'Traces Today', value: observability.traces_today ?? '—' },
+              { label: 'Last Trace ID', value: observability.last_trace_id ? observability.last_trace_id.slice(0, 16) + '…' : '—' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="space-y-1">
+                <div className="text-[10px] font-bold text-muted uppercase tracking-wider">{label}</div>
+                <div className={`text-sm font-bold font-mono ${color || 'text-bright'}`}>{value}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}

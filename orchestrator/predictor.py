@@ -34,7 +34,7 @@ class PipelinePredictor:
                 data = json.loads(row[0])
                 if data.get("stage") == stage:
                     durations.append(data.get("duration", 0))
-            except:
+            except (json.JSONDecodeError, TypeError, KeyError):
                 continue
         
         if len(durations) < 3:

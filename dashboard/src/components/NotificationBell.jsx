@@ -73,53 +73,69 @@ const NotificationBell = () => {
     return `${Math.floor(diff / 86400)}d ago`;
   };
 
+  const bellLabel = unread > 0
+    ? `Notifications — ${unread} unread`
+    : 'Notifications — no unread';
+
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(v => !v)}
+        aria-label={bellLabel}
+        aria-haspopup="true"
+        aria-expanded={open}
         className="relative p-1.5 text-muted hover:text-bright transition-colors"
-        title="Notifications"
       >
-        <Bell className="w-4 h-4" />
+        <Bell className="w-4 h-4" aria-hidden="true" />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center bg-danger text-white text-[9px] font-bold rounded-full px-1">
+          <span
+            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center bg-danger text-white text-[9px] font-bold rounded-full px-1"
+            aria-hidden="true"
+          >
             {unread > 99 ? '99+' : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-panel border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div
+          className="absolute right-0 top-full mt-2 w-80 bg-panel border border-border rounded-xl shadow-2xl z-50 overflow-hidden"
+          role="region"
+          aria-label="Notifications panel"
+        >
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="text-xs font-bold text-muted uppercase tracking-widest">Notifications</span>
+            <span className="text-xs font-bold text-muted uppercase tracking-widest" id="notif-heading">Notifications</span>
             {unread > 0 && (
               <button
                 onClick={handleMarkAllRead}
                 disabled={marking}
+                aria-label="Mark all notifications as read"
                 className="flex items-center gap-1 text-[10px] font-bold text-accent hover:text-accent/80 transition-colors disabled:opacity-50"
               >
-                <CheckCheck className="w-3 h-3" />
+                <CheckCheck className="w-3 h-3" aria-hidden="true" />
                 Mark all read
               </button>
             )}
           </div>
 
-          <div className="max-h-80 overflow-y-auto divide-y divide-border/50">
+          <div className="max-h-80 overflow-y-auto divide-y divide-border/50" role="list" aria-labelledby="notif-heading">
             {items.length === 0 ? (
-              <div className="px-4 py-8 text-center text-muted text-xs">No notifications yet.</div>
+              <div className="px-4 py-8 text-center text-muted text-xs" role="listitem">No notifications yet.</div>
             ) : items.map(n => (
               <button
                 key={n.id}
                 onClick={() => handleClick(n)}
+                role="listitem"
+                aria-label={`${n.is_read ? '' : 'Unread: '}${n.title}${n.message ? ` — ${n.message}` : ''}`}
                 className={`w-full text-left px-4 py-3 hover:bg-border/10 transition-colors flex items-start gap-3 ${!n.is_read ? 'bg-accent/5' : ''}`}
               >
-                <span className="text-sm mt-0.5 shrink-0">{TYPE_ICON[n.type] || TYPE_ICON.default}</span>
+                <span className="text-sm mt-0.5 shrink-0" aria-hidden="true">{TYPE_ICON[n.type] || TYPE_ICON.default}</span>
                 <div className="flex-1 min-w-0">
                   <div className={`text-xs font-semibold truncate ${!n.is_read ? 'text-bright' : 'text-muted'}`}>{n.title}</div>
                   {n.message && <div className="text-[11px] text-muted mt-0.5 truncate">{n.message}</div>}
                   <div className="text-[10px] text-muted/60 mt-1">{relativeTime(n.created_at)}</div>
                 </div>
-                {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 shrink-0" />}
+                {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 shrink-0" aria-hidden="true" />}
               </button>
             ))}
           </div>

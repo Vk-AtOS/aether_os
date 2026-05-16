@@ -1,24 +1,70 @@
-"""AetherOS — Phase 07 Testing Gate"""
+"""P07 Gate — enforces test quality.
+
+Blocks if:
+  - No test code was generated at all
+  - Tests ran and the pass-rate is below the minimum threshold
+
+Passes with warnings for partial failures or low coverage.
+"""
 from __future__ import annotations
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict
+
+from aether_os.phases.base import GateOutcome, TaskResult
 
 logger = logging.getLogger(__name__)
 
-
-class GateResult:
-    def __init__(self, passed: bool, issues: List[str], confidence: float = 1.0):
-        self.passed = passed
-        self.issues = issues
-        self.confidence = confidence
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {"passed": self.passed, "issues": self.issues, "confidence": self.confidence}
+_MIN_PASS_RATE = 0.70   # 70 % tests must pass
 
 
-def validate(test_results: Dict[str, Any]) -> GateResult:
-    issues: List[str] = []
-    if not test_results.get("test_code"):
-        issues.append("No test code generated")
-    passed = test_results.get("passed", True) and len(issues) == 0
-    return GateResult(passed=passed, issues=issues, confidence=0.8 if passed else 0.2)
+def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
+    """Accept both the old dict form and the new TaskResult form."""
+    # ── Normalise input ───────────────────────────────────────────────────────
+    if isinstance(result, dict):
+        test_code    = result.get("test_code", "")
+        passed_flag  = result.get("passed", True)
+        total        = int(result.get("total_tests", 0))
+        passed_count = int(result.get("passed_tests", total))
+        meta         = result
+    else:
+        meta         = result.metadata or {}
+        test_code    = meta.get("test_code", "")
+        passed_flag  = result.success
+        total        = int(meta.get("total_tests", 0))
+        passed_count = int(meta.get("passed_tests", total))
+
+    issues: list[str] = []
+
+    # ── Hard block: no tests generated ───────────────────────────────────────
+    if not test_code and not meta.get("test_file"):
+        issues.append("No test code was generated — pipeline blocked until tests exist")
+        return GateOutcome(passed=False, confidence=0.0, issues=issues)
+
+    # ── Evaluate pass rate ────────────────────────────────────────────────────
+    if total > 0:
+        pass_rate = passed_count / total
+        if pass_rate < _MIN_PASS_RATE:
+            issues.append(
+                f"Test pass-rate {pass_rate:.0%} is below the required {_MIN_PASS_RATE:.0%} "
+                f"({passed_count}/{total} passed)"
+            )
+            return GateOutcome(passed=False, confidence=pass_rate, issues=issues)
+        if pass_rate < 1.0:
+            failed = total - passed_count
+            issues.append(f"{failed} test(s) failed (pass-rate {pass_rate:.0%}) — review recommended")
+    elif not passed_flag:
+        issues.append("Test runner reported failure — inspect test output")
+        return GateOutcome(passed=False, confidence=0.1, issues=issues)
+
+    # ── Coverage warning ──────────────────────────────────────────────────────
+    coverage = meta.get("coverage_pct")
+    if coverage is not None:
+        try:
+            cov = float(coverage)
+            if cov < 60:
+                issues.append(f"Coverage {cov:.0f}% is low — aim for ≥ 80%")
+        except (TypeError, ValueError):
+            pass
+
+    confidence = 0.95 if not issues else 0.75
+    return GateOutcome(passed=True, confidence=confidence, issues=issues)

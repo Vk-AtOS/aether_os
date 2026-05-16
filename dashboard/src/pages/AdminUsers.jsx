@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { Users, Shield, CheckCircle2, XCircle, Search, UserPlus, RefreshCw, Copy, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { Users, Shield, CheckCircle2, XCircle, Search, UserPlus, RefreshCw, Copy, ChevronLeft, ChevronRight, Upload, Trash2, Loader2 } from 'lucide-react';
 
 const ROLES = ['owner', 'admin', 'member', 'viewer'];
 
@@ -30,6 +30,8 @@ const AdminUsers = () => {
   const [bulkCsv, setBulkCsv] = useState('');
   const [bulkStatus, setBulkStatus] = useState(null); // null | 'importing' | { ok, errors }
   const [bulkRole, setBulkRole] = useState('member');
+  const [pruning, setPruning] = useState(false);
+  const [pruneResult, setPruneResult] = useState(null);
 
   const LIMIT = 20;
 
@@ -155,6 +157,29 @@ const AdminUsers = () => {
     }
   };
 
+  const handlePruneArtifacts = async () => {
+    setPruneResult(null);
+    // Dry-run first to preview
+    setPruning('dry');
+    try {
+      const dryRes = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: true });
+      const { deleted_count, deleted_mb } = dryRes.data;
+      const confirmed = window.confirm(
+        deleted_count === 0
+          ? 'No artifacts older than 30 days found. Nothing to prune.'
+          : `Prune ${deleted_count} artifact file(s) (${deleted_mb} MB) older than 30 days?\n\nThis cannot be undone.`
+      );
+      if (!confirmed || deleted_count === 0) { setPruning(false); return; }
+      setPruning('running');
+      const res = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: false });
+      setPruneResult({ ok: true, ...res.data });
+    } catch (e) {
+      setPruneResult({ ok: false, message: e.response?.data?.detail || 'Prune failed.' });
+    } finally {
+      setPruning(false);
+    }
+  };
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -173,6 +198,15 @@ const AdminUsers = () => {
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
+            onClick={handlePruneArtifacts}
+            disabled={!!pruning}
+            className="flex items-center gap-2 bg-danger/10 hover:bg-danger/20 text-danger text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-danger/30 disabled:opacity-50"
+            title="Delete artifact files older than 30 days"
+          >
+            {pruning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            {pruning === 'dry' ? 'Checking…' : pruning === 'running' ? 'Pruning…' : 'Prune Artifacts'}
+          </button>
+          <button
             onClick={() => { setShowBulk(v => !v); setShowInvite(false); }}
             className="flex items-center gap-2 bg-border hover:bg-border/80 text-muted hover:text-bright text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-border"
           >
@@ -186,6 +220,19 @@ const AdminUsers = () => {
           </button>
         </div>
       </header>
+
+      {/* Prune result banner */}
+      {pruneResult && (
+        <div className={`flex items-start gap-3 p-4 rounded-xl border text-sm ${pruneResult.ok ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-danger'}`}>
+          {pruneResult.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+          <div>
+            {pruneResult.ok
+              ? <span>Pruned <strong>{pruneResult.deleted_count}</strong> file(s) — freed <strong>{pruneResult.deleted_mb} MB</strong>.</span>
+              : <span>{pruneResult.message}</span>}
+          </div>
+          <button onClick={() => setPruneResult(null)} className="ml-auto text-xs text-muted hover:text-bright">✕</button>
+        </div>
+      )}
 
       {/* Invite panel */}
       {showInvite && (
