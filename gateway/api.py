@@ -474,8 +474,13 @@ def create_app() -> FastAPI:
     api_router = APIRouter(prefix="/api")
 
     @app.get("/")
-    async def root_redirect():
-        """Redirect root to dashboard."""
+    async def root_landing():
+        """Serve the public landing page."""
+        _landing = os.path.join(
+            os.path.dirname(__file__), "../public/index.html"
+        )
+        if os.path.isfile(_landing):
+            return FileResponse(_landing, media_type="text/html")
         return RedirectResponse(url="/dashboard/")
 
     @app.get("/health")
@@ -488,6 +493,38 @@ def create_app() -> FastAPI:
             "service": "AetherOS API",
             "version": "1.0.0",
         }
+
+    @app.get("/system/metrics")
+    async def system_metrics() -> Dict[str, Any]:
+        """System resource metrics — CPU, memory, disk, Redis."""
+        result: Dict[str, Any] = {}
+        try:
+            import psutil
+            result["system"] = {
+                "cpu_pct":    psutil.cpu_percent(interval=0.1),
+                "mem_pct":    psutil.virtual_memory().percent,
+                "disk_pct":   psutil.disk_usage("/").percent,
+                "swap_pct":   psutil.swap_memory().percent,
+                "load_1m":    psutil.getloadavg()[0],
+                "load_5m":    psutil.getloadavg()[1],
+                "cpu_cores":  psutil.cpu_count(),
+            }
+        except Exception:
+            pass
+        try:
+            import redis.asyncio as _redis_mod
+            _r = _redis_mod.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+            info = await _r.info("all")
+            await _r.aclose()
+            result["redis"] = {
+                "used_memory_human":   info.get("used_memory_human"),
+                "connected_clients":   info.get("connected_clients"),
+                "uptime_in_seconds":   info.get("uptime_in_seconds"),
+            }
+        except Exception:
+            pass
+        result["latency_ms"] = 0
+        return result
 
     @app.post("/auth/register", response_model=LoginResponse)
     async def register(req: RegisterRequest, request: Request) -> LoginResponse:

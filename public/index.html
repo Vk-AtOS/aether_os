@@ -1,12 +1,562 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>AetherOS — Autonomous Software Factory</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AetherOS — Autonomous Software Factory</title>
+  <meta name="description" content="Type a requirement. Choose a domain. Get production-ready code, tests, and deployments — fully automated by AI agents." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d12;
+      --surface:  #13131a;
+      --panel:    #1a1a24;
+      --border:   #2a2a38;
+      --accent:   #6366f1;
+      --accent2:  #8b5cf6;
+      --bright:   #f0f0ff;
+      --muted:    #6b7280;
+      --success:  #10b981;
+      --warning:  #f59e0b;
+      --danger:   #ef4444;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--bright);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      height: 64px;
+      background: rgba(13,13,18,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.1rem; letter-spacing: 0.05em; }
+    .nav-logo svg { width: 32px; height: 32px; }
+    .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+    .nav-links a { font-size: 0.85rem; font-weight: 500; color: var(--muted); transition: color .2s; }
+    .nav-links a:hover { color: var(--bright); }
+    .nav-cta { display: flex; gap: .75rem; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; padding: 8px 18px; border-radius: 8px; cursor: pointer; transition: all .2s; letter-spacing: 0.04em; border: none; }
+    .btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--muted); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--bright); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #7c7ef5; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,.35); }
+    .btn-lg { font-size: 0.95rem; padding: 13px 28px; border-radius: 10px; }
+    .btn-xl { font-size: 1rem; padding: 15px 36px; border-radius: 12px; }
+
+    /* ── Hero ── */
+    .hero {
+      position: relative;
+      min-height: 90vh;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 6rem 2rem 4rem;
+      overflow: hidden;
+    }
+    .hero-glow {
+      position: absolute; top: -10%; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 800px;
+      background: radial-gradient(ellipse at center, rgba(99,102,241,.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.3);
+      color: #a5b4fc; font-size: 0.75rem; font-weight: 700;
+      padding: 6px 14px; border-radius: 999px; letter-spacing: 0.06em;
+      margin-bottom: 1.5rem; text-transform: uppercase;
+    }
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 900; line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(135deg, #f0f0ff 0%, #a5b4fc 60%, #c084fc 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      color: var(--muted); max-width: 600px; margin: 0 auto 2.5rem;
+    }
+    .hero-cta { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .hero-sub {
+      margin-top: 1.5rem;
+      font-size: 0.78rem; color: var(--muted);
+    }
+
+    /* ── Terminal demo ── */
+    .terminal-wrap {
+      max-width: 700px; margin: 4rem auto 0;
+      border-radius: 14px; overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    }
+    .terminal-bar {
+      background: var(--panel); padding: 10px 16px;
+      display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #ef4444; } .dot-y { background: #f59e0b; } .dot-g { background: #10b981; }
+    .terminal-body {
+      background: #0a0a10; padding: 1.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem; line-height: 2;
+    }
+    .t-prompt { color: #6366f1; } .t-cmd { color: #f0f0ff; }
+    .t-output { color: #6b7280; }
+    .t-phase { color: #10b981; } .t-warn { color: #f59e0b; }
+    .t-cursor { display: inline-block; width: 8px; height: 15px; background: #6366f1; animation: blink 1s infinite; vertical-align: middle; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* ── Features ── */
+    section { padding: 6rem 2rem; }
+    .section-label {
+      text-align: center; font-size: 0.7rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--accent); margin-bottom: 1rem;
+    }
+    .section-title {
+      text-align: center; font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 800; letter-spacing: -0.02em; margin-bottom: 1rem;
+    }
+    .section-sub {
+      text-align: center; font-size: 1rem; color: var(--muted);
+      max-width: 560px; margin: 0 auto 3.5rem;
+    }
+
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem; max-width: 1100px; margin: 0 auto;
+    }
+    .feature-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 16px; padding: 1.75rem;
+      transition: border-color .2s, transform .2s;
+    }
+    .feature-card:hover { border-color: rgba(99,102,241,.4); transform: translateY(-2px); }
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: 10px;
+      background: rgba(99,102,241,.15); border: 1px solid rgba(99,102,241,.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; margin-bottom: 1rem;
+    }
+    .feature-title { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+    .feature-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.7; }
+
+    /* ── How it works ── */
+    .steps-wrap { max-width: 900px; margin: 0 auto; }
+    .step {
+      display: flex; gap: 2rem; align-items: flex-start;
+      padding: 2rem 0; border-bottom: 1px solid var(--border);
+    }
+    .step:last-child { border-bottom: none; }
+    .step-num {
+      flex-shrink: 0; width: 48px; height: 48px;
+      border-radius: 12px; background: rgba(99,102,241,.15);
+      border: 1px solid rgba(99,102,241,.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; font-weight: 800; color: #a5b4fc;
+    }
+    .step-title { font-size: 1.05rem; font-weight: 700; margin-bottom: .4rem; }
+    .step-desc { font-size: 0.88rem; color: var(--muted); line-height: 1.7; }
+
+    /* ── Navigation guide ── */
+    .nav-guide {
+      background: var(--surface); border-radius: 20px;
+      border: 1px solid var(--border); padding: 2.5rem;
+      max-width: 1000px; margin: 0 auto;
+    }
+    .nav-guide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+    .nav-item {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.25rem;
+    }
+    .nav-item-header { display: flex; align-items: center; gap: 10px; margin-bottom: .6rem; }
+    .nav-item-icon { font-size: 1.2rem; }
+    .nav-item-name { font-weight: 700; font-size: 0.9rem; }
+    .nav-item-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.6; }
+    .nav-item-badge {
+      display: inline-block; font-size: 0.6rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .06em;
+      padding: 2px 7px; border-radius: 999px; margin-left: 6px;
+    }
+    .badge-admin { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+    .badge-new { background: rgba(16,185,129,.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,.3); }
+
+    /* ── Pricing preview ── */
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; max-width: 900px; margin: 0 auto; }
+    .price-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 16px; padding: 2rem; position: relative;
+    }
+    .price-card.featured {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent), 0 8px 32px rgba(99,102,241,.2);
+    }
+    .price-badge {
+      position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #fff; font-size: 0.65rem; font-weight: 800;
+      padding: 4px 14px; border-radius: 999px; letter-spacing: .06em; text-transform: uppercase;
+    }
+    .price-name { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+    .price-amount { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.02em; margin-bottom: .25rem; }
+    .price-period { font-size: 0.78rem; color: var(--muted); margin-bottom: 1.5rem; }
+    .price-features { list-style: none; margin-bottom: 1.75rem; }
+    .price-features li { font-size: 0.82rem; color: var(--muted); padding: .35rem 0; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .price-features li:last-child { border-bottom: none; }
+    .check { color: var(--success); font-weight: 700; }
+
+    /* ── CTA banner ── */
+    .cta-banner {
+      text-align: center;
+      background: linear-gradient(135deg, rgba(99,102,241,.12) 0%, rgba(139,92,246,.08) 100%);
+      border: 1px solid rgba(99,102,241,.2); border-radius: 24px;
+      padding: 5rem 2rem; max-width: 800px; margin: 0 auto;
+    }
+    .cta-banner h2 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 800; letter-spacing: -0.02em; margin-bottom: 1rem; }
+    .cta-banner p { color: var(--muted); margin-bottom: 2rem; font-size: 1rem; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 2rem;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 1rem;
+    }
+    .footer-left { font-size: 0.8rem; color: var(--muted); }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { font-size: 0.78rem; color: var(--muted); transition: color .2s; }
+    .footer-links a:hover { color: var(--bright); }
+
+    /* ── Stats row ── */
+    .stats-row { display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap; margin: 3rem auto 0; }
+    .stat { text-align: center; }
+    .stat-val { font-size: 2rem; font-weight: 900; letter-spacing: -0.02em; background: linear-gradient(135deg, #a5b4fc, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-label { font-size: 0.78rem; color: var(--muted); margin-top: .25rem; }
+
+    @media (max-width: 640px) {
+      nav .nav-links { display: none; }
+      .hero h1 { font-size: 2.4rem; }
+      .step { flex-direction: column; gap: 1rem; }
+    }
+  </style>
 </head>
 <body>
-    <h1>Type a requirement. Choose a domain. Get production code.</h1>
-    <div id="demo-terminal"></div>
-    <!-- ... sections ... -->
+
+<!-- ── Nav ─────────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-logo">
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="20,3 36,12 36,28 20,37 4,28 4,12" fill="none" stroke="#6366f1" stroke-width="2"/>
+      <polygon points="20,10 29,15 29,25 20,30 11,25 11,15" fill="#6366f1" opacity="0.2"/>
+      <circle cx="20" cy="20" r="4.5" fill="#6366f1"/>
+    </svg>
+    AetherOS
+  </div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#navigation">Navigation guide</a>
+    <a href="#pricing">Pricing</a>
+    <a href="https://github.com/AetherOS" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div class="nav-cta">
+    <a href="/dashboard/login" class="btn btn-outline">Sign In</a>
+    <a href="/dashboard/signup" class="btn btn-primary">Start Free Trial</a>
+  </div>
+</nav>
+
+<!-- ── Hero ─────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div style="position:relative;z-index:1;width:100%">
+    <div class="hero-badge">
+      <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#6366f1"/></svg>
+      Autonomous Software Factory · Now in Early Access
+    </div>
+    <h1>Type a requirement.<br/>Get production code.</h1>
+    <p>
+      AetherOS runs a 12-phase AI pipeline — from requirements to deployment —
+      so your team ships faster without cutting corners.
+    </p>
+    <div class="hero-cta">
+      <a href="/dashboard/signup" class="btn btn-primary btn-xl">Start for Free &rarr;</a>
+      <a href="/dashboard/login" class="btn btn-outline btn-xl">Sign In</a>
+    </div>
+    <p class="hero-sub">No credit card · 3 free factory runs · Cancel anytime</p>
+
+    <div class="stats-row">
+      <div class="stat"><div class="stat-val">12</div><div class="stat-label">Pipeline phases</div></div>
+      <div class="stat"><div class="stat-val">100%</div><div class="stat-label">Automated</div></div>
+      <div class="stat"><div class="stat-val">3</div><div class="stat-label">Free trial runs</div></div>
+    </div>
+
+    <div class="terminal-wrap">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:.75rem;color:#6b7280;margin-left:8px">aetheros factory run</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-prompt">$ </span><span class="t-cmd">aetheros run "SaaS CRM with billing and Slack notifications"</span></div>
+        <div class="t-output">▸ Creating factory run aether-7f3k9…</div>
+        <div class="t-phase">✓ P00 Intake          — requirements parsed &amp; scoped</div>
+        <div class="t-phase">✓ P01 Requirements    — spec locked, domain: web-saas</div>
+        <div class="t-phase">✓ P02 Architecture    — 4 microservices, PostgreSQL, Redis</div>
+        <div class="t-phase">✓ P03 API Design      — 42 endpoints, OpenAPI spec generated</div>
+        <div class="t-phase">✓ P04 Implementation  — 12,400 lines, 0 lint errors</div>
+        <div class="t-phase">✓ P05 Testing         — 147 tests, 94% coverage</div>
+        <div class="t-phase">✓ P06 Security        — OWASP scan clean</div>
+        <div class="t-phase">✓ P07 Deployment      — Docker + K8s manifests ready</div>
+        <div class="t-output">▸ Artifacts zipped → run aether-7f3k9/output.zip</div>
+        <div class="t-output">▸ Cost: $0.31 · Time: 4m 12s</div>
+        <div><span class="t-prompt">$ </span><span class="t-cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ─────────────────────────────────────────────────────────── -->
+<section id="features" style="background:var(--surface)">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">Everything a software team needs</h2>
+  <p class="section-sub">From a single sentence to a fully deployed application — no hand-holding required.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <div class="feature-title">12-Phase AI Pipeline</div>
+      <div class="feature-desc">Intake → Requirements → Architecture → API Design → Implementation → Testing → Security → QA → Documentation → Deployment → Monitoring → Maintenance</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔍</div>
+      <div class="feature-title">Multi-LLM Intelligence Hub</div>
+      <div class="feature-desc">Connect Anthropic Claude, Google Gemini, OpenRouter, or a local Ollama model. Switch providers per phase for cost and quality optimisation.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔒</div>
+      <div class="feature-title">Enterprise Security</div>
+      <div class="feature-desc">SSO (SAML, Google, GitHub), MFA, RBAC, SCIM provisioning, GDPR-compliant data handling, and automated OWASP scanning on every run.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📦</div>
+      <div class="feature-title">Artifact Marketplace</div>
+      <div class="feature-desc">Reuse components, skills, and connectors across projects. Browse community-shared templates or publish your own to the private registry.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🖥️</div>
+      <div class="feature-title">CLI + VS Code Extension</div>
+      <div class="feature-desc">Run pipelines from your terminal with <code style="font-family:monospace;font-size:.8em;background:#1a1a24;padding:2px 6px;border-radius:4px">aetheros run</code> or watch live logs directly inside VS Code — no browser required.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔗</div>
+      <div class="feature-title">Codebase Ingestion</div>
+      <div class="feature-desc">Connect your GitHub, GitLab, or SSH server — AetherOS reads your existing codebase and uses it as context for every new feature or refactor.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <div class="feature-title">Cost &amp; Token Dashboard</div>
+      <div class="feature-desc">Real-time spend tracking per run, per project, and per user. Budget alerts, provider cost comparison, and full audit logs.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🚀</div>
+      <div class="feature-title">Deployment Tracker</div>
+      <div class="feature-desc">Track every deployment target — Docker, Kubernetes, Vercel, and SSH targets. One-click re-deploy from any run artifact.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <div class="feature-title">Memory &amp; Learning</div>
+      <div class="feature-desc">AetherOS remembers your architectural decisions, naming conventions, and quality thresholds — improving output quality across every subsequent run.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How it works ──────────────────────────────────────────────────────── -->
+<section id="how-it-works">
+  <div class="section-label">How it works</div>
+  <h2 class="section-title">From prompt to production in minutes</h2>
+  <p class="section-sub">No boilerplate. No scaffolding. No meetings about meetings.</p>
+  <div class="steps-wrap">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div>
+        <div class="step-title">Describe what you want to build</div>
+        <div class="step-desc">Write a plain-English requirement in the dashboard or CLI. You can also paste a GitHub/GitLab URL so AetherOS reads your existing codebase as context before starting.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div>
+        <div class="step-title">AetherOS runs the 12-phase pipeline</div>
+        <div class="step-desc">Specialised AI agents handle each phase: requirements locking, architecture design, API spec generation, full implementation, automated testing, OWASP security scan, and production-ready deployment manifests.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div>
+        <div class="step-title">Download or deploy your artifact</div>
+        <div class="step-desc">When the pipeline passes the quality gate, download a clean ZIP of your code, tests, Dockerfile, and docs — or deploy directly from the Deployments tab.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div>
+        <div class="step-title">Iterate with feedback</div>
+        <div class="step-desc">Use the Client Portal to collect stakeholder feedback, then re-run specific phases. Memory ensures each iteration gets smarter.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Navigation guide ──────────────────────────────────────────────────── -->
+<section id="navigation" style="background:var(--surface)">
+  <div class="section-label">Navigation Guide</div>
+  <h2 class="section-title">What's where in the dashboard</h2>
+  <p class="section-sub">A quick map so you can navigate like a pro from day one.</p>
+  <div class="nav-guide">
+    <div class="nav-guide-grid">
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">🏠</span><span class="nav-item-name">Dashboard</span></div>
+        <div class="nav-item-desc">Live overview of active runs, token spend, and pipeline status. Kill switch for emergency stops.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">✨</span><span class="nav-item-name">New Project</span></div>
+        <div class="nav-item-desc">Start a new factory run — choose your domain, describe the app, attach a repo, pick your LLM.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">📋</span><span class="nav-item-name">Projects</span></div>
+        <div class="nav-item-desc">Browse all past and active runs. Filter by status, date, or cost. Click any run to see phase-by-phase output.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">🔎</span><span class="nav-item-name">Search</span></div>
+        <div class="nav-item-desc">Full-text search across all runs, artifacts, and logs. Press ⌘K anywhere for the quick search palette.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">🚀</span><span class="nav-item-name">Deployments</span><span class="nav-item-badge badge-new">New</span></div>
+        <div class="nav-item-desc">Track deployment targets and statuses. Trigger re-deploys from any run artifact.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">🏪</span><span class="nav-item-name">Marketplace</span></div>
+        <div class="nav-item-desc">Browse and install community plugins, skills, and connector templates into your projects.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">💡</span><span class="nav-item-name">Intelligence Hub</span></div>
+        <div class="nav-item-desc">AI self-assessment: quality benchmark scores, architecture violations, tradeoff analysis, and output validation.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">📡</span><span class="nav-item-name">System Health</span><span class="nav-item-badge badge-new">New</span></div>
+        <div class="nav-item-desc">Live service health — API gateway, database, Redis, LLM provider, sandbox. CPU/memory metrics refresh every 15s.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">⚙️</span><span class="nav-item-name">Settings</span></div>
+        <div class="nav-item-desc">Add LLM API keys (Anthropic, Gemini, OpenRouter), configure org name, webhooks, and SSO.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">🛡️</span><span class="nav-item-name">Compliance</span></div>
+        <div class="nav-item-desc">GDPR data export &amp; deletion, audit trail, policy framework, and compliance report generation.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">🧰</span><span class="nav-item-name">Tools</span></div>
+        <div class="nav-item-desc">Connectors, Skills, Memory inspector, Cost dashboard, Webhooks, Frontend Builder, Backend Builder, Prompt sandbox, Learning centre.</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-item-header"><span class="nav-item-icon">👑</span><span class="nav-item-name">Admin</span><span class="nav-item-badge badge-admin">Admin only</span></div>
+        <div class="nav-item-desc">User management, role assignment, billing &amp; plan upgrades, audit log export.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Pricing preview ──────────────────────────────────────────────────── -->
+<section id="pricing">
+  <div class="section-label">Pricing</div>
+  <h2 class="section-title">Start free, grow when you're ready</h2>
+  <p class="section-sub">All prices in INR. Cancel anytime. No lock-in.</p>
+  <div class="pricing-grid">
+    <div class="price-card">
+      <div class="price-name">Trial</div>
+      <div class="price-amount">Free</div>
+      <div class="price-period">No credit card required</div>
+      <ul class="price-features">
+        <li><span class="check">✓</span> 3 complete factory runs</li>
+        <li><span class="check">✓</span> All 12 pipeline phases</li>
+        <li><span class="check">✓</span> Local Ollama support</li>
+        <li><span class="check">✓</span> CLI + VS Code extension</li>
+        <li><span class="check">✓</span> Community support</li>
+      </ul>
+      <a href="/dashboard/signup" class="btn btn-outline" style="width:100%;justify-content:center">Get Started Free</a>
+    </div>
+    <div class="price-card featured">
+      <div class="price-badge">Most Popular</div>
+      <div class="price-name">Pro</div>
+      <div class="price-amount">₹999</div>
+      <div class="price-period">per month · billed monthly</div>
+      <ul class="price-features">
+        <li><span class="check">✓</span> Unlimited factory runs</li>
+        <li><span class="check">✓</span> All LLM providers</li>
+        <li><span class="check">✓</span> GitHub / GitLab ingestion</li>
+        <li><span class="check">✓</span> Priority queue</li>
+        <li><span class="check">✓</span> Email support</li>
+      </ul>
+      <a href="/dashboard/pricing" class="btn btn-primary" style="width:100%;justify-content:center">Upgrade to Pro</a>
+    </div>
+    <div class="price-card">
+      <div class="price-name">Enterprise</div>
+      <div class="price-amount">₹4,999</div>
+      <div class="price-period">per month · per org</div>
+      <ul class="price-features">
+        <li><span class="check">✓</span> Everything in Pro</li>
+        <li><span class="check">✓</span> SSO (SAML / Okta / Azure AD)</li>
+        <li><span class="check">✓</span> SCIM provisioning</li>
+        <li><span class="check">✓</span> SLA + dedicated support</li>
+        <li><span class="check">✓</span> On-prem deployment option</li>
+      </ul>
+      <a href="mailto:sales@aetheros.ai" class="btn btn-outline" style="width:100%;justify-content:center">Contact Sales</a>
+    </div>
+  </div>
+  <p style="text-align:center;font-size:.78rem;color:var(--muted);margin-top:2rem">Full feature comparison → <a href="/dashboard/pricing" style="color:var(--accent)">Pricing page</a></p>
+</section>
+
+<!-- ── CTA ──────────────────────────────────────────────────────────────── -->
+<section style="background:var(--surface)">
+  <div class="cta-banner">
+    <h2>Ready to ship faster?</h2>
+    <p>Create your account in 30 seconds and run your first AI factory pipeline — free.</p>
+    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+      <a href="/dashboard/signup" class="btn btn-primary btn-xl">Start Free Trial &rarr;</a>
+      <a href="/dashboard/login" class="btn btn-outline btn-xl">Sign In</a>
+    </div>
+    <p style="margin-top:1.25rem;font-size:.78rem;color:var(--muted)">Already have an account? <a href="/dashboard/login" style="color:var(--accent)">Sign in →</a></p>
+  </div>
+</section>
+
+<!-- ── Footer ──────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-left">
+    © 2026 VKatOS Private Limited · AetherOS Factory v1.0
+  </div>
+  <div class="footer-links">
+    <a href="/dashboard/legal?doc=tos">Terms of Service</a>
+    <a href="/dashboard/legal?doc=privacy">Privacy Policy</a>
+    <a href="/dashboard/legal?doc=dpa">DPA</a>
+    <a href="mailto:support@aetheros.ai">Support</a>
+    <a href="/api/health">API Status</a>
+  </div>
+</footer>
+
 </body>
 </html>
