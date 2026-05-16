@@ -81,7 +81,7 @@ const PhaseConfigPanel = ({ phase, config, onSave }) => {
 };
 
 const Settings = () => {
-  const { updateLlmConfig: ctxUpdateLlmConfig } = useSettings();
+  const { updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
   const [expandedPhase, setExpandedPhase] = useState(null);
@@ -99,7 +99,7 @@ const Settings = () => {
   const [councilSaveStatus, setCouncilSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [llmConfig, setLlmConfig] = useState({
     openrouter_heavy_model: 'minimax/minimax-m2.5:free',
-    openrouter_light_model: 'mistralai/mistral-7b-instruct:free',
+    openrouter_light_model: 'meta-llama/llama-3.3-70b-instruct:free',
     openrouter_fallback_models: [],
   });
   const [availableModels, setAvailableModels] = useState({});
@@ -221,6 +221,8 @@ const Settings = () => {
       await api.saveApiKeys(provider, key);
       setKeyStatus(s => ({ ...s, [provider]: 'saved' }));
       setTimeout(() => setKeyStatus(s => ({ ...s, [provider]: null })), 3000);
+      // Re-fetch LLM config so TopBar/Sidebar reflect the new active provider immediately
+      ctxReload();
     } catch (err) {
       setKeyStatus(s => ({ ...s, [provider]: 'error' }));
     }
@@ -441,7 +443,7 @@ const Settings = () => {
                 <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
                 <p className="text-[10px] text-indigo-200">
                   Keys are stored in your local .env file and never leave your server. Restart the factory service to apply changes.
-                  OpenRouter provides 5 free models including DeepSeek-R1 and Llama 4.
+                  OpenRouter provides free models including MiniMax M2.5, Llama 3.3 70B, Qwen3-Coder, and more.
                 </p>
               </div>
             </div>

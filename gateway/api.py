@@ -3129,7 +3129,10 @@ def create_app() -> FastAPI:
             try:
                 from aether_os.core.llm.openrouter_client import call_openrouter
                 result = await asyncio.wait_for(
-                    call_openrouter("say hi", task_type="classify", max_tokens=10),
+                    call_openrouter(
+                        "say hi", task_type="classify", max_tokens=10,
+                        model="minimax/minimax-m2.5:free",
+                    ),
                     timeout=15.0,
                 )
                 return {"success": True, "provider": "openrouter", "message": "Connected", "response": result[:50]}
@@ -3162,7 +3165,7 @@ def create_app() -> FastAPI:
             "anthropic_model": env_vars.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
             "openrouter_heavy_model": env_vars.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
-            "openrouter_light_model": env_vars.get("OPENROUTER_LIGHT_MODEL", "mistralai/mistral-7b-instruct:free"),
+            "openrouter_light_model": env_vars.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
             "openrouter_prefer_paid": env_vars.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
             "openrouter_fallback_models": fallback_list,
             "active_model": _live_model,  # e.g. "openrouter/deepseek/deepseek-r1:free" after first call

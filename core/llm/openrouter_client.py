@@ -3,20 +3,27 @@ AetherOS — OpenRouter LLM Client
 
 OpenAI-compatible REST API at https://openrouter.ai/api/v1
 
-Free model catalogue (5 free, 2 paid):
-  deepseek/deepseek-r1:free          — top-tier reasoning, strong for code
-  meta-llama/llama-4-maverick:free   — Llama 4 multimodal, strong reasoning
-  meta-llama/llama-4-scout:free      — Llama 4 lightweight, fast for light tasks
-  mistralai/mistral-7b-instruct:free — fast, efficient for light tasks
-  google/gemma-3-27b-it:free         — balanced free model
-  anthropic/claude-3.5-sonnet        — paid, production heavy tasks
-  google/gemini-2.5-pro              — paid, advanced reasoning
+Live free model catalogue (verified 2026-05-16 against openrouter.ai/api/v1/models):
+  minimax/minimax-m2.5:free             — best free model for code generation
+  meta-llama/llama-3.3-70b-instruct:free — strong general + code
+  qwen/qwen3-coder:free                 — code-specialised
+  nvidia/nemotron-3-super-120b-a12b:free — 120B, strong reasoning
+  deepseek/deepseek-v4-flash:free       — fast, reasoning
+  nousresearch/hermes-3-llama-3.1-405b:free — 405B, very capable
+  meta-llama/llama-3.2-3b-instruct:free — small/fast for light tasks
+  google/gemma-4-27b-it:free            — balanced free model
+
+Previously available models that are now 404 (do NOT use):
+  deepseek/deepseek-r1:free, meta-llama/llama-4-maverick:free,
+  meta-llama/llama-4-scout:free, google/gemma-3-27b-it:free,
+  qwen/qwen3-235b-a22b:free, microsoft/phi-4:free,
+  mistralai/mistral-7b-instruct:free, nvidia/llama-3.1-nemotron-70b-instruct:free
 
 Task routing:
   Heavy (code_generation, security_scan, testing, architecture, review):
-    → OPENROUTER_HEAVY_MODEL (default: deepseek/deepseek-r1:free)
+    → OPENROUTER_HEAVY_MODEL (default: minimax/minimax-m2.5:free)
   Light (requirements, documentation, summarize, classify, intake):
-    → OPENROUTER_LIGHT_MODEL (default: mistralai/mistral-7b-instruct:free)
+    → OPENROUTER_LIGHT_MODEL (default: meta-llama/llama-3.3-70b-instruct:free)
 """
 from __future__ import annotations
 
@@ -29,29 +36,29 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://openrouter.ai/api/v1"
 
 OPENROUTER_MODELS = {
-    # Free models — copy model ID from openrouter.ai/models
-    "minimax-m2.5-free":    "minimax/minimax-m2.5:free",
-    "deepseek-r1-free":     "deepseek/deepseek-r1:free",
-    "deepseek-v3-free":     "deepseek/deepseek-chat-v3-5:free",
-    "llama4-maverick-free": "meta-llama/llama-4-maverick:free",
-    "llama4-scout-free":    "meta-llama/llama-4-scout:free",
-    "llama33-70b-free":     "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen3-235b-free":      "qwen/qwen3-235b-a22b:free",
-    "qwen3-30b-free":       "qwen/qwen3-30b-a3b:free",
-    "mistral-free":         "mistralai/mistral-7b-instruct:free",
-    "gemma3-27b-free":      "google/gemma-3-27b-it:free",
-    "gemma3-12b-free":      "google/gemma-3-12b-it:free",
-    "phi4-free":            "microsoft/phi-4:free",
-    "nemotron-free":        "nvidia/llama-3.1-nemotron-70b-instruct:free",
-    # Paid models
-    "claude-sonnet-4-6":    "anthropic/claude-sonnet-4-6",
-    "claude35-sonnet":      "anthropic/claude-3.5-sonnet",
-    "gemini25-pro":         "google/gemini-2.5-pro",
-    "gpt4o":                "openai/gpt-4o",
+    # ── Free models (verified available 2026-05-16) ───────────────────────
+    "minimax-m2.5-free":      "minimax/minimax-m2.5:free",
+    "llama33-70b-free":       "meta-llama/llama-3.3-70b-instruct:free",
+    "llama32-3b-free":        "meta-llama/llama-3.2-3b-instruct:free",
+    "qwen3-coder-free":       "qwen/qwen3-coder:free",
+    "qwen3-80b-free":         "qwen/qwen3-next-80b-a3b-instruct:free",
+    "nemotron-super-120b":    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nemotron-nano-9b":       "nvidia/nemotron-nano-9b-v2:free",
+    "deepseek-v4-flash-free": "deepseek/deepseek-v4-flash:free",
+    "hermes3-405b-free":      "nousresearch/hermes-3-llama-3.1-405b:free",
+    "gemma4-27b-free":        "google/gemma-4-27b-it:free",
+    "gemma4-31b-free":        "google/gemma-4-31b-it:free",
+    "gpt-oss-120b-free":      "openai/gpt-oss-120b:free",
+    "gpt-oss-20b-free":       "openai/gpt-oss-20b:free",
+    # ── Paid models ───────────────────────────────────────────────────────
+    "claude-sonnet-4-6":      "anthropic/claude-sonnet-4-6",
+    "claude35-sonnet":        "anthropic/claude-3.5-sonnet",
+    "gemini25-pro":           "google/gemini-2.5-pro",
+    "gpt4o":                  "openai/gpt-4o",
 }
 
-_DEFAULT_HEAVY = "deepseek/deepseek-r1:free"
-_DEFAULT_LIGHT  = "mistralai/mistral-7b-instruct:free"
+_DEFAULT_HEAVY = "minimax/minimax-m2.5:free"
+_DEFAULT_LIGHT  = "meta-llama/llama-3.3-70b-instruct:free"
 
 _HEAVY_TASKS = {"code_generation", "security_scan", "testing", "architecture", "review"}
 
