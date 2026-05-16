@@ -48,8 +48,9 @@ export const SettingsProvider = ({ children }) => {
   }, []);
 
   // Derived helpers consumed by TopBar, Sidebar, etc.
-  const activeProvider = llmConfig?.provider || llmConfig?.active_provider || 'openrouter';
-  const activeModel = llmConfig?.primary_model || llmConfig?.model || '—';
+  // API returns primary_llm (the configured provider) and active_model (last successful call).
+  const activeProvider = llmConfig?.primary_llm || llmConfig?.provider || llmConfig?.active_provider || 'anthropic';
+  const activeModel = llmConfig?.active_model || llmConfig?.primary_model || llmConfig?.model || '—';
   const orgName = orgSettings?.org_name || '';
   const plan = orgSettings?.plan || 'free';
 
