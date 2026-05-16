@@ -43,9 +43,12 @@ class ModelSpec:
 
 _DEFAULT_FALLBACK_MODELS = (
     "minimax/minimax-m2.5:free,"
-    "deepseek/deepseek-r1:free,"
-    "meta-llama/llama-4-maverick:free,"
-    "mistralai/mistral-7b-instruct:free"
+    "meta-llama/llama-3.3-70b-instruct:free,"
+    "qwen/qwen3-coder:free,"
+    "nvidia/nemotron-3-super-120b-a12b:free,"
+    "deepseek/deepseek-v4-flash:free,"
+    "nousresearch/hermes-3-llama-3.1-405b:free,"
+    "meta-llama/llama-3.2-3b-instruct:free"
 )
 
 
