@@ -5,8 +5,14 @@ import {
   TrendingUp, Shield, Scale, Lightbulb, Brain, ChevronDown, ChevronRight,
 } from 'lucide-react';
 
+// API returns scores either as 0-1 fractions OR 0-100 integers — normalise either way
+const normPct = (score) => {
+  if (score == null) return 0;
+  return score > 1 ? Math.round(score) : Math.round(score * 100);
+};
+
 const ScoreBadge = ({ score }) => {
-  const pct = Math.round((score ?? 0) * 100);
+  const pct = normPct(score);
   const color = pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-yellow-400' : 'text-red-400';
   return (
     <span className={`text-2xl font-bold font-mono tabular-nums ${color}`}>{pct}<span className="text-base">%</span></span>
@@ -94,9 +100,9 @@ const IntelligenceHub = () => {
       .catch(e => setE('benchmark', e.response?.data?.detail || 'Failed'))
       .finally(() => setL('benchmark', false));
 
-    // Arch governor (no run_id = global review)
+    // Arch governor (POST, run_id=global for platform-wide review)
     setL('arch', true);
-    api.client.get('/intelligence/arch-governor/review', { params: { run_id: 'global' } })
+    api.client.post('/intelligence/arch-governor/review', { run_id: 'global' })
       .then(r => setArchReview(r.data))
       .catch(e => setE('arch', e.response?.data?.detail || 'Failed'))
       .finally(() => setL('arch', false));
@@ -190,7 +196,7 @@ const IntelligenceHub = () => {
                   .filter(([k]) => !['overall_score','score'].includes(k))
                   .slice(0, 6)
                   .map(([k, v]) => {
-                    const pct = typeof v === 'number' ? Math.round(v * 100) : null;
+                    const pct = typeof v === 'number' ? normPct(v) : null;
                     return (
                       <div key={k} className="space-y-1">
                         <div className="flex justify-between items-center">

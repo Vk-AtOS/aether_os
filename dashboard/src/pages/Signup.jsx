@@ -141,18 +141,26 @@ const Signup = () => {
           {/* Legal checkboxes */}
           <div className="space-y-3 pt-1">
             {[
-              { key: 'terms_accepted', label: <>I accept the <a href="/legal?doc=tos" target="_blank" className="text-accent underline underline-offset-2">Terms of Service</a></> },
-              { key: 'dpa_accepted',   label: <>I accept the <a href="/legal?doc=dpa" target="_blank" className="text-accent underline underline-offset-2">Data Processing Agreement</a> (GDPR Art. 28)</> },
-            ].map(({ key, label }) => (
-              <label key={key} className="flex items-start gap-3 cursor-pointer group">
-                <div className={`w-4 h-4 mt-0.5 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
-                  form[key] ? 'bg-accent border-accent' : 'border-border group-hover:border-accent/60'
-                }`}>
+              { key: 'terms_accepted', doc: 'tos', linkText: 'Terms of Service', suffix: '' },
+              { key: 'dpa_accepted',   doc: 'dpa', linkText: 'Data Processing Agreement', suffix: ' (GDPR Art. 28)' },
+            ].map(({ key, doc, linkText, suffix }) => (
+              <div key={key} className="flex items-start gap-3">
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, [key]: !f[key] }))}
+                  aria-checked={form[key]}
+                  role="checkbox"
+                  className={`w-4 h-4 mt-0.5 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
+                    form[key] ? 'bg-accent border-accent' : 'border-border hover:border-accent/60'
+                  }`}>
                   {form[key] && <CheckCircle2 className="w-3 h-3 text-white" />}
-                </div>
-                <input type="checkbox" checked={form[key]} onChange={set(key)} className="sr-only" />
-                <span className="text-xs text-muted">{label}</span>
-              </label>
+                </button>
+                <span className="text-xs text-muted">
+                  I accept the{' '}
+                  <a href={`/legal?doc=${doc}`} target="_blank" rel="noopener noreferrer"
+                    className="text-accent underline underline-offset-2">{linkText}</a>
+                  {suffix}
+                </span>
+              </div>
             ))}
           </div>
 

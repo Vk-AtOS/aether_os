@@ -1,5 +1,10 @@
 # AetherOS .gitignore
 
+# Playwright test artifacts
+.playwright-mcp/
+test-*.png
+console-*.log
+
 # Environment and secrets
 .env
 .env.*
