@@ -91,8 +91,12 @@ const SearchPage = () => {
   }, []);
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') doSearch(query);
     if (e.key === 'Escape') { setQuery(''); setResults([]); setSearched(false); }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    doSearch(query);
   };
 
   return (
@@ -102,23 +106,30 @@ const SearchPage = () => {
         <h1 className="text-2xl font-bold text-bright flex items-center gap-2">
           <Search className="w-6 h-6 text-accent" /> Global Search
         </h1>
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search runs, requirements, projects…"
-            className="w-full bg-panel border border-border rounded-xl pl-10 pr-10 py-3 text-sm text-bright placeholder-muted focus:outline-none focus:border-accent transition-colors"
-          />
-          {query && (
-            <button onClick={() => { setQuery(''); setResults([]); setSearched(false); inputRef.current?.focus(); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-bright transition-colors">
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        <form onSubmit={handleSubmit} className="relative flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search runs, requirements, projects…"
+              className="w-full bg-panel border border-border rounded-xl pl-10 pr-10 py-3 text-sm text-bright placeholder-muted focus:outline-none focus:border-accent transition-colors"
+            />
+            {query && (
+              <button type="button" onClick={() => { setQuery(''); setResults([]); setSearched(false); inputRef.current?.focus(); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-bright transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <button type="submit"
+            className="px-5 py-3 bg-accent hover:bg-accent/80 text-white text-sm font-semibold rounded-xl transition-colors flex items-center gap-2 shrink-0">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Search
+          </button>
+        </form>
         <p className="text-xs text-muted">Press <kbd className="font-mono bg-border/30 rounded px-1">Enter</kbd> to search · <kbd className="font-mono bg-border/30 rounded px-1">Esc</kbd> to clear</p>
       </div>
 
