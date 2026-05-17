@@ -45,6 +45,15 @@ _DOMAIN_KEYWORDS = {
     "category":  ("categories", ["id", "name", "description", "parent_id"]),
     "inventory": ("inventory", ["id", "product_id", "quantity", "location"]),
     "report":    ("reports",  ["id", "title", "data", "generated_by", "created_at"]),
+    # CRM-specific
+    "contact":   ("contacts", ["id", "name", "email", "phone", "company", "type", "tags", "created_at"]),
+    "deal":      ("deals",    ["id", "contact_id", "title", "value", "stage", "probability", "close_date", "assigned_to"]),
+    "lead":      ("leads",    ["id", "name", "email", "source", "status", "score", "created_at"]),
+    "pipeline":  ("pipeline_stages", ["id", "name", "order_num", "win_probability"]),
+    "activity":  ("activities", ["id", "contact_id", "type", "notes", "occurred_at", "user_id"]),
+    "account":   ("accounts", ["id", "name", "industry", "website", "revenue", "created_at"]),
+    "segment":   ("segments", ["id", "name", "criteria", "contact_count", "created_at"]),
+    "crm":       ("contacts", ["id", "name", "email", "phone", "company", "type", "tags", "created_at"]),
 }
 
 _STOP_WORDS = {
@@ -254,7 +263,9 @@ class BackendCodegenAgent:
             f"- Before each domain-specific logic, include '# Domain pattern: {{name}} — {{why used}}' comments\n"
             f"- Include security comments like '# Security: why this pattern is required for this domain'\n"
             f"- Use Pydantic v2 BaseModel for request/response bodies\n"
-            f"- Use in-memory list/dict storage (no DB driver needed)\n"
+            f"- Use SQLite via Python's stdlib sqlite3 for persistence\n"
+            f"- On startup call a create_tables() function that runs CREATE TABLE IF NOT EXISTS for each resource\n"
+            f"- Store the DB at './data.db'; use sqlite3.connect('./data.db') in each route\n"
             f"- Include CORS middleware\n"
             f"{rules_str}\n"
             f"- No placeholder comments like 'TODO' or 'implement this'\n"
@@ -426,40 +437,66 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             'def idempotent(func):\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n'
         )
 
+    col_defs_sql = ", ".join(
+        f"{c} TEXT" if not c.endswith("_id") and c != "id" else
+        ("id INTEGER PRIMARY KEY AUTOINCREMENT" if c == "id" else f"{c} INTEGER")
+        for c in primary["columns"]
+    )
+
     routes += [
-        f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}():\n    return list({table}_db.values())\n',
-        f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n    new_id = max({table}_db.keys(), default=0) + 1\n    record = {res.title()}(id=new_id, **payload.dict())\n    {table}_db[new_id] = record\n    return record\n',
+        f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}():\n'
+        f'    conn = get_db()\n'
+        f'    rows = conn.execute("SELECT * FROM {table}").fetchall()\n'
+        f'    conn.close()\n'
+        f'    return [{res.title()}(**dict(r)) for r in rows]\n',
+
+        f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n'
+        f'    conn = get_db()\n'
+        f'    cols = [f for f in payload.dict() if payload.dict()[f] is not None]\n'
+        f'    vals = [payload.dict()[c] for c in cols]\n'
+        f'    placeholders = ", ".join("?" for _ in cols)\n'
+        f'    cur = conn.execute(f"INSERT INTO {table} ({{", ".join(cols)}}) VALUES ({{placeholders}})", vals)\n'
+        f'    conn.commit()\n'
+        f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (cur.lastrowid,)).fetchone()\n'
+        f'    conn.close()\n'
+        f'    return {res.title()}(**dict(row))\n',
     ]
 
-    # In-memory stores
-    stores = f"{table}_db: Dict[int, {res.title()}] = {{}}\n"
-    
     middleware = ""
     if domain == "saas_multitenant":
-        middleware = """
-@app.middleware("http")
-async def org_middleware(request, call_next):
-    org_id = request.headers.get("X-Org-ID", "default")
-    # In real app, set this in a ContextVar
-    response = await call_next(request)
-    return response
-"""
+        middleware = (
+            "@app.middleware('http')\n"
+            "async def org_middleware(request, call_next):\n"
+            "    org_id = request.headers.get('X-Org-ID', 'default')\n"
+            "    response = await call_next(request)\n"
+            "    return response\n"
+        )
 
     return (
-        "from fastapi import FastAPI, HTTPException, Request\n"
+        "import sqlite3\n"
+        "from fastapi import FastAPI, HTTPException\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from pydantic import BaseModel\n"
-        "from typing import Dict, List, Optional\n\n"
+        "from typing import List, Optional\n\n"
         f"app = FastAPI(title='{domain.title()} API', version='1.0.0')\n\n"
         "app.add_middleware(\n"
         "    CORSMiddleware,\n"
         "    allow_origins=['*'],\n"
         "    allow_methods=['*'],\n"
         "    allow_headers=['*'],\n"
-        ")\n"
+        ")\n\n"
+        "DB_PATH = './data.db'\n\n"
+        "def get_db():\n"
+        "    conn = sqlite3.connect(DB_PATH)\n"
+        "    conn.row_factory = sqlite3.Row\n"
+        "    return conn\n\n"
+        f"def create_tables():\n"
+        f"    conn = get_db()\n"
+        f"    conn.execute('CREATE TABLE IF NOT EXISTS {table} ({col_defs_sql})')\n"
+        f"    conn.commit(); conn.close()\n\n"
+        "create_tables()\n\n"
         f"{middleware}\n"
         f"# Pydantic models\n{create_model}\n"
-        f"# In-memory storage\n{stores}\n\n"
         + "\n".join(routes)
     )
 
@@ -526,7 +563,9 @@ def _generate_from_requirement(raw_text: str, project_name: str = "app") -> str:
         return _chat_app(project_name or "chatapp")
     if any(w in low for w in ["game", "score", "player", "level", "snake"]):
         return _game_app(project_name or "gameapp")
-    if any(w in low for w in ["odoo", "module", "erp", "attendance", "leave", "payroll", "inventory", "crm"]):
+    if any(w in low for w in ["crm", "contact", "deal", "pipeline", "lead", "sales rep", "kanban"]):
+        return _crm_app(project_name or "crm")
+    if any(w in low for w in ["odoo", "module", "erp", "attendance", "leave", "payroll"]):
         return _odoo_module_app(project_name or "module")
     return _generic_api(project_name or "app")
 
@@ -1379,6 +1418,329 @@ function draw(){
         "@app.get('/', response_class=HTMLResponse)\n"
         "async def index(): return HTML_CONTENT\n"
     )
+
+
+def _crm_app(project_name: str = "crm") -> str:
+    """Return a full CRM FastAPI app with SQLite persistence."""
+    return '''\
+import sqlite3
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import List, Optional
+
+app = FastAPI(title="BrightToys CRM", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+DB_PATH = "./data.db"
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def create_tables():
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'sales_rep',
+            password_hash TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            company TEXT,
+            type TEXT DEFAULT 'individual',
+            tags TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS deals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id INTEGER REFERENCES contacts(id),
+            title TEXT NOT NULL,
+            value REAL DEFAULT 0,
+            stage TEXT DEFAULT 'Lead',
+            probability INTEGER DEFAULT 10,
+            close_date TEXT,
+            assigned_to TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS activities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id INTEGER REFERENCES contacts(id),
+            deal_id INTEGER REFERENCES deals(id),
+            type TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            occurred_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT UNIQUE,
+            name TEXT NOT NULL,
+            category TEXT,
+            price REAL DEFAULT 0,
+            stock INTEGER DEFAULT 0
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+create_tables()
+
+
+# ── Pydantic Models ───────────────────────────────────────────────────────────
+
+class ContactCreate(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    type: str = "individual"
+    tags: Optional[str] = ""
+    notes: Optional[str] = ""
+
+class Contact(ContactCreate):
+    id: int
+    created_at: Optional[str] = None
+
+class DealCreate(BaseModel):
+    contact_id: Optional[int] = None
+    title: str
+    value: float = 0
+    stage: str = "Lead"
+    probability: int = 10
+    close_date: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+class Deal(DealCreate):
+    id: int
+    created_at: Optional[str] = None
+
+class ActivityCreate(BaseModel):
+    contact_id: Optional[int] = None
+    deal_id: Optional[int] = None
+    type: str
+    notes: Optional[str] = ""
+
+class Activity(ActivityCreate):
+    id: int
+    occurred_at: Optional[str] = None
+
+class ProductCreate(BaseModel):
+    sku: Optional[str] = None
+    name: str
+    category: Optional[str] = None
+    price: float = 0
+    stock: int = 0
+
+class Product(ProductCreate):
+    id: int
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "app": "BrightToys CRM"}
+
+
+# ── Dashboard Analytics ───────────────────────────────────────────────────────
+
+@app.get("/dashboard")
+def dashboard():
+    conn = get_db()
+    total_deals = conn.execute("SELECT COUNT(*) FROM deals").fetchone()[0]
+    open_deals = conn.execute("SELECT COUNT(*) FROM deals WHERE stage NOT IN ('Closed Won','Closed Lost')").fetchone()[0]
+    pipeline_value = conn.execute("SELECT COALESCE(SUM(value),0) FROM deals WHERE stage NOT IN ('Closed Won','Closed Lost')").fetchone()[0]
+    won_deals = conn.execute("SELECT COUNT(*) FROM deals WHERE stage='Closed Won'").fetchone()[0]
+    win_rate = round((won_deals / total_deals * 100) if total_deals else 0, 1)
+    total_contacts = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+    conn.close()
+    return {
+        "total_contacts": total_contacts,
+        "total_deals": total_deals,
+        "open_deals": open_deals,
+        "pipeline_value": pipeline_value,
+        "win_rate": win_rate,
+    }
+
+
+# ── Contacts ──────────────────────────────────────────────────────────────────
+
+@app.get("/contacts", response_model=List[Contact])
+def list_contacts():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM contacts ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [Contact(**dict(r)) for r in rows]
+
+@app.post("/contacts", response_model=Contact, status_code=201)
+def create_contact(payload: ContactCreate):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO contacts (name, email, phone, company, type, tags, notes) VALUES (?,?,?,?,?,?,?)",
+        (payload.name, payload.email, payload.phone, payload.company, payload.type, payload.tags, payload.notes)
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM contacts WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return Contact(**dict(row))
+
+@app.get("/contacts/{contact_id}", response_model=Contact)
+def get_contact(contact_id: int):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM contacts WHERE id=?", (contact_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Contact not found")
+    return Contact(**dict(row))
+
+@app.put("/contacts/{contact_id}", response_model=Contact)
+def update_contact(contact_id: int, payload: ContactCreate):
+    conn = get_db()
+    conn.execute(
+        "UPDATE contacts SET name=?, email=?, phone=?, company=?, type=?, tags=?, notes=? WHERE id=?",
+        (payload.name, payload.email, payload.phone, payload.company, payload.type, payload.tags, payload.notes, contact_id)
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM contacts WHERE id=?", (contact_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Contact not found")
+    return Contact(**dict(row))
+
+@app.delete("/contacts/{contact_id}")
+def delete_contact(contact_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM contacts WHERE id=?", (contact_id,))
+    conn.commit()
+    conn.close()
+    return {"deleted": contact_id}
+
+
+# ── Deals / Pipeline ──────────────────────────────────────────────────────────
+
+STAGES = ["Lead", "Qualified", "Proposal", "Negotiation", "Closed Won", "Closed Lost"]
+
+@app.get("/deals", response_model=List[Deal])
+def list_deals(stage: Optional[str] = None):
+    conn = get_db()
+    if stage:
+        rows = conn.execute("SELECT * FROM deals WHERE stage=? ORDER BY created_at DESC", (stage,)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM deals ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [Deal(**dict(r)) for r in rows]
+
+@app.post("/deals", response_model=Deal, status_code=201)
+def create_deal(payload: DealCreate):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO deals (contact_id, title, value, stage, probability, close_date, assigned_to) VALUES (?,?,?,?,?,?,?)",
+        (payload.contact_id, payload.title, payload.value, payload.stage, payload.probability, payload.close_date, payload.assigned_to)
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM deals WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return Deal(**dict(row))
+
+@app.put("/deals/{deal_id}/stage")
+def move_deal_stage(deal_id: int, stage: str):
+    if stage not in STAGES:
+        raise HTTPException(400, f"Invalid stage. Choose from: {STAGES}")
+    conn = get_db()
+    conn.execute("UPDATE deals SET stage=? WHERE id=?", (stage, deal_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM deals WHERE id=?", (deal_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Deal not found")
+    return Deal(**dict(row))
+
+@app.delete("/deals/{deal_id}")
+def delete_deal(deal_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM deals WHERE id=?", (deal_id,))
+    conn.commit()
+    conn.close()
+    return {"deleted": deal_id}
+
+
+# ── Activities ────────────────────────────────────────────────────────────────
+
+@app.get("/activities", response_model=List[Activity])
+def list_activities(contact_id: Optional[int] = None):
+    conn = get_db()
+    if contact_id:
+        rows = conn.execute("SELECT * FROM activities WHERE contact_id=? ORDER BY occurred_at DESC", (contact_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM activities ORDER BY occurred_at DESC LIMIT 50").fetchall()
+    conn.close()
+    return [Activity(**dict(r)) for r in rows]
+
+@app.post("/activities", response_model=Activity, status_code=201)
+def create_activity(payload: ActivityCreate):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO activities (contact_id, deal_id, type, notes) VALUES (?,?,?,?)",
+        (payload.contact_id, payload.deal_id, payload.type, payload.notes)
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM activities WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return Activity(**dict(row))
+
+
+# ── Products ──────────────────────────────────────────────────────────────────
+
+@app.get("/products", response_model=List[Product])
+def list_products():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM products ORDER BY name").fetchall()
+    conn.close()
+    return [Product(**dict(r)) for r in rows]
+
+@app.post("/products", response_model=Product, status_code=201)
+def create_product(payload: ProductCreate):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO products (sku, name, category, price, stock) VALUES (?,?,?,?,?)",
+        (payload.sku, payload.name, payload.category, payload.price, payload.stock)
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM products WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return Product(**dict(row))
+
+
+# ── Pipeline summary ──────────────────────────────────────────────────────────
+
+@app.get("/pipeline")
+def pipeline_summary():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT stage, COUNT(*) as count, COALESCE(SUM(value),0) as total_value FROM deals GROUP BY stage"
+    ).fetchall()
+    conn.close()
+    result = {stage: {"count": 0, "total_value": 0} for stage in STAGES}
+    for row in rows:
+        result[row["stage"]] = {"count": row["count"], "total_value": row["total_value"]}
+    return result
+'''
 
 
 def _generic_api(project_name: str = "app") -> str:
