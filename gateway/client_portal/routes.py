@@ -21,26 +21,72 @@ class ApproveBody(BaseModel):
     comment: Optional[str] = None
 
 
-@router.get("/{project_id}/status")
-async def get_project_status(project_id: str):
+async def _resolve_run(project_id: str) -> dict:
+    """
+    Resolve a project/run by ID. First tries the SQLAlchemy DB (factory runs),
+    then falls back to the file-based ProjectManager index.
+    Returns a normalized dict with keys: project_id, project_name, status, project_dir.
+    """
+    from pathlib import Path as _P
+
+    # Primary: look up in factory runs DB
     try:
-        from aether_os.core.projects import get_project_manager
-        pm = get_project_manager()
-        project = pm.get_project(project_id)
-        if not project:
-            raise HTTPException(404, f"Project {project_id} not found")
-        project_dir = pm.get_project_dir(project_id)
-        phases_completed = []
-        for phase_dir in sorted(project_dir.iterdir()):
-            if phase_dir.is_dir() and phase_dir.name.startswith("p"):
-                phases_completed.append(phase_dir.name)
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select
+        sf = get_session_factory()
+        async with sf() as session:
+            run = (await session.execute(
+                select(Run).where(Run.id == project_id)
+            )).scalar_one_or_none()
+        if run:
+            project_dir = _P.home() / ".aether_os" / "projects" / project_id
+            return {
+                "project_id": project_id,
+                "project_name": run.project_name,
+                "status": run.status,
+                "client_id": run.client_id or "",
+                "project_dir": project_dir,
+                "metadata": {},
+            }
+    except Exception as exc:
+        logger.debug("DB run lookup failed: %s", exc)
+
+    # Fallback: file-based ProjectManager
+    from aether_os.core.projects import get_project_manager
+    pm = get_project_manager()
+    project = pm.get_project(project_id)
+    if project:
         return {
             "project_id": project_id,
             "project_name": project.name,
+            "status": "completed",
             "client_id": project.client_id,
+            "project_dir": pm.get_project_dir(project_id),
+            "metadata": project.metadata,
+        }
+
+    raise HTTPException(404, f"Project {project_id} not found")
+
+
+@router.get("/{project_id}/status")
+async def get_project_status(project_id: str):
+    try:
+        rec = await _resolve_run(project_id)
+        project_dir = rec["project_dir"]
+        phases_completed = []
+        if project_dir.exists():
+            for phase_dir in sorted(project_dir.iterdir()):
+                if phase_dir.is_dir() and phase_dir.name.startswith("p"):
+                    phases_completed.append(phase_dir.name)
+        return {
+            "project_id": project_id,
+            "project_name": rec["project_name"],
+            "status": rec["status"],
+            "client_id": rec["client_id"],
             "phases_completed": phases_completed,
             "current_phase": phases_completed[-1] if phases_completed else None,
-            "metadata": project.metadata,
+            "metadata": rec["metadata"],
         }
     except HTTPException:
         raise
@@ -86,14 +132,16 @@ async def approve_phase(project_id: str, body: ApproveBody):
 @router.post("/{project_id}/feedback")
 async def submit_feedback(project_id: str, body: FeedbackBody):
     try:
-        from aether_os.core.projects import get_project_manager
-        pm = get_project_manager()
-        project_dir = pm.get_project_dir(project_id)
-        feedback_file = project_dir / "feedback.jsonl"
         import time
+        rec = await _resolve_run(project_id)
+        project_dir = rec["project_dir"]
+        project_dir.mkdir(parents=True, exist_ok=True)
+        feedback_file = project_dir / "feedback.jsonl"
         entry = {"timestamp": time.time(), "feedback": body.feedback, "phase": body.phase}
         with open(feedback_file, "a") as f:
             f.write(json.dumps(entry) + "\n")
         return {"project_id": project_id, "message": "Feedback recorded", "entry": entry}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e))
