@@ -139,13 +139,13 @@ def _build_react_html(project_name: str, endpoints: list, component_body: str) -
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
   <title>{project_name}</title>
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
-          integrity="sha384-vFOAGWJDMKFMFYAqADDxrLgUQpTrA/5nRjUjxkS7e9pBnBUFZRTjrXjAKNnm1cV"
+          integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"
           crossorigin="anonymous"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
-          integrity="sha384-3Nt7KhPCHMmVB9LkBGvFLq5xKFBXdY8n3iU5k8dkOpajDSrK3a+6oBIpPRkH5yN"
+          integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
           crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"
-          integrity="sha384-Y0TSCm3FgOkwXjmNSxF8JfbMqBOG7OuKQJECl91jOJHiqzqN6cRcfRB7eGfLyAS"
+          integrity="sha384-AISI5AuDG6E8DeEiFMVB3rGQxhZt24OU0avMp+GMV64+tpnA3+Z6F5MT0f96iPva"
           crossorigin="anonymous"></script>
   <style>{_CSS}</style>
 </head>

@@ -1749,6 +1749,24 @@ def create_app() -> FastAPI:
                             "PreFlightCouncil STRICT: run %s rejected (score=%.2f): %s",
                             run_id, _preflight.get("score", 0.0), _preflight.get("reason", ""),
                         )
+                        # Mark the run as rejected so the UI shows it clearly
+                        try:
+                            from aether_os.core.db import get_session_factory as _gsf_rej
+                            from aether_os.core.models import Run as _Run_rej
+                            from sqlalchemy import update as _upd_rej
+                            _sf_rej = _gsf_rej()
+                            async with _sf_rej() as _s_rej:
+                                await _s_rej.execute(
+                                    _upd_rej(_Run_rej).where(_Run_rej.id == run_id)
+                                    .values(
+                                        status="rejected",
+                                        message=f"PreFlightCouncil rejected: {_preflight.get('reason','')}",
+                                        council_preflight=_preflight,
+                                    )
+                                )
+                                await _s_rej.commit()
+                        except Exception as _rej_exc:
+                            logger.warning("Failed to mark run as rejected: %s", _rej_exc)
                         return  # Abort pipeline in strict mode
                     logger.warning(
                         "PreFlightCouncil: run %s did not pass (score=%.2f) — proceeding (non-strict): %s",

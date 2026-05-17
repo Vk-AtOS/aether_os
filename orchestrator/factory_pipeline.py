@@ -502,7 +502,7 @@ class FactoryPipeline:
 
         duration = time.time() - pipeline_start
 
-        # LLM Council delivery check (background, non-blocking)
+        # LLM Council delivery check (background — stores result and flags run if quality fails)
         async def _delivery_council_check():
             try:
                 from aether_os.core.council import DeliveryCouncil
@@ -517,15 +517,45 @@ class FactoryPipeline:
                     phases_results=results,
                     org_id=org_id,
                 )
+                # Determine final status: completed or needs_review
+                _council_passed = _delivery.get("passed", True)
+                _council_score = _delivery.get("score", 1.0)
+                _final_status = "completed" if _council_passed else "needs_review"
                 _sf = _gsf()
                 async with _sf() as _s:
                     await _s.execute(
                         _sa_update(_Run)
                         .where(_Run.id == run_id)
-                        .values(council_delivery=_delivery)
+                        .values(
+                            council_delivery=_delivery,
+                            status=_final_status,
+                            message=(
+                                None if _council_passed
+                                else f"DeliveryCouncil flagged issues (score={_council_score:.2f}): "
+                                     f"{_delivery.get('reason', '')} — "
+                                     f"Suggestions: {'; '.join(_delivery.get('suggestions', []))}"
+                            ),
+                        )
                     )
                     await _s.commit()
-                logger.info("DeliveryCouncil result stored for run %s", run_id)
+                if not _council_passed:
+                    logger.warning(
+                        "DeliveryCouncil: run %s flagged as needs_review (score=%.2f): %s | suggestions: %s",
+                        run_id, _council_score, _delivery.get("reason", ""),
+                        _delivery.get("suggestions", []),
+                    )
+                    # Emit an SSE event so the UI can show the council feedback immediately
+                    await publish_event(run_id, {
+                        "type": "council_delivery_review",
+                        "passed": False,
+                        "score": _council_score,
+                        "reason": _delivery.get("reason", ""),
+                        "suggestions": _delivery.get("suggestions", []),
+                    })
+                else:
+                    logger.info(
+                        "DeliveryCouncil: run %s passed (score=%.2f)", run_id, _council_score
+                    )
             except Exception as _exc:
                 logger.warning("DeliveryCouncil check failed: %s", _exc)
 
