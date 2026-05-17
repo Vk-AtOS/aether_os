@@ -198,6 +198,31 @@ DOMAIN_PROFILES: Dict[str, DomainProfile] = {
         },
         compliance_notes=["FERPA", "COPPA", "GDPR"],
         example_entities=["Course", "Lesson", "Enrollment", "Assignment", "Certificate"]
+    ),
+    "crm": DomainProfile(
+        name="CRM / Sales",
+        description="Customer relationship management with deal pipelines, contact management, and sales analytics.",
+        preferred_db="sqlite",
+        required_patterns=[
+            "Deal pipeline state machine (Lead→Qualified→Proposal→Closed)",
+            "Contact/Account hierarchy",
+            "Activity timeline per contact",
+            "Pipeline analytics and win-rate calculation"
+        ],
+        security_requirements=[
+            "Role-based access (Admin, Sales Rep, Viewer)",
+            "JWT Auth",
+            "CORS",
+            "Audit log for deal status changes"
+        ],
+        suggested_tech_stack={
+            "backend": "FastAPI",
+            "frontend": "React",
+            "database": "SQLite",
+            "orm": "SQLAlchemy"
+        },
+        compliance_notes=["GDPR (contact data)", "Data retention policies"],
+        example_entities=["Contact", "Deal", "PipelineStage", "Activity", "Product", "Order"]
     )
 }
 

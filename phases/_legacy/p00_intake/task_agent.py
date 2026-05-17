@@ -33,7 +33,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     prompt = (
         f"Extract and clean this software requirement: {raw_input}\n\n"
         "Classify the application domain into one of these: "
-        "general, industrial, fintech, healthcare, saas_multitenant, ecommerce, logistics, education."
+        "general, crm, industrial, fintech, healthcare, saas_multitenant, ecommerce, logistics, education.\n"
+        "Use 'crm' for CRM, sales pipeline, contact management, deal tracking applications."
     )
     
     result = await client.call_structured(

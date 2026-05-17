@@ -76,6 +76,15 @@ _DOMAIN_KEYWORDS = {
     "booking":   ("bookings", ["id", "user_id", "resource_id", "start_at", "end_at", "status"]),
     "review":    ("reviews",  ["id", "user_id", "product_id", "rating", "content", "created_at"]),
     "report":    ("reports",  ["id", "title", "data", "generated_by", "created_at"]),
+    # CRM-specific
+    "contact":   ("contacts", ["id", "name", "email", "phone", "company", "type", "tags", "created_at"]),
+    "deal":      ("deals",    ["id", "contact_id", "title", "value", "stage", "probability", "close_date", "assigned_to"]),
+    "lead":      ("leads",    ["id", "name", "email", "source", "status", "score", "created_at"]),
+    "pipeline":  ("pipeline_stages", ["id", "name", "order", "win_probability"]),
+    "activity":  ("activities", ["id", "contact_id", "type", "notes", "occurred_at", "user_id"]),
+    "account":   ("accounts", ["id", "name", "industry", "website", "revenue", "created_at"]),
+    "segment":   ("segments", ["id", "name", "criteria", "contact_count", "created_at"]),
+    "crm":       ("contacts", ["id", "name", "email", "phone", "company", "type", "tags", "created_at"]),
 }
 
 
