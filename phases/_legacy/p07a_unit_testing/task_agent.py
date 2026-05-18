@@ -219,6 +219,38 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("p07a: pytest run failed: %s", e)
 
+    # ── Smoke test: start app and hit /health ────────────────────────
+    _main_py = src_dir / "main.py" if src_dir else None
+    smoke_passed = False
+    if _main_py and _main_py.exists():
+        import subprocess as _sp2, time as _time, urllib.request as _ur
+        _smoke_port = 18999
+        _smoke_proc = None
+        try:
+            _smoke_proc = _sp2.Popen(
+                ["python3", "-m", "uvicorn", "main:app",
+                 "--host", "127.0.0.1", "--port", str(_smoke_port), "--log-level", "warning"],
+                cwd=str(src_dir),
+                stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL,
+            )
+            _time.sleep(3)
+            _resp = _ur.urlopen(f"http://127.0.0.1:{_smoke_port}/health", timeout=5)
+            smoke_passed = _resp.status == 200
+        except Exception as _se:
+            logger.warning("[p07a] Smoke test failed (non-blocking): %s", _se)
+            smoke_passed = False
+        finally:
+            if _smoke_proc:
+                _smoke_proc.terminate()
+                try:
+                    _smoke_proc.wait(timeout=5)
+                except Exception:
+                    _smoke_proc.kill()
+        if smoke_passed:
+            logger.info("[p07a] Smoke test PASSED — generated app starts and /health returns 200")
+        else:
+            logger.warning("[p07a] Smoke test FAILED — generated app did not start cleanly")
+
     return TaskResult(
         output_path=str(tests_dir),
         confidence=0.85 if pytest_passed else 0.6,
@@ -228,6 +260,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "coverage_pct": 0,
             "pytest_passed": pytest_passed,
             "used_llm": llm_success,
+            "smoke_test_passed": smoke_passed,
         },
         issues=[] if pytest_passed else ["pytest did not exit 0 (non-blocking)"],
         success=True,  # Testing phase is never blocking
