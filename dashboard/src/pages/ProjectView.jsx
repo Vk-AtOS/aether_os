@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import Editor from '@monaco-editor/react';
 import { useRole } from '../hooks/useRole';
 import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
@@ -109,6 +110,18 @@ const findIndexHtml = (items) => {
     }
   }
   return null;
+};
+
+const getMonacoLanguage = (filename) => {
+  if (!filename) return 'plaintext';
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const map = {
+    py: 'python', js: 'javascript', jsx: 'javascript', ts: 'typescript',
+    tsx: 'typescript', json: 'json', md: 'markdown', yml: 'yaml',
+    yaml: 'yaml', html: 'html', css: 'css', sh: 'shell', txt: 'plaintext',
+    toml: 'toml', env: 'plaintext', sql: 'sql', dockerfile: 'dockerfile',
+  };
+  return map[ext] || 'plaintext';
 };
 
 /** Format a pipeline SSE event into a terminal line string. */
@@ -284,6 +297,16 @@ const ProjectView = () => {
   const llmLineRef                  = useRef('');     // accumulate llm_chunk tokens
   const reconnectAttempts           = useRef(0);
 
+  // Edit mode for file viewer
+  const [editContent, setEditContent]   = useState(null);  // null = view mode
+  const [editSaving, setEditSaving]     = useState(false);
+
+  // Env vars tab
+  const [envVars, setEnvVars]       = useState(null);
+  const [envSaving, setEnvSaving]   = useState(false);
+  const [appRunning, setAppRunning] = useState(false);
+  const [appOutput, setAppOutput]   = useState([]);
+
   // Re-run dropdown (managed inside RerunDropdown component)
 
   const logEndRef = useRef(null);
@@ -356,6 +379,12 @@ const ProjectView = () => {
       loadPreview();
     }
   }, [activeArtifactTab, fileTree, previewHtml, previewLoading, loadPreview]);
+
+  useEffect(() => {
+    if (activeArtifactTab === 'env' && envVars === null) {
+      api.getEnvVars(id).then(r => setEnvVars(r.data?.vars || [])).catch(() => setEnvVars([]));
+    }
+  }, [activeArtifactTab, envVars, id]);
 
   // ── SSE live feed ─────────────────────────────────────────────────────────
 
@@ -938,6 +967,20 @@ const ProjectView = () => {
             >
               <GitBranch className="w-3.5 h-3.5" /><span>GitHub</span>
             </button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.openInVSCode(id);
+                  setToast('Opening in VS Code…');
+                } catch {
+                  setToast('VS Code CLI not found. Check that "code" is in your PATH.');
+                }
+              }}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium transition-colors"
+              title="Open project folder in VS Code"
+            >
+              <FileCode className="w-3.5 h-3.5" /><span>VS Code</span>
+            </button>
             {(run.status === 'completed' || run.status === 'running') && (
               <button
                 onClick={() => setShowAddFeatureModal(true)}
@@ -1133,6 +1176,8 @@ const ProjectView = () => {
                   { id: 'artifacts', label: 'Artifacts', icon: FileCode  },
                   { id: 'preview',   label: 'Preview',   icon: Monitor   },
                   ...(run?.live_url ? [{ id: 'iframe', label: 'App Preview', icon: OpenTab }] : []),
+                  { id: 'env',       label: 'Env Vars',  icon: Zap       },
+                  { id: 'run',       label: 'Run App',   icon: Play      },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1244,12 +1289,56 @@ const ProjectView = () => {
                         <div className="flex items-center space-x-3 shrink-0 ml-4">
                           {fileContent?.truncated && <span className="text-[10px] text-warning">Truncated (50K)</span>}
                           <span className="text-[10px] text-muted">{formatBytes(fileContent?.size_bytes)}</span>
+                          {!isViewer && editContent === null ? (
+                            <button
+                              onClick={() => setEditContent(fileContent?.content || '')}
+                              className="text-[10px] px-2 py-0.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded transition-colors"
+                            >Edit</button>
+                          ) : editContent !== null ? (
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => setEditContent(null)}
+                                className="text-[10px] px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors"
+                              >Cancel</button>
+                              <button
+                                disabled={editSaving}
+                                onClick={async () => {
+                                  setEditSaving(true);
+                                  try {
+                                    await api.patchFileContent(id, selectedFile.path, editContent);
+                                    setFileContent(prev => ({ ...prev, content: editContent }));
+                                    setEditContent(null);
+                                    setToast('File saved.');
+                                  } catch {
+                                    setToast('Save failed.');
+                                  } finally {
+                                    setEditSaving(false);
+                                  }
+                                }}
+                                className="text-[10px] px-2 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded transition-colors disabled:opacity-50"
+                              >{editSaving ? 'Saving…' : 'Save'}</button>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
-                      <div className="flex-1 overflow-auto bg-[#0a0c10]">
-                        <pre className="p-4 font-mono text-[11px] text-bright/90 leading-relaxed whitespace-pre-wrap break-words">
-                          {fileContent?.content || '(empty file)'}
-                        </pre>
+                      <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+                        <Editor
+                          height="100%"
+                          defaultLanguage={getMonacoLanguage(selectedFile?.name)}
+                          value={editContent !== null ? editContent : (fileContent?.content || '')}
+                          onChange={editContent !== null ? (v) => setEditContent(v || '') : undefined}
+                          options={{
+                            readOnly: editContent === null,
+                            minimap: { enabled: false },
+                            fontSize: 11,
+                            lineNumbers: 'on',
+                            scrollBeyondLastLine: false,
+                            wordWrap: 'on',
+                            theme: 'vs-dark',
+                            padding: { top: 8 },
+                          }}
+                          theme="vs-dark"
+                        />
                       </div>
                     </>
                   )}
@@ -1374,6 +1463,118 @@ const ProjectView = () => {
                 title="Live App Preview"
                 sandbox="allow-scripts allow-same-origin allow-forms"
               />
+            </div>
+          )}
+
+          {/* ── Env Vars tab ─────────────────────────────────────────────── */}
+          {activeArtifactTab === 'env' && (
+            <div className="p-4 space-y-3 h-[420px] overflow-y-auto custom-scrollbar">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-muted uppercase tracking-wider">Environment Variables</span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setEnvVars(prev => [...(prev || []), { key: '', value: '' }])}
+                    className="text-[10px] px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded"
+                  >+ Add</button>
+                  <button
+                    disabled={envSaving}
+                    onClick={async () => {
+                      setEnvSaving(true);
+                      try {
+                        await api.patchEnvVars(id, envVars.filter(v => v.key.trim()));
+                        setToast('Environment saved.');
+                      } catch { setToast('Save failed.'); }
+                      finally { setEnvSaving(false); }
+                    }}
+                    className="text-[10px] px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded disabled:opacity-50"
+                  >{envSaving ? 'Saving…' : 'Save .env'}</button>
+                </div>
+              </div>
+              {envVars === null ? (
+                <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 text-accent animate-spin" /></div>
+              ) : envVars.length === 0 ? (
+                <div className="text-muted text-xs italic text-center py-8">No .env file found. Add variables above.</div>
+              ) : (
+                envVars.map((v, i) => (
+                  <div key={i} className="flex items-center space-x-2">
+                    <input
+                      value={v.key}
+                      onChange={e => setEnvVars(prev => prev.map((x, j) => j === i ? { ...x, key: e.target.value } : x))}
+                      placeholder="KEY"
+                      className="w-40 bg-bg border border-border rounded px-2 py-1 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                    />
+                    <span className="text-muted text-xs">=</span>
+                    <input
+                      value={v.value}
+                      onChange={e => setEnvVars(prev => prev.map((x, j) => j === i ? { ...x, value: e.target.value } : x))}
+                      placeholder="value"
+                      className="flex-1 bg-bg border border-border rounded px-2 py-1 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                    />
+                    <button
+                      onClick={() => setEnvVars(prev => prev.filter((_, j) => j !== i))}
+                      className="text-danger hover:text-red-400 text-xs px-1"
+                    >✕</button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* ── Run App tab ───────────────────────────────────────────────── */}
+          {activeArtifactTab === 'run' && (
+            <div className="flex flex-col h-[420px]">
+              <div className="flex items-center space-x-3 px-4 py-2.5 border-b border-border bg-border/10 shrink-0">
+                <span className="text-xs font-bold text-muted uppercase tracking-wider">App Runner</span>
+                <div className="flex items-center space-x-2 ml-auto">
+                  {!appRunning ? (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.startRunApp(id);
+                          setAppRunning(true);
+                          setAppOutput(['[AetherOS] Starting app on port 8001…', '[AetherOS] Open http://localhost:8001 to view it.']);
+                          setToast('App starting on port 8001…');
+                        } catch (e) {
+                          setToast('Failed to start app: ' + (e.response?.data?.detail || e.message));
+                        }
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors"
+                    >
+                      <Play className="w-3.5 h-3.5" /><span>Run App</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.stopRunApp(id);
+                          setAppRunning(false);
+                          setAppOutput(prev => [...prev, '[AetherOS] App stopped.']);
+                        } catch { setAppRunning(false); }
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-colors"
+                    >
+                      <Pause className="w-3.5 h-3.5" /><span>Stop App</span>
+                    </button>
+                  )}
+                  {appRunning && (
+                    <a
+                      href="http://localhost:8001"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center space-x-1 text-xs text-emerald-400 hover:text-emerald-300"
+                    >
+                      <ExternalLink className="w-3 h-3" /> localhost:8001
+                    </a>
+                  )}
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 bg-[#0a0c10] font-mono text-[11px] text-emerald-300 custom-scrollbar space-y-0.5">
+                {appOutput.length === 0 ? (
+                  <div className="text-muted italic">Press "Run App" to start the generated backend on port 8001.</div>
+                ) : (
+                  appOutput.map((line, i) => <div key={i} className="leading-relaxed">{line}</div>)
+                )}
+              </div>
             </div>
           )}
           </div>

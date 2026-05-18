@@ -65,6 +65,10 @@ export class AetherClient {
     await this.fetch<any>(`/factory/runs/${runId}/cancel`, { method: 'POST' });
   }
 
+  async openInVSCode(runId: string): Promise<{ opened: boolean; path?: string; error?: string }> {
+    return this.fetch<any>(`/factory/runs/${runId}/open-in-vscode`, { method: 'POST' });
+  }
+
   async getHealth(): Promise<any> {
     return this.fetch<any>('/health');
   }

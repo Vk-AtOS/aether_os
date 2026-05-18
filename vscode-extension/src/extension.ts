@@ -174,6 +174,27 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.env.openExternal(vscode.Uri.parse(url));
     }),
 
+    vscode.commands.registerCommand('aetheros.openProjectFolder', async (item?: RunItem) => {
+      const runId = item?.runId || await vscode.window.showInputBox({ prompt: 'Run ID to open' });
+      if (!runId) return;
+      vscode.window.showInformationMessage('AetherOS: Opening project in VS Code…');
+      try {
+        const result = await client.openInVSCode(runId);
+        if (!result.opened) {
+          vscode.window.showWarningMessage(`AetherOS: ${result.error || 'Could not open in VS Code'}`);
+          return;
+        }
+        if (result.path) {
+          vscode.commands.executeCommand(
+            'vscode.openFolder',
+            vscode.Uri.parse('vscode://file/' + result.path)
+          );
+        }
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`AetherOS: ${e.message}`);
+      }
+    }),
+
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('aetheros.autoRefreshSeconds')) startAutoRefresh();
     }),
