@@ -97,6 +97,12 @@ export const api = {
   getRun: (runId) => client.get(`/factory/runs/${runId}`),
   getRunFiles: (runId) => client.get(`/factory/runs/${runId}/files`),
   getFileContent: (runId, path) => client.get(`/factory/runs/${runId}/file-content`, { params: { path } }),
+  patchFileContent: (runId, path, content) => client.patch(`/factory/runs/${runId}/file-content`, { path, content }),
+  openInVSCode: (runId) => client.post(`/factory/runs/${runId}/open-in-vscode`),
+  getEnvVars: (runId) => client.get(`/factory/runs/${runId}/envvars`),
+  patchEnvVars: (runId, vars) => client.patch(`/factory/runs/${runId}/envvars`, { vars }),
+  startRunApp: (runId) => client.post(`/factory/runs/${runId}/run-app`),
+  stopRunApp: (runId) => client.delete(`/factory/runs/${runId}/run-app`),
   approveAction: (ticketId, decision, reason) =>
     client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
 

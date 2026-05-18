@@ -17,9 +17,10 @@
       { "command": "aetheros.showStatus",   "title": "AetherOS: Show Run Status" },
       { "command": "aetheros.streamLogs",   "title": "AetherOS: Stream Run Logs" },
       { "command": "aetheros.cancelRun",    "title": "AetherOS: Cancel Run" },
-      { "command": "aetheros.openDashboard","title": "AetherOS: Open Dashboard" },
-      { "command": "aetheros.configure",    "title": "AetherOS: Configure Gateway URL" },
-      { "command": "aetheros.refreshRuns",  "title": "Refresh",                           "icon": "$(refresh)" }
+      { "command": "aetheros.openDashboard",      "title": "AetherOS: Open Dashboard" },
+      { "command": "aetheros.openProjectFolder",  "title": "AetherOS: Open Project Folder in VS Code" },
+      { "command": "aetheros.configure",          "title": "AetherOS: Configure Gateway URL" },
+      { "command": "aetheros.refreshRuns",        "title": "Refresh",                           "icon": "$(refresh)" }
     ],
     "viewsContainers": {
       "activitybar": [
@@ -50,9 +51,10 @@
         }
       ],
       "view/item/context": [
-        { "command": "aetheros.showStatus", "when": "viewItem == run", "group": "inline" },
-        { "command": "aetheros.streamLogs", "when": "viewItem == run", "group": "inline" },
-        { "command": "aetheros.cancelRun",  "when": "viewItem == run && viewItem != completedRun", "group": "inline" }
+        { "command": "aetheros.showStatus",        "when": "viewItem == run", "group": "inline" },
+        { "command": "aetheros.streamLogs",        "when": "viewItem == run", "group": "inline" },
+        { "command": "aetheros.cancelRun",         "when": "viewItem == run && viewItem != completedRun", "group": "inline" },
+        { "command": "aetheros.openProjectFolder", "when": "viewItem == run", "group": "context" }
       ]
     },
     "configuration": {
