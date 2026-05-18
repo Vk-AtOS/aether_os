@@ -210,6 +210,21 @@ class FactoryPipeline:
             # Cross-run memory context injected from MemoryService (may be "")
             "memory_context": memory_context or "",
         }
+
+        # Inject per-user learning patterns so every phase can tailor its prompts
+        if org_id and client_id:
+            try:
+                from aether_os.core.services.learning_service import get_user_context
+                from aether_os.core.db import get_session_factory
+                _sf = get_session_factory()
+                async with _sf() as _sess:
+                    _learned = await get_user_context(org_id, client_id, _sess)
+                if _learned:
+                    accumulated_context["user_learning"] = _learned
+                    logger.info("Injected %d learning pattern type(s) for %s",
+                                len(_learned), client_id)
+            except Exception as _le:
+                logger.debug("Learning context unavailable (non-fatal): %s", _le)
         
         # 10-phase consolidated pipeline
         ACTIVE_PHASES = PHASE_SEQUENCE  # All 10 consolidated phases

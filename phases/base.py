@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -111,7 +112,7 @@ class PhaseBase:
             import httpx
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
-                    "http://localhost:3000/api/sendText",
+                    os.getenv("WAHA_URL", "http://localhost:3000") + "/api/sendText",
                     json={"chatId": f"{client_id}@c.us",
                           "text": message, "session": "default"},
                 )
