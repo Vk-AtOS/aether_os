@@ -23,14 +23,28 @@ logger = logging.getLogger(__name__)
 
 
 def _find_src_dir(data: dict) -> Path | None:
-    """Return the src/ directory that p04a generated code into."""
+    """Return the src/ directory that p04a generated code into.
+
+    Priority order:
+    1. Explicit backend_src_dir from pipeline merge.
+    2. Canonical {project_dir}/src/main.py.
+    3. p04_backend sub-dirs (non-scaffolding).
+    4. Any src/main.py found recursively (excluding p03_scaffolding).
+    """
     # 1. Use explicit path set by S11 pipeline merge fix
     explicit = data.get("backend_src_dir", "")
     if explicit and Path(explicit).exists() and (Path(explicit) / "main.py").exists():
         return Path(explicit)
 
-    # 2. Search but prefer p04_backend over p03_scaffolding
     project_dir = Path(data.get("project_dir", ""))
+
+    # 2. Canonical project_dir/src/main.py (written by p04a into the canonical location)
+    if project_dir.exists():
+        canonical = project_dir / "src" / "main.py"
+        if canonical.exists():
+            return canonical.parent
+
+    # 3. Search but prefer p04_backend over p03_scaffolding
     if project_dir.exists():
         candidates = list(project_dir.rglob("src/main.py"))
         # Sort so p04_backend comes before p03_scaffolding

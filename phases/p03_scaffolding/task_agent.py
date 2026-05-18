@@ -111,7 +111,33 @@ async def health():
     # Initialize git
     import subprocess
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
-    
+
+    # Write .devcontainer/devcontainer.json
+    devcontainer_dir = project_dir / ".devcontainer"
+    devcontainer_dir.mkdir(parents=True, exist_ok=True)
+    devcontainer_json = f'''\
+{{
+  "name": "{project_name}",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {{
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {{}}
+  }},
+  "postCreateCommand": "pip install -r requirements.txt",
+  "customizations": {{
+    "vscode": {{
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker"
+      ]
+    }}
+  }},
+  "forwardPorts": [8000, 5432, 6379]
+}}
+'''
+    (devcontainer_dir / "devcontainer.json").write_text(devcontainer_json)
+
     return project_dir
 
 

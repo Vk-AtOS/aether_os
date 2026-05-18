@@ -12,7 +12,7 @@ from aether_os.phases.base import TaskResult
 logger = logging.getLogger(__name__)
 
 _SUB_PHASES = [
-    ("monitoring",    "aether_os.phases.p11a_monitoring.task_agent",    "run"),
+    # monitoring handled by p08_cicd_deployment — removed to avoid duplicate artifacts
     ("feature_flags", "aether_os.phases.p12a_feature_flags.task_agent", "run"),
     ("ab_testing",    "aether_os.phases.p12b_ab_testing.task_agent",    "run"),
     ("app_memory",    "aether_os.phases.p13_app_memory.task_agent",     "run"),

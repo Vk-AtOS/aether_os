@@ -79,6 +79,30 @@ async def get_project_status(project_id: str):
             for phase_dir in sorted(project_dir.iterdir()):
                 if phase_dir.is_dir() and phase_dir.name.startswith("p"):
                     phases_completed.append(phase_dir.name)
+
+        # Extract requirements text from p01 intake output
+        requirement_text = ""
+        specification_text = ""
+        try:
+            intake_json = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
+            if intake_json.exists():
+                intake_data = json.loads(intake_json.read_text())
+                requirement_text = (
+                    intake_data.get("raw_text") or
+                    intake_data.get("structured_requirements") or ""
+                )
+            # Use raw_text as spec; only fall back to requirements.md if raw_text is short
+            if len(requirement_text) > 100:
+                specification_text = requirement_text
+            else:
+                req_md = project_dir / "p01_intake_requirements" / "requirements" / "requirements.md"
+                if req_md.exists():
+                    specification_text = req_md.read_text()[:3000]
+                else:
+                    specification_text = requirement_text
+        except Exception as _re:
+            logger.debug("Could not load intake data: %s", _re)
+
         return {
             "project_id": project_id,
             "project_name": rec["project_name"],
@@ -87,6 +111,8 @@ async def get_project_status(project_id: str):
             "phases_completed": phases_completed,
             "current_phase": phases_completed[-1] if phases_completed else None,
             "metadata": rec["metadata"],
+            "requirements": [requirement_text] if requirement_text else [],
+            "specification": specification_text,
         }
     except HTTPException:
         raise

@@ -144,6 +144,48 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if not generated_files:
         issues.append("No backend files were generated")
 
+    # ── Compliance injection ───────────────────────────────────────────────────
+    try:
+        from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
+        _domain = data.get('domain', 'general')
+        _ctx = ComplianceContext(
+            country_code="IN",  # default; can be overridden via input
+            region="IN",
+            deployment_type="saas",
+            data_sensitivity="moderate",
+            handles_personal_data=True,
+            handles_biometric_data=False,
+            handles_children_data=False,
+            industries=[_domain] if _domain != "general" else [],
+            high_risk_use_cases=[],
+            uses_strong_crypto=True,
+            uses_weak_crypto=False,
+            customer_requires_data_residency=False,
+            uses_third_country_cloud=True,
+            model_providers=[],
+            repo_tags=[],
+        )
+        _decision = ComplianceEngine().evaluate(_ctx)
+        # Write compliance report alongside the code
+        import json as _json
+        (output_dir / "compliance_report.json").write_text(_json.dumps(_decision.to_dict(), indent=2))
+        # Inject compliance comment header into src/main.py
+        _main_path = output_dir / "src" / "main.py"
+        if _main_path.exists():
+            _existing = _main_path.read_text()
+            _compliance_header = (
+                "# ── Compliance notice ──────────────────────────────────────────────────────\n"
+                f"# Compliance status: {'REQUIRES_APPROVAL' if _decision.requires_approval else 'ALLOWED'}\n"
+                f"# Violations: {len(_decision.violations)} ({', '.join(v.area for v in _decision.violations[:3])})\n"
+                "# See compliance_report.json for full details.\n"
+                "# ────────────────────────────────────────────────────────────────────────────\n\n"
+            )
+            if "# ── Compliance" not in _existing:
+                _main_path.write_text(_compliance_header + _existing)
+        logger.info("Compliance report written: %s violations", len(_decision.violations))
+    except Exception as _ce:
+        logger.warning("Compliance injection skipped: %s", _ce)
+
     return TaskResult(
         output_path=str(output_dir),
         confidence=0.9 if generated_files else 0.0,
@@ -291,6 +333,32 @@ class BackendCodegenAgent:
         main_files = _write_to_both(main_code, root_dir, phase_dir, Path("src") / "main.py")
         generated_files.extend(main_files)
 
+        # FIX G3: ensure src/ is a Python package (required for uvicorn src.main:app)
+        for target_dir in [root_dir, phase_dir]:
+            init_file = target_dir / "src" / "__init__.py"
+            init_file.parent.mkdir(parents=True, exist_ok=True)
+            if not init_file.exists():
+                init_file.touch()
+            generated_files.append(str(init_file))
+
+        # FIX G6: write .env.example documenting all env vars used in generated code
+        env_example = (
+            "# Generated .env.example — copy to .env and fill in values\n\n"
+            "# Security\n"
+            "SECRET_KEY=your-strong-secret-key-min-32-chars"
+            "  # python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+            "ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173\n\n"
+            "# Database\n"
+            "DATABASE_URL=sqlite+aiosqlite:///./data/app.db\n"
+            "# DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/dbname\n\n"
+            "# App\n"
+            "APP_ENV=production\n"
+        )
+        for target_dir in [root_dir, phase_dir]:
+            env_file = target_dir / ".env.example"
+            env_file.write_text(env_example)
+            generated_files.append(str(env_file))
+
         # ── models.py ─────────────────────────────────────────────────────────
         schema_str = json.dumps(db_schema[:5], indent=2)
         models_prompt = (
@@ -394,40 +462,64 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
     if raw_input.strip() and domain == "general":
         return _generate_from_requirement(raw_input)
 
-    primary = resources[0] if resources else {"resource": "item", "table": "items",
-                                               "columns": ["id", "name", "created_at"]}
-    res     = primary["resource"]
-    table   = primary["table"]
-    cols    = [c for c in primary["columns"] if c != "id"]
+    has_auth = any(ep.get("path", "").startswith("/auth") for ep in endpoints)
 
-    # Build Pydantic model fields
-    field_defs = "\n".join(
-        f"    {col}: Optional[str] = None" if col.endswith(("_at", "_id"))
-        else f"    {col}: str"
-        for col in cols[:6]
-    )
-    
+    # ── Per-resource model + route generation ─────────────────────────────────
+    all_resources = resources if resources else [{"resource": "item", "table": "items",
+                                                   "columns": ["id", "name", "created_at"]}]
+    primary = all_resources[0]
+
     extra_fields = ""
     if domain == "saas_multitenant":
         extra_fields = "    org_id: str\n"
     elif domain == "healthcare":
         extra_fields = "    fhir_resource_type: str = 'Observation'\n"
 
-    create_model = (
-        f"class {res.title()}Create(BaseModel):\n"
-        f"{field_defs}\n"
-        f"{extra_fields}\n"
-        f"class {res.title()}(BaseModel):\n"
-        f"    id: int\n"
-        f"{field_defs}\n"
-        f"{extra_fields}\n"
-    )
+    # Build Pydantic models for ALL resources
+    all_models = []
+    for r in all_resources:
+        res   = r["resource"]
+        cols  = [c for c in r["columns"] if c != "id"]
+        field_defs = "\n".join(
+            f"    {col}: Optional[str] = None" if col.endswith(("_at", "_id"))
+            else f"    {col}: str"
+            for col in cols[:6]
+        )
+        all_models.append(
+            f"class {res.title()}Create(BaseModel):\n"
+            f"{field_defs}\n"
+            f"{extra_fields}\n"
+            f"class {res.title()}(BaseModel):\n"
+            f"    id: int\n"
+            f"{field_defs}\n"
+            f"{extra_fields}\n"
+        )
+    create_model = "\n".join(all_models)
 
-    # Build routes
+    # Build CREATE TABLE statements for ALL resources
+    create_stmts = []
+    for r in all_resources:
+        col_defs_sql = ", ".join(
+            f"{c} TEXT" if not c.endswith("_id") and c != "id" else
+            ("id INTEGER PRIMARY KEY AUTOINCREMENT" if c == "id" else f"{c} INTEGER")
+            for c in r["columns"]
+        )
+        create_stmts.append(
+            f"    conn.execute('CREATE TABLE IF NOT EXISTS {r['table']} ({col_defs_sql})')"
+        )
+    # Always ensure users table exists for auth
+    if has_auth:
+        create_stmts.append(
+            "    conn.execute('CREATE TABLE IF NOT EXISTS users "
+            "(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, "
+            "password_hash TEXT NOT NULL, name TEXT DEFAULT \"\")')"
+        )
+
+    # Build routes for ALL resources
     routes = [
         f'@app.get("/health")\ndef health():\n    return {{"status": "ok", "domain": "{domain}"}}\n',
     ]
-    
+
     if domain == "industrial":
         routes.append(
             '@app.post("/telemetry")\ndef post_telemetry(data: dict):\n    # High-frequency ingestion\n    return {"status": "recorded", "ts": 123456789}\n'
@@ -437,30 +529,59 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             'def idempotent(func):\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n'
         )
 
-    col_defs_sql = ", ".join(
-        f"{c} TEXT" if not c.endswith("_id") and c != "id" else
-        ("id INTEGER PRIMARY KEY AUTOINCREMENT" if c == "id" else f"{c} INTEGER")
-        for c in primary["columns"]
-    )
+    for r in all_resources:
+        res   = r["resource"]
+        table = r["table"]
+        routes += [
+            f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}():\n'
+            f'    conn = get_db()\n'
+            f'    rows = conn.execute("SELECT * FROM {table}").fetchall()\n'
+            f'    conn.close()\n'
+            f'    return [{res.title()}(**dict(row)) for row in rows]\n',
 
-    routes += [
-        f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}():\n'
-        f'    conn = get_db()\n'
-        f'    rows = conn.execute("SELECT * FROM {table}").fetchall()\n'
-        f'    conn.close()\n'
-        f'    return [{res.title()}(**dict(r)) for r in rows]\n',
+            f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n'
+            f'    conn = get_db()\n'
+            f'    data = {{k: v for k, v in payload.dict().items() if v is not None}}\n'
+            f'    cols_list = list(data.keys())\n'
+            f'    vals = [data[c] for c in cols_list]\n'
+            f'    placeholders = ", ".join("?" for _ in cols_list)\n'
+            f'    cur = conn.execute(f"INSERT INTO {table} ({{chr(44).join(cols_list)}}) VALUES ({{placeholders}})", vals)\n'
+            f'    conn.commit()\n'
+            f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (cur.lastrowid,)).fetchone()\n'
+            f'    conn.close()\n'
+            f'    return {res.title()}(**dict(row))\n',
 
-        f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n'
-        f'    conn = get_db()\n'
-        f'    cols = [f for f in payload.dict() if payload.dict()[f] is not None]\n'
-        f'    vals = [payload.dict()[c] for c in cols]\n'
-        f'    placeholders = ", ".join("?" for _ in cols)\n'
-        f'    cur = conn.execute(f"INSERT INTO {table} ({{", ".join(cols)}}) VALUES ({{placeholders}})", vals)\n'
-        f'    conn.commit()\n'
-        f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (cur.lastrowid,)).fetchone()\n'
-        f'    conn.close()\n'
-        f'    return {res.title()}(**dict(row))\n',
-    ]
+            f'@app.get("/{table}/{{item_id}}", response_model={res.title()})\ndef get_{res}(item_id: int):\n'
+            f'    conn = get_db()\n'
+            f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
+            f'    conn.close()\n'
+            f'    if not row:\n'
+            f'        raise HTTPException(404, "{res} not found")\n'
+            f'    return {res.title()}(**dict(row))\n',
+
+            f'@app.put("/{table}/{{item_id}}", response_model={res.title()})\ndef update_{res}(item_id: int, payload: {res.title()}Create):\n'
+            f'    conn = get_db()\n'
+            f'    existing = conn.execute("SELECT id FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
+            f'    if not existing:\n'
+            f'        conn.close()\n'
+            f'        raise HTTPException(404, "{res} not found")\n'
+            f'    data = {{k: v for k, v in payload.dict().items() if v is not None}}\n'
+            f'    if data:\n'
+            f'        sets = ", ".join(f"{{k}}=?" for k in data)\n'
+            f'        conn.execute(f"UPDATE {table} SET {{sets}} WHERE id=?", list(data.values()) + [item_id])\n'
+            f'        conn.commit()\n'
+            f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
+            f'    conn.close()\n'
+            f'    return {res.title()}(**dict(row))\n',
+
+            f'@app.delete("/{table}/{{item_id}}")\ndef delete_{res}(item_id: int):\n'
+            f'    conn = get_db()\n'
+            f'    cur = conn.execute("DELETE FROM {table} WHERE id=?", (item_id,))\n'
+            f'    conn.commit(); conn.close()\n'
+            f'    if cur.rowcount == 0:\n'
+            f'        raise HTTPException(404, "{res} not found")\n'
+            f'    return {{"status": "deleted", "id": item_id}}\n',
+        ]
 
     middleware = ""
     if domain == "saas_multitenant":
@@ -472,29 +593,106 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             "    return response\n"
         )
 
+    # JWT auth block
+    auth_block = ""
+    if has_auth:
+        auth_block = (
+            "from jose import jwt, JWTError\n"
+            "from passlib.context import CryptContext\n"
+            "from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials\n"
+            "import secrets\n\n"
+            "SECRET_KEY = os.getenv('SECRET_KEY', secrets.token_hex(32))\n"
+            "ALGORITHM = 'HS256'\n"
+            "pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')\n"
+            "bearer = HTTPBearer()\n\n"
+            "from datetime import datetime, timedelta, timezone\n\n"
+            "def create_token(data: dict, expires_hours: int = 24) -> str:\n"
+            "    payload = {**data, 'exp': datetime.now(timezone.utc) + timedelta(hours=expires_hours)}\n"
+            "    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)\n\n"
+            "def verify_token(credentials: HTTPAuthorizationCredentials = Depends(bearer)):\n"
+            "    try:\n"
+            "        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])\n"
+            "        return payload\n"
+            "    except JWTError:\n"
+            "        raise HTTPException(status_code=401, detail='Invalid token')\n\n"
+            "@app.post('/auth/register')\n"
+            "def register(email: str = Body(...), password: str = Body(...), name: str = Body('')):\n"
+            "    conn = get_db()\n"
+            "    existing = conn.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()\n"
+            "    if existing:\n"
+            "        conn.close()\n"
+            "        raise HTTPException(400, 'Email already registered')\n"
+            "    hashed = pwd_context.hash(password)\n"
+            "    cur = conn.execute('INSERT INTO users (email, password_hash, name) VALUES (?,?,?)', (email, hashed, name))\n"
+            "    conn.commit(); uid = cur.lastrowid; conn.close()\n"
+            "    token = create_token({'sub': str(uid), 'email': email})\n"
+            "    return {'access_token': token, 'token_type': 'bearer', 'user_id': uid}\n\n"
+            "@app.post('/auth/login')\n"
+            "def login(email: str = Body(...), password: str = Body(...)):\n"
+            "    conn = get_db()\n"
+            "    row = conn.execute('SELECT id, password_hash FROM users WHERE email=?', (email,)).fetchone()\n"
+            "    conn.close()\n"
+            "    if not row or not pwd_context.verify(password, row['password_hash']):\n"
+            "        raise HTTPException(401, 'Invalid credentials')\n"
+            "    token = create_token({'sub': str(row['id']), 'email': email})\n"
+            "    return {'access_token': token, 'token_type': 'bearer'}\n"
+        )
+
+    imports_extra = ""
+    if has_auth:
+        imports_extra = "from fastapi import FastAPI, HTTPException, Depends, Body\n"
+    else:
+        imports_extra = "from fastapi import FastAPI, HTTPException\n"
+
+    # FIX G8: RBAC helper for saas/healthcare/fintech domains
+    if domain in ("saas_multitenant", "healthcare", "fintech"):
+        rbac_block = (
+            "def require_role(*roles):\n"
+            "    def dependency(payload: dict = Depends(verify_token)):\n"
+            "        if payload.get('role') not in roles:\n"
+            "            raise HTTPException(status_code=403, detail='Insufficient permissions')\n"
+            "        return payload\n"
+            "    return dependency\n\n"
+            "# Usage: @app.get('/admin') async def admin(user=Depends(require_role('admin', 'owner')))\n\n"
+        )
+    else:
+        rbac_block = ""
+
+    create_tables_body = "\n".join(create_stmts)
+
     return (
+        "import os\n"
         "import sqlite3\n"
-        "from fastapi import FastAPI, HTTPException\n"
+        f"{imports_extra}"
         "from fastapi.middleware.cors import CORSMiddleware\n"
+        "from slowapi import Limiter, _rate_limit_exceeded_handler\n"
+        "from slowapi.util import get_remote_address\n"
+        "from slowapi.errors import RateLimitExceeded\n"
         "from pydantic import BaseModel\n"
         "from typing import List, Optional\n\n"
         f"app = FastAPI(title='{domain.title()} API', version='1.0.0')\n\n"
         "app.add_middleware(\n"
         "    CORSMiddleware,\n"
-        "    allow_origins=['*'],\n"
+        "    allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','),\n"
         "    allow_methods=['*'],\n"
         "    allow_headers=['*'],\n"
         ")\n\n"
+        "# FIX G5: rate limiting via slowapi\n"
+        "limiter = Limiter(key_func=get_remote_address, default_limits=['200/day', '50/hour'])\n"
+        "app.state.limiter = limiter\n"
+        "app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)\n\n"
         "DB_PATH = './data.db'\n\n"
         "def get_db():\n"
         "    conn = sqlite3.connect(DB_PATH)\n"
         "    conn.row_factory = sqlite3.Row\n"
         "    return conn\n\n"
-        f"def create_tables():\n"
-        f"    conn = get_db()\n"
-        f"    conn.execute('CREATE TABLE IF NOT EXISTS {table} ({col_defs_sql})')\n"
-        f"    conn.commit(); conn.close()\n\n"
+        "def create_tables():\n"
+        "    conn = get_db()\n"
+        f"{create_tables_body}\n"
+        "    conn.commit(); conn.close()\n\n"
         "create_tables()\n\n"
+        f"{auth_block}\n"
+        f"{rbac_block}"
         f"{middleware}\n"
         f"# Pydantic models\n{create_model}\n"
         + "\n".join(routes)
@@ -709,7 +907,7 @@ import sqlite3, httpx, json, re, os
 from pathlib import Path
 
 app = FastAPI(title="MeetingMind", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(","), allow_methods=["*"], allow_headers=["*"])
 
 DB_PATH = Path("data/meetings.db")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434/api/generate")
@@ -888,6 +1086,7 @@ load();
 </body></html>"""
 
     return (
+        "import os\n"
         "from fastapi import FastAPI, HTTPException\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse\n"
@@ -896,7 +1095,7 @@ load();
         "import sqlite3, json\n"
         "from pathlib import Path\n\n"
         "app = FastAPI(title='TaskManager', version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "DB_PATH = Path('data/tasks.db')\n\n"
         "def init_db():\n"
         "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
@@ -1033,6 +1232,7 @@ loadRecs();
 </body></html>"""
 
     return (
+        "import os\n"
         "from fastapi import FastAPI, HTTPException, UploadFile, File\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse, FileResponse\n"
@@ -1041,7 +1241,7 @@ loadRecs();
         "import sqlite3, shutil, uuid\n"
         "from pathlib import Path\n\n"
         "app = FastAPI(title='VoiceRecorder', version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "AUDIO_DIR = Path('data/recordings')\n"
         "DB_PATH = Path('data/recordings.db')\n\n"
         "def init_db():\n"
@@ -1157,13 +1357,14 @@ async function clearChat(){
 </body></html>"""
 
     return (
+        "import os\n"
         "from fastapi import FastAPI\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse\n"
         "from pydantic import BaseModel\n"
-        "import httpx, os\n\n"
+        "import httpx\n\n"
         "app = FastAPI(title='AIChat', version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://host.docker.internal:11434/api/generate')\n"
         "OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:3b')\n"
         "history = []\n\n"
@@ -1260,6 +1461,7 @@ load();
 </body></html>"""
 
     return (
+        "import os\n"
         "from fastapi import FastAPI, HTTPException\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse\n"
@@ -1268,7 +1470,7 @@ load();
         "import sqlite3\n"
         "from pathlib import Path\n\n"
         "app = FastAPI(title='Invoicer', version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "DB_PATH = Path('data/invoices.db')\n\n"
         "def init_db():\n"
         "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
@@ -1407,11 +1609,12 @@ function draw(){
 </body></html>"""
 
     return (
+        "import os\n"
         "from fastapi import FastAPI\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse\n\n"
         "app = FastAPI(title='SnakeGame', version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "@app.get('/health')\n"
         "def health(): return {'status': 'ok'}\n\n"
         f"HTML_CONTENT = {repr(html)}\n\n"
@@ -1423,6 +1626,7 @@ function draw(){
 def _crm_app(project_name: str = "crm") -> str:
     """Return a full CRM FastAPI app with SQLite persistence."""
     return '''\
+import os
 import sqlite3
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -1434,7 +1638,7 @@ app = FastAPI(title="BrightToys CRM", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1759,11 +1963,12 @@ def _generic_api(project_name: str = "app") -> str:
 </body></html>"""
 
     return (
+        "import os\n"
         "from fastapi import FastAPI\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse\n\n"
         "app = FastAPI(title='GeneratedAPI', version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "@app.get('/health')\n"
         "def health(): return {'status': 'ok', 'version': '1.0.0'}\n\n"
         f"HTML_CONTENT = {repr(html)}\n\n"
@@ -2021,6 +2226,7 @@ def _odoo_module_app(project_name: str = "module") -> str:
     module_name = (project_name or "module").replace("-", " ").replace("_", " ").title()
     html = _ODOO_HTML_TEMPLATE.replace("__MODULE_NAME__", module_name)
     return (
+        "import os\n"
         "from fastapi import FastAPI, HTTPException\n"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from fastapi.responses import HTMLResponse\n"
@@ -2030,7 +2236,7 @@ def _odoo_module_app(project_name: str = "module") -> str:
         "from pathlib import Path\n\n"
         f"MODULE_NAME = {repr(module_name)}\n"
         "app = FastAPI(title=MODULE_NAME, version='1.0.0')\n"
-        "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])\n\n"
+        "app.add_middleware(CORSMiddleware, allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','), allow_methods=['*'], allow_headers=['*'])\n\n"
         "DB_PATH = Path('data/module.db')\n\n"
         "def init_db():\n"
         "    DB_PATH.parent.mkdir(parents=True, exist_ok=True)\n"
