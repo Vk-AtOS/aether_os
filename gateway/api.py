@@ -469,6 +469,43 @@ def create_app() -> FastAPI:
     except Exception as exc:
         logger.warning("Prometheus init failed: %s", exc)
 
+    # P5: Audit log middleware — automatically logs every mutating authenticated request
+    @app.middleware("http")
+    async def audit_log_middleware(request: Request, call_next):
+        response = await call_next(request)
+        # Only log mutating requests to API paths (not health, docs, static, SSE)
+        method = request.method
+        path = request.url.path
+        if (method in ("POST", "PUT", "PATCH", "DELETE")
+                and not any(path.startswith(p) for p in ("/docs", "/redoc", "/openapi", "/health", "/metrics"))
+                and not path.endswith("/stream")):
+            try:
+                # Extract user from Authorization header (best-effort — don't block request)
+                auth = request.headers.get("Authorization", "")
+                if auth.startswith("Bearer "):
+                    from aether_os.gateway.auth import decode_access_token
+                    claims = decode_access_token(auth[7:])
+                    if claims:
+                        from aether_os.core.audit.ledger import get_ledger
+                        import asyncio
+                        path_parts = path.split("/")
+                        asyncio.create_task(get_ledger().async_log_audit_event(
+                            org_id=claims.get("org_id", "unknown"),
+                            user_id=str(claims.get("user_id", "unknown")),
+                            action=f"{method} {path}",
+                            resource_type=path_parts[1] if len(path_parts) > 1 else "api",
+                            resource_id=path_parts[2] if len(path_parts) > 2 else "-",
+                            metadata={},
+                            ip_address=(
+                                request.headers.get("X-Real-IP")
+                                or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                                or (request.client.host if request.client else "unknown")
+                            ),
+                        ))
+            except Exception:
+                pass  # Audit logging must never break the request
+        return response
+
     # ── Routes ────────────────────────────────────────────────────────────────
 
     api_router = APIRouter(prefix="/api")
@@ -2013,6 +2050,15 @@ def create_app() -> FastAPI:
                     except Exception:
                         pass
 
+        # Load gate_result.json for each phase if it exists
+        for _pk, _pv in phases.items():
+            _gate_file = project_dir / _pk / "gate_result.json"
+            if _gate_file.exists():
+                try:
+                    _pv["gate_result"] = json.loads(_gate_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
         # Strip absolute server paths from all phase output (S8 security fix)
         def _strip_server_paths(obj):
             if isinstance(obj, str):
@@ -3029,6 +3075,209 @@ def create_app() -> FastAPI:
             "truncated": truncated,
             "type": "diff" if ext == ".diff" else "text"
         }
+
+    # ── FDE: File write, VS Code open, env vars, run-app ──────────────────────
+
+    class FileWriteBody(BaseModel):
+        path: str
+        content: str
+
+    @app.patch("/factory/runs/{run_id}/file-content")
+    async def patch_file_content(
+        run_id: str,
+        body: FileWriteBody,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Write content to a file in the project directory."""
+        if user.get("role") == "viewer":
+            raise HTTPException(status_code=403, detail="Viewers cannot write files")
+        from aether_os.core.projects import get_project_manager
+        from aether_os.core.audit.ledger import get_ledger
+
+        org_id = user.get("org_id")
+        run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        project_id = run_id
+        if run_detail and "project_id" in run_detail:
+            project_id = run_detail["project_id"]
+
+        root_dir = get_project_manager().get_project_dir(project_id).resolve()
+        path = body.path
+        safe_relative = pathlib.Path(path.lstrip("/")).resolve().relative_to(pathlib.Path("/").resolve()) if path.startswith("/") else pathlib.Path(path)
+        file_path = (root_dir / safe_relative).resolve()
+
+        try:
+            file_path.relative_to(root_dir)
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Path traversal detected")
+
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(body.content, encoding="utf-8")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error writing file: {e}")
+
+        return {"run_id": run_id, "path": path, "size": file_path.stat().st_size}
+
+    @app.post("/factory/runs/{run_id}/open-in-vscode")
+    async def open_in_vscode(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Open the project folder in VS Code on the local machine."""
+        import subprocess as _sp
+        from aether_os.core.projects import get_project_manager
+        from aether_os.core.audit.ledger import get_ledger
+
+        org_id = user.get("org_id")
+        run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        project_id = run_id
+        if run_detail and "project_id" in run_detail:
+            project_id = run_detail["project_id"]
+
+        root_dir = get_project_manager().get_project_dir(project_id).resolve()
+
+        try:
+            _sp.run(["code", str(root_dir)], check=False, capture_output=True)
+            return {"opened": True, "path": str(root_dir)}
+        except FileNotFoundError:
+            return {"opened": False, "error": "VS Code CLI (code) not found in PATH"}
+
+    @app.get("/factory/runs/{run_id}/envvars")
+    async def get_envvars(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Read the .env (or .env.example) file from the project root."""
+        from aether_os.core.projects import get_project_manager
+        from aether_os.core.audit.ledger import get_ledger
+
+        org_id = user.get("org_id")
+        run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        project_id = run_id
+        if run_detail and "project_id" in run_detail:
+            project_id = run_detail["project_id"]
+
+        root_dir = get_project_manager().get_project_dir(project_id).resolve()
+
+        env_path = root_dir / ".env"
+        source = ".env"
+        if not env_path.exists():
+            env_path = root_dir / ".env.example"
+            source = ".env.example"
+
+        vars_list: List[Dict[str, str]] = []
+        if env_path.exists():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if "=" in stripped:
+                    k, _, v = stripped.partition("=")
+                    vars_list.append({"key": k.strip(), "value": v.strip()})
+
+        return {"run_id": run_id, "vars": vars_list, "source": source}
+
+    class EnvVarItem(BaseModel):
+        key: str
+        value: str
+
+    class EnvVarsBody(BaseModel):
+        vars: List[EnvVarItem]
+
+    @app.patch("/factory/runs/{run_id}/envvars")
+    async def patch_envvars(
+        run_id: str,
+        body: EnvVarsBody,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Write a .env file in the project root from the given key-value pairs."""
+        if user.get("role") == "viewer":
+            raise HTTPException(status_code=403, detail="Viewers cannot write env vars")
+        from aether_os.core.projects import get_project_manager
+        from aether_os.core.audit.ledger import get_ledger
+
+        org_id = user.get("org_id")
+        run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        project_id = run_id
+        if run_detail and "project_id" in run_detail:
+            project_id = run_detail["project_id"]
+
+        root_dir = get_project_manager().get_project_dir(project_id).resolve()
+        env_path = root_dir / ".env"
+
+        lines = [f"{item.key}={item.value}" for item in body.vars]
+        try:
+            env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error writing .env: {e}")
+
+        return {"run_id": run_id, "written": len(body.vars)}
+
+    _run_procs: Dict[str, Any] = {}
+
+    @app.post("/factory/runs/{run_id}/run-app")
+    async def start_run_app(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Start the generated app with uvicorn in the background."""
+        import subprocess as _sp
+        from aether_os.core.projects import get_project_manager
+        from aether_os.core.audit.ledger import get_ledger
+
+        existing = _run_procs.get(run_id)
+        if existing is not None and existing.poll() is None:
+            return {"status": "already_running", "pid": existing.pid, "port": 8001}
+
+        org_id = user.get("org_id")
+        run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+        if not run_detail:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        project_id = run_id
+        if run_detail and "project_id" in run_detail:
+            project_id = run_detail["project_id"]
+
+        root_dir = get_project_manager().get_project_dir(project_id).resolve()
+
+        try:
+            proc = _sp.Popen(
+                ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"],
+                cwd=str(root_dir),
+            )
+            _run_procs[run_id] = proc
+            return {"status": "started", "port": 8001, "pid": proc.pid}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to start app: {e}")
+
+    @app.delete("/factory/runs/{run_id}/run-app")
+    async def stop_run_app(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Kill the background app process for a run."""
+        proc = _run_procs.get(run_id)
+        if proc is None or proc.poll() is not None:
+            return {"status": "not_running"}
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+        del _run_procs[run_id]
+        return {"status": "stopped", "run_id": run_id}
 
     # ── System Settings (Endpoints 3, 4, 5) ────────────────────────────────────
 

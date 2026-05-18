@@ -67,18 +67,39 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("diagrams failed: %s", e)
 
+    # Read actual generated endpoints from canonical main.py
+    actual_endpoints = []
+    try:
+        import re as _re
+        main_py_path = Path(source_dir) / "src" / "main.py" if source_dir else None
+        if main_py_path and main_py_path.exists():
+            content = main_py_path.read_text()
+            # Extract @app.route decorators
+            for match in _re.finditer(r'@app\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']', content):
+                actual_endpoints.append(f"{match.group(1).upper()} {match.group(2)}")
+    except Exception:
+        pass
+
     # Generate docs with Claude
     code_preview = ""
     if source_dir and Path(source_dir).exists():
         py_files = list(Path(source_dir).rglob("*.py"))[:3]
         code_preview = "\n".join(f.read_text()[:500] for f in py_files)
 
+    _endpoints_instruction = (
+        f"\nIMPORTANT: Only document endpoints that exist in the actual code: "
+        f"{actual_endpoints}. Do not invent features, TypeScript clients, "
+        f"custom workflows, or webhooks that are not present.\n"
+        if actual_endpoints else ""
+    )
+
     try:
         readme = await llm.call(
             f"Write a comprehensive README.md (min 500 words) for '{project_name}'.\n"
             f"Requirements overview: {requirements_doc[:1000]}\n"
             f"Tech stack: {json.dumps(arch_json.get('tech_stack',{}))}\n"
-            f"Code preview:\n{code_preview[:1000]}\n\n"
+            f"Code preview:\n{code_preview[:1000]}\n"
+            f"{_endpoints_instruction}\n"
             f"Include: Overview, Features, Installation, Configuration, "
             f"Usage Examples, API Reference summary, Deployment, Contributing, License.",
             task_type="documentation",
@@ -88,7 +109,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             raise ValueError(f"LLM README too short ({len(readme.split())} words)")
     except Exception as _llm_err:
         logger.warning("LLM README failed (%s) — using fallback", _llm_err)
-        readme = _build_fallback_readme(project_name, arch_json, requirements_doc)
+        readme = _build_fallback_readme(project_name, arch_json, requirements_doc, actual_endpoints)
     readme_path = docs_dir / "README.md"
     readme_path.write_text(readme)
 
@@ -146,7 +167,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
 
 
-def _build_fallback_readme(project_name: str, arch_json: dict, requirements_doc: str) -> str:
+def _build_fallback_readme(project_name: str, arch_json: dict, requirements_doc: str,
+                           actual_endpoints: list = None) -> str:
     """Build a comprehensive README.md from architecture data — no LLM required."""
     stack = arch_json.get("tech_stack", {})
     backend = stack.get("backend", "FastAPI")
@@ -182,6 +204,12 @@ def _build_fallback_readme(project_name: str, arch_json: dict, requirements_doc:
             schema_section += f"### `{tname}`\n\nColumns: {', '.join(f'`{c}`' for c in cols)}\n\n"
 
     cache_line = f"- **Cache**: {cache}\n" if cache else ""
+
+    # Generated API Endpoints section — only what actually exists in src/main.py
+    generated_endpoints_section = ""
+    if actual_endpoints:
+        ep_lines = "\n".join(f"- `{ep}`" for ep in actual_endpoints)
+        generated_endpoints_section = f"\n## Generated API Endpoints\n\n{ep_lines}\n"
 
     return f"""# {project_name}
 
@@ -257,6 +285,8 @@ Copy `.env.example` to `.env` and configure:
 {endpoint_table if endpoint_table else "See `/docs` for full API documentation."}
 
 {curl_examples}
+
+{generated_endpoints_section}
 
 {schema_section}
 

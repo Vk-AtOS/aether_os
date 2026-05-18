@@ -94,17 +94,78 @@ class ArtifactStore:
         return results
 
     async def search(self, query: str, org_id: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Semantic search across artifacts for an org."""
+        """Search artifacts for an org — semantic with text fallback."""
         await self._ensure_init()
+        # Try semantic search first
         try:
             client = get_llm_client()
             query_vec = await client.embed(query)
             query_np = np.array(query_vec)
             results = await asyncio.to_thread(self._search_sync, org_id, query_np)
             results.sort(key=lambda x: x["score"], reverse=True)
+            if results:
+                return results[:limit]
+        except Exception as exc:
+            logger.warning("Semantic search failed, falling back to text: %s", exc)
+
+        # Text fallback: search runs table by project_name/client_id/status
+        return await self._text_search(query, org_id, limit)
+
+    async def _text_search(self, query: str, org_id: str, limit: int) -> List[Dict[str, Any]]:
+        """Full-text search over runs by project_name, client_id, status."""
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import Run
+            from sqlalchemy import select, or_
+            sf = get_session_factory()
+            q_lower = f"%{query.lower()}%"
+            async with sf() as session:
+                stmt = (
+                    select(Run)
+                    .where(Run.org_id == org_id)
+                    .where(
+                        or_(
+                            Run.project_name.ilike(q_lower),
+                            Run.client_id.ilike(q_lower),
+                            Run.status.ilike(q_lower),
+                        )
+                    )
+                    .limit(limit)
+                )
+                rows = (await session.execute(stmt)).scalars().all()
+            results = []
+            for run in rows:
+                project_dir = Path.home() / ".aether_os" / "projects" / run.id
+                results.append({
+                    "run_id": run.id,
+                    "project_name": run.project_name,
+                    "status": run.status,
+                    "client_id": run.client_id or "",
+                    "requirement": run.requirement or run.raw_input or "",
+                    "domain": run.domain or "general",
+                    "file_path": "project",
+                    "score": 1.0,
+                    "type": "run",
+                })
+                # Also search artifact files on disk
+                for suffix in (".md", ".json"):
+                    for fpath in sorted(project_dir.rglob(f"*{suffix}"))[:5]:
+                        try:
+                            text = fpath.read_text(errors="ignore").lower()
+                            if query.lower() in text:
+                                results.append({
+                                    "run_id": run.id,
+                                    "project_name": run.project_name,
+                                    "status": run.status,
+                                    "file_path": str(fpath.relative_to(project_dir)),
+                                    "score": 0.8,
+                                    "type": "artifact",
+                                })
+                        except Exception:
+                            pass
             return results[:limit]
         except Exception as exc:
-            logger.error("Search failed: %s", exc)
+            logger.error("Text search failed: %s", exc)
             return []
 
     async def get_artifact(self, run_id: str, file_path: str) -> Optional[str]:

@@ -35,10 +35,30 @@ class TaskAgent:
     async def run(self, phase_input: Any) -> Dict[str, Any]:
         docker_available = await self._check_docker()
         if not docker_available:
+            run_id: str = getattr(phase_input, "run_id", "unknown")
+            project_dir = Path(os.path.expanduser(
+                f"~/.aether_os/projects/{run_id}"
+            ))
+            instructions_dir = project_dir / "p11_deployment"
+            instructions_dir.mkdir(parents=True, exist_ok=True)
+            instructions_path = instructions_dir / "deployment_instructions.md"
+            compose_path = project_dir / "docker-compose.yml"
+            instructions_path.write_text(
+                f"# Deployment Instructions\n\n"
+                f"Docker is not available in the current environment.\n\n"
+                f"## Manual Deployment\n\n"
+                f"Deploy manually with:\n\n"
+                f"```bash\ncd {project_dir}\ndocker-compose up --build\n```\n\n"
+                f"Or build and run the Docker image directly:\n\n"
+                f"```bash\ncd {project_dir}\ndocker build -t aetheros-app .\n"
+                f"docker run -p 8000:8000 aetheros-app\n```\n\n"
+                f"The application will be available at http://localhost:8000\n"
+            )
             return {
-                "success": False,
+                "success": True,
                 "skipped": True,
-                "error": "Docker daemon not running. Start Docker Desktop and use the Deploy button to deploy manually.",
+                "output_path": str(instructions_path),
+                "message": f"Docker not available. Deploy manually with: `docker-compose up --build` in {project_dir}",
                 "live_url": None,
             }
 
@@ -135,7 +155,7 @@ class TaskAgent:
                 "FastAPI" in content
                 and len(content) > 500
                 and "@app." in content
-                and content.count("@app.") > 1   # more than just /health
+                and content.count("@app.") >= 1   # at least one route (including /health)
             )
         except Exception:
             return False

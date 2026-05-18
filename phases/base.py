@@ -1,6 +1,7 @@
 """AetherOS — Shared base classes for the 4-agent phase pattern."""
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -136,6 +137,18 @@ class PhaseBase:
                 gate = await self.validate_gate(result, phase_input)
 
                 if gate.passed:
+                    # Persist gate result to disk for Phase Detail view
+                    try:
+                        _op = Path(result.output_path)
+                        _gate_dir = _op if _op.is_dir() else _op.parent
+                        if _gate_dir.exists():
+                            (_gate_dir / "gate_result.json").write_text(json.dumps({
+                                "passed": gate.passed,
+                                "confidence": gate.confidence,
+                                "issues": gate.issues,
+                            }, indent=2))
+                    except Exception:
+                        pass
                     await self.memory_after(
                         self.phase_name, input_hash, result.output_path,
                         result.confidence, getattr(phase_input, "domain", "general"),

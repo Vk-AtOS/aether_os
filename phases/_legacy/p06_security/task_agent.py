@@ -99,17 +99,39 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # Auto-fix HIGH findings
     high_findings = [f for f in all_findings if f["severity"] in ("HIGH", "ERROR")]
+    canonical_main = Path(data.get("project_dir", source_dir)) / "src" / "main.py"
     for finding in high_findings[:3]:
         if finding.get("file") and Path(finding["file"]).exists():
             try:
-                file_content = Path(finding["file"]).read_text()
+                found_file = Path(finding["file"])
+                file_content = found_file.read_text()
                 fixed = await llm.call(
                     f"Fix this security issue:\n{finding['description']}\n\n"
                     f"Code:\n{file_content[:3000]}\n\nReturn only fixed code.",
                     task_type="code_generation",
                 )
-                Path(finding["file"]).write_text(_strip_fences(fixed))
+                fixed_content = _strip_fences(fixed)
+                found_file.write_text(fixed_content)
                 finding["auto_fixed"] = True
+                # Also apply the fix to the canonical project src/main.py
+                if canonical_main.exists() and canonical_main != found_file:
+                    try:
+                        canon_content = canonical_main.read_text()
+                        # Apply CORS wildcard fix
+                        if "allow_origins=['*']" in canon_content:
+                            canon_content = canon_content.replace(
+                                "allow_origins=['*']",
+                                "allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')",
+                            )
+                        if 'allow_origins=["*"]' in canon_content:
+                            canon_content = canon_content.replace(
+                                'allow_origins=["*"]',
+                                "allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')",
+                            )
+                        canonical_main.write_text(canon_content)
+                        logger.info("Applied security fix to canonical path: %s", canonical_main)
+                    except Exception as ce:
+                        logger.warning("Could not apply fix to canonical path: %s", ce)
             except Exception as e:
                 logger.warning("Auto security fix failed: %s", e)
 

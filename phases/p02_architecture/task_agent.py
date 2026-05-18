@@ -128,7 +128,71 @@ def _build_fallback_architecture(raw_input: str, domain: str = "general") -> dic
     """
     from aether_os.core.domain_engine import get_domain_profile
     profile = get_domain_profile(domain)
-    
+
+    # SaaS multi-tenant domain: always use the canonical org/membership schema
+    if domain in ("saas_multitenant", "saas"):
+        stack = {**TECH_STACK_DEFAULTS, **profile.suggested_tech_stack}
+        db_type = stack.get("database", "PostgreSQL")
+        saas_db_schema = [
+            {"table": "organizations", "columns": ["id", "name", "slug", "plan", "created_at"]},
+            {"table": "memberships", "columns": ["id", "org_id", "user_id", "role", "created_at"]},
+            {"table": "users", "columns": ["id", "email", "name", "password_hash", "created_at"]},
+            {"table": "projects", "columns": ["id", "org_id", "name", "status", "created_at"]},
+            {"table": "tasks", "columns": ["id", "project_id", "title", "status", "priority", "assignee_id", "due_date", "created_at"]},
+        ]
+        saas_endpoints = [
+            {"method": "POST",   "path": "/auth/register",          "description": "Register user",           "auth": False},
+            {"method": "POST",   "path": "/auth/login",             "description": "Login and get JWT token", "auth": False},
+            {"method": "GET",    "path": "/organizations",          "description": "List organizations",      "auth": True},
+            {"method": "POST",   "path": "/organizations",          "description": "Create organization",     "auth": True},
+            {"method": "GET",    "path": "/projects",               "description": "List projects",           "auth": True},
+            {"method": "POST",   "path": "/projects",               "description": "Create project",          "auth": True},
+            {"method": "GET",    "path": "/projects/{id}",          "description": "Get project by ID",       "auth": True},
+            {"method": "GET",    "path": "/tasks",                  "description": "List tasks",              "auth": True},
+            {"method": "POST",   "path": "/tasks",                  "description": "Create task",             "auth": True},
+            {"method": "PUT",    "path": "/tasks/{id}",             "description": "Update task",             "auth": True},
+            {"method": "DELETE", "path": "/tasks/{id}",             "description": "Delete task",             "auth": True},
+        ]
+        return {
+            "tech_stack": stack,
+            "component_diagram": (
+                "graph TD\n"
+                "  Client --> API[FastAPI]\n"
+                f"  API --> DB[({db_type})]\n"
+                "  API --> Auth[JWT Auth]\n"
+                "  subgraph Resources\n"
+                "    API --> Orgs[Organizations]\n"
+                "    API --> Projects[Projects]\n"
+                "    API --> Tasks[Tasks]\n"
+                "  end"
+            ),
+            "database_schema": saas_db_schema,
+            "api_endpoints": saas_endpoints,
+            "data_flow": (
+                "sequenceDiagram\n"
+                "  Client->>API: HTTP Request\n"
+                "  API->>Auth: Validate JWT\n"
+                "  Auth-->>API: Payload (org_id, user_id, role)\n"
+                "  API->>OrgService: Enforce tenant isolation\n"
+                "  OrgService->>DB: SQL Query (WHERE org_id=?)\n"
+                "  DB-->>OrgService: Rows\n"
+                "  OrgService-->>API: Result\n"
+                "  API-->>Client: JSON Response"
+            ),
+            "security_considerations": profile.security_requirements + [
+                "Pydantic input validation on all endpoints",
+                "SQL injection prevention via ORM",
+                "Multi-tenant row-level isolation",
+            ],
+            "scalability_notes": (
+                f"Stateless FastAPI app — scale horizontally behind nginx. "
+                f"{db_type} with read replicas. Tenant isolation via org_id foreign keys."
+            ),
+            "_fallback": True,
+            "_detected_resources": ["organizations", "memberships", "projects", "tasks"],
+            "domain": domain,
+        }
+
     resources = _extract_resources(raw_input)
     primary = resources[0] if resources else {"resource": "item", "table": "items",
                                                "columns": ["id", "name", "created_at"]}

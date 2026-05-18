@@ -136,10 +136,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 def _generate_compose(slug: str, db: str, cache: str) -> str:
     db_service = ""
     db_env = ""
+    use_db_depends = False
     if "postgres" in db:
+        use_db_depends = True
         db_service = f"""
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: {slug}
       POSTGRES_USER: app
@@ -153,13 +155,20 @@ def _generate_compose(slug: str, db: str, cache: str) -> str:
       retries: 5"""
         db_env = "DATABASE_URL=postgresql+asyncpg://app:${DB_PASSWORD:-secret}@db:5432/" + slug
     elif "mongo" in db:
+        use_db_depends = True
         db_service = f"""
   db:
     image: mongo:7
     volumes:
-      - mongo_data:/data/db"""
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5"""
         db_env = f"MONGODB_URL=mongodb://db:27017/{slug}"
     else:
+        # SQLite — no db service needed
         db_env = f"DATABASE_URL=sqlite+aiosqlite:///./data/{slug}.db"
 
     cache_service = ""
@@ -178,6 +187,14 @@ def _generate_compose(slug: str, db: str, cache: str) -> str:
     elif "mongo" in db:
         volumes = "\nvolumes:\n  mongo_data:"
 
+    # Only include depends_on block when a db service actually exists
+    depends_on_block = ""
+    if use_db_depends:
+        depends_on_block = """    depends_on:
+      db:
+        condition: service_healthy
+"""
+
     return f"""version: '3.8'
 
 services:
@@ -189,10 +206,7 @@ services:
       - {db_env}
       - {cache_env}
       - APP_SECRET_KEY=${{APP_SECRET_KEY:-dev-secret}}
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
+{depends_on_block}    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s

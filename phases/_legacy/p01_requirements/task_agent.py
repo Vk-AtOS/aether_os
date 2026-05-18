@@ -112,6 +112,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Fill missing keys with defaults
     doc = apply_defaults(doc, raw)
 
+    # Preserve the input domain — LLM may return "general" by default
+    if doc.get("domain", "general") == "general" and domain != "general":
+        doc["domain"] = domain
+
     # Write markdown for human readability
     md_lines = [f"# Requirements Document\n\n**Domain:** {doc.get('domain','')}\n"
                 f"**Complexity:** {doc.get('estimated_complexity','medium')}\n"]
