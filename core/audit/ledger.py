@@ -185,7 +185,7 @@ class DecisionLedger:
             from aether_os.core.db_utils import get_run_detail
             return await get_run_detail(run_id=run_id, org_id=org_id)
         except Exception as exc:
-            logger.debug("async_get_run_detail failed: %s", exc)
+            logger.warning("async_get_run_detail failed for run_id=%s: %s", run_id, exc)
             return {}
 
 

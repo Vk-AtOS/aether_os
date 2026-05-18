@@ -492,11 +492,36 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
     if raw_input.strip() and domain == "general":
         return _generate_from_requirement(raw_input)
 
-    has_auth = any(ep.get("path", "").startswith("/auth") for ep in endpoints)
+    has_auth = domain in ("saas_multitenant", "healthcare", "fintech", "saas", "crm") or \
+           any(ep.get("path", "").startswith("/auth") for ep in endpoints)
 
     # ── Per-resource model + route generation ─────────────────────────────────
     all_resources = resources if resources else [{"resource": "item", "table": "items",
                                                    "columns": ["id", "name", "created_at"]}]
+    # Enrich resources: if raw_input mentions entities not yet in resources, add them
+    _ENTITY_KEYWORDS = {
+        "project": ("projects", ["id", "name", "description", "status", "owner_id", "created_at"]),
+        "invoice": ("invoices", ["id", "amount", "status", "due_date", "client_id", "created_at"]),
+        "payment": ("payments", ["id", "amount", "status", "method", "invoice_id", "created_at"]),
+        "order":   ("orders",   ["id", "total", "status", "customer_id", "created_at"]),
+        "product": ("products", ["id", "name", "price", "stock", "category", "created_at"]),
+        "report":  ("reports",  ["id", "title", "content", "type", "created_at"]),
+        "team":    ("teams",    ["id", "name", "org_id", "created_at"]),
+        "member":  ("members",  ["id", "user_id", "team_id", "role", "created_at"]),
+        "appointment": ("appointments", ["id", "patient_id", "doctor_id", "datetime", "status"]),
+        "patient": ("patients", ["id", "name", "dob", "contact", "created_at"]),
+        "ticket":  ("tickets",  ["id", "title", "status", "priority", "assignee_id", "created_at"]),
+        "document": ("documents", ["id", "title", "content", "author_id", "created_at"]),
+        "event":   ("events",   ["id", "title", "datetime", "location", "created_at"]),
+        "subscription": ("subscriptions", ["id", "plan", "status", "start_date", "end_date", "user_id"]),
+        "category": ("categories", ["id", "name", "description", "parent_id"]),
+    }
+    _existing_tables = {r["table"] for r in all_resources}
+    _req_lower = raw_input.lower()
+    for _kw, (_table, _cols) in _ENTITY_KEYWORDS.items():
+        if _kw in _req_lower and _table not in _existing_tables and len(all_resources) < 6:
+            all_resources.append({"resource": _kw, "table": _table, "columns": _cols})
+            _existing_tables.add(_table)
     primary = all_resources[0]
 
     extra_fields = ""
