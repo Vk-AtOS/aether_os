@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aether_os"
 version = "1.0.0"
 description = "AetherOS — Autonomous AI Software Factory"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 
 # Map the `aether_os` package root to the project root directory.
 # This makes `from aether_os.core.db import ...` resolve to ./core/db.py
