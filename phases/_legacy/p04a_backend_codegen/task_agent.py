@@ -334,6 +334,36 @@ class BackendCodegenAgent:
                 )
                 main_code = fallback_main
 
+        # ── Backend Audit Council — post-generation quality gate ─────────────
+        # Runs 4 focused checks (auth enforcement, schema parity, org isolation,
+        # no stubs) using different free models. If any FAIL, we inject the
+        # correction instructions into a single retry prompt and regenerate once.
+        # Non-fatal: any council/model failure is logged and skipped.
+        if main_code is not fallback_main:
+            try:
+                from aether_os.core.council.council import BackendAuditCouncil
+                _audit = await BackendAuditCouncil().audit(main_code, domain=domain)
+                if not _audit["passed"] and _audit["corrections"]:
+                    logger.info(
+                        "[p04a] BackendAuditCouncil found %d issue(s): %s — retrying with corrections",
+                        len(_audit["failures"]),
+                        ", ".join(f["check"] for f in _audit["failures"]),
+                    )
+                    _retry_prompt = (
+                        main_prompt
+                        + "\n\nCORRECTION INSTRUCTIONS — you MUST apply ALL of the following:\n"
+                        + _audit["corrections"]
+                        + "\n\nReply with ONLY valid Python code, no markdown fences."
+                    )
+                    _retry_code = await self._generate_python(_retry_prompt, client, main_code)
+                    if _retry_code and _retry_code is not main_code:
+                        main_code = _retry_code
+                        logger.info("[p04a] BackendAuditCouncil retry applied")
+                else:
+                    logger.info("[p04a] BackendAuditCouncil: all checks passed")
+            except Exception as _exc:
+                logger.warning("[p04a] BackendAuditCouncil skipped: %s", _exc)
+
         main_files = _write_to_both(main_code, root_dir, phase_dir, Path("src") / "main.py")
         generated_files.extend(main_files)
 

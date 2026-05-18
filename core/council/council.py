@@ -166,6 +166,177 @@ class PreFlightCouncil:
             return _ERROR_RESULT.copy()
 
 
+class BackendAuditCouncil:
+    """
+    Post-generation focused code audit for p04 backend output.
+
+    Runs 4 narrow, verdictable checks against the generated main.py.
+    Each check is sent to a *different* model so the council is genuinely
+    multi-model, not just one model called four times.
+
+    Token budget: ~8 KB of code + ~50 token prompt + 150 token reply per check.
+    Total: ~4 API calls, each ~8K tokens in, ~150 out.
+
+    Returns:
+      {
+        "passed":      bool,
+        "failures":    [{"check": str, "label": str, "detail": str, "model": str}],
+        "corrections": str,   # newline-joined correction instructions for retry
+      }
+    """
+
+    _CHECKS = [
+        {
+            "id": "auth_enforcement",
+            "label": "JWT auth on mutation routes",
+            "prompt_tmpl": (
+                "FastAPI code below. Do ALL POST, PUT, and DELETE routes use a JWT "
+                "auth dependency (Depends(verify_token), Depends(get_current_user), "
+                "or equivalent)?\n"
+                "Reply with exactly: PASS  or  FAIL\n"
+                "If FAIL, add a second line: MISSING: <route paths separated by commas>\n\n"
+                "Code:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: Every POST, PUT, and DELETE route MUST include "
+                "a JWT auth dependency. Add `user=Depends(verify_token)` (or equivalent) "
+                "to each mutation route that is currently missing it."
+            ),
+        },
+        {
+            "id": "schema_consistency",
+            "label": "Pydantic model / SQL column parity",
+            "prompt_tmpl": (
+                "Python code below. Does every field in every Pydantic BaseModel "
+                "have a matching column in the corresponding CREATE TABLE SQL statement?\n"
+                "Reply with exactly: PASS  or  FAIL\n"
+                "If FAIL, add a second line: MISMATCH: <ModelName.field_name has no SQL column>\n\n"
+                "Code:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: Every Pydantic model field must have a matching column in "
+                "its CREATE TABLE SQL. Add the missing columns to the SQL, "
+                "or remove the extra fields from the model."
+            ),
+        },
+        {
+            "id": "org_isolation",
+            "label": "Tenant org_id row filtering",
+            "prompt_tmpl": (
+                "FastAPI multi-tenant code below. Do ALL list (GET) and detail (GET /{id}) "
+                "endpoints filter their SQL queries with a WHERE org_id=? clause?\n"
+                "Reply with exactly: PASS  or  FAIL\n"
+                "If FAIL, add a second line: UNFILTERED: <endpoint paths>\n\n"
+                "Code:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: Every SELECT query in list and detail endpoints must include "
+                "WHERE org_id=? filtered by the authenticated user's org_id. "
+                "Extract org_id from the JWT token payload returned by verify_token."
+            ),
+        },
+        {
+            "id": "no_stubs",
+            "label": "No unimplemented stubs",
+            "prompt_tmpl": (
+                "Python code below. Are any function or method bodies left unimplemented? "
+                "Look for: sole `pass`, `raise NotImplementedError`, `# TODO`, or `...` as body.\n"
+                "Reply with exactly: PASS  or  FAIL\n"
+                "If FAIL, add a second line: STUBS: <function names>\n\n"
+                "Code:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: All function bodies must be fully implemented. "
+                "Replace every `pass`, `raise NotImplementedError`, and `# TODO` stub "
+                "with working code that fulfils the function's purpose."
+            ),
+        },
+    ]
+
+    async def audit(self, code: str, domain: str = "general") -> Dict[str, Any]:
+        """Run all checks and return consolidated results."""
+        if not _is_enabled():
+            return {"passed": True, "failures": [], "corrections": ""}
+
+        from aether_os.core.llm.openrouter_client import call_openrouter, COUNCIL_MODELS
+
+        # org_isolation check only makes sense for multi-tenant domains
+        checks = (
+            self._CHECKS if domain in ("saas_multitenant", "saas", "crm")
+            else [c for c in self._CHECKS if c["id"] != "org_isolation"]
+        )
+
+        # Trim code — council checks need structure, not every line.
+        # 8 KB covers all route definitions in typical generated apps.
+        code_snippet = code[:8000]
+
+        failures: List[Dict[str, Any]] = []
+        corrections: List[str] = []
+
+        for i, check in enumerate(checks):
+            # Rotate through council models so each check uses a different one
+            model = COUNCIL_MODELS[i % len(COUNCIL_MODELS)]
+            prompt = check["prompt_tmpl"].format(code=code_snippet)
+
+            # Try each model in the council list; skip on 429/404 and move to next
+            verdict_raw = None
+            tried: List[str] = []
+            for candidate in [model] + [m for m in COUNCIL_MODELS if m != model]:
+                if candidate in tried:
+                    continue
+                tried.append(candidate)
+                try:
+                    verdict_raw = await call_openrouter(
+                        prompt,
+                        task_type="review",
+                        system=(
+                            "You are a strict code reviewer. Answer in exactly the format "
+                            "requested — one word verdict, optional second line detail. "
+                            "No prose, no markdown."
+                        ),
+                        max_tokens=150,
+                        model=candidate,
+                    )
+                    model = candidate  # record which one succeeded
+                    break
+                except Exception as exc:
+                    logger.warning(
+                        "BackendAuditCouncil: check=%s model=%s failed — %s (trying next)",
+                        check["id"], candidate, exc,
+                    )
+
+            if verdict_raw is None:
+                logger.warning("BackendAuditCouncil: check=%s — all models failed, skipping", check["id"])
+                continue
+
+            lines = verdict_raw.strip().splitlines()
+            verdict = lines[0].strip().upper()
+            detail = lines[1].strip() if len(lines) > 1 else ""
+
+            if "FAIL" in verdict:
+                failures.append({
+                    "check": check["id"],
+                    "label": check["label"],
+                    "detail": detail,
+                    "model": model,
+                })
+                corrections.append(check["correction"])
+                logger.warning(
+                    "BackendAuditCouncil FAIL: check=%s via=%s detail=%s",
+                    check["id"], model, detail,
+                )
+            else:
+                logger.info(
+                    "BackendAuditCouncil PASS: check=%s via=%s", check["id"], model
+                )
+
+        return {
+            "passed": len(failures) == 0,
+            "failures": failures,
+            "corrections": "\n\n".join(corrections),
+        }
+
+
 class DeliveryCouncil:
     """Validates pipeline output before delivery to the client."""
 
