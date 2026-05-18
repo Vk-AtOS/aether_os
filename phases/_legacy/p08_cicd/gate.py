@@ -34,8 +34,8 @@ class CICDGate:
                 with open(path / "scan_report.json") as f:
                     report = json.load(f)
                 return GateOutcome(passed=True, confidence=0.8, issues=[])
-            except:
-                pass
+            except Exception as _e:
+                logger.warning("Failed to parse scan_report.json in p08 gate: %s", _e)
                 
         # REQUIREMENT 3: ci.yml was generated (minimum viable)
         if (path / "ci.yml").exists():
