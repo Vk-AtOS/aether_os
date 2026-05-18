@@ -185,6 +185,26 @@ class RerunRequest(BaseModel):
     from_phase: str
 
 
+class FileWriteBody(BaseModel):
+    path: str
+    content: str
+
+
+class EnvVarItem(BaseModel):
+    key: str
+    value: str
+
+
+class EnvVarsBody(BaseModel):
+    vars: List[EnvVarItem]
+
+
+class SamlConfigRequest(BaseModel):
+    idp_entity_id: str
+    idp_sso_url: str
+    idp_cert: str
+
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import RedirectResponse
 import os
@@ -3078,10 +3098,6 @@ def create_app() -> FastAPI:
 
     # ── FDE: File write, VS Code open, env vars, run-app ──────────────────────
 
-    class FileWriteBody(BaseModel):
-        path: str
-        content: str
-
     @app.patch("/factory/runs/{run_id}/file-content")
     async def patch_file_content(
         run_id: str,
@@ -3186,12 +3202,6 @@ def create_app() -> FastAPI:
 
         return {"run_id": run_id, "vars": vars_list, "source": source}
 
-    class EnvVarItem(BaseModel):
-        key: str
-        value: str
-
-    class EnvVarsBody(BaseModel):
-        vars: List[EnvVarItem]
 
     @app.patch("/factory/runs/{run_id}/envvars")
     async def patch_envvars(
@@ -4596,10 +4606,6 @@ def create_app() -> FastAPI:
 
     # ── SSO / SAML config (T6-04) ─────────────────────────────────────────────
 
-    class SamlConfigRequest(BaseModel):
-        idp_entity_id: str
-        idp_sso_url: str
-        idp_cert: str
 
     @app.get("/settings/sso")
     async def get_sso_config(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
