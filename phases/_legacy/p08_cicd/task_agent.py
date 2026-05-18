@@ -95,8 +95,8 @@ class CICDAgent:
                         high = [i for i in issues if i.get("issue_severity") == "HIGH"]
                         results["security_issues"] = len(high)
                         results["issues"] = [i.get("issue_text","") for i in high[:5]]
-                    except:
-                        pass
+                    except Exception as _e:
+                        logger.warning("Failed to parse bandit JSON output: %s", _e)
         
         # Generate GitHub Actions CI config with real project context
         project_name = phase_input.input_data.get("project_name", "app") if hasattr(phase_input, "input_data") else "app"

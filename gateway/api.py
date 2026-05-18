@@ -3252,13 +3252,22 @@ def create_app() -> FastAPI:
 
         root_dir = get_project_manager().get_project_dir(project_id).resolve()
 
+        port = int(os.environ.get("RUN_APP_PORT", "8001"))
         try:
+            import sys as _sys
+            log_path = root_dir / "run_app.log"
+            log_file = open(log_path, "w")
             proc = _sp.Popen(
-                ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"],
+                [_sys.executable, "-m", "uvicorn", "src.main:app",
+                 "--host", "127.0.0.1", "--port", str(port)],
                 cwd=str(root_dir),
+                stdout=log_file,
+                stderr=log_file,
+                shell=False,
             )
             _run_procs[run_id] = proc
-            return {"status": "started", "port": 8001, "pid": proc.pid}
+            return {"status": "started", "port": port, "pid": proc.pid,
+                    "log": str(log_path)}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start app: {e}")
 

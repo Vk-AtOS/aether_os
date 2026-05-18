@@ -259,10 +259,11 @@ class FactoryPipeline:
                     client_id=client_id
                 )
                 
-                # Run phase with timeout
+                # Run phase with timeout (configurable per phase)
+                _phase_timeout = float(os.environ.get("PHASE_TIMEOUT_SECONDS", "600"))
                 phase_result = await asyncio.wait_for(
                     self._run_phase(phase_name, phase_input),
-                    timeout=600)  # 10 min per phase (3b model needs time)
+                    timeout=_phase_timeout)
                 
                 results[phase_name] = phase_result
 
@@ -711,8 +712,13 @@ class FactoryPipeline:
         """Execute a single phase via its supervisor."""
         supervisor = _load_supervisor(phase_name)
         if not supervisor:
-             # Default success for unmapped phases to keep pipeline moving in tests
-             return {"status": "completed", "output_path": "", "artifacts": {}, "metadata": {}}
+            logger.warning(
+                "[pipeline] No supervisor mapped for phase %r — skipping. "
+                "Check PHASE_SUPERVISORS in factory_pipeline.py.",
+                phase_name,
+            )
+            return {"status": "skipped", "output_path": "", "artifacts": {}, "metadata": {},
+                    "warning": f"No supervisor mapped for phase {phase_name!r}"}
 
         start_t = time.time()
         try:
