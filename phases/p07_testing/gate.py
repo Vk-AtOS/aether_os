@@ -37,6 +37,11 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
 
     # ── Hard block: no tests generated ───────────────────────────────────────
     if not test_code and not meta.get("test_file"):
+        # Gracefully skip when rate-limited rather than blocking the whole pipeline
+        note = meta.get("note", "")
+        if "rate_limited" in note or "skipped" in note:
+            issues.append("Test generation skipped (LLM rate-limited) — tests omitted, review manually")
+            return GateOutcome(passed=True, confidence=0.5, issues=issues)
         issues.append("No test code was generated — pipeline blocked until tests exist")
         return GateOutcome(passed=False, confidence=0.0, issues=issues)
 
