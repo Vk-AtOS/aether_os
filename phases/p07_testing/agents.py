@@ -18,13 +18,17 @@ class TestAgent:
 
         llm = get_llm_client()
         language = context.get("language", "python")
+        # Keep snippet short — smoke tests only, no exhaustive coverage needed
+        snippet = code[:3000]
         prompt = (
-            f"Write comprehensive pytest tests for this {language} code.\n"
-            f"Cover: happy path, edge cases, error handling.\n"
-            f"Return ONLY valid pytest code, no markdown, no explanations.\n\n"
-            f"Code:\n{code[:6000]}"
+            f"Write basic smoke tests (pytest) for this {language} code.\n"
+            f"Focus on: route response codes, required fields, no import errors.\n"
+            f"Keep tests minimal — 5-10 test functions max.\n"
+            f"Return ONLY valid pytest code, no markdown.\n\n"
+            f"Code:\n{snippet}"
         )
-        raw = await llm.call(prompt, task_type="testing")
+        # Use classify (light) model — test scaffolding doesn't need a heavy model
+        raw = await llm.call(prompt, task_type="classify", max_tokens=2048)
         tests = re.sub(r"^```[a-z]*\n?", "", raw.strip())
         tests = re.sub(r"\n?```$", "", tests).strip()
         logger.info("TestAgent generated %d chars of tests", len(tests))

@@ -75,8 +75,8 @@ const Dashboard = () => {
     { label: 'Tokens Today', value: costs.tokens_today || '—', icon: Coins, color: 'text-success' },
   ];
 
-  const noLLM = health && !health.anthropic_available && !health.gemini_available && !health.ollama_available;
-  const onlyOllama = health && !health.anthropic_available && !health.gemini_available && health.ollama_available;
+  const noLLM = health && !health.anthropic_available && !health.gemini_available && !health.ollama_available && !health.openrouter_available;
+  const onlyOllama = health && !health.anthropic_available && !health.gemini_available && !health.openrouter_available && health.ollama_available;
 
   const handleKillAll = async () => {
     if (!window.confirm('Emergency stop: kill ALL active pipeline runs for this organisation? This cannot be undone.')) return;

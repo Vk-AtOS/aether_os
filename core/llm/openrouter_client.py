@@ -84,7 +84,8 @@ COUNCIL_MODELS = [
 _DEFAULT_HEAVY = "minimax/minimax-m2.5:free"
 _DEFAULT_LIGHT  = "meta-llama/llama-3.3-70b-instruct:free"
 
-_HEAVY_TASKS = {"code_generation", "security_scan", "testing", "architecture", "review"}
+_HEAVY_TASKS = {"code_generation", "security_scan", "architecture", "review"}
+# Note: "testing" removed — test scaffolding uses light model to reduce 429s on free tier
 
 
 def select_openrouter_model(task_type: str) -> str:

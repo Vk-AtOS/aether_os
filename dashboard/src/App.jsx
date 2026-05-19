@@ -92,21 +92,31 @@ function App() {
         <Route path="marketplace" element={<ErrorBoundary><Marketplace /></ErrorBoundary>} />
         <Route path="new-project" element={<ErrorBoundary><NewProjectWizard /></ErrorBoundary>} />
         <Route path="connectors" element={<ErrorBoundary><ConnectorHub /></ErrorBoundary>} />
+        <Route path="dashboard/tools/connectors" element={<Navigate to="/connectors" replace />} />
         <Route path="skills" element={<ErrorBoundary><PluginManager /></ErrorBoundary>} />
+        <Route path="dashboard/tools/skills" element={<Navigate to="/skills" replace />} />
         <Route path="memory" element={<ErrorBoundary><MemoryInspector /></ErrorBoundary>} />
+        <Route path="dashboard/tools/memory" element={<Navigate to="/memory" replace />} />
         <Route path="costs" element={<ErrorBoundary><CostDashboard /></ErrorBoundary>} />
+        <Route path="dashboard/tools/costs" element={<Navigate to="/costs" replace />} />
         <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
         <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
+        <Route path="webhooks" element={<Navigate to="/settings/webhooks" replace />} />
+        <Route path="dashboard/tools/webhooks" element={<Navigate to="/settings/webhooks" replace />} />
         <Route path="frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
+        <Route path="dashboard/tools/frontend-builder" element={<Navigate to="/frontend-builder" replace />} />
         <Route path="project/:id/frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
         <Route path="backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
+        <Route path="dashboard/tools/backend-builder" element={<Navigate to="/backend-builder" replace />} />
         <Route path="project/:id/backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
         <Route path="prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
+        <Route path="dashboard/tools/prompt" element={<Navigate to="/prompt" replace />} />
         <Route path="project/:id/prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
         <Route path="audit" element={<ErrorBoundary><AuditLogs /></ErrorBoundary>} />
         <Route path="learning" element={<ErrorBoundary><Learning /></ErrorBoundary>} />
+        <Route path="dashboard/tools/learning" element={<Navigate to="/learning" replace />} />
         <Route path="intelligence" element={<ErrorBoundary><IntelligenceHub /></ErrorBoundary>} />
         <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
         <Route path="deployments" element={<ErrorBoundary><Deployments /></ErrorBoundary>} />

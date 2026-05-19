@@ -69,37 +69,48 @@ async def compress_context(
     if not force and task_type not in heavy_tasks:
         return context, False
 
-    # Need Anthropic API key for Haiku compression
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return context, False
+    # Use Anthropic Haiku if available, otherwise OpenRouter small model
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic  # type: ignore
+            client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+            response = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=max(1024, int(estimated_tokens * COMPRESSION_RATIO_TARGET * 4 // 4)),
+                system=_compression_system_prompt(),
+                messages=[{"role": "user", "content": f"Compress this pipeline context:\n\n{context}"}],
+            )
+            compressed = response.content[0].text if response.content else context
+            compressed_tokens = _estimate_tokens(compressed)
+            logger.info(
+                "Context compressed (haiku): %d → %d tokens (%.0f%% reduction)",
+                estimated_tokens, compressed_tokens, (1 - compressed_tokens / max(estimated_tokens, 1)) * 100,
+            )
+            return compressed, True
+        except Exception as exc:
+            logger.debug("Haiku compression failed: %s", exc)
 
-    try:
-        import anthropic  # type: ignore
-        client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    # Fallback: OpenRouter lightweight free model
+    if os.environ.get("OPENROUTER_API_KEY"):
+        try:
+            from aether_os.core.llm.openrouter_client import call_openrouter
+            compressed = await call_openrouter(
+                f"Compress this pipeline context:\n\n{context}",
+                task_type="summarize",
+                system=_compression_system_prompt(),
+                max_tokens=max(512, int(estimated_tokens * COMPRESSION_RATIO_TARGET)),
+                model="meta-llama/llama-3.2-3b-instruct:free",
+            )
+            compressed_tokens = _estimate_tokens(compressed)
+            logger.info(
+                "Context compressed (openrouter): %d → %d tokens (%.0f%% reduction)",
+                estimated_tokens, compressed_tokens, (1 - compressed_tokens / max(estimated_tokens, 1)) * 100,
+            )
+            return compressed, True
+        except Exception as exc:
+            logger.debug("OpenRouter compression failed: %s", exc)
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=max(1024, int(estimated_tokens * COMPRESSION_RATIO_TARGET * 4 // 4)),
-            system=_compression_system_prompt(),
-            messages=[{
-                "role": "user",
-                "content": f"Compress this pipeline context:\n\n{context}"
-            }],
-        )
-
-        compressed = response.content[0].text if response.content else context
-        compressed_tokens = _estimate_tokens(compressed)
-        ratio = compressed_tokens / max(estimated_tokens, 1)
-
-        logger.info(
-            "Context compressed: %d → %d tokens (%.0f%% reduction, task=%s)",
-            estimated_tokens, compressed_tokens, (1 - ratio) * 100, task_type,
-        )
-        return compressed, True
-
-    except Exception as exc:
-        logger.debug("Context compression failed (using original): %s", exc)
-        return context, False
+    return context, False
 
 
 class ContextCompressor:
