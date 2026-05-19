@@ -2802,7 +2802,7 @@ def create_app() -> FastAPI:
         try:
             _docker_res = _sp.run(["docker", "info"], capture_output=True, timeout=3)
             if _docker_res.returncode == 0:
-                _sandbox_status = "available"
+                _sandbox_status = "ok"
                 _sandbox_engine = "docker"
         except Exception:
             pass
