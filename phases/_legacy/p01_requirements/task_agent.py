@@ -112,9 +112,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Fill missing keys with defaults
     doc = apply_defaults(doc, raw)
 
-    # Preserve the input domain — LLM may return "general" by default
-    if doc.get("domain", "general") == "general" and domain != "general":
-        doc["domain"] = domain
+    # G1 fix: LLM may reset domain to "general" — preserve the input domain
+    input_domain = getattr(phase_input, 'domain', None) or phase_input.input_data.get('domain', '')
+    if input_domain and input_domain != 'general' and doc.get('domain', 'general') == 'general':
+        doc['domain'] = input_domain
 
     # Write markdown for human readability
     md_lines = [f"# Requirements Document\n\n**Domain:** {doc.get('domain','')}\n"

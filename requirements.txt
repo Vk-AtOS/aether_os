@@ -62,16 +62,8 @@ websockets>=12.0
 # ── Optional — File change monitoring ────────────────────────────────────────
 watchdog>=3.0.0
 
-# ── Factory Pipeline — Agent Frameworks ──────────────────────────────────────
-crewai>=0.28.0
-langchain>=0.1.0
-langchain-community>=0.0.20
-langchain-core>=0.1.0
-langgraph>=0.0.30
-
 # ── Factory Pipeline — Code Generation ───────────────────────────────────────
 cookiecutter>=2.5.0
-aider-chat>=0.38.0
 
 # ── Factory Pipeline — Security / Quality ────────────────────────────────────
 bandit>=1.7.0
@@ -88,6 +80,7 @@ pytest-timeout>=2.2.0
 # ── Factory Pipeline — Documentation ─────────────────────────────────────────
 pdoc>=14.0.0
 diagrams>=0.23.0
+fpdf2>=2.7.9                # PDF compliance report generation
 
 # ── Factory Pipeline — Memory ─────────────────────────────────────────────────
 mem0ai>=0.0.20
