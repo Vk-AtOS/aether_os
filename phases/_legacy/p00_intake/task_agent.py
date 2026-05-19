@@ -52,6 +52,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Update pipeline input data so subsequent phases see the detected domain
     if result.get("domain"):
         phase_input.input_data["domain"] = result["domain"]
+
+    # G1 fix: LLM may reset domain to "general" — preserve the input domain
+    input_domain = getattr(phase_input, 'domain', None) or phase_input.input_data.get('domain', '')
+    if input_domain and input_domain != 'general' and result.get('domain', 'general') == 'general':
+        result['domain'] = input_domain
+        phase_input.input_data["domain"] = input_domain
     
     # Always write output to disk
     # The supervisor passes output_dir, but the prompt asked for a specific path construction

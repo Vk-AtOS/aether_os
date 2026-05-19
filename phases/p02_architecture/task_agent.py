@@ -411,6 +411,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     doc = fix_tech_stack(doc)
 
+    # G1 fix: LLM may reset domain to "general" — preserve the input domain
+    input_domain = getattr(phase_input, 'domain', None) or phase_input.input_data.get('domain', '')
+    if input_domain and input_domain != 'general' and doc.get('domain', 'general') == 'general':
+        doc['domain'] = input_domain
+
     # ── Always write architecture.json ───────────────────────────────────────
     out_json.write_text(json.dumps(doc, indent=2))
     logger.info("[p02] architecture.json written (%d endpoints, fallback=%s)",

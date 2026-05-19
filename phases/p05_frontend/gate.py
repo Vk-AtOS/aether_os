@@ -1,77 +1,80 @@
-"""P05 Gate — validate that index.html exists and has sound structure.
+"""P05 Gate — validate that the React/Vite/TanStack project was generated correctly.
 
 Passes if:
-  - index.html exists in the output directory
-  - File is > 500 bytes (non-trivial content)
-  - Contains <!DOCTYPE html> or <html (valid HTML)
-  - Contains a <script block (JS is present)
-  - No obvious unclosed string literals that would cause immediate parse errors
+  - frontend/package.json exists in the output directory
+  - frontend/src/main.tsx exists
+  - frontend/src/App.tsx exists
+  - At least one entity page exists in frontend/src/pages/
+  - package.json references the expected dependencies
 """
 from __future__ import annotations
-import re
+
+import json
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
 
+_REQUIRED_DEPS = ["react", "@tanstack/react-query", "@tanstack/react-router", "@tanstack/react-table"]
+
 
 def validate(result: TaskResult) -> GateOutcome:
-    issues = []
+    issues: list[str] = []
 
-    # Locate index.html — output_path may point to the file or its parent dir
-    out_path = Path(result.output_path) if result.output_path else None
-    if out_path is None:
+    if not result.output_path:
         return GateOutcome(passed=False, confidence=0.0, issues=["No output_path set"])
 
-    if out_path.is_dir():
-        index_file = out_path / "index.html"
+    out_path = Path(result.output_path)
+
+    # output_path should point to the frontend/ directory
+    if out_path.name == "frontend":
+        frontend_dir = out_path
+    elif (out_path / "frontend").exists():
+        frontend_dir = out_path / "frontend"
     else:
-        # output_path IS the file (task_agent sets it to the html path)
-        index_file = out_path if out_path.suffix == ".html" else out_path.parent / "index.html"
+        # Fallback: maybe output_path is the phase dir and frontend is inside
+        frontend_dir = out_path / "frontend"
 
-    if not index_file.exists():
-        return GateOutcome(
-            passed=False,
-            confidence=0.0,
-            issues=[f"index.html not found at {index_file}"],
-        )
+    # Check required files
+    required_files = [
+        frontend_dir / "package.json",
+        frontend_dir / "src" / "main.tsx",
+        frontend_dir / "src" / "App.tsx",
+    ]
 
-    size = index_file.stat().st_size
-    if size < 500:
-        return GateOutcome(
-            passed=False,
-            confidence=0.1,
-            issues=[f"index.html too small ({size} bytes) — likely empty"],
-        )
+    for f in required_files:
+        if not f.exists():
+            issues.append(f"Missing required file: {f.relative_to(out_path.parent) if out_path.parent.exists() else f}")
 
-    try:
-        content = index_file.read_text(encoding="utf-8", errors="replace")
-    except Exception as exc:
-        return GateOutcome(passed=False, confidence=0.0, issues=[f"Cannot read file: {exc}"])
+    # Check at least one entity page exists
+    pages_dir = frontend_dir / "src" / "pages"
+    if pages_dir.exists():
+        entity_pages = [p for p in pages_dir.glob("*Page.tsx")
+                        if p.stem not in ("LoginPage",)]
+        if not entity_pages:
+            issues.append("No entity pages found in frontend/src/pages/")
+    else:
+        issues.append("frontend/src/pages/ directory does not exist")
 
-    # Check for basic HTML structure
-    if "<html" not in content.lower() and "<!doctype" not in content.lower():
-        issues.append("Missing <html> or <!DOCTYPE> declaration")
-
-    # Check for script presence
-    if "<script" not in content.lower():
-        issues.append("No <script> tag found — no JavaScript")
-
-    # Check for obviously broken JS: unclosed backtick template literals
-    # Count backticks outside of HTML tags (rough heuristic)
-    script_blocks = re.findall(
-        r"<script[^>]*>(.*?)</script>", content, re.DOTALL | re.IGNORECASE
-    )
-    for block in script_blocks:
-        # Remove string literals (single/double quoted) before counting backticks
-        stripped = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', block)
-        stripped = re.sub(r"'[^'\\]*(?:\\.[^'\\]*)*'", "''", stripped)
-        backticks = stripped.count("`")
-        if backticks % 2 != 0:
-            issues.append("Odd number of backticks in script — possible unclosed template literal")
-            break
+    # Validate package.json has expected deps
+    pkg_file = frontend_dir / "package.json"
+    if pkg_file.exists():
+        try:
+            pkg = json.loads(pkg_file.read_text())
+            deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+            for dep in _REQUIRED_DEPS:
+                if dep not in deps:
+                    issues.append(f"Missing dependency in package.json: {dep}")
+        except Exception as exc:
+            issues.append(f"Could not parse package.json: {exc}")
 
     if issues:
-        # Non-fatal structural issues → still pass but with lower confidence
-        # (vanilla-JS fallback avoids JSX so this should rarely trigger)
-        return GateOutcome(passed=True, confidence=0.6, issues=issues)
+        # All checks failed — hard fail
+        all_critical = all(
+            "Missing required file" in i or "does not exist" in i
+            for i in issues
+        )
+        if all_critical:
+            return GateOutcome(passed=False, confidence=0.1, issues=issues)
+        # Partial issues — still pass but lower confidence
+        return GateOutcome(passed=True, confidence=0.7, issues=issues)
 
-    return GateOutcome(passed=True, confidence=0.95, issues=[])
+    return GateOutcome(passed=True, confidence=0.9, issues=[])

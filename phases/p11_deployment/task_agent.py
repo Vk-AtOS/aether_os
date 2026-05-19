@@ -54,6 +54,9 @@ class TaskAgent:
                 f"docker run -p 8000:8000 aetheros-app\n```\n\n"
                 f"The application will be available at http://localhost:8000\n"
             )
+            # Always write docker-compose.yml and DEPLOY.md even when Docker is absent
+            self._write_docker_compose(project_dir, project_dir)
+            self._write_deploy_md(project_dir)
             return {
                 "success": True,
                 "skipped": True,
@@ -96,6 +99,8 @@ class TaskAgent:
 
         app_dir = main_py.parent
         self._write_dockerfile(app_dir, main_py)
+        self._write_docker_compose(project_dir, app_dir)
+        self._write_deploy_md(project_dir)
 
         port = self._find_free_port()
         image_name = f"aetheros-{run_id[:8]}"
@@ -298,6 +303,150 @@ class TaskAgent:
         dockerfile_path = app_dir / "Dockerfile"
         dockerfile_path.write_text(content)
         return dockerfile_path
+
+    def _write_docker_compose(
+        self, project_dir: Path, app_dir: Path
+    ) -> Path:
+        """Write a docker-compose.yml to the project root.
+
+        If a valid docker-compose.yml already exists at the project root it is
+        left unchanged.  If one exists but cannot be parsed (broken YAML), it is
+        replaced with this safe default.
+        """
+        compose_path = project_dir / "docker-compose.yml"
+        if compose_path.exists():
+            try:
+                import yaml  # type: ignore[import]
+                yaml.safe_load(compose_path.read_text())
+                return compose_path  # existing file is valid — leave it
+            except Exception:
+                pass  # fall through to overwrite with the safe default
+
+        # Determine the relative build context (app_dir relative to project_dir)
+        try:
+            build_ctx = str(app_dir.relative_to(project_dir))
+        except ValueError:
+            build_ctx = "."
+
+        content = textwrap.dedent(f"""\
+            version: '3.8'
+            services:
+              api:
+                build: {build_ctx}
+                environment:
+                  DATABASE_URL: ${{DATABASE_URL:-sqlite+aiosqlite:///./data/app.db}}
+                  SECRET_KEY: ${{SECRET_KEY:-changeme-in-production-set-64-char-hex}}
+                ports:
+                  - "8000:8000"
+                volumes:
+                  - app_data:/app/data
+                healthcheck:
+                  test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+                  interval: 10s
+                  timeout: 5s
+                  retries: 5
+
+            volumes:
+              app_data:
+        """)
+        compose_path.write_text(content)
+        return compose_path
+
+    def _write_deploy_md(self, project_dir: Path) -> Path:
+        """Write DEPLOY.md with deployment instructions for Docker, Railway, and Fly.io."""
+        deploy_md = project_dir / "DEPLOY.md"
+        if deploy_md.exists():
+            return deploy_md  # don't overwrite existing guide
+
+        content = textwrap.dedent("""\
+            # Deployment Guide
+
+            ## Option 1: Docker Compose (Recommended)
+
+            ```bash
+            # Start the app
+            docker-compose up --build
+
+            # App will be available at http://localhost:8000
+            # API docs at http://localhost:8000/docs
+            ```
+
+            ## Option 2: Railway (Cloud)
+
+            1. Install Railway CLI: `npm install -g @railway/cli`
+            2. Login: `railway login`
+            3. Deploy: `railway up`
+
+            Or deploy via GitHub:
+            1. Push this code to a GitHub repo
+            2. Go to railway.app → New Project → Deploy from GitHub
+            3. Set environment variables: `DATABASE_URL`, `SECRET_KEY`
+
+            ## Option 3: Fly.io
+
+            ```bash
+            fly launch
+            fly deploy
+            ```
+
+            ## Environment Variables
+
+            See `.env.example` for required configuration.
+
+            ## Production Checklist
+
+            - [ ] Set `SECRET_KEY` to a random 64-character hex string
+            - [ ] Configure `DATABASE_URL` for PostgreSQL (recommended for production)
+            - [ ] Set `CORS_ORIGINS` to your frontend domain
+            - [ ] Enable HTTPS (Railway/Fly handle this automatically)
+        """)
+        deploy_md.write_text(content)
+        return deploy_md
+
+    async def _deploy_to_railway(
+        self, project_dir: Path, run_id: str
+    ) -> Dict[str, Any]:
+        """Attempt to deploy to Railway if RAILWAY_TOKEN is set.
+
+        Returns a status dict.  Always succeeds (best-effort) — callers should
+        treat Railway deployment as an optional enhancement, never a hard
+        requirement.
+        """
+        import os
+        token = os.environ.get("RAILWAY_TOKEN")
+        if not token:
+            return {"railway": False, "reason": "RAILWAY_TOKEN not set"}
+
+        try:
+            import httpx
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+            # Railway GraphQL endpoint
+            query = """
+            mutation serviceCreate($input: ServiceCreateInput!) {
+              serviceCreate(input: $input) { id name }
+            }
+            """
+            # Placeholder: a real deployment requires knowing the Railway project_id
+            # and environment_id which must be created first.  The recommended path
+            # for automated deployments is via the Railway GitHub integration.
+            # We log helpful guidance and return a soft-fail.
+            import logging
+            logging.getLogger(__name__).info(
+                "[p11] Railway automatic deployment requires a pre-created Railway "
+                "project.  See DEPLOY.md for instructions."
+            )
+            return {
+                "railway": False,
+                "reason": (
+                    "Railway deployment requires manual setup — "
+                    "see https://railway.app/new or DEPLOY.md"
+                ),
+            }
+        except Exception as exc:
+            return {"railway": False, "reason": str(exc)}
 
     async def _docker_build(
         self, app_dir: Path, image_name: str

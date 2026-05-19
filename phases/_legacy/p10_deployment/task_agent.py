@@ -195,25 +195,37 @@ def _generate_compose(slug: str, db: str, cache: str) -> str:
         condition: service_healthy
 """
 
+    # Build environment block — skip empty entries
+    env_lines = [f"      - {db_env}"]
+    if cache_env:
+        env_lines.append(f"      - {cache_env}")
+    env_lines.append("      - APP_SECRET_KEY=${APP_SECRET_KEY:-dev-secret}")
+    env_block = "\n".join(env_lines)
+
+    # For SQLite: add a named volume for persistence
+    sqlite_volume_mount = ""
+    sqlite_volume_def = ""
+    if not use_db_depends and "sqlite" in db_env.lower():
+        sqlite_volume_mount = "    volumes:\n      - app_data:/app/data\n"
+        sqlite_volume_def = "\nvolumes:\n  app_data:"
+
     return f"""version: '3.8'
 
 services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "${{PORT:-8000}}:8000"
     environment:
-      - {db_env}
-      - {cache_env}
-      - APP_SECRET_KEY=${{APP_SECRET_KEY:-dev-secret}}
-{depends_on_block}    healthcheck:
+{env_block}
+{sqlite_volume_mount}{depends_on_block}    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 {db_service}
 {cache_service}
-{volumes}
+{volumes}{sqlite_volume_def}
 """
 
 

@@ -2130,7 +2130,40 @@ def create_app() -> FastAPI:
             logger.debug("Priority/live_url ORM query failed: %s", _e3)
         detail["priority"] = priority
 
+        # Enrich with quality score if project output exists (best-effort, non-blocking)
+        try:
+            from aether_os.core.quality.metrics import score_project
+            from dataclasses import asdict as _asdict
+            _qdir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+            if _qdir.exists():
+                _qscore = score_project(_qdir)
+                detail["quality"] = _asdict(_qscore)
+        except Exception as _qe:
+            logger.debug("Quality score enrichment failed for run %s: %s", run_id, _qe)
+
         return detail
+
+    @app.get("/factory/runs/{run_id}/quality")
+    async def get_run_quality(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Get quality score for a completed run's generated output."""
+        from aether_os.core.projects import get_project_manager
+        from aether_os.core.quality.metrics import score_project
+        from dataclasses import asdict
+
+        project_dir = get_project_manager().get_project_dir(run_id)
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project output not found")
+
+        try:
+            score = score_project(project_dir)
+        except Exception as exc:
+            logger.warning("quality score failed for run %s: %s", run_id, exc)
+            raise HTTPException(status_code=500, detail=f"Quality scoring failed: {exc}")
+
+        return {"run_id": run_id, "quality": asdict(score)}
 
     @app.get("/intelligence/global-insights")
     async def get_global_insights(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
@@ -3942,15 +3975,64 @@ def create_app() -> FastAPI:
 
     @app.get("/compliance/artifacts/{run_id}")
     async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+        """
+        Return a ZIP containing the compliance JSON + PDF for a given run.
+        Runs the real code scanner on the generated src/main.py if it exists,
+        otherwise returns a lightweight placeholder.
+        """
         from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
         from fastapi.responses import StreamingResponse
         import io, zipfile
+
+        # Try to locate the generated src/main.py for this run
+        project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+        main_py_path: Optional[str] = None
+        for candidate in [
+            project_dir / "src" / "main.py",
+            project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+        ]:
+            if candidate.exists():
+                main_py_path = str(candidate)
+                break
+
+        # Pull project_name / domain from the run DB record (best-effort)
+        _project_name = ""
+        _domain = "general"
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_ca
+            from aether_os.core.models import Run as _Run_ca
+            from sqlalchemy import select as _sel_ca
+            _sf_ca = _gsf_ca()
+            async with _sf_ca() as _sess_ca:
+                _run_ca = (await _sess_ca.execute(
+                    _sel_ca(_Run_ca).where(_Run_ca.id == run_id, _Run_ca.org_id == user["org_id"])
+                )).scalar_one_or_none()
+                if _run_ca:
+                    _project_name = getattr(_run_ca, "project_name", "") or ""
+                    _domain = getattr(_run_ca, "domain", "general") or "general"
+        except Exception:
+            pass
+
         gen = ComplianceArtifactGenerator()
-        artifact = await gen.generate_artifact(run_id, "COMPLIANCE_ZIP")
+        artifact = await gen.generate_artifact(
+            run_id,
+            "COMPLIANCE_ZIP",
+            main_py_path=main_py_path,
+            project_name=_project_name,
+            domain=_domain,
+        )
+
         zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as zf: zf.writestr("compliance.txt", artifact.content)
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            zf.writestr("compliance_scan.json", artifact.content)
+            if artifact.pdf_path and pathlib.Path(artifact.pdf_path).exists():
+                zf.write(artifact.pdf_path, arcname="compliance_report.pdf")
         zip_buffer.seek(0)
-        return StreamingResponse(zip_buffer, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename=compliance_{run_id}.zip"})
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=compliance_{run_id}.zip"},
+        )
 
     async def _count_security_decisions(sf, org_id: str) -> int:
         """T5-06: Count security-phase escalations as proxy for issues_found."""
@@ -4050,6 +4132,94 @@ def create_app() -> FastAPI:
             "data_region": _org_settings.get("data_region", "global"),
             "eu_ai_act_risk": _eu_ai_risk,
         }
+
+    @app.get("/factory/runs/{run_id}/compliance")
+    async def get_run_compliance(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """
+        Return the compliance scan result for a pipeline run.
+
+        1. If a pre-generated compliance_scan.json exists (written by p06), return it.
+        2. Otherwise run the real scanner on-demand against src/main.py.
+        3. If neither is available, return a graceful 404-style response rather
+           than raising so the UI can show a clear "not yet scanned" state.
+        """
+        from aether_os.core.compliance.code_scanner import scan_file
+        from aether_os.core.compliance.pdf_report import generate_pdf
+        from dataclasses import asdict
+
+        project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+
+        # Fast path: p06 already wrote the JSON
+        pre_built = project_dir / "p06_review_security" / "compliance" / "compliance_scan.json"
+        if pre_built.exists():
+            try:
+                data = json.loads(pre_built.read_text(encoding="utf-8"))
+                # Attach pdf_path if the PDF exists alongside the JSON
+                pdf_sibling = pre_built.with_name("compliance_report.pdf")
+                data["pdf_path"] = str(pdf_sibling) if pdf_sibling.exists() else None
+                return data
+            except Exception:
+                pass  # fall through to on-demand scan
+
+        # On-demand scan: find src/main.py
+        main_py: Optional[pathlib.Path] = None
+        for candidate in [
+            project_dir / "src" / "main.py",
+            project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+        ]:
+            if candidate.exists():
+                main_py = candidate
+                break
+
+        if not main_py:
+            return {
+                "run_id": run_id,
+                "status": "not_available",
+                "message": "Code generation has not completed yet or src/main.py was not found.",
+                "score": None,
+                "findings": [],
+            }
+
+        # Pull project_name / domain from DB (best-effort)
+        _project_name = ""
+        _domain = "general"
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_rc
+            from aether_os.core.models import Run as _Run_rc
+            from sqlalchemy import select as _sel_rc
+            _sf_rc = _gsf_rc()
+            async with _sf_rc() as _sess_rc:
+                _run_rc = (await _sess_rc.execute(
+                    _sel_rc(_Run_rc).where(_Run_rc.id == run_id, _Run_rc.org_id == user["org_id"])
+                )).scalar_one_or_none()
+                if _run_rc:
+                    _project_name = getattr(_run_rc, "project_name", "") or ""
+                    _domain = getattr(_run_rc, "domain", "general") or "general"
+        except Exception:
+            pass
+
+        scan_result = scan_file(main_py, project_name=_project_name, domain=_domain)
+
+        # Persist the result so subsequent calls are fast
+        try:
+            scan_dir = project_dir / "p06_review_security" / "compliance"
+            scan_dir.mkdir(parents=True, exist_ok=True)
+            json_path = scan_dir / "compliance_scan.json"
+            json_path.write_text(
+                json.dumps(asdict(scan_result), indent=2, default=str),
+                encoding="utf-8",
+            )
+            pdf_path = scan_dir / "compliance_report.pdf"
+            generate_pdf(scan_result, pdf_path)
+        except Exception:
+            pdf_path = None
+
+        result_dict = asdict(scan_result)
+        result_dict["pdf_path"] = str(pdf_path) if pdf_path and pdf_path.exists() else None
+        return result_dict
 
     @app.get("/factory/runs/{run_id}/decisions")
     async def get_run_decisions(

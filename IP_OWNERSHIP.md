@@ -51,9 +51,6 @@ Selected dependency licenses for reference:
 | passlib | BSD |
 | anthropic | MIT |
 | google-genai | Apache 2.0 |
-| LangChain | MIT |
-| LangGraph | MIT |
-| CrewAI | MIT |
 | Redis (redis-py) | MIT |
 | Playwright | Apache 2.0 |
 | Bandit | Apache 2.0 |

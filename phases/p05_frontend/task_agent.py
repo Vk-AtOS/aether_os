@@ -1,13 +1,13 @@
-"""P05 Frontend Task Agent — deterministic single-file SPA generator.
+"""P05 Frontend Task Agent — React 18 + Vite 5 + TypeScript + TanStack project generator.
 
 Strategy:
-  1. Read architecture.json from p02 to get project name, db_schema, endpoints, auth.
-  2. Build a polished Bootstrap 5 single-file SPA using a template engine (no LLM).
-  3. The generated index.html is production-ready: sidebar nav, data tables,
-     modal CRUD forms, auth flow, toast notifications, responsive layout.
-  4. Write index.html, frontend_meta.json, and package.json to output_dir.
+  1. Read architecture.json from p02 to get project name, db_schema, endpoints, route_map.
+  2. Generate a complete frontend/ subdirectory with a production-ready React/Vite/TanStack project.
+  3. Write docker-compose.yml to the parent project directory.
+  4. No LLM calls — fully deterministic template generation.
 """
 from __future__ import annotations
+
 import json
 import logging
 import re
@@ -18,6 +18,11 @@ from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
 
+# ── Columns to exclude from display and forms ─────────────────────────────────
+_EXCLUDED_COLS = frozenset([
+    "id", "created_at", "updated_at", "deleted_at",
+    "password", "password_hash", "token",
+])
 
 # ── Architecture reader ────────────────────────────────────────────────────────
 
@@ -45,18 +50,18 @@ def _read_architecture(data: dict) -> dict:
     if arch is None:
         arch = {
             "api_endpoints": [
-                {"method": "GET",  "path": "/health",        "description": "Health check",      "auth": False},
-                {"method": "POST", "path": "/auth/login",    "description": "Login",             "auth": False},
-                {"method": "POST", "path": "/auth/register", "description": "Register",          "auth": False},
-                {"method": "GET",  "path": "/items",         "description": "List items",        "auth": True},
-                {"method": "POST", "path": "/items",         "description": "Create item",       "auth": True},
-                {"method": "PUT",  "path": "/items/{id}",    "description": "Update item",       "auth": True},
-                {"method": "DELETE", "path": "/items/{id}",  "description": "Delete item",       "auth": True},
+                {"method": "GET",    "path": "/health",        "description": "Health check", "auth": False},
+                {"method": "POST",   "path": "/auth/login",    "description": "Login",        "auth": False},
+                {"method": "POST",   "path": "/auth/register", "description": "Register",     "auth": False},
+                {"method": "GET",    "path": "/items",         "description": "List items",   "auth": True},
+                {"method": "POST",   "path": "/items",         "description": "Create item",  "auth": True},
+                {"method": "PUT",    "path": "/items/{id}",    "description": "Update item",  "auth": True},
+                {"method": "DELETE", "path": "/items/{id}",    "description": "Delete item",  "auth": True},
             ],
             "database_schema": [
                 {"table": "items", "columns": ["id", "name", "description", "status", "created_at"]}
             ],
-            "tech_stack": {"backend": "FastAPI", "frontend": "Vanilla JS", "database": "PostgreSQL"},
+            "tech_stack": {"backend": "FastAPI", "frontend": "React", "database": "SQLite"},
         }
 
     # Inject real endpoint paths + augment schema from p04's route manifest
@@ -75,14 +80,12 @@ def _read_architecture(data: dict) -> dict:
                 arch["api_route_map"] = route_map
                 logger.info("p05: loaded route_map with %d entries: %s", len(route_map), route_map)
 
-                # Augment database_schema with route_map tables if arch schema is stale
                 existing_tables = {
                     e.get("table", e.get("name", "")).lower()
                     for e in arch.get("database_schema", [])
                 }
                 missing_tables = [t for t in route_map if t.lower() not in existing_tables]
                 if missing_tables:
-                    # Try to extract real columns from the generated main.py
                     cols_by_table = _extract_columns_from_main_py(data, missing_tables)
                     schema = list(arch.get("database_schema", []))
                     for table in missing_tables:
@@ -102,7 +105,6 @@ def _read_architecture(data: dict) -> dict:
 def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, List[str]]:
     """Parse CREATE TABLE statements in the generated main.py to get real column names."""
     cols_by_table: Dict[str, List[str]] = {}
-    # Locate main.py — try several known paths
     main_py_path = data.get("backend_main_py", "")
     if not main_py_path:
         backend_out = data.get("backend_output_path", "") or data.get("p04_backend_path", "")
@@ -117,7 +119,6 @@ def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, Li
         return cols_by_table
     try:
         code = Path(main_py_path).read_text()
-        # Pattern: CREATE TABLE IF NOT EXISTS tablename (col1 TYPE, col2 TYPE, ...)
         for m in re.finditer(
             r"CREATE TABLE IF NOT EXISTS (\w+)\s*\(([^)]+)\)",
             code, re.IGNORECASE
@@ -129,8 +130,9 @@ def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, Li
                 for col_def in col_defs.split(","):
                     col_def = col_def.strip()
                     col_name = col_def.split()[0] if col_def.split() else ""
-                    if col_name and col_name.upper() not in ("PRIMARY", "UNIQUE", "FOREIGN",
-                                                              "CHECK", "CONSTRAINT"):
+                    if col_name and col_name.upper() not in (
+                        "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT"
+                    ):
                         cols.append(col_name)
                 if cols:
                     cols_by_table[table_name] = cols
@@ -139,14 +141,11 @@ def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, Li
     return cols_by_table
 
 
-# ── Architecture analyser ──────────────────────────────────────────────────────
+# ── Schema helpers ─────────────────────────────────────────────────────────────
 
-def _analyse(arch: dict) -> Tuple[bool, List[dict], List[dict]]:
-    """Return (needs_auth, entities, endpoints)."""
-    endpoints: List[dict] = arch.get("api_endpoints", [])
+def _normalise_entities(arch: dict) -> List[dict]:
+    """Return list of {table, columns: [str]} dicts, skipping users/auth tables."""
     raw_schema = arch.get("database_schema", arch.get("db_schema", []))
-
-    # normalise schema entries to {table, columns:[str]}
     entities: List[dict] = []
     seen: set = set()
     for entry in raw_schema:
@@ -163,1400 +162,1278 @@ def _analyse(arch: dict) -> Tuple[bool, List[dict], List[dict]]:
                 cols.append(str(c))
         entities.append({"table": table, "columns": [c for c in cols if c]})
 
-    # skip "users" from entity sidebar (it's an auth-internal table)
     entities = [e for e in entities if e["table"].lower() not in ("users",)]
     if not entities:
         entities = [{"table": "items", "columns": ["id", "name", "description", "status", "created_at"]}]
-
-    needs_auth = any(
-        ep.get("path", "").startswith("/auth/") for ep in endpoints
-    )
-
-    return needs_auth, entities, endpoints
+    return entities
 
 
-# ── Icon picker ────────────────────────────────────────────────────────────────
+# ── Naming utilities ───────────────────────────────────────────────────────────
 
-_ICON_MAP: Dict[str, str] = {
-    "todo":       "bi-check2-square",
-    "task":       "bi-list-task",
-    "order":      "bi-bag-check",
-    "product":    "bi-box-seam",
-    "item":       "bi-collection",
-    "post":       "bi-file-text",
-    "article":    "bi-newspaper",
-    "comment":    "bi-chat-dots",
-    "contact":    "bi-person-lines-fill",
-    "customer":   "bi-people",
-    "employee":   "bi-person-badge",
-    "event":      "bi-calendar-event",
-    "booking":    "bi-calendar-check",
-    "message":    "bi-envelope",
-    "payment":    "bi-credit-card",
-    "invoice":    "bi-receipt",
-    "review":     "bi-star",
-    "report":     "bi-bar-chart",
-    "category":   "bi-tag",
-    "deal":       "bi-briefcase",
-    "lead":       "bi-funnel",
-    "account":    "bi-building",
-    "activity":   "bi-activity",
-    "inventory":  "bi-archive",
-    "project":    "bi-kanban",
-    "ticket":     "bi-ticket-perforated",
-    "issue":      "bi-exclamation-circle",
-    "asset":      "bi-hdd",
-    "property":   "bi-house",
-    "vehicle":    "bi-truck",
-    "shift":      "bi-clock",
-    "schedule":   "bi-calendar3",
-    "document":   "bi-file-earmark",
-    "file":       "bi-folder",
-    "course":     "bi-mortarboard",
-    "student":    "bi-person-video2",
-    "grade":      "bi-award",
-    "sensor":     "bi-cpu",
-    "device":     "bi-device-hdd",
-    "alert":      "bi-bell",
-    "log":        "bi-journal",
-    "metric":     "bi-graph-up",
-    "segment":    "bi-diagram-3",
-    "campaign":   "bi-megaphone",
-    "pipeline":   "bi-arrow-right-circle",
-    "workflow":   "bi-diagram-2",
-}
-
-def _icon_for(table: str) -> str:
-    lower = table.rstrip("s").lower()
-    for key, icon in _ICON_MAP.items():
-        if key in lower:
-            return icon
-    return "bi-table"
+def _to_pascal_case(s: str) -> str:
+    """Convert snake_case or camelCase string to PascalCase. 'lead_contacts' → 'LeadContacts'."""
+    # Handle already-camel strings too
+    s = re.sub(r'([a-z])([A-Z])', r'\1_\2', s)
+    parts = re.split(r'[_\-\s]+', s)
+    return "".join(p.capitalize() for p in parts if p)
 
 
-# ── Field-type deducer ─────────────────────────────────────────────────────────
+def _to_type_name(table: str) -> str:
+    """Convert table name to singular PascalCase TypeScript type name.
+    'patients' → 'Patient', 'lead_contacts' → 'LeadContact', 'telemetry_entries' → 'TelemetryEntry'
+    """
+    pascal = _to_pascal_case(table)
+    # Singularise the last word component
+    if pascal.endswith("ies"):
+        return pascal[:-3] + "y"
+    if pascal.endswith("sses") or pascal.endswith("xes") or pascal.endswith("ches"):
+        return pascal[:-2]
+    if pascal.endswith("s") and not pascal.endswith("ss"):
+        return pascal[:-1]
+    return pascal
 
-def _field_type(col: str) -> Tuple[str, str]:
-    """Return (html_input_type, extra_attrs) for a column name."""
+
+def _to_label(s: str) -> str:
+    """'lead_contacts' → 'Lead Contacts'"""
+    return " ".join(p.capitalize() for p in re.split(r'[_\-\s]+', s) if p)
+
+
+def _to_singular(label: str) -> str:
+    """Very basic English singulariser for display labels."""
+    if label.endswith("ies"):
+        return label[:-3] + "y"
+    if label.endswith("sses") or label.endswith("xes") or label.endswith("ches"):
+        return label[:-2]
+    if label.endswith("s") and not label.endswith("ss"):
+        return label[:-1]
+    return label
+
+
+def _slug(s: str) -> str:
+    """'LeadContact' → 'lead-contact'"""
+    return re.sub(r'([A-Z])', r'-\1', s).lstrip("-").lower()
+
+
+# ── TypeScript type mapping ────────────────────────────────────────────────────
+
+def _col_to_ts_type(col: str) -> str:
+    """Map a column name to a TypeScript type string."""
     lower = col.lower()
-    if lower in ("id",):
-        return "number", 'min="1"'
-    if lower.endswith("_at") or lower in ("created_at", "updated_at", "published_at",
-                                           "start_at", "end_at", "due_date", "close_date"):
-        return "datetime-local", ""
-    if lower.endswith("_id"):
-        return "number", 'min="1"'
-    if lower in ("email",) or lower.endswith("_email"):
-        return "email", ""
-    if lower in ("password", "password_hash"):
-        return "password", ""
-    if lower in ("rating",) or lower.endswith("_rating"):
-        return "number", 'min="1" max="5"'
-    if lower in ("price", "amount", "total", "value", "revenue", "cost"):
-        return "number", 'min="0" step="0.01"'
-    if lower in ("quantity", "stock", "count", "score"):
-        return "number", 'min="0"'
-    if lower in ("status",):
-        return "select", ""
-    if lower in ("priority",):
-        return "select", ""
-    if lower in ("stage",):
-        return "select", ""
-    if lower in ("content", "description", "body", "notes", "data", "criteria"):
-        return "textarea", ""
-    if lower in ("completed",) or lower.startswith("is_") or lower.startswith("has_"):
-        return "checkbox", ""
-    if lower in ("url", "website", "link") or lower.endswith("_url"):
-        return "url", ""
-    if lower in ("phone",) or lower.endswith("_phone"):
-        return "tel", ""
-    return "text", ""
+    if lower == "id" or lower.endswith("_id"):
+        return "string | number"
+    if "date" in lower or "time" in lower or lower.endswith("_at"):
+        return "string"
+    if lower == "email" or lower.endswith("_email"):
+        return "string"
+    if lower in ("price", "amount", "cost", "salary", "rate", "total", "revenue", "value"):
+        return "number"
+    if lower in ("count", "quantity", "age", "year") or lower.startswith("num_"):
+        return "number"
+    if (lower.startswith("is_") or lower.startswith("has_") or lower.startswith("can_")
+            or lower in ("enabled", "active", "verified", "completed")):
+        return "boolean"
+    if lower == "rating":
+        return "number"
+    return "string"
 
 
-_STATUS_OPTIONS    = ["active", "inactive", "pending", "cancelled", "completed"]
-_PRIORITY_OPTIONS  = ["low", "medium", "high", "critical"]
-_STAGE_OPTIONS     = ["prospecting", "qualified", "proposal", "negotiation", "closed_won", "closed_lost"]
+# ── Field def mapping for CrudModal ───────────────────────────────────────────
+
+def _col_to_field_def_type(col: str) -> str:
+    """Map column name to a CrudModal FieldDef type."""
+    lower = col.lower()
+    if lower == "email" or lower.endswith("_email"):
+        return "email"
+    if lower in ("phone", "mobile", "tel") or lower.endswith("_phone") or lower.endswith("_tel"):
+        return "tel"
+    if ("date" in lower or lower.endswith("_at")) and lower not in ("created_at", "updated_at", "deleted_at"):
+        return "date"
+    if lower in ("description", "notes", "body", "content", "bio"):
+        return "textarea"
+    if lower in ("price", "amount", "cost", "count", "qty", "quantity", "rating") or lower.startswith("num_"):
+        return "number"
+    if lower in ("status", "priority", "stage"):
+        return "select"
+    return "text"
 
 
-def _select_options(col: str) -> List[str]:
+def _col_to_field_options(col: str) -> Optional[List[dict]]:
+    """Return options array for select fields, or None."""
     lower = col.lower()
     if lower == "status":
-        return _STATUS_OPTIONS
+        return [
+            {"value": "active", "label": "Active"},
+            {"value": "inactive", "label": "Inactive"},
+            {"value": "pending", "label": "Pending"},
+            {"value": "completed", "label": "Completed"},
+            {"value": "cancelled", "label": "Cancelled"},
+        ]
     if lower == "priority":
-        return _PRIORITY_OPTIONS
+        return [
+            {"value": "low", "label": "Low"},
+            {"value": "medium", "label": "Medium"},
+            {"value": "high", "label": "High"},
+            {"value": "critical", "label": "Critical"},
+        ]
     if lower == "stage":
-        return _STAGE_OPTIONS
-    return ["option1", "option2", "option3"]
+        return [
+            {"value": "prospecting", "label": "Prospecting"},
+            {"value": "qualified", "label": "Qualified"},
+            {"value": "proposal", "label": "Proposal"},
+            {"value": "negotiation", "label": "Negotiation"},
+            {"value": "closed_won", "label": "Closed Won"},
+            {"value": "closed_lost", "label": "Closed Lost"},
+        ]
+    return None
 
 
-# ── HTML builder ───────────────────────────────────────────────────────────────
+# ── Icon mapping ───────────────────────────────────────────────────────────────
 
-def _build_product_html(project_name: str, arch: dict) -> str:
-    needs_auth, entities, endpoints = _analyse(arch)
+_LUCIDE_ICON_MAP: Dict[str, str] = {
+    "user": "Users",
+    "customer": "Users",
+    "client": "Users",
+    "contact": "Users",
+    "employee": "Users",
+    "patient": "Users",
+    "student": "GraduationCap",
+    "member": "Users",
+    "order": "ShoppingCart",
+    "cart": "ShoppingCart",
+    "purchase": "ShoppingCart",
+    "sale": "ShoppingCart",
+    "product": "Package",
+    "item": "Package",
+    "inventory": "Package",
+    "stock": "Package",
+    "asset": "Package",
+    "post": "FileText",
+    "article": "FileText",
+    "document": "FileText",
+    "file": "FileText",
+    "report": "FileText",
+    "invoice": "FileText",
+    "receipt": "FileText",
+    "event": "Calendar",
+    "booking": "Calendar",
+    "appointment": "Calendar",
+    "schedule": "Calendar",
+    "shift": "Clock",
+    "message": "MessageSquare",
+    "comment": "MessageSquare",
+    "chat": "MessageSquare",
+    "ticket": "Ticket",
+    "issue": "AlertCircle",
+    "alert": "Bell",
+    "notification": "Bell",
+    "category": "Tag",
+    "tag": "Tag",
+    "lead": "TrendingUp",
+    "deal": "Briefcase",
+    "pipeline": "Briefcase",
+    "project": "Briefcase",
+    "task": "CheckSquare",
+    "todo": "CheckSquare",
+    "payment": "CreditCard",
+    "transaction": "CreditCard",
+    "sensor": "Cpu",
+    "device": "Cpu",
+    "gateway": "Wifi",
+    "metric": "BarChart3",
+    "log": "Activity",
+    "review": "Star",
+    "rating": "Star",
+    "campaign": "Megaphone",
+    "course": "BookOpen",
+    "lesson": "BookOpen",
+    "grade": "Award",
+    "property": "Home",
+    "vehicle": "Truck",
+    "shipment": "Truck",
+    "location": "MapPin",
+    "address": "MapPin",
+    "setting": "Settings",
+    "config": "Settings",
+}
 
-    first_entity = entities[0]["table"] if entities else "items"
+# All icons actually used — collected from the map values
+_ALL_USED_ICONS = sorted(set(_LUCIDE_ICON_MAP.values()))
 
-    # ── Sidebar HTML ──────────────────────────────────────────────────────────
-    sidebar_items = ""
-    for ent in entities:
-        icon   = _icon_for(ent["table"])
-        label  = ent["table"].replace("_", " ").title()
-        sidebar_items += (
-            f'        <li class="nav-item">\n'
-            f'          <a class="nav-link sidebar-link" href="#" '
-            f'onclick="switchEntity(\'{ent["table"]}\')" '
-            f'id="nav-{ent["table"]}">\n'
-            f'            <i class="bi {icon} me-2"></i>{label}\n'
-            f'          </a>\n'
-            f'        </li>\n'
-        )
 
-    # ── JS: entity definitions ────────────────────────────────────────────────
-    route_map: Dict[str, str] = arch.get("api_route_map", {})
-    entity_defs = "const ENTITIES = {\n"
-    for ent in entities:
-        table = ent["table"]
-        cols  = ent["columns"]
-        # Display columns: exclude id, show first 5
-        display_cols = [c for c in cols if c.lower() != "id"][:5]
-        # Form fields: exclude id, created_at, updated_at
-        form_fields  = [c for c in cols if c.lower() not in ("id", "created_at", "updated_at")]
-        # Use actual generated endpoint if available, else fall back to /{table}
-        endpoint = route_map.get(table, f"/{table}")
+def _entity_icon(entity_name: str) -> str:
+    """Pick a lucide-react icon name for an entity."""
+    lower = entity_name.lower().rstrip("s")
+    for key, icon in _LUCIDE_ICON_MAP.items():
+        if key in lower:
+            return icon
+    return "Database"
 
-        entity_defs += f'  "{table}": {{\n'
-        entity_defs += f'    label: "{table.replace("_", " ").title()}",\n'
-        entity_defs += f'    endpoint: "{endpoint}",\n'
-        entity_defs += f'    displayCols: {json.dumps(display_cols)},\n'
-        entity_defs += f'    formFields: {json.dumps(form_fields)},\n'
-        entity_defs += f'  }},\n'
-    entity_defs += "};\n"
 
-    # ── JS: field-type map ────────────────────────────────────────────────────
-    field_type_map = "const FIELD_TYPES = {\n"
-    field_select_opts = "const FIELD_OPTIONS = {\n"
-    all_cols: set = set()
-    for ent in entities:
-        for col in ent["columns"]:
-            all_cols.add(col)
-    for col in sorted(all_cols):
-        ftype, _ = _field_type(col)
-        field_type_map += f'  "{col}": "{ftype}",\n'
-        if ftype == "select":
-            field_select_opts += f'  "{col}": {json.dumps(_select_options(col))},\n'
-    field_type_map += "};\n"
-    field_select_opts += "};\n"
+# ── Static file generators ─────────────────────────────────────────────────────
 
-    # ── Accent colour (derived from project name hash) ────────────────────────
-    hash_val = sum(ord(c) for c in project_name) % 6
-    accent_colours = [
-        ("#6366f1", "#4f46e5"),  # indigo
-        ("#0ea5e9", "#0284c7"),  # sky
-        ("#10b981", "#059669"),  # emerald
-        ("#f59e0b", "#d97706"),  # amber
-        ("#ef4444", "#dc2626"),  # red
-        ("#8b5cf6", "#7c3aed"),  # violet
-    ]
-    accent, accent_dark = accent_colours[hash_val]
+def _generate_package_json(project_slug: str) -> str:
+    data = {
+        "name": project_slug,
+        "private": True,
+        "version": "0.1.0",
+        "type": "module",
+        "scripts": {
+            "dev": "vite",
+            "build": "tsc && vite build",
+            "preview": "vite preview"
+        },
+        "dependencies": {
+            "react": "^18.3.1",
+            "react-dom": "^18.3.1",
+            "@tanstack/react-query": "^5.56.2",
+            "@tanstack/react-router": "^1.58.3",
+            "@tanstack/react-table": "^8.20.5",
+            "axios": "^1.7.7",
+            "lucide-react": "^0.441.0",
+            "react-hook-form": "^7.53.0"
+        },
+        "devDependencies": {
+            "@types/react": "^18.3.5",
+            "@types/react-dom": "^18.3.0",
+            "@vitejs/plugin-react": "^4.3.1",
+            "typescript": "^5.5.3",
+            "vite": "^5.4.2",
+            "tailwindcss": "^3.4.10",
+            "autoprefixer": "^10.4.20",
+            "postcss": "^8.4.45"
+        }
+    }
+    return json.dumps(data, indent=2)
 
-    logo_letter = project_name[0].upper() if project_name else "A"
-    pkg_name = project_name.lower().replace(" ", "-").replace("_", "-")
 
-    html = f'''<!DOCTYPE html>
-<html lang="en" data-bs-theme="light">
+def _generate_vite_config() -> str:
+    return """\
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        changeOrigin: true,
+      }
+    }
+  }
+})
+"""
+
+
+def _generate_tsconfig() -> str:
+    data = {
+        "compilerOptions": {
+            "target": "ES2020",
+            "useDefineForClassFields": True,
+            "lib": ["ES2020", "DOM", "DOM.Iterable"],
+            "module": "ESNext",
+            "skipLibCheck": True,
+            "moduleResolution": "bundler",
+            "allowImportingTsExtensions": True,
+            "resolveJsonModule": True,
+            "isolatedModules": True,
+            "noEmit": True,
+            "jsx": "react-jsx",
+            "strict": True,
+            "noUnusedLocals": False,
+            "noUnusedParameters": False,
+            "noFallthroughCasesInSwitch": True
+        },
+        "include": ["src"]
+    }
+    return json.dumps(data, indent=2)
+
+
+def _generate_tailwind_config() -> str:
+    return """\
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        brand: {
+          50:  '#eff6ff',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          900: '#1e3a8a',
+        }
+      }
+    }
+  },
+  plugins: []
+}
+"""
+
+
+def _generate_postcss_config() -> str:
+    return """\
+export default {
+  plugins: { tailwindcss: {}, autoprefixer: {} }
+}
+"""
+
+
+def _generate_index_html(project_name: str) -> str:
+    return f"""\
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{project_name}</title>
-
-  <!-- Bootstrap 5.3.3 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-        crossorigin="anonymous">
-
-  <!-- Bootstrap Icons 1.11.3 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-
-  <style>
-    :root {{
-      --accent:      {accent};
-      --accent-dark: {accent_dark};
-      --sidebar-bg:  #1e293b;
-      --sidebar-w:   240px;
-    }}
-
-    /* ── Layout ── */
-    html, body {{ height: 100%; overflow: hidden; }}
-    body {{ display: flex; flex-direction: column; font-family: "Inter", system-ui, sans-serif; }}
-    #layout {{ display: flex; flex: 1; overflow: hidden; }}
-
-    /* ── Top navbar ── */
-    #topbar {{
-      height: 56px;
-      background: #fff;
-      border-bottom: 1px solid #e2e8f0;
-      display: flex;
-      align-items: center;
-      padding: 0 1.25rem;
-      gap: 0.75rem;
-      flex-shrink: 0;
-      z-index: 100;
-      box-shadow: 0 1px 3px rgba(0,0,0,.06);
-    }}
-    #topbar .logo-badge {{
-      width: 32px; height: 32px; border-radius: 8px;
-      background: var(--accent);
-      display: flex; align-items: center; justify-content: center;
-      color: #fff; font-weight: 700; font-size: 0.875rem;
-      flex-shrink: 0;
-    }}
-    #topbar .app-name {{
-      font-weight: 700; font-size: 1rem; color: #1e293b;
-    }}
-    #user-display {{
-      margin-left: auto;
-      font-size: 0.8rem;
-      color: #64748b;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }}
-    #user-display .avatar {{
-      width: 30px; height: 30px; border-radius: 50%;
-      background: var(--accent);
-      color: #fff;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 0.75rem; font-weight: 700;
-    }}
-    #btn-logout {{
-      font-size: 0.78rem;
-      padding: 0.25rem 0.65rem;
-    }}
-
-    /* ── Sidebar ── */
-    #sidebar {{
-      width: var(--sidebar-w);
-      background: var(--sidebar-bg);
-      flex-shrink: 0;
-      overflow-y: auto;
-      padding: 1rem 0.75rem;
-    }}
-    #sidebar .sidebar-heading {{
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #475569;
-      padding: 0.5rem 0.5rem 0.25rem;
-      margin-top: 0.5rem;
-    }}
-    .sidebar-link {{
-      display: flex;
-      align-items: center;
-      padding: 0.55rem 0.75rem;
-      border-radius: 8px;
-      color: #94a3b8;
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: background 0.15s, color 0.15s;
-      text-decoration: none;
-    }}
-    .sidebar-link:hover {{
-      background: rgba(255,255,255,.07);
-      color: #e2e8f0;
-    }}
-    .sidebar-link.active {{
-      background: var(--accent);
-      color: #fff;
-    }}
-    .sidebar-link .bi {{ font-size: 1rem; }}
-
-    /* ── Main content ── */
-    #main {{
-      flex: 1;
-      overflow-y: auto;
-      background: #f8fafc;
-      padding: 1.75rem 2rem;
-    }}
-
-    /* ── Page header ── */
-    .page-header {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 1.5rem;
-    }}
-    .page-header h1 {{
-      font-size: 1.375rem;
-      font-weight: 700;
-      color: #0f172a;
-      margin: 0;
-    }}
-    .btn-accent {{
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }}
-    .btn-accent:hover {{
-      background: var(--accent-dark);
-      border-color: var(--accent-dark);
-      color: #fff;
-    }}
-
-    /* ── Card ── */
-    .data-card {{
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 1px 4px rgba(0,0,0,.04);
-    }}
-
-    /* ── Table ── */
-    .data-table {{ margin-bottom: 0; }}
-    .data-table thead th {{
-      background: #f1f5f9;
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: #64748b;
-      border-bottom: 1px solid #e2e8f0;
-      padding: 0.75rem 1rem;
-      white-space: nowrap;
-    }}
-    .data-table tbody td {{
-      padding: 0.75rem 1rem;
-      font-size: 0.875rem;
-      color: #1e293b;
-      vertical-align: middle;
-      border-bottom: 1px solid #f1f5f9;
-    }}
-    .data-table tbody tr:last-child td {{ border-bottom: none; }}
-    .data-table tbody tr:hover {{ background: #f8fafc; cursor: pointer; }}
-    .data-table .action-cell {{ white-space: nowrap; text-align: right; }}
-    .btn-icon {{
-      padding: 0.25rem 0.5rem;
-      font-size: 0.875rem;
-      line-height: 1;
-    }}
-
-    /* ── Status badges ── */
-    .badge-status {{
-      font-size: 0.7rem;
-      font-weight: 600;
-      padding: 0.3em 0.65em;
-      border-radius: 9999px;
-    }}
-    .badge-active, .badge-completed, .badge-closed_won {{ background: #dcfce7; color: #166534; }}
-    .badge-inactive, .badge-cancelled, .badge-closed_lost {{ background: #fee2e2; color: #991b1b; }}
-    .badge-pending, .badge-prospecting {{ background: #fef9c3; color: #854d0e; }}
-    .badge-high, .badge-critical {{ background: #fee2e2; color: #991b1b; }}
-    .badge-medium, .badge-qualified {{ background: #fef3c7; color: #92400e; }}
-    .badge-low {{ background: #eff6ff; color: #1d4ed8; }}
-    .badge-proposal {{ background: #f0fdf4; color: #166534; }}
-    .badge-negotiation {{ background: #faf5ff; color: #6b21a8; }}
-
-    /* ── Empty state ── */
-    .empty-state {{
-      padding: 4rem 2rem;
-      text-align: center;
-      color: #94a3b8;
-    }}
-    .empty-state .bi {{ font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }}
-    .empty-state p {{ font-size: 0.9rem; }}
-
-    /* ── Toast ── */
-    #toast-container {{
-      position: fixed;
-      top: 1rem;
-      right: 1rem;
-      z-index: 9999;
-    }}
-
-    /* ── Login screen ── */
-    #login-screen {{
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-      z-index: 10000;
-      align-items: center;
-      justify-content: center;
-    }}
-    .login-card {{
-      background: #fff;
-      border-radius: 16px;
-      padding: 2.5rem;
-      width: 100%;
-      max-width: 420px;
-      box-shadow: 0 20px 60px rgba(0,0,0,.4);
-    }}
-    .login-logo {{
-      width: 48px; height: 48px; border-radius: 12px;
-      background: var(--accent);
-      display: flex; align-items: center; justify-content: center;
-      color: #fff; font-weight: 800; font-size: 1.25rem;
-      margin: 0 auto 1.25rem;
-    }}
-    .login-title {{
-      text-align: center;
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 0.25rem;
-    }}
-    .login-sub {{
-      text-align: center;
-      font-size: 0.825rem;
-      color: #64748b;
-      margin-bottom: 1.75rem;
-    }}
-    .login-toggle {{
-      text-align: center;
-      font-size: 0.825rem;
-      margin-top: 1rem;
-    }}
-    .login-toggle a {{ color: var(--accent); cursor: pointer; text-decoration: none; font-weight: 600; }}
-    .login-toggle a:hover {{ text-decoration: underline; }}
-
-    /* ── Spinner ── */
-    .spinner-overlay {{
-      display: flex; align-items: center; justify-content: center;
-      padding: 2rem;
-    }}
-
-    /* ── Modal ── */
-    .modal-header {{ border-bottom: 1px solid #e2e8f0; }}
-    .modal-footer {{ border-top: 1px solid #e2e8f0; }}
-
-    /* ── Stats row ── */
-    .stat-card {{
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 1.25rem 1.5rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,.04);
-    }}
-    .stat-label {{ font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #64748b; }}
-    .stat-value {{ font-size: 2rem; font-weight: 800; color: #0f172a; line-height: 1.2; }}
-    .stat-icon {{
-      width: 44px; height: 44px; border-radius: 10px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.25rem;
-    }}
-
-    /* ── Search bar ── */
-    .search-bar {{ max-width: 280px; }}
-    .search-bar .form-control {{ font-size: 0.85rem; }}
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
-    ::-webkit-scrollbar-thumb {{ background: #cbd5e1; border-radius: 3px; }}
-    ::-webkit-scrollbar-track {{ background: transparent; }}
-
-    /* ── Responsive ── */
-    @media (max-width: 768px) {{
-      #sidebar {{ display: none; }}
-      #main {{ padding: 1rem; }}
-    }}
-  </style>
 </head>
 <body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
+"""
 
-<!-- ═══════════════════════════════════════════════════════════
-     LOGIN SCREEN
-═══════════════════════════════════════════════════════════ -->
-<div id="login-screen">
-  <div class="login-card">
-    <div class="login-logo">{logo_letter}</div>
-    <div class="login-title">{project_name}</div>
-    <div class="login-sub" id="login-sub-text">Sign in to your account</div>
 
-    <form id="auth-form" novalidate>
-      <div id="register-name-group" style="display:none" class="mb-3">
-        <label class="form-label fw-semibold small">Full Name</label>
-        <input type="text" id="f-name" class="form-control" placeholder="Jane Smith">
+def _generate_nginx_conf() -> str:
+    return """\
+server {
+  listen 80;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://api:8000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+"""
+
+
+def _generate_dockerfile() -> str:
+    return """\
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+"""
+
+
+def _generate_env_example() -> str:
+    return "VITE_API_URL=http://localhost:8000\n"
+
+
+def _generate_index_css() -> str:
+    return """\
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+"""
+
+
+def _generate_main_tsx() -> str:
+    return """\
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider } from '@tanstack/react-router'
+import { router } from './App'
+import './index.css'
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+})
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  </React.StrictMode>,
+)
+"""
+
+
+def _generate_auth_ts() -> str:
+    return """\
+export const TOKEN_KEY = 'token'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+"""
+
+
+# ── Dynamic file generators ────────────────────────────────────────────────────
+
+def _generate_types(entities: List[dict]) -> str:
+    """Generate src/types/index.ts with one interface per entity."""
+    lines: List[str] = ["// Auto-generated by AetherOS p05_frontend", ""]
+
+    for ent in entities:
+        table = ent["table"]
+        columns = ent["columns"]
+        type_name = _to_type_name(table)  # singular: "Patient", "TelemetryEntry"
+
+        lines.append(f"export interface {type_name} {{")
+        for col in columns:
+            ts_type = _col_to_ts_type(col)
+            optional = col.lower() in ("created_at", "updated_at", "deleted_at") or col == "id"
+            suffix = "?" if optional else ""
+            lines.append(f"  {col}{suffix}: {ts_type}")
+        lines.append("}")
+
+        # Create type (omit id, created_at, updated_at, deleted_at)
+        omit_fields = [c for c in columns if c.lower() in _EXCLUDED_COLS]
+        if omit_fields:
+            omit_str = " | ".join(f"'{f}'" for f in omit_fields)
+            lines.append(f"export type {type_name}Create = Omit<{type_name}, {omit_str}>")
+        else:
+            lines.append(f"export type {type_name}Create = {type_name}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
+    """Generate src/lib/api.ts."""
+    lines: List[str] = [
+        "// Auto-generated by AetherOS p05_frontend",
+        "import axios from 'axios'",
+        "import { getToken, clearToken } from './auth'",
+        "",
+    ]
+
+    # Build entity type imports (use singular type names)
+    type_imports = [_to_type_name(e["table"]) for e in entities]
+    create_imports = [f"{_to_type_name(e['table'])}Create" for e in entities]
+    all_type_imports = type_imports + create_imports
+    lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
+    lines.append("")
+    lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
+    lines.append("")
+    lines.append("export const apiClient = axios.create({ baseURL: BASE })")
+    lines.append("")
+    lines.append("apiClient.interceptors.request.use(cfg => {")
+    lines.append("  const token = getToken()")
+    lines.append("  if (token) cfg.headers.Authorization = `Bearer ${token}`")
+    lines.append("  return cfg")
+    lines.append("})")
+    lines.append("")
+    lines.append("apiClient.interceptors.response.use(")
+    lines.append("  r => r,")
+    lines.append("  err => {")
+    lines.append("    if (err.response?.status === 401) { clearToken(); window.location.href = '/login' }")
+    lines.append("    return Promise.reject(err)")
+    lines.append("  },")
+    lines.append(")")
+    lines.append("")
+    lines.append("export const authApi = {")
+    lines.append("  login: (email: string, password: string) =>")
+    lines.append("    apiClient.post<{ access_token: string }>('/auth/login', { email, password }).then(r => r.data),")
+    lines.append("  register: (email: string, password: string) =>")
+    lines.append("    apiClient.post('/auth/register', { email, password }).then(r => r.data),")
+    lines.append("}")
+
+    for ent in entities:
+        table = ent["table"]
+        type_name = _to_type_name(table)    # singular: "Patient"
+        endpoint = route_map.get(table, f"/{table}")
+        # camelCase api object name: e.g. "lead_contacts" → "leadContactsApi"
+        camel = table[0].lower() + _to_pascal_case(table)[1:]
+
+        lines.append("")
+        lines.append(f"export const {camel}Api = {{")
+        lines.append(f"  list: () => apiClient.get<{type_name}[]>('{endpoint}').then(r => r.data),")
+        lines.append(f"  create: (data: {type_name}Create) => apiClient.post<{type_name}>('{endpoint}', data).then(r => r.data),")
+        lines.append(f"  update: (id: string | number, data: Partial<{type_name}Create>) =>")
+        lines.append(f"    apiClient.put<{type_name}>(`{endpoint}/${{id}}`, data).then(r => r.data),")
+        lines.append(f"  remove: (id: string | number) => apiClient.delete(`{endpoint}/${{id}}`),")
+        lines.append("}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _generate_app(entities: List[dict]) -> str:
+    """Generate src/App.tsx with TanStack Router."""
+    entity_imports: List[str] = []
+    entity_routes: List[str] = []
+    entity_route_children: List[str] = []
+
+    for ent in entities:
+        table = ent["table"]
+        pascal = _to_pascal_case(table)
+        route_path = f"/{table.replace('_', '-')}"
+        route_var = f"{table}Route"
+
+        entity_imports.append(f"import {{ {pascal}Page }} from './pages/{pascal}Page'")
+        entity_routes.append(
+            f"const {route_var} = createRoute({{\n"
+            f"  getParentRoute: () => layoutRoute,\n"
+            f"  path: '{route_path}',\n"
+            f"  component: {pascal}Page,\n"
+            f"}})"
+        )
+        entity_route_children.append(f"    {route_var},")
+
+    imports_str = "\n".join(entity_imports)
+    routes_str = "\n\n".join(entity_routes)
+    children_str = "\n".join(entity_route_children)
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend
+import {{ createRootRoute, createRoute, createRouter, Outlet, redirect }} from '@tanstack/react-router'
+import {{ Layout }} from './components/Layout'
+import {{ LoginPage }} from './pages/LoginPage'
+import {{ Dashboard }} from './pages/Dashboard'
+{imports_str}
+
+const rootRoute = createRootRoute({{ component: () => <Outlet /> }})
+
+const layoutRoute = createRoute({{
+  getParentRoute: () => rootRoute,
+  id: 'layout',
+  component: Layout,
+  beforeLoad: () => {{
+    if (!localStorage.getItem('token')) throw redirect({{ to: '/login' }})
+  }},
+}})
+
+const loginRoute = createRoute({{
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
+}})
+
+const dashboardRoute = createRoute({{
+  getParentRoute: () => layoutRoute,
+  path: '/',
+  component: Dashboard,
+}})
+
+{routes_str}
+
+const routeTree = rootRoute.addChildren([
+  loginRoute,
+  layoutRoute.addChildren([
+    dashboardRoute,
+{children_str}
+  ]),
+])
+
+export const router = createRouter({{ routeTree }})
+
+declare module '@tanstack/react-router' {{
+  interface Register {{ router: typeof router }}
+}}
+"""
+
+
+def _generate_layout(entities: List[dict], project_name: str) -> str:
+    """Generate src/components/Layout.tsx."""
+    # Collect icons needed
+    icons_needed = {"LayoutDashboard", "LogOut"}
+    for ent in entities:
+        icons_needed.add(_entity_icon(ent["table"]))
+    icons_str = ", ".join(sorted(icons_needed))
+
+    nav_items: List[str] = [
+        "  { to: '/' as const, label: 'Dashboard', Icon: LayoutDashboard },",
+    ]
+    for ent in entities:
+        table = ent["table"]
+        label = _to_label(table)
+        icon = _entity_icon(table)
+        route_path = f"/{table.replace('_', '-')}"
+        nav_items.append(f"  {{ to: '{route_path}' as const, label: '{label}', Icon: {icon} }},")
+
+    nav_items_str = "\n".join(nav_items)
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend
+import {{ Link, useRouter, Outlet }} from '@tanstack/react-router'
+import {{ clearToken }} from '../lib/auth'
+import {{ {icons_str} }} from 'lucide-react'
+
+const NAV_ITEMS = [
+{nav_items_str}
+]
+
+export function Layout() {{
+  const router = useRouter()
+  const handleLogout = () => {{
+    clearToken()
+    router.navigate({{ to: '/login' }})
+  }}
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      <aside className="w-64 bg-gray-900 text-white flex flex-col">
+        <div className="p-6 border-b border-gray-700">
+          <h1 className="text-xl font-bold text-white">{project_name}</h1>
+        </div>
+        <nav className="flex-1 p-4 space-y-1">
+          {{NAV_ITEMS.map(({{ to, label, Icon }}) => (
+            <Link
+              key={{to}}
+              to={{to}}
+              className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors [&.active]:bg-brand-600 [&.active]:text-white"
+            >
+              <Icon size={{18}} />
+              {{label}}
+            </Link>
+          ))}}
+        </nav>
+        <button
+          onClick={{handleLogout}}
+          className="flex items-center gap-3 px-8 py-4 text-gray-400 hover:text-white border-t border-gray-700"
+        >
+          <LogOut size={{18}} />
+          Logout
+        </button>
+      </aside>
+      <main className="flex-1 overflow-auto">
+        <Outlet />
+      </main>
+    </div>
+  )
+}}
+"""
+
+
+def _generate_data_table() -> str:
+    return """\
+// Auto-generated by AetherOS p05_frontend
+import { useState } from 'react'
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+} from '@tanstack/react-table'
+import { ChevronUp, ChevronDown } from 'lucide-react'
+
+interface Props<T> {
+  data: T[]
+  columns: ColumnDef<T>[]
+  isLoading?: boolean
+}
+
+export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [globalFilter, setGlobalFilter] = useState('')
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting, globalFilter },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+  })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600" />
       </div>
-      <div class="mb-3">
-        <label class="form-label fw-semibold small">Email address</label>
-        <input type="email" id="f-email" class="form-control" placeholder="you@example.com" required autocomplete="username">
+    )
+  }
+
+  return (
+    <div>
+      <input
+        value={globalFilter}
+        onChange={e => setGlobalFilter(e.target.value)}
+        placeholder="Search..."
+        className="mb-4 w-full max-w-sm px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+      />
+      <div className="overflow-x-auto rounded-lg border border-gray-200">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            {table.getHeaderGroups().map(hg => (
+              <tr key={hg.id}>
+                {hg.headers.map(header => (
+                  <th
+                    key={header.id}
+                    onClick={header.column.getToggleSortingHandler()}
+                    className="px-4 py-3 text-left font-medium text-gray-600 cursor-pointer hover:text-gray-900 select-none"
+                  >
+                    <div className="flex items-center gap-1">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.column.getIsSorted() === 'asc' ? (
+                        <ChevronUp size={14} />
+                      ) : header.column.getIsSorted() === 'desc' ? (
+                        <ChevronDown size={14} />
+                      ) : null}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.map(row => (
+              <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                {row.getVisibleCells().map(cell => (
+                  <td key={cell.id} className="px-4 py-3 text-gray-700">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {table.getRowModel().rows.length === 0 && (
+          <div className="text-center py-12 text-gray-400">No records found</div>
+        )}
       </div>
-      <div class="mb-3">
-        <label class="form-label fw-semibold small">Password</label>
-        <div class="input-group">
-          <input type="password" id="f-password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
-          <button class="btn btn-outline-secondary" type="button" onclick="togglePw()" tabindex="-1">
-            <i class="bi bi-eye" id="pw-eye-icon"></i>
+      <p className="mt-2 text-xs text-gray-400">
+        {table.getFilteredRowModel().rows.length} records
+      </p>
+    </div>
+  )
+}
+"""
+
+
+def _generate_crud_modal() -> str:
+    return """\
+// Auto-generated by AetherOS p05_frontend
+import { useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { X } from 'lucide-react'
+
+export interface FieldDef {
+  name: string
+  label: string
+  type: 'text' | 'email' | 'tel' | 'date' | 'number' | 'textarea' | 'select'
+  required?: boolean
+  options?: { value: string; label: string }[]
+}
+
+interface Props<T extends Record<string, unknown>> {
+  isOpen: boolean
+  onClose: () => void
+  onSubmit: (data: T) => void
+  initialValues?: Partial<T>
+  fields: FieldDef[]
+  title: string
+  isLoading?: boolean
+}
+
+export function CrudModal<T extends Record<string, unknown>>({
+  isOpen,
+  onClose,
+  onSubmit,
+  initialValues,
+  fields,
+  title,
+  isLoading,
+}: Props<T>) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<T>()
+
+  useEffect(() => {
+    if (isOpen) reset((initialValues ?? {}) as T)
+  }, [isOpen, initialValues, reset])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
           </button>
         </div>
-      </div>
-      <div id="auth-error" class="alert alert-danger py-2 d-none" role="alert"></div>
-      <button type="submit" class="btn btn-accent w-100 fw-semibold" id="btn-auth-submit">
-        <span id="auth-btn-label">Sign In</span>
-        <span id="auth-spinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
-      </button>
-    </form>
-
-    <div class="login-toggle" id="auth-toggle-hint">
-      Don&apos;t have an account? <a onclick="setAuthMode('register')">Create one</a>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════
-     MAIN APP
-═══════════════════════════════════════════════════════════ -->
-<div id="app-shell" style="display:none; height:100%; flex-direction:column;">
-  <!-- Top bar -->
-  <div id="topbar">
-    <div class="logo-badge">{logo_letter}</div>
-    <span class="app-name">{project_name}</span>
-    <div id="user-display">
-      <div class="avatar" id="user-avatar">?</div>
-      <span id="user-email-display" class="d-none d-sm-inline"></span>
-      <button class="btn btn-outline-secondary btn-sm" id="btn-logout" onclick="logout()">
-        <i class="bi bi-box-arrow-right me-1"></i>Sign Out
-      </button>
-    </div>
-  </div>
-
-  <div id="layout">
-    <!-- Sidebar -->
-    <nav id="sidebar">
-      <div class="sidebar-heading">Data</div>
-      <ul class="nav flex-column gap-1">
-{sidebar_items}
-      </ul>
-      <div class="sidebar-heading" style="margin-top:1.5rem;">System</div>
-      <ul class="nav flex-column gap-1">
-        <li class="nav-item">
-          <a class="nav-link sidebar-link" href="#" onclick="showHealthPanel()">
-            <i class="bi bi-heart-pulse me-2"></i>Health
-          </a>
-        </li>
-      </ul>
-    </nav>
-
-    <!-- Main content -->
-    <main id="main">
-      <!-- Stats row -->
-      <div class="row g-3 mb-3" id="stats-row" style="display:none!important"></div>
-
-      <!-- Entity view -->
-      <div id="entity-view">
-        <div class="empty-state">
-          <i class="bi bi-grid-3x3-gap"></i>
-          <p>Select an entity from the sidebar to get started.</p>
-        </div>
-      </div>
-    </main>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════
-     CRUD MODAL
-═══════════════════════════════════════════════════════════ -->
-<div class="modal fade" id="crud-modal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="crud-modal-title">New Record</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="crud-modal-body"></div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-accent" id="crud-save-btn" onclick="saveRecord()">
-          <i class="bi bi-check2 me-1"></i>Save
-          <span id="save-spinner" class="spinner-border spinner-border-sm ms-2 d-none"></span>
-        </button>
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex-1 overflow-y-auto p-6 space-y-4"
+        >
+          {fields.map(f => (
+            <div key={f.name}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {f.label}
+                {f.required && <span className="text-red-500 ml-1">*</span>}
+              </label>
+              {f.type === 'textarea' ? (
+                <textarea
+                  {...register(f.name as keyof T extends string ? keyof T : never, {
+                    required: f.required,
+                  } as any)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                  rows={3}
+                />
+              ) : f.type === 'select' ? (
+                <select
+                  {...register(f.name as any, { required: f.required })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="">Select...</option>
+                  {f.options?.map(o => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={f.type}
+                  {...register(f.name as any, { required: f.required })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                />
+              )}
+              {errors[f.name as keyof T] && (
+                <p className="text-xs text-red-500 mt-1">Required</p>
+              )}
+            </div>
+          ))}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+            >
+              {isLoading ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
-  </div>
-</div>
+  )
+}
+"""
 
-<!-- ═══════════════════════════════════════════════════════════
-     DELETE CONFIRMATION MODAL
-═══════════════════════════════════════════════════════════ -->
-<div class="modal fade" id="delete-modal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-sm">
-    <div class="modal-content">
-      <div class="modal-body text-center py-4">
-        <i class="bi bi-exclamation-triangle text-danger" style="font-size:2.5rem"></i>
-        <h6 class="mt-3 mb-1">Delete Record?</h6>
-        <p class="text-muted small mb-0">This action cannot be undone.</p>
+
+def _generate_toaster() -> str:
+    return """\
+// Auto-generated by AetherOS p05_frontend
+// Simple toast notification component using state
+import { useState, useCallback, createContext, useContext } from 'react'
+import { X, CheckCircle, AlertCircle, Info } from 'lucide-react'
+
+interface Toast {
+  id: string
+  message: string
+  type: 'success' | 'error' | 'info'
+}
+
+interface ToastContextValue {
+  toast: (message: string, type?: Toast['type']) => void
+}
+
+const ToastContext = createContext<ToastContextValue>({ toast: () => undefined })
+
+export function useToast() {
+  return useContext(ToastContext)
+}
+
+export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  const toast = useCallback((message: string, type: Toast['type'] = 'info') => {
+    const id = Math.random().toString(36).slice(2)
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500)
+  }, [])
+
+  return (
+    <ToastContext.Provider value={{ toast }}>
+      {children}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+        {toasts.map(t => (
+          <div
+            key={t.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg text-sm text-white min-w-[260px] ${
+              t.type === 'success' ? 'bg-green-600'
+              : t.type === 'error' ? 'bg-red-600'
+              : 'bg-gray-800'
+            }`}
+          >
+            {t.type === 'success' ? <CheckCircle size={16} />
+              : t.type === 'error' ? <AlertCircle size={16} />
+              : <Info size={16} />}
+            <span className="flex-1">{t.message}</span>
+            <button
+              onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+              className="text-white/70 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
       </div>
-      <div class="modal-footer justify-content-center border-0 pt-0">
-        <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-danger btn-sm" id="confirm-delete-btn">
-          <i class="bi bi-trash me-1"></i>Delete
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
+    </ToastContext.Provider>
+  )
+}
+"""
 
-<!-- Toast container -->
-<div id="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-<!-- Bootstrap 5.3.3 JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
-        crossorigin="anonymous"></script>
+def _generate_login_page(project_name: str) -> str:
+    return f"""\
+// Auto-generated by AetherOS p05_frontend
+import {{ useState }} from 'react'
+import {{ useNavigate }} from '@tanstack/react-router'
+import {{ authApi }} from '../lib/api'
+import {{ setToken }} from '../lib/auth'
 
-<script>
-/* ================================================================
-   {project_name} — AetherOS p05_frontend (product-spa renderer)
-================================================================ */
-"use strict";
+export function LoginPage() {{
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
-// ── Entity schema ──────────────────────────────────────────────────────────────
-{entity_defs}
-{field_type_map}
-{field_select_opts}
-const NEEDS_AUTH = {'true' if needs_auth else 'false'};
-const FIRST_ENTITY = "{first_entity}";
-
-// ── API base URL — auto-detected from page location so proxied installs work ───
-const API_BASE = (function() {{
-  const p = window.location.pathname.replace(/\/(?:index\.html)?$/, '');
-  return p === '/' ? '' : p;
-}})();
-
-// ── Global state ───────────────────────────────────────────────────────────────
-let currentEntity = null;
-let currentData   = [];
-let editingId     = null;
-let token         = localStorage.getItem("aether_token") || null;
-let userEmail     = localStorage.getItem("aether_email") || "";
-let authMode      = "login";   // "login" | "register"
-let pendingDeleteId = null;
-
-// ── Bootstrap modal instances ──────────────────────────────────────────────────
-let crudModal, deleteModal;
-
-// ── Entry point ────────────────────────────────────────────────────────────────
-window.addEventListener("DOMContentLoaded", function () {{
-  crudModal   = new bootstrap.Modal(document.getElementById("crud-modal"));
-  deleteModal = new bootstrap.Modal(document.getElementById("delete-modal"));
-
-  document.getElementById("auth-form").addEventListener("submit", handleAuth);
-  document.getElementById("confirm-delete-btn").addEventListener("click", confirmDelete);
-
-  if (NEEDS_AUTH && !token) {{
-    showLoginScreen();
-  }} else {{
-    showAppShell();
-    switchEntity(FIRST_ENTITY);
-  }}
-}});
-
-// ══════════════════════════════════════════════════════════════
-// AUTH
-// ══════════════════════════════════════════════════════════════
-
-function showLoginScreen() {{
-  document.getElementById("login-screen").style.display = "flex";
-  document.getElementById("app-shell").style.display    = "none";
-  document.getElementById("f-email").focus();
-}}
-
-function showAppShell() {{
-  document.getElementById("login-screen").style.display = "none";
-  document.getElementById("app-shell").style.display    = "flex";
-  document.getElementById("app-shell").style.flexDirection = "column";
-  updateUserDisplay();
-}}
-
-function setAuthMode(mode) {{
-  authMode = mode;
-  const isReg = (mode === "register");
-  document.getElementById("register-name-group").style.display = isReg ? "" : "none";
-  document.getElementById("auth-btn-label").textContent  = isReg ? "Create Account" : "Sign In";
-  document.getElementById("login-sub-text").textContent  = isReg ? "Create your account" : "Sign in to your account";
-  document.getElementById("auth-toggle-hint").innerHTML  = isReg
-    ? `Already have an account? <a href='#' onclick="setAuthMode('login');return false">Sign in</a>`
-    : `Don't have an account? <a href='#' onclick="setAuthMode('register');return false">Create one</a>`;
-  clearAuthError();
-}}
-
-async function handleAuth(e) {{
-  e.preventDefault();
-  const email    = document.getElementById("f-email").value.trim();
-  const password = document.getElementById("f-password").value;
-  const name     = document.getElementById("f-name").value.trim();
-
-  if (!email || !password) {{ showAuthError("Please fill in all fields."); return; }}
-
-  const spinner   = document.getElementById("auth-spinner");
-  const submitBtn = document.getElementById("btn-auth-submit");
-  spinner.classList.remove("d-none");
-  submitBtn.disabled = true;
-  clearAuthError();
-
-  try {{
-    const path    = API_BASE + (authMode === "register" ? "/auth/register" : "/auth/login");
-    const payload = authMode === "register"
-      ? {{ email, password, name }}
-      : {{ email, password }};
-
-    const res  = await fetch(path, {{
-      method: "POST",
-      headers: {{ "Content-Type": "application/json" }},
-      body: JSON.stringify(payload),
-    }});
-    const json = await res.json().catch(() => ({{}}));
-
-    if (!res.ok) {{
-      showAuthError(json.detail || json.message || "Authentication failed. Please check your credentials.");
-      return;
-    }}
-
-    const tok = json.access_token || json.token || json.jwt || (json.data && json.data.access_token);
-    if (!tok) {{
-      showAuthError("Unexpected response from server. Please try again.");
-      return;
-    }}
-
-    token     = tok;
-    userEmail = json.email || email;
-    localStorage.setItem("aether_token", token);
-    localStorage.setItem("aether_email", userEmail);
-
-    showAppShell();
-    switchEntity(FIRST_ENTITY);
-    showToast("Welcome back!", "success");
-  }} catch (err) {{
-    showAuthError("Network error. Is the server running?");
-  }} finally {{
-    spinner.classList.add("d-none");
-    submitBtn.disabled = false;
-  }}
-}}
-
-function logout() {{
-  token     = null;
-  userEmail = "";
-  localStorage.removeItem("aether_token");
-  localStorage.removeItem("aether_email");
-  currentEntity = null;
-  currentData   = [];
-  if (NEEDS_AUTH) {{
-    showLoginScreen();
-    setAuthMode("login");
-    document.getElementById("auth-form").reset();
-  }}
-}}
-
-function showAuthError(msg) {{
-  const el = document.getElementById("auth-error");
-  el.textContent = msg;
-  el.classList.remove("d-none");
-}}
-
-function clearAuthError() {{
-  document.getElementById("auth-error").classList.add("d-none");
-}}
-
-function togglePw() {{
-  const inp  = document.getElementById("f-password");
-  const icon = document.getElementById("pw-eye-icon");
-  if (inp.type === "password") {{
-    inp.type = "text";
-    icon.className = "bi bi-eye-slash";
-  }} else {{
-    inp.type = "password";
-    icon.className = "bi bi-eye";
-  }}
-}}
-
-function updateUserDisplay() {{
-  const email   = userEmail || "";
-  const initial = email ? email[0].toUpperCase() : "U";
-  document.getElementById("user-avatar").textContent = initial;
-  const emailEl = document.getElementById("user-email-display");
-  emailEl.textContent = email;
-  emailEl.classList.remove("d-none");
-}}
-
-// ══════════════════════════════════════════════════════════════
-// ENTITY SWITCHING
-// ══════════════════════════════════════════════════════════════
-
-function switchEntity(entityKey) {{
-  currentEntity = entityKey;
-  editingId     = null;
-
-  // Update sidebar active state
-  document.querySelectorAll(".sidebar-link").forEach(function(a) {{
-    a.classList.remove("active");
-  }});
-  const navLink = document.getElementById("nav-" + entityKey);
-  if (navLink) navLink.classList.add("active");
-
-  loadEntityData();
-}}
-
-function renderEntityHeader(entityKey, count) {{
-  const ent   = ENTITIES[entityKey];
-  const label = ent ? ent.label : entityKey;
-  const icon  = navIconForEntity(entityKey);
-  const singular = label.replace(/s$/, "");
-  const countTxt = count !== null ? (count + " record" + (count !== 1 ? "s" : "")) : "";
-
-  document.getElementById("entity-view").innerHTML =
-    '<div class="page-header">' +
-      '<h1><i class="bi ' + icon + ' me-2" style="color:var(--accent)"></i>' + label + '</h1>' +
-      '<div class="d-flex gap-2 align-items-center">' +
-        '<div class="input-group search-bar">' +
-          '<span class="input-group-text bg-white border-end-0">' +
-            '<i class="bi bi-search text-muted" style="font-size:.8rem"></i>' +
-          '</span>' +
-          '<input type="text" id="search-input" class="form-control border-start-0"' +
-                 ' placeholder="Search..." oninput="filterTable(this.value)"' +
-                 ' style="font-size:.85rem">' +
-        '</div>' +
-        '<button class="btn btn-accent d-flex align-items-center gap-1" onclick="openCreateModal(\\'' + entityKey + '\\')">' +
-          '<i class="bi bi-plus-lg"></i>' +
-          '<span class="d-none d-sm-inline">New ' + singular + '</span>' +
-        '</button>' +
-      '</div>' +
-    '</div>' +
-    '<div class="data-card"><div id="table-area"></div></div>' +
-    '<div class="mt-2 text-muted" style="font-size:.75rem" id="record-count">' + countTxt + '</div>';
-}}
-
-function navIconForEntity(entityKey) {{
-  const iconMap = {{
-{chr(10).join(f'    "{ent["table"]}": "{_icon_for(ent["table"])}",' for ent in entities)}
-  }};
-  return iconMap[entityKey] || "bi-table";
-}}
-
-// ══════════════════════════════════════════════════════════════
-// DATA LOADING
-// ══════════════════════════════════════════════════════════════
-
-async function loadEntityData() {{
-  const entityKey = currentEntity;
-  if (!entityKey || !ENTITIES[entityKey]) return;
-
-  document.getElementById("entity-view").innerHTML =
-    '<div class="spinner-overlay">' +
-      '<div class="spinner-border text-secondary" role="status">' +
-        '<span class="visually-hidden">Loading...</span>' +
-      '</div>' +
-    '</div>';
-
-  const ent = ENTITIES[entityKey];
-
-  try {{
-    const res = await apiFetch(ent.endpoint, "GET");
-    if (res === null) return;          // 401 handled — login shown
-
-    let data = [];
-    if (Array.isArray(res)) {{
-      data = res;
-    }} else if (res && typeof res === "object") {{
-      // Unwrap common envelope patterns
-      data = res.items || res.data || res.results || res[entityKey] || [];
-      if (!Array.isArray(data)) data = [res];
-    }}
-
-    currentData = data;
-    renderEntityHeader(entityKey, data.length);
-    renderTable(entityKey, data);
-    renderStatsRow(entityKey, data);
-  }} catch (err) {{
-    renderEntityHeader(entityKey, null);
-    document.getElementById("table-area").innerHTML =
-      '<div class="empty-state">' +
-        '<i class="bi bi-wifi-off"></i>' +
-        '<p class="mb-0 fw-semibold">Could not load data</p>' +
-        '<p class="small">' + err.message + '</p>' +
-        '<button class="btn btn-accent btn-sm mt-2" onclick="loadEntityData()">' +
-          '<i class="bi bi-arrow-clockwise me-1"></i>Retry' +
-        '</button>' +
-      '</div>';
-  }}
-}}
-
-function renderTable(entityKey, data) {{
-  const ent  = ENTITIES[entityKey];
-  const cols = ent ? ent.displayCols : [];
-  const area = document.getElementById("table-area");
-  if (!area) return;
-
-  if (!data || data.length === 0) {{
-    const entLabel = ent ? ent.label.toLowerCase() : "records";
-    area.innerHTML =
-      '<div class="empty-state">' +
-        '<i class="bi bi-inbox"></i>' +
-        '<p class="fw-semibold mb-1">No ' + entLabel + ' yet</p>' +
-        '<p class="small mb-3">Create your first record to get started.</p>' +
-        '<button class="btn btn-accent btn-sm" onclick="openCreateModal(\\'' + entityKey + '\\')">' +
-          '<i class="bi bi-plus-lg me-1"></i>New Record' +
-        '</button>' +
-      '</div>';
-    return;
-  }}
-
-  // Auto-detect columns from first item if displayCols is empty
-  const activeCols = (cols && cols.length > 0)
-    ? cols
-    : Object.keys(data[0] || {{}}).filter(c => c.toLowerCase() !== "id").slice(0, 5);
-
-  let html = '<div class="table-responsive"><table class="table data-table" id="data-table"><thead><tr>';
-  activeCols.forEach(function(col) {{
-    const label = col.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-    html += '<th onclick="sortBy(\\'' + col + '\\')" style="cursor:pointer" title="Sort by ' + label + '">' +
-            label + ' <i class="bi bi-chevron-expand text-muted" style="font-size:.6rem"></i></th>';
-  }});
-  html += '<th class="action-cell">Actions</th></tr></thead><tbody id="table-body">';
-
-  data.forEach(function(row) {{
-    const rowId = String(row.id || row._id || row.uuid || "");
-    html += '<tr onclick="openEditModal(\\'' + entityKey + '\\',\\'' + rowId + '\\')" data-id="' + rowId + '">';
-    activeCols.forEach(function(col) {{
-      const val = row[col];
-      html += '<td>' + formatCell(col, val) + '</td>';
-    }});
-    html +=
-      '<td class="action-cell" onclick="event.stopPropagation()">' +
-        '<button class="btn btn-sm btn-outline-secondary btn-icon me-1"' +
-                ' onclick="openEditModal(\\'' + entityKey + '\\',\\'' + rowId + '\\')" title="Edit">' +
-          '<i class="bi bi-pencil"></i>' +
-        '</button>' +
-        '<button class="btn btn-sm btn-outline-danger btn-icon"' +
-                ' onclick="promptDelete(\\'' + rowId + '\\')" title="Delete">' +
-          '<i class="bi bi-trash"></i>' +
-        '</button>' +
-      '</td></tr>';
-  }});
-
-  html += '</tbody></table></div>';
-  area.innerHTML = html;
-}}
-
-function formatCell(col, val) {{
-  if (val === null || val === undefined) return '<span class="text-muted">—</span>';
-  const lower = col.toLowerCase();
-
-  // Boolean
-  if (typeof val === "boolean") {{
-    return val
-      ? '<span class="badge-status badge-active">Yes</span>'
-      : '<span class="badge-status badge-inactive">No</span>';
-  }}
-
-  // Status / priority / stage badges
-  if (["status", "priority", "stage"].includes(lower)) {{
-    const slug = String(val).toLowerCase().replace(/[^a-z0-9]/g, "_");
-    return '<span class="badge-status badge-' + slug + '">' + String(val) + '</span>';
-  }}
-
-  // Timestamps
-  if (lower.endsWith("_at") || lower.endsWith("_date")) {{
+  const handleSubmit = async (e: React.FormEvent) => {{
+    e.preventDefault()
+    setLoading(true)
+    setError('')
     try {{
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) {{
-        return d.toLocaleDateString("en-US", {{ year:"numeric", month:"short", day:"numeric" }});
-      }}
-    }} catch(e) {{}}
-  }}
-
-  // Currency
-  if (["price", "amount", "total", "value", "revenue", "cost"].includes(lower)) {{
-    const n = parseFloat(val);
-    if (!isNaN(n)) return "$" + n.toLocaleString("en-US", {{ minimumFractionDigits:2, maximumFractionDigits:2 }});
-  }}
-
-  // Rating
-  if (lower === "rating") {{
-    const n = parseInt(val);
-    if (!isNaN(n)) {{
-      return "⭐".repeat(Math.min(n, 5));
+      const {{ access_token }} = await authApi.login(email, password)
+      setToken(access_token)
+      navigate({{ to: '/' }})
+    }} catch {{
+      setError('Invalid email or password')
+    }} finally {{
+      setLoading(false)
     }}
   }}
 
-  // Long text truncation
-  const str = String(val);
-  if (str.length > 60) return '<span title="' + str.replace(/"/g, "&quot;") + '">' + str.slice(0, 57) + "…</span>";
-  return str;
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">{project_name}</h1>
+        <p className="text-gray-500 mb-8">Sign in to your account</p>
+        <form onSubmit={{handleSubmit}} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              value={{email}}
+              onChange={{e => setEmail(e.target.value)}}
+              required
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <input
+              type="password"
+              value={{password}}
+              onChange={{e => setPassword(e.target.value)}}
+              required
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          {{error && <p className="text-sm text-red-500">{{error}}</p>}}
+          <button
+            type="submit"
+            disabled={{loading}}
+            className="w-full py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium"
+          >
+            {{loading ? 'Signing in...' : 'Sign in'}}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
 }}
+"""
 
-// ── Sorting ────────────────────────────────────────────────────────────────────
-let sortCol = null, sortAsc = true;
-function sortBy(col) {{
-  if (sortCol === col) {{ sortAsc = !sortAsc; }} else {{ sortCol = col; sortAsc = true; }}
-  const sorted = [...currentData].sort(function(a, b) {{
-    const av = a[col], bv = b[col];
-    if (av === undefined || av === null) return 1;
-    if (bv === undefined || bv === null) return -1;
-    if (typeof av === "number" && typeof bv === "number") return sortAsc ? av - bv : bv - av;
-    return sortAsc
-      ? String(av).localeCompare(String(bv))
-      : String(bv).localeCompare(String(av));
-  }});
-  renderTable(currentEntity, sorted);
+
+def _generate_dashboard(entities: List[dict], route_map: Dict[str, str]) -> str:
+    """Generate src/pages/Dashboard.tsx with stat cards."""
+    query_lines: List[str] = []
+    stat_cards: List[str] = []
+
+    icons = ["BarChart3", "Users", "Activity", "TrendingUp", "Package", "FileText", "Calendar", "Database"]
+
+    for i, ent in enumerate(entities):
+        table = ent["table"]
+        camel = table[0].lower() + _to_pascal_case(table)[1:]
+        endpoint = route_map.get(table, f"/{table}")
+        label = _to_label(table)
+        icon = icons[i % len(icons)]
+
+        query_lines.append(
+            f"  const {{ data: {camel}Data }} = useQuery({{\n"
+            f"    queryKey: ['{table}'],\n"
+            f"    queryFn: () => apiClient.get<unknown[]>('{endpoint}').then(r => r.data),\n"
+            f"  }})"
+        )
+        stat_cards.append(
+            f"        <div className=\"bg-white rounded-xl border border-gray-200 p-6 shadow-sm\">\n"
+            f"          <div className=\"flex items-center justify-between mb-2\">\n"
+            f"            <p className=\"text-sm font-medium text-gray-500\">{label}</p>\n"
+            f"            <{icon} size={{20}} className=\"text-brand-500\" />\n"
+            f"          </div>\n"
+            f"          <p className=\"text-3xl font-bold text-gray-900\">{{{camel}Data?.length ?? '—'}}</p>\n"
+            f"        </div>"
+        )
+
+    queries_str = "\n".join(query_lines)
+    cards_str = "\n".join(stat_cards)
+
+    # Collect only the icons actually used
+    used_icons = sorted(set(icons[i % len(icons)] for i in range(len(entities))))
+    icons_import = ", ".join(used_icons) if used_icons else "BarChart3"
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend
+import {{ useQuery }} from '@tanstack/react-query'
+import {{ {icons_import} }} from 'lucide-react'
+import {{ apiClient }} from '../lib/api'
+
+export function Dashboard() {{
+{queries_str}
+
+  return (
+    <div className="p-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-8">Dashboard</h1>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+{cards_str}
+      </div>
+    </div>
+  )
 }}
+"""
 
-// ── Client-side search filter ──────────────────────────────────────────────────
-function filterTable(query) {{
-  const q = query.toLowerCase().trim();
-  if (!q) {{ renderTable(currentEntity, currentData); return; }}
-  const filtered = currentData.filter(function(row) {{
-    return Object.values(row).some(function(v) {{
-      return v !== null && String(v).toLowerCase().includes(q);
-    }});
-  }});
-  renderTable(currentEntity, filtered);
-  const cnt = document.getElementById("record-count");
-  if (cnt) cnt.textContent = filtered.length + " of " + currentData.length + " records";
+
+def _generate_entity_page(ent: dict, route_map: Dict[str, str]) -> str:
+    """Generate a full CRUD page for one entity."""
+    table = ent["table"]
+    columns = ent["columns"]
+    pascal = _to_pascal_case(table)       # component name: "LeadContacts" (page class)
+    type_name = _to_type_name(table)      # type name: "LeadContact" (singular)
+    camel = table[0].lower() + pascal[1:]  # api var: "leadContactsApi"
+    label = _to_label(table)
+    singular = _to_singular(label)
+
+    # Visible columns for the table (exclude sensitive/system cols)
+    display_cols = [c for c in columns if c.lower() not in _EXCLUDED_COLS]
+
+    # Form fields (exclude same set)
+    form_cols = [c for c in columns if c.lower() not in _EXCLUDED_COLS]
+
+    # Build ColumnDef list
+    col_defs: List[str] = []
+    for col in display_cols:
+        col_label = _to_label(col)
+        col_defs.append(
+            f"  {{\n"
+            f"    accessorKey: '{col}' as const,\n"
+            f"    header: '{col_label}',\n"
+            f"    cell: ({{ getValue }}) => {{\n"
+            f"      const v = getValue() as unknown\n"
+            f"      if (v === null || v === undefined) return <span className=\"text-gray-400\">—</span>\n"
+            f"      return <span>{{String(v)}}</span>\n"
+            f"    }},\n"
+            f"  }},"
+        )
+
+    # Build FIELDS array
+    field_defs: List[str] = []
+    for col in form_cols:
+        col_label = _to_label(col)
+        field_type = _col_to_field_def_type(col)
+        is_required = col.lower() not in ("description", "notes", "body", "content", "bio")
+        options = _col_to_field_options(col)
+
+        if options is not None:
+            opts_json = json.dumps(options)
+            field_defs.append(
+                f"  {{ name: '{col}', label: '{col_label}', type: '{field_type}', "
+                f"required: {str(is_required).lower()}, options: {opts_json} }},"
+            )
+        else:
+            field_defs.append(
+                f"  {{ name: '{col}', label: '{col_label}', type: '{field_type}', "
+                f"required: {str(is_required).lower()} }},"
+            )
+
+    col_defs_str = "\n".join(col_defs)
+    field_defs_str = "\n".join(field_defs)
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend
+import {{ useState }} from 'react'
+import {{ useQuery, useMutation, useQueryClient }} from '@tanstack/react-query'
+import {{ type ColumnDef }} from '@tanstack/react-table'
+import {{ DataTable }} from '../components/DataTable'
+import {{ CrudModal, type FieldDef }} from '../components/CrudModal'
+import {{ {camel}Api }} from '../lib/api'
+import {{ type {type_name} }} from '../types'
+import {{ Plus, Pencil, Trash2 }} from 'lucide-react'
+
+const FIELDS: FieldDef[] = [
+{field_defs_str}
+]
+
+export function {pascal}Page() {{
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<{type_name} | null>(null)
+  const qc = useQueryClient()
+
+  const {{ data = [], isLoading }} = useQuery({{
+    queryKey: ['{table}'],
+    queryFn: {camel}Api.list,
+  }})
+
+  const create = useMutation({{
+    mutationFn: {camel}Api.create,
+    onSuccess: () => {{
+      qc.invalidateQueries({{ queryKey: ['{table}'] }})
+      setModalOpen(false)
+    }},
+  }})
+
+  const update = useMutation({{
+    mutationFn: ({{ id, data }}: {{ id: string | number; data: Partial<{type_name}> }}) =>
+      {camel}Api.update(id, data),
+    onSuccess: () => {{
+      qc.invalidateQueries({{ queryKey: ['{table}'] }})
+      setModalOpen(false)
+      setEditing(null)
+    }},
+  }})
+
+  const remove = useMutation({{
+    mutationFn: {camel}Api.remove,
+    onSuccess: () => qc.invalidateQueries({{ queryKey: ['{table}'] }}),
+  }})
+
+  const columns: ColumnDef<{type_name}>[] = [
+{col_defs_str}
+    {{
+      id: 'actions',
+      header: '',
+      cell: ({{ row }}) => (
+        <div className="flex gap-2">
+          <button
+            onClick={{() => {{ setEditing(row.original); setModalOpen(true) }}}}
+            className="p-1.5 text-gray-400 hover:text-brand-600 rounded"
+            title="Edit"
+          >
+            <Pencil size={{15}} />
+          </button>
+          <button
+            onClick={{() => {{
+              if (window.confirm('Delete this record?')) {{
+                remove.mutate(row.original.id as string | number)
+              }}
+            }}}}
+            className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+            title="Delete"
+          >
+            <Trash2 size={{15}} />
+          </button>
+        </div>
+      ),
+    }},
+  ]
+
+  return (
+    <div className="p-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">{label}</h1>
+        <button
+          onClick={{() => {{ setEditing(null); setModalOpen(true) }}}}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
+        >
+          <Plus size={{16}} />
+          Add {singular}
+        </button>
+      </div>
+
+      <DataTable data={{data}} columns={{columns}} isLoading={{isLoading}} />
+
+      <CrudModal
+        isOpen={{modalOpen}}
+        onClose={{() => {{ setModalOpen(false); setEditing(null) }}}}
+        onSubmit={{formData => {{
+          if (editing) {{
+            update.mutate({{ id: editing.id as string | number, data: formData as Partial<{type_name}> }})
+          }} else {{
+            create.mutate(formData as any)
+          }}
+        }}}}
+        initialValues={{editing ?? undefined}}
+        fields={{FIELDS}}
+        title={{editing ? `Edit {singular}` : `New {singular}`}}
+        isLoading={{create.isPending || update.isPending}}
+      />
+    </div>
+  )
 }}
+"""
 
-// ── Stats cards ────────────────────────────────────────────────────────────────
-function renderStatsRow(entityKey, data) {{
-  const row = document.getElementById("stats-row");
-  if (!row || !data || data.length === 0) {{ if(row) row.style.display = "none"; return; }}
 
-  const total = data.length;
-  const stats = [{{ label: "Total " + (ENTITIES[entityKey]?.label || entityKey), value: total, icon: "bi-layers", bg: "#eff6ff", color: "#1d4ed8" }}];
+def _generate_docker_compose(project_dir: Path) -> str:
+    """Generate a docker-compose.yml that wires api + web services."""
+    return """\
+version: '3.8'
 
-  // Status breakdown if present
-  if (data[0] && "status" in data[0]) {{
-    const counts = {{}};
-    data.forEach(function(r) {{ counts[r.status] = (counts[r.status] || 0) + 1; }});
-    const topStatus = Object.entries(counts).sort((a,b) => b[1]-a[1])[0];
-    if (topStatus) {{
-      stats.push({{ label: topStatus[0].charAt(0).toUpperCase() + topStatus[0].slice(1), value: topStatus[1], icon: "bi-check-circle", bg: "#f0fdf4", color: "#166534" }});
-    }}
-  }}
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///./data/app.db}
+      SECRET_KEY: ${SECRET_KEY:-changeme-in-production-use-64-char-hex}
+    volumes:
+      - db_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  // Numeric total if price/amount/value exists
-  const numCol = ["price","amount","total","value","revenue"].find(c => data[0] && c in data[0]);
-  if (numCol) {{
-    const sum = data.reduce(function(acc, r) {{ return acc + (parseFloat(r[numCol]) || 0); }}, 0);
-    stats.push({{ label: "Total " + numCol.charAt(0).toUpperCase() + numCol.slice(1), value: "$" + sum.toLocaleString("en-US", {{minimumFractionDigits:2, maximumFractionDigits:2}}), icon: "bi-cash-stack", bg: "#fdf4ff", color: "#7e22ce" }});
-  }}
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "${PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
-  row.innerHTML = stats.map(function(s) {{
-    return (
-      '<div class="col-auto">' +
-        '<div class="stat-card d-flex align-items-center gap-3">' +
-          '<div class="stat-icon" style="background:' + s.bg + ';color:' + s.color + '">' +
-            '<i class="bi ' + s.icon + '"></i>' +
-          '</div>' +
-          '<div>' +
-            '<div class="stat-label">' + s.label + '</div>' +
-            '<div class="stat-value" style="color:' + s.color + '">' + s.value + '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>'
-    );
-  }}).join("");
-  row.style.removeProperty("display");
-}}
-
-// ══════════════════════════════════════════════════════════════
-// MODAL FORM
-// ══════════════════════════════════════════════════════════════
-
-function buildForm(entityKey, existing) {{
-  const ent    = ENTITIES[entityKey];
-  const fields = ent ? ent.formFields : [];
-  let html     = '<form id="crud-form" class="row g-3" novalidate>';
-
-  fields.forEach(function(col) {{
-    const ftype = FIELD_TYPES[col] || "text";
-    const label = col.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-    const val   = existing ? (existing[col] !== undefined ? existing[col] : "") : "";
-    const isReq = !["description","notes","content","body","tags","data"].includes(col.toLowerCase());
-    const reqAttr = isReq ? "required" : "";
-
-    let inputHtml = "";
-
-    if (ftype === "select") {{
-      const opts = FIELD_OPTIONS[col] || [];
-      const optHtml = opts.map(function(o) {{
-        const sel = (val === o) ? " selected" : "";
-        const txt = o.charAt(0).toUpperCase() + o.slice(1).replace(/_/g, " ");
-        return '<option value="' + o + '"' + sel + '>' + txt + '</option>';
-      }}).join("");
-      inputHtml = '<select id="field-' + col + '" name="' + col + '" class="form-select" ' + reqAttr + '>' +
-                  '<option value="">Select ' + label + '...</option>' + optHtml + '</select>';
-    }} else if (ftype === "textarea") {{
-      inputHtml = '<textarea id="field-' + col + '" name="' + col + '" class="form-control" rows="3" ' + reqAttr + '>' + val + '</textarea>';
-    }} else if (ftype === "checkbox") {{
-      const chk = val ? " checked" : "";
-      inputHtml = '<div class="form-check mt-1">' +
-                  '<input class="form-check-input" type="checkbox" id="field-' + col + '" name="' + col + '"' + chk + '>' +
-                  '<label class="form-check-label" for="field-' + col + '">' + label + '</label>' +
-                  '</div>';
-      html += '<div class="col-12">' + inputHtml + '</div>';
-      return;
-    }} else {{
-      let extra = "";
-      if (col.toLowerCase().endsWith("_id") || col.toLowerCase() === "id") extra = 'min="1"';
-      if (["price","amount","total","value","revenue","cost"].includes(col.toLowerCase())) extra = 'min="0" step="0.01"';
-      if (col.toLowerCase() === "rating") extra = 'min="1" max="5"';
-      if (col.toLowerCase().endsWith("_at") || col.toLowerCase().endsWith("_date")) {{
-        let dtval = "";
-        if (val) {{
-          try {{ dtval = new Date(val).toISOString().slice(0, 16); }} catch(e) {{ dtval = ""; }}
-        }}
-        inputHtml = '<input type="datetime-local" id="field-' + col + '" name="' + col + '" class="form-control" value="' + dtval + '" ' + reqAttr + '>';
-      }} else {{
-        const safeVal = (val !== null && val !== undefined) ? String(val) : "";
-        inputHtml = '<input type="' + ftype + '" id="field-' + col + '" name="' + col + '" class="form-control" value="' + safeVal + '" placeholder="' + label + '" ' + extra + ' ' + reqAttr + '>';
-      }}
-    }}
-
-    const colWidth = ["description","notes","content","body","data","criteria"].includes(col.toLowerCase()) ? "col-12" : "col-md-6";
-    const reqStar  = isReq ? ' <span class="text-danger">*</span>' : "";
-    html += '<div class="' + colWidth + '">' +
-            '<label class="form-label small fw-semibold" for="field-' + col + '">' + label + reqStar + '</label>' +
-            inputHtml +
-            '</div>';
-  }});
-
-  html += "</form>";
-  return html;
-}}
-
-function openCreateModal(entityKey) {{
-  editingId = null;
-  const ent = ENTITIES[entityKey];
-  const singular = ent ? ent.label.replace(/s$/, "") : "Record";
-  document.getElementById("crud-modal-title").innerHTML =
-    '<i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>New ' + singular;
-  document.getElementById("crud-modal-body").innerHTML = buildForm(entityKey, null);
-  crudModal.show();
-}}
-
-function openEditModal(entityKey, rowId) {{
-  const row = currentData.find(function(r) {{
-    return String(r.id || r._id || r.uuid || "") === String(rowId);
-  }});
-  if (!row) {{ showToast("Record not found", "danger"); return; }}
-
-  editingId = rowId;
-  const ent = ENTITIES[entityKey];
-  const singular = ent ? ent.label.replace(/s$/, "") : "Record";
-  document.getElementById("crud-modal-title").innerHTML =
-    '<i class="bi bi-pencil-square me-2" style="color:var(--accent)"></i>Edit ' + singular;
-  document.getElementById("crud-modal-body").innerHTML = buildForm(entityKey, row);
-  crudModal.show();
-}}
-
-async function saveRecord() {{
-  const form = document.getElementById("crud-form");
-  if (!form) return;
-  if (!form.checkValidity()) {{ form.classList.add("was-validated"); return; }}
-
-  const spinner = document.getElementById("save-spinner");
-  const saveBtn = document.getElementById("crud-save-btn");
-  spinner.classList.remove("d-none");
-  saveBtn.disabled = true;
-
-  const ent    = ENTITIES[currentEntity];
-  const fields = ent ? ent.formFields : [];
-  const payload = {{}};
-
-  fields.forEach(function(col) {{
-    const el = document.getElementById("field-" + col);
-    if (!el) return;
-    if (el.type === "checkbox") {{
-      payload[col] = el.checked;
-    }} else if (el.type === "number") {{
-      payload[col] = el.value !== "" ? Number(el.value) : null;
-    }} else {{
-      payload[col] = el.value !== "" ? el.value : null;
-    }}
-  }});
-
-  try {{
-    let res;
-    if (editingId) {{
-      res = await apiFetch(ent.endpoint + "/" + editingId, "PUT", payload);
-    }} else {{
-      res = await apiFetch(ent.endpoint, "POST", payload);
-    }}
-
-    if (res === null) return;   // 401 handled
-
-    crudModal.hide();
-    showToast(editingId ? "Record updated!" : "Record created!", "success");
-    loadEntityData();
-  }} catch(err) {{
-    showToast("Save failed: " + err.message, "danger");
-  }} finally {{
-    spinner.classList.add("d-none");
-    saveBtn.disabled = false;
-  }}
-}}
-
-// ══════════════════════════════════════════════════════════════
-// DELETE
-// ══════════════════════════════════════════════════════════════
-
-function promptDelete(rowId) {{
-  pendingDeleteId = rowId;
-  deleteModal.show();
-}}
-
-async function confirmDelete() {{
-  if (!pendingDeleteId) return;
-  const ent = ENTITIES[currentEntity];
-  deleteModal.hide();
-
-  try {{
-    const res = await apiFetch(ent.endpoint + "/" + pendingDeleteId, "DELETE");
-    if (res === null) return;
-    showToast("Record deleted.", "success");
-    loadEntityData();
-  }} catch(err) {{
-    showToast("Delete failed: " + err.message, "danger");
-  }} finally {{
-    pendingDeleteId = null;
-  }}
-}}
-
-// ══════════════════════════════════════════════════════════════
-// HEALTH PANEL
-// ══════════════════════════════════════════════════════════════
-
-async function showHealthPanel() {{
-  document.querySelectorAll(".sidebar-link").forEach(function(a) {{ a.classList.remove("active"); }});
-
-  document.getElementById("entity-view").innerHTML =
-    '<div class="page-header">' +
-      '<h1><i class="bi bi-heart-pulse me-2" style="color:var(--accent)"></i>System Health</h1>' +
-    '</div>' +
-    '<div class="data-card p-4">' +
-      '<div id="health-content" class="spinner-overlay">' +
-        '<div class="spinner-border text-secondary" role="status">' +
-          '<span class="visually-hidden">Checking...</span>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-
-  try {{
-    const res  = await fetch(API_BASE + "/health");
-    const data = await res.json().catch(function() {{ return {{ status: res.ok ? "ok" : "error" }}; }});
-    const isOk = res.ok;
-    const bg    = isOk ? "#f0fdf4" : "#fef2f2";
-    const col   = isOk ? "#16a34a" : "#dc2626";
-    const icon  = isOk ? "check-circle-fill" : "x-circle-fill";
-    const msg   = isOk ? "All systems operational" : "Service degraded";
-
-    document.getElementById("health-content").innerHTML =
-      '<div class="d-flex align-items-center gap-3 mb-4">' +
-        '<div style="width:52px;height:52px;border-radius:12px;background:' + bg + ';' +
-             'display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:' + col + '">' +
-          '<i class="bi bi-' + icon + '"></i>' +
-        '</div>' +
-        '<div>' +
-          '<div class="fw-bold fs-5">' + msg + '</div>' +
-          '<div class="text-muted small">HTTP ' + res.status + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<pre class="bg-light rounded p-3" style="font-size:.8rem;max-height:300px;overflow:auto">' +
-        JSON.stringify(data, null, 2) +
-      '</pre>';
-  }} catch(err) {{
-    document.getElementById("health-content").innerHTML =
-      '<div class="text-danger">' +
-        '<i class="bi bi-wifi-off me-2"></i>Cannot reach server: ' + err.message +
-      '</div>';
-  }}
-}}
-
-// ══════════════════════════════════════════════════════════════
-// API HELPER
-// ══════════════════════════════════════════════════════════════
-
-async function apiFetch(path, method, body) {{
-  const headers = {{ "Content-Type": "application/json" }};
-  if (token) headers["Authorization"] = "Bearer " + token;
-
-  const opts = {{ method, headers }};
-  if (body !== undefined && method !== "GET" && method !== "DELETE") {{
-    opts.body = JSON.stringify(body);
-  }}
-
-  const res = await fetch(API_BASE + path, opts);
-
-  if (res.status === 401) {{
-    token = null;
-    userEmail = "";
-    localStorage.removeItem("aether_token");
-    localStorage.removeItem("aether_email");
-    showLoginScreen();
-    showToast("Session expired. Please sign in again.", "warning");
-    return null;
-  }}
-
-  if (res.status === 204 || res.headers.get("content-length") === "0") return {{}};
-
-  const json = await res.json().catch(() => ({{}}));
-
-  if (!res.ok) {{
-    const detail = json.detail || json.message || json.error;
-    if (typeof detail === 'string') throw new Error(detail);
-    if (Array.isArray(detail)) throw new Error(detail.map(function(e) {{ return e.msg + ' (' + (e.loc||[]).join('.') + ')'; }}).join('; '));
-    throw new Error('HTTP ' + res.status);
-  }}
-
-  return json;
-}}
-
-// ══════════════════════════════════════════════════════════════
-// TOAST NOTIFICATIONS
-// ══════════════════════════════════════════════════════════════
-
-function showToast(message, type) {{
-  const colourMap = {{
-    success: "text-bg-success",
-    danger:  "text-bg-danger",
-    warning: "text-bg-warning text-dark",
-    info:    "text-bg-info text-dark",
-  }};
-  const iconMap = {{
-    success: "bi-check-circle-fill",
-    danger:  "bi-x-circle-fill",
-    warning: "bi-exclamation-triangle-fill",
-    info:    "bi-info-circle-fill",
-  }};
-
-  const id      = "toast-" + Date.now();
-  const classes = colourMap[type] || "text-bg-secondary";
-  const icon    = iconMap[type]   || "bi-bell-fill";
-
-  const el = document.createElement("div");
-  el.id        = id;
-  el.className = "toast align-items-center border-0 " + classes;
-  el.setAttribute("role", "alert");
-  el.innerHTML =
-    '<div class="d-flex">' +
-      '<div class="toast-body d-flex align-items-center gap-2">' +
-        '<i class="bi ' + icon + '"></i> ' + message +
-      '</div>' +
-      '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>' +
-    '</div>';
-
-  document.getElementById("toast-container").appendChild(el);
-  const toast = new bootstrap.Toast(el, {{ delay: 3500 }});
-  toast.show();
-  el.addEventListener("hidden.bs.toast", function() {{ el.remove(); }});
-}}
-
-</script>
-</body>
-</html>'''
-
-    return html
+volumes:
+  db_data:
+"""
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -1566,56 +1443,111 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     data = phase_input.input_data
 
     # 1. Read architecture
-    arch         = _read_architecture(data)
+    arch = _read_architecture(data)
     project_name = data.get("project_name", arch.get("project_name", "Project Dashboard"))
+    project_slug = re.sub(r"[^a-z0-9-]", "-", project_name.lower()).strip("-") or "project"
+    route_map: Dict[str, str] = arch.get("api_route_map", {})
 
-    # 2. Build the SPA HTML (pure deterministic template — no LLM)
-    html = _build_product_html(project_name, arch)
+    # 2. Normalise entities
+    entities = _normalise_entities(arch)
 
-    # 3. Write index.html
-    out_file = output_dir / "index.html"
-    out_file.write_text(html, encoding="utf-8")
+    # 3. Build frontend/ directory
+    frontend_dir = output_dir / "frontend"
+    src_dir = frontend_dir / "src"
+    (src_dir / "lib").mkdir(parents=True, exist_ok=True)
+    (src_dir / "types").mkdir(parents=True, exist_ok=True)
+    (src_dir / "components").mkdir(parents=True, exist_ok=True)
+    (src_dir / "pages").mkdir(parents=True, exist_ok=True)
 
-    # 4. Write package.json (zero-dependency — CDN app)
-    pkg_name = project_name.lower().replace(" ", "-").replace("_", "-")
-    pkg_json = {
-        "name": pkg_name,
-        "version": "1.0.0",
-        "description": f"Auto-generated SPA by AetherOS p05_frontend — {project_name}",
-        "scripts": {
-            "start": "npx serve . -l 3000",
-            "build": "echo 'Single-file CDN app — no build step required'",
-        },
-        "dependencies": {},
-        "devDependencies": {"serve": "^14.0.0"},
-        "note": "Bootstrap 5 CDN SPA. No framework, no build step. Open index.html directly or serve it.",
-    }
-    (output_dir / "package.json").write_text(json.dumps(pkg_json, indent=2))
+    # ── Static files ──────────────────────────────────────────────────────────
+    (frontend_dir / "package.json").write_text(_generate_package_json(project_slug))
+    (frontend_dir / "vite.config.ts").write_text(_generate_vite_config())
+    (frontend_dir / "tsconfig.json").write_text(_generate_tsconfig())
+    (frontend_dir / "tailwind.config.js").write_text(_generate_tailwind_config())
+    (frontend_dir / "postcss.config.js").write_text(_generate_postcss_config())
+    (frontend_dir / "index.html").write_text(_generate_index_html(project_name))
+    (frontend_dir / "nginx.conf").write_text(_generate_nginx_conf())
+    (frontend_dir / "Dockerfile").write_text(_generate_dockerfile())
+    (frontend_dir / ".env.example").write_text(_generate_env_example())
+    (src_dir / "index.css").write_text(_generate_index_css())
+    (src_dir / "main.tsx").write_text(_generate_main_tsx())
+
+    # ── lib/ ──────────────────────────────────────────────────────────────────
+    (src_dir / "lib" / "auth.ts").write_text(_generate_auth_ts())
+    (src_dir / "lib" / "api.ts").write_text(_generate_api(entities, route_map))
+
+    # ── types/ ────────────────────────────────────────────────────────────────
+    (src_dir / "types" / "index.ts").write_text(_generate_types(entities))
+
+    # ── components/ ───────────────────────────────────────────────────────────
+    (src_dir / "components" / "Layout.tsx").write_text(_generate_layout(entities, project_name))
+    (src_dir / "components" / "DataTable.tsx").write_text(_generate_data_table())
+    (src_dir / "components" / "CrudModal.tsx").write_text(_generate_crud_modal())
+    (src_dir / "components" / "Toaster.tsx").write_text(_generate_toaster())
+
+    # ── pages/ ────────────────────────────────────────────────────────────────
+    (src_dir / "pages" / "LoginPage.tsx").write_text(_generate_login_page(project_name))
+    (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map))
+    for ent in entities:
+        pascal = _to_pascal_case(ent["table"])
+        (src_dir / "pages" / f"{pascal}Page.tsx").write_text(_generate_entity_page(ent, route_map))
+
+    # ── App.tsx ───────────────────────────────────────────────────────────────
+    (src_dir / "App.tsx").write_text(_generate_app(entities))
+
+    # 4. Write docker-compose.yml to the project root (one level up from output_dir)
+    # output_dir is like ~/.aether_os/projects/<run_id>/p05_frontend
+    # project_dir is ~/.aether_os/projects/<run_id>
+    project_dir = output_dir.parent
+    docker_compose_path = project_dir / "docker-compose.yml"
+    docker_compose_path.write_text(_generate_docker_compose(project_dir))
 
     # 5. Write frontend_meta.json
-    _, entities, endpoints = _analyse(arch)
     meta = {
-        "output_file":      str(out_file),
-        "file_size_bytes":  out_file.stat().st_size,
-        "endpoints_used":   len(endpoints),
-        "entities":         [e["table"] for e in entities],
-        "used_llm":         False,
-        "renderer":         "product-spa",
-        "confidence":       0.92,
-        "project_name":     project_name,
-        "bootstrap_version": "5.3.3",
-        "sri_hashes_added": True,
+        "renderer": "react-vite-tanstack",
+        "framework": "react18",
+        "version": "0.1.0",
+        "project_name": project_name,
+        "project_slug": project_slug,
+        "entities": [e["table"] for e in entities],
+        "entity_count": len(entities),
+        "used_llm": False,
+        "confidence": 0.9,
+        "files_generated": [
+            "frontend/package.json",
+            "frontend/vite.config.ts",
+            "frontend/tsconfig.json",
+            "frontend/tailwind.config.js",
+            "frontend/postcss.config.js",
+            "frontend/index.html",
+            "frontend/nginx.conf",
+            "frontend/Dockerfile",
+            "frontend/.env.example",
+            "frontend/src/index.css",
+            "frontend/src/main.tsx",
+            "frontend/src/App.tsx",
+            "frontend/src/lib/auth.ts",
+            "frontend/src/lib/api.ts",
+            "frontend/src/types/index.ts",
+            "frontend/src/components/Layout.tsx",
+            "frontend/src/components/DataTable.tsx",
+            "frontend/src/components/CrudModal.tsx",
+            "frontend/src/components/Toaster.tsx",
+            "frontend/src/pages/LoginPage.tsx",
+            "frontend/src/pages/Dashboard.tsx",
+        ] + [f"frontend/src/pages/{_to_pascal_case(e['table'])}Page.tsx" for e in entities],
     }
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
 
     logger.info(
-        "p05_frontend: wrote %s (%d bytes, renderer=product-spa, entities=%s)",
-        out_file, out_file.stat().st_size, [e["table"] for e in entities],
+        "p05_frontend: generated React/Vite project at %s (entities=%s)",
+        frontend_dir,
+        [e["table"] for e in entities],
     )
 
     return TaskResult(
-        output_path=str(out_file),
-        confidence=0.92,
+        output_path=str(frontend_dir),
+        confidence=0.9,
         metadata=meta,
         success=True,
         issues=[],
