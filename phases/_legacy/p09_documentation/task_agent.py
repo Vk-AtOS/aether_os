@@ -68,16 +68,27 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("diagrams failed: %s", e)
 
-    # Read actual generated endpoints from canonical main.py
+    # Read actual generated endpoints and model names from canonical main.py
     actual_endpoints = []
+    actual_models = []
     try:
         import re as _re
         main_py_path = Path(source_dir) / "src" / "main.py" if source_dir else None
         if main_py_path and main_py_path.exists():
             content = main_py_path.read_text()
-            # Extract @app.route decorators
-            for match in _re.finditer(r'@app\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']', content):
+            # Extract @app.<method>("/path") decorators
+            for match in _re.finditer(
+                r'@app\.(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+                content,
+            ):
                 actual_endpoints.append(f"{match.group(1).upper()} {match.group(2)}")
+            # Extract SQLAlchemy model class names: class Foo(Base) or class Foo(SQLModel)
+            for match in _re.finditer(
+                r'^class\s+([A-Z][A-Za-z0-9_]+)\s*\(\s*(?:Base|SQLModel|DeclarativeBase|BaseModel)[^)]*\)',
+                content,
+                _re.MULTILINE,
+            ):
+                actual_models.append(match.group(1))
     except Exception:
         pass
 
@@ -87,12 +98,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         py_files = list(Path(source_dir).rglob("*.py"))[:3]
         code_preview = "\n".join(f.read_text()[:500] for f in py_files)
 
-    _endpoints_instruction = (
-        f"\nIMPORTANT: Only document endpoints that exist in the actual code: "
-        f"{actual_endpoints}. Do not invent features, TypeScript clients, "
-        f"custom workflows, or webhooks that are not present.\n"
-        if actual_endpoints else ""
-    )
+    _endpoints_instruction = ""
+    if actual_endpoints:
+        _endpoints_instruction += (
+            f"\nIMPORTANT: Only document endpoints that exist in the actual code: "
+            f"{actual_endpoints}. Do not invent features, TypeScript clients, "
+            f"custom workflows, or webhooks that are not present.\n"
+        )
+    if actual_models:
+        _endpoints_instruction += (
+            f"The following SQLAlchemy/SQLModel models are defined in the code: "
+            f"{actual_models}. Use these exact names — do not invent others.\n"
+        )
 
     try:
         readme = await llm.call(
@@ -111,6 +128,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as _llm_err:
         logger.warning("LLM README failed (%s) — using fallback", _llm_err)
         readme = _build_fallback_readme(project_name, arch_json, requirements_doc, actual_endpoints)
+
+    # Post-process: append real API Reference section from src/main.py (G13 fix)
+    readme = _append_real_api_reference(readme, actual_endpoints, actual_models)
+
     readme_path = docs_dir / "README.md"
     readme_path.write_text(readme)
 
@@ -167,6 +188,51 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         issues=issues,
         success=word_count >= 500,
     )
+
+
+def _append_real_api_reference(readme: str, actual_endpoints: list, actual_models: list) -> str:
+    """
+    G13 fix: append an ## API Reference section built from the REAL src/main.py routes,
+    and replace any placeholder 'Model: X, Y, Z' lines with the actual model names.
+    If no endpoints were detected, return the readme unchanged.
+    """
+    import re as _re
+
+    if not actual_endpoints and not actual_models:
+        return readme
+
+    # Replace placeholder model lines (e.g. "Model: X, Y, Z")
+    if actual_models:
+        model_str = ", ".join(actual_models)
+        readme = _re.sub(
+            r'(?im)^(.*\bModel[s]?\s*:\s*).*$',
+            lambda m: m.group(1) + model_str,
+            readme,
+        )
+
+    # Remove any existing ## API Reference section so we don't duplicate it
+    readme = _re.sub(
+        r'\n##\s+API Reference\b.*?(?=\n##\s|\Z)',
+        '',
+        readme,
+        flags=_re.DOTALL,
+    ).rstrip()
+
+    if actual_endpoints:
+        ep_lines = "\n".join(f"- `{ep}`" for ep in actual_endpoints)
+        api_section = (
+            "\n\n## API Reference\n\n"
+            "> Auto-generated from `src/main.py` — these are the routes that actually exist.\n\n"
+            f"{ep_lines}\n\n"
+            "Full interactive docs available at `/docs` (Swagger UI) and `/redoc` (ReDoc)."
+        )
+        readme += api_section
+
+    if actual_models:
+        model_lines = "\n".join(f"- `{m}`" for m in actual_models)
+        readme += f"\n\n## Data Models\n\n{model_lines}\n"
+
+    return readme
 
 
 def _build_fallback_readme(project_name: str, arch_json: dict, requirements_doc: str,
@@ -321,10 +387,12 @@ curl http://localhost:8000/health
 
 ## Monitoring
 
-Prometheus metrics are exposed at `/metrics`. Use the included `docker-compose.monitoring.yml`:
+Prometheus metrics are exposed at `/metrics` (instrumented via `prometheus_client`).
+If a monitoring stack was generated (p11a), use:
 
 ```bash
-docker-compose -f docker-compose.monitoring.yml up -d
+# From the monitoring/ subdirectory generated by the build pipeline:
+docker-compose -f monitoring/docker-compose.monitoring.yml up -d
 # Prometheus: http://localhost:9090
 # Grafana:    http://localhost:3001  (admin/admin)
 ```
