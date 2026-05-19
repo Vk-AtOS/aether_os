@@ -7,27 +7,27 @@ import api from "../api";
 
 function SimilarRunCard({ run }) {
   const sim = run.similarity || 0;
-  const simColor = sim >= 0.8 ? "text-green-600" : sim >= 0.6 ? "text-amber-600" : "text-gray-500";
-  const simBg = sim >= 0.8 ? "bg-green-50 border-green-200" : sim >= 0.6 ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200";
+  const simColor = sim >= 0.8 ? "text-green-400" : sim >= 0.6 ? "text-amber-400" : "text-muted";
+  const simBg = sim >= 0.8 ? "bg-green-950/40 border-green-900" : sim >= 0.6 ? "bg-amber-950/40 border-amber-900" : "bg-surface border-border";
 
   return (
     <div className={`rounded-xl border p-4 ${simBg}`}>
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className="font-medium text-gray-900 text-sm">{run.project || "Unnamed project"}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{run.run_id?.substring(0, 8)}</p>
+          <p className="font-medium text-bright text-sm">{run.project || "Unnamed project"}</p>
+          <p className="text-xs text-muted mt-0.5">{run.run_id?.substring(0, 8)}</p>
         </div>
         <div className={`text-lg font-bold ${simColor}`}>
           {Math.round(sim * 100)}%
         </div>
       </div>
       {run.domain && (
-        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-white border border-gray-200 rounded-full">
+        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-panel border border-border rounded-full text-muted">
           <Tag size={10} /> {run.domain}
         </span>
       )}
       {run.hint && (
-        <p className="text-xs text-gray-600 mt-2 italic">"{run.hint}"</p>
+        <p className="text-xs text-muted mt-2 italic">"{run.hint}"</p>
       )}
     </div>
   );
@@ -35,9 +35,9 @@ function SimilarRunCard({ run }) {
 
 function PreferenceRow({ k, v }) {
   return (
-    <div className="flex items-start py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm font-mono text-blue-600 w-48 shrink-0">{k}</span>
-      <span className="text-sm text-gray-700 ml-4">
+    <div className="flex items-start py-2 border-b border-border/50 last:border-0">
+      <span className="text-sm font-mono text-blue-400 w-48 shrink-0">{k}</span>
+      <span className="text-sm text-muted ml-4">
         {typeof v === "object" ? JSON.stringify(v) : String(v)}
       </span>
     </div>
@@ -97,59 +97,59 @@ export default function MemoryInspector() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Memory Inspector</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-bright">Memory Inspector</h1>
+        <p className="text-sm text-muted mt-1">
           Cross-run learning · Session preferences · LLM cache
         </p>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm flex items-center gap-2">
+        <div className="mb-4 p-3 bg-amber-950/40 border border-amber-900 rounded-lg text-amber-400 text-sm flex items-center gap-2">
           <AlertCircle size={14} /> {error}
         </div>
       )}
 
       {/* Memory system overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-3 text-purple-600">
+        <div className="bg-panel rounded-xl border border-border p-5">
+          <div className="flex items-center gap-2 mb-3 text-purple-400">
             <Brain size={18} />
-            <span className="font-semibold text-sm">Cross-Run Learning</span>
+            <span className="font-semibold text-sm text-bright">Cross-Run Learning</span>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted">
             AetherOS learns from every completed run. Similar future projects get
             context-injected hints about what worked.
           </p>
-          <div className="mt-3 flex items-center gap-1 text-xs text-green-600">
+          <div className="mt-3 flex items-center gap-1 text-xs text-green-400">
             <Star size={12} /> Active — stored in fingerprint DB
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-3 text-blue-600">
+        <div className="bg-panel rounded-xl border border-border p-5">
+          <div className="flex items-center gap-2 mb-3 text-blue-400">
             <Layers size={18} />
-            <span className="font-semibold text-sm">Session Memory</span>
+            <span className="font-semibold text-sm text-bright">Session Memory</span>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted">
             User preferences and settings are persisted across sessions in your
             profile — no need to repeat instructions.
           </p>
-          <div className="mt-3 text-xs text-gray-500">
+          <div className="mt-3 text-xs text-muted">
             {prefEntries.length} preference{prefEntries.length !== 1 ? "s" : ""} stored
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-3 text-green-600">
+        <div className="bg-panel rounded-xl border border-border p-5">
+          <div className="flex items-center gap-2 mb-3 text-green-400">
             <RefreshCw size={18} />
-            <span className="font-semibold text-sm">LLM Cache</span>
+            <span className="font-semibold text-sm text-bright">LLM Cache</span>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted">
             Identical LLM calls are cached by content hash. Repeated prompts cost
             $0 — the biggest single cost lever.
           </p>
           {cacheStats && (
-            <div className="mt-3 text-xs text-gray-600 space-y-0.5">
+            <div className="mt-3 text-xs text-muted space-y-0.5">
               <div>{cacheStats.total_entries?.toLocaleString() || 0} cached responses</div>
               <div>{cacheStats.total_hits?.toLocaleString() || 0} total hits</div>
             </div>
@@ -158,11 +158,11 @@ export default function MemoryInspector() {
       </div>
 
       {/* Similarity search test */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold text-gray-800 mb-1 flex items-center gap-2">
+      <div className="bg-panel rounded-xl border border-border p-6 mb-6">
+        <h2 className="font-semibold text-bright mb-1 flex items-center gap-2">
           <Search size={16} /> Test Memory Recall
         </h2>
-        <p className="text-xs text-gray-500 mb-4">
+        <p className="text-xs text-muted mb-4">
           Enter a project description to see what past runs AetherOS would inject as context.
         </p>
         <div className="flex gap-3">
@@ -171,7 +171,7 @@ export default function MemoryInspector() {
             value={testInput}
             onChange={(e) => setTestInput(e.target.value)}
             placeholder="e.g. Build a SaaS app with Stripe subscriptions and user authentication..."
-            className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 resize-none"
+            className="flex-1 px-3 py-2 border border-border rounded-xl text-sm bg-background text-bright focus:outline-none focus:border-blue-400 resize-none"
           />
           <button
             onClick={handleSearch}
@@ -187,7 +187,7 @@ export default function MemoryInspector() {
           <div className="mt-4">
             {matchResults.matches?.length > 0 ? (
               <>
-                <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                <p className="text-xs font-semibold text-muted mb-3 uppercase tracking-wide">
                   {matchResults.matches.length} similar past run{matchResults.matches.length !== 1 ? "s" : ""} found
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -197,7 +197,7 @@ export default function MemoryInspector() {
                 </div>
               </>
             ) : (
-              <div className="mt-3 flex items-center gap-2 text-gray-400 text-sm">
+              <div className="mt-3 flex items-center gap-2 text-muted text-sm">
                 <Clock size={14} /> No similar runs found yet — memory builds as you complete more projects.
               </div>
             )}
@@ -206,12 +206,12 @@ export default function MemoryInspector() {
       </div>
 
       {/* User preferences */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+      <div className="bg-panel rounded-xl border border-border p-6">
+        <h2 className="font-semibold text-bright mb-4 flex items-center gap-2">
           <Star size={16} /> Stored Preferences
         </h2>
         {prefEntries.length === 0 ? (
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-muted">
             No preferences stored yet. Settings you configure (like preferred framework or domain) are automatically saved here.
           </p>
         ) : (
