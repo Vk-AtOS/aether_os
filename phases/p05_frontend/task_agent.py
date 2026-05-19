@@ -59,7 +59,7 @@ def _read_architecture(data: dict) -> dict:
             "tech_stack": {"backend": "FastAPI", "frontend": "Vanilla JS", "database": "PostgreSQL"},
         }
 
-    # Inject real endpoint paths from p04's route manifest so the SPA hits actual routes
+    # Inject real endpoint paths + augment schema from p04's route manifest
     api_routes_path = data.get("api_routes_path", "")
     if api_routes_path:
         try:
@@ -69,15 +69,74 @@ def _read_architecture(data: dict) -> dict:
                 if r.get("method") == "GET" and "{" not in r.get("path", ""):
                     path = r["path"]
                     table = path.lstrip("/").split("/")[0]
-                    if table and table not in ("health", "docs", "openapi.json", "redoc"):
+                    if table and table not in ("health", "docs", "openapi.json", "redoc", "admin"):
                         route_map[table] = path
             if route_map:
                 arch["api_route_map"] = route_map
                 logger.info("p05: loaded route_map with %d entries: %s", len(route_map), route_map)
+
+                # Augment database_schema with route_map tables if arch schema is stale
+                existing_tables = {
+                    e.get("table", e.get("name", "")).lower()
+                    for e in arch.get("database_schema", [])
+                }
+                missing_tables = [t for t in route_map if t.lower() not in existing_tables]
+                if missing_tables:
+                    # Try to extract real columns from the generated main.py
+                    cols_by_table = _extract_columns_from_main_py(data, missing_tables)
+                    schema = list(arch.get("database_schema", []))
+                    for table in missing_tables:
+                        schema.append({
+                            "table": table,
+                            "columns": cols_by_table.get(table, ["id", "name", "status", "created_at"])
+                        })
+                    arch["database_schema"] = schema
+                    logger.info("p05: augmented schema with %d tables from route_map: %s",
+                                len(missing_tables), missing_tables)
         except Exception as exc:
             logger.warning("p05: could not load api_routes_path %s: %s", api_routes_path, exc)
 
     return arch
+
+
+def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, List[str]]:
+    """Parse CREATE TABLE statements in the generated main.py to get real column names."""
+    cols_by_table: Dict[str, List[str]] = {}
+    # Locate main.py — try several known paths
+    main_py_path = data.get("backend_main_py", "")
+    if not main_py_path:
+        backend_out = data.get("backend_output_path", "") or data.get("p04_backend_path", "")
+        if backend_out:
+            p = Path(backend_out)
+            for candidate in [p / "src" / "main.py", p.parent / "src" / "main.py",
+                               p.parent / "backend_codegen" / "src" / "main.py"]:
+                if candidate.exists():
+                    main_py_path = str(candidate)
+                    break
+    if not main_py_path or not Path(main_py_path).exists():
+        return cols_by_table
+    try:
+        code = Path(main_py_path).read_text()
+        # Pattern: CREATE TABLE IF NOT EXISTS tablename (col1 TYPE, col2 TYPE, ...)
+        for m in re.finditer(
+            r"CREATE TABLE IF NOT EXISTS (\w+)\s*\(([^)]+)\)",
+            code, re.IGNORECASE
+        ):
+            table_name = m.group(1).lower()
+            if table_name in tables:
+                col_defs = m.group(2)
+                cols = []
+                for col_def in col_defs.split(","):
+                    col_def = col_def.strip()
+                    col_name = col_def.split()[0] if col_def.split() else ""
+                    if col_name and col_name.upper() not in ("PRIMARY", "UNIQUE", "FOREIGN",
+                                                              "CHECK", "CONSTRAINT"):
+                        cols.append(col_name)
+                if cols:
+                    cols_by_table[table_name] = cols
+    except Exception as exc:
+        logger.warning("p05: _extract_columns_from_main_py failed: %s", exc)
+    return cols_by_table
 
 
 # ── Architecture analyser ──────────────────────────────────────────────────────
