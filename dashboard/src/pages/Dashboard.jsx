@@ -3,13 +3,164 @@ import { useNavigate, Link } from 'react-router-dom';
 import PhaseBar from '../components/PhaseBar';
 import PhaseBadge from '../components/PhaseBadge';
 import CostPill from '../components/CostPill';
-import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket } from 'lucide-react';
+import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket, TrendingUp } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { useRole } from '../hooks/useRole';
 import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../api';
 import { SkeletonTable } from '../components/Skeleton';
 import OnboardingBanner from '../components/OnboardingBanner';
+
+// ── QualityTrendChart — pure SVG, no dependencies ────────────────────────────
+const QualityTrendChart = () => {
+  const [trendData, setTrendData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getQualityTrend(50)
+      .then(r => setTrendData(r.data?.points || []))
+      .catch(() => setTrendData([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-40 text-muted text-sm">
+        Loading quality trend…
+      </div>
+    );
+  }
+
+  if (!trendData || trendData.length < 2) {
+    return (
+      <div className="flex flex-col items-center justify-center h-40 space-y-2 text-center">
+        <TrendingUp className="w-8 h-8 text-muted/40" />
+        <p className="text-muted text-sm">Not enough data yet — complete at least 2 runs to see the trend.</p>
+      </div>
+    );
+  }
+
+  // SVG dimensions
+  const W = 600, H = 160, PAD_L = 40, PAD_R = 20, PAD_T = 16, PAD_B = 28;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+
+  const scores = trendData.map(p => p.quality_score);
+  const minY = Math.max(0, Math.min(...scores) - 5);
+  const maxY = Math.min(100, Math.max(...scores) + 5);
+  const rangeY = maxY - minY || 1;
+
+  const xOf = (i) => PAD_L + (i / (trendData.length - 1)) * innerW;
+  const yOf = (v) => PAD_T + innerH - ((v - minY) / rangeY) * innerH;
+
+  // Build polyline points for quality scores
+  const qualityPoints = trendData.map((p, i) => `${xOf(i)},${yOf(p.quality_score)}`).join(' ');
+
+  // Compliance line (only if data present)
+  const compPoints = trendData.filter(p => p.compliance_score != null);
+  const hasCompliance = compPoints.length >= 2;
+  const compLine = trendData.map((p, i) =>
+    p.compliance_score != null ? `${xOf(i)},${yOf(p.compliance_score)}` : null
+  ).filter(Boolean).join(' ');
+
+  // Trend direction
+  const first = scores[0];
+  const last  = scores[scores.length - 1];
+  const delta = last - first;
+  const trendColor = delta > 0 ? '#34d399' : delta < 0 ? '#f87171' : '#94a3b8';
+  const trendLabel = delta > 0 ? `+${delta} improving` : delta < 0 ? `${delta} declining` : 'stable';
+
+  // Y grid lines
+  const gridLines = [0, 25, 50, 75, 100].filter(v => v >= minY && v <= maxY);
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+        {/* Grid lines */}
+        {gridLines.map(v => (
+          <g key={v}>
+            <line
+              x1={PAD_L} y1={yOf(v)} x2={W - PAD_R} y2={yOf(v)}
+              stroke="#1e293b" strokeWidth="1"
+            />
+            <text x={PAD_L - 5} y={yOf(v) + 4} textAnchor="end" fontSize="9" fill="#64748b">{v}</text>
+          </g>
+        ))}
+
+        {/* Compliance line (grey, dashed) */}
+        {hasCompliance && (
+          <polyline
+            points={compLine}
+            fill="none"
+            stroke="#6366f1"
+            strokeWidth="1.5"
+            strokeDasharray="4 3"
+            opacity="0.6"
+          />
+        )}
+
+        {/* Quality line (main, solid) */}
+        <polyline
+          points={qualityPoints}
+          fill="none"
+          stroke="#38bdf8"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+
+        {/* Dots for quality */}
+        {trendData.map((p, i) => (
+          <circle
+            key={i}
+            cx={xOf(i)}
+            cy={yOf(p.quality_score)}
+            r="3"
+            fill={p.quality_score >= 80 ? '#34d399' : p.quality_score >= 60 ? '#fbbf24' : '#f87171'}
+            stroke="#0f172a"
+            strokeWidth="1"
+          >
+            <title>{`${p.project_name}: ${p.quality_score}`}</title>
+          </circle>
+        ))}
+
+        {/* X-axis labels (first, middle, last) */}
+        {[0, Math.floor((trendData.length - 1) / 2), trendData.length - 1].map(i => (
+          <text
+            key={i}
+            x={xOf(i)}
+            y={H - 4}
+            textAnchor="middle"
+            fontSize="9"
+            fill="#475569"
+          >
+            {trendData[i]?.project_name?.slice(0, 10) || ''}
+          </text>
+        ))}
+      </svg>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 mt-2 px-1">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-0.5 bg-sky-400" />
+          <span className="text-[10px] text-muted">Quality Score</span>
+        </div>
+        {hasCompliance && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-0.5 bg-indigo-400 opacity-70" style={{ borderTop: '1.5px dashed #6366f1' }} />
+            <span className="text-[10px] text-muted">Compliance Score</span>
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          <TrendingUp className="w-3 h-3" style={{ color: trendColor }} />
+          <span className="text-[10px] font-bold" style={{ color: trendColor }}>
+            {trendLabel} over last {trendData.length} builds
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const TrialBanner = () => {
   const [usage, setUsage] = useState(null);
@@ -257,6 +408,23 @@ const Dashboard = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      {/* Cross-run Learning Graph — proves quality improves over builds */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <TrendingUp className="w-5 h-5 text-accent" />
+            <h3 className="text-lg font-bold">Build Quality Trend</h3>
+          </div>
+          <span className="text-[10px] text-muted uppercase tracking-wider font-bold">Cross-run Learning</span>
+        </div>
+        <div className="panel p-5">
+          <p className="text-xs text-muted mb-4">
+            Every build contributes to AetherOS&apos;s learning pool — watch quality scores improve as the system learns from each project.
+          </p>
+          <QualityTrendChart />
         </div>
       </section>
     </div>
