@@ -818,6 +818,12 @@ def _build_product_html(project_name: str, arch: dict) -> str:
 const NEEDS_AUTH = {'true' if needs_auth else 'false'};
 const FIRST_ENTITY = "{first_entity}";
 
+// ── API base URL — auto-detected from page location so proxied installs work ───
+const API_BASE = (function() {{
+  const p = window.location.pathname.replace(/\/(?:index\.html)?$/, '');
+  return p === '/' ? '' : p;
+}})();
+
 // ── Global state ───────────────────────────────────────────────────────────────
 let currentEntity = null;
 let currentData   = [];
@@ -890,7 +896,7 @@ async function handleAuth(e) {{
   clearAuthError();
 
   try {{
-    const path    = authMode === "register" ? "/auth/register" : "/auth/login";
+    const path    = API_BASE + (authMode === "register" ? "/auth/register" : "/auth/login");
     const payload = authMode === "register"
       ? {{ email, password, name }}
       : {{ email, password }};
@@ -1437,7 +1443,7 @@ async function showHealthPanel() {{
     '</div>';
 
   try {{
-    const res  = await fetch("/health");
+    const res  = await fetch(API_BASE + "/health");
     const data = await res.json().catch(function() {{ return {{ status: res.ok ? "ok" : "error" }}; }});
     const isOk = res.ok;
     const bg    = isOk ? "#f0fdf4" : "#fef2f2";
@@ -1480,7 +1486,7 @@ async function apiFetch(path, method, body) {{
     opts.body = JSON.stringify(body);
   }}
 
-  const res = await fetch(path, opts);
+  const res = await fetch(API_BASE + path, opts);
 
   if (res.status === 401) {{
     token = null;
