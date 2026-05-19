@@ -530,26 +530,53 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
                                                    "columns": ["id", "name", "created_at"]}]
     # Enrich resources: if raw_input mentions entities not yet in resources, add them
     _ENTITY_KEYWORDS = {
-        "project": ("projects", ["id", "name", "description", "status", "owner_id", "created_at"]),
-        "invoice": ("invoices", ["id", "amount", "status", "due_date", "client_id", "created_at"]),
-        "payment": ("payments", ["id", "amount", "status", "method", "invoice_id", "created_at"]),
-        "order":   ("orders",   ["id", "total", "status", "customer_id", "created_at"]),
-        "product": ("products", ["id", "name", "price", "stock", "category", "created_at"]),
-        "report":  ("reports",  ["id", "title", "content", "type", "created_at"]),
-        "team":    ("teams",    ["id", "name", "org_id", "created_at"]),
-        "member":  ("members",  ["id", "user_id", "team_id", "role", "created_at"]),
-        "appointment": ("appointments", ["id", "patient_id", "doctor_id", "datetime", "status"]),
-        "patient": ("patients", ["id", "name", "dob", "contact", "created_at"]),
-        "ticket":  ("tickets",  ["id", "title", "status", "priority", "assignee_id", "created_at"]),
-        "document": ("documents", ["id", "title", "content", "author_id", "created_at"]),
-        "event":   ("events",   ["id", "title", "datetime", "location", "created_at"]),
+        # General SaaS
+        "project":      ("projects",      ["id", "name", "description", "status", "owner_id", "created_at"]),
+        "invoice":      ("invoices",      ["id", "amount", "status", "due_date", "client_id", "created_at"]),
+        "payment":      ("payments",      ["id", "amount", "status", "method", "invoice_id", "created_at"]),
+        "order":        ("orders",        ["id", "total", "status", "customer_id", "created_at"]),
+        "product":      ("products",      ["id", "name", "price", "stock", "category", "created_at"]),
+        "report":       ("reports",       ["id", "title", "content", "type", "created_at"]),
+        "team":         ("teams",         ["id", "name", "org_id", "created_at"]),
+        "member":       ("members",       ["id", "user_id", "team_id", "role", "created_at"]),
+        "ticket":       ("tickets",       ["id", "title", "status", "priority", "assignee_id", "created_at"]),
+        "document":     ("documents",     ["id", "title", "content", "author_id", "created_at"]),
+        "event":        ("events",        ["id", "title", "datetime", "location", "created_at"]),
         "subscription": ("subscriptions", ["id", "plan", "status", "start_date", "end_date", "user_id"]),
-        "category": ("categories", ["id", "name", "description", "parent_id"]),
+        "category":     ("categories",    ["id", "name", "description", "parent_id"]),
+        "employee":     ("employees",     ["id", "name", "email", "department", "role", "created_at"]),
+        "customer":     ("customers",     ["id", "name", "email", "phone", "address", "created_at"]),
+        "task":         ("tasks",         ["id", "title", "status", "priority", "assignee_id", "due_date"]),
+        "lead":         ("leads",         ["id", "name", "email", "status", "source", "created_at"]),
+        "campaign":     ("campaigns",     ["id", "name", "status", "budget", "start_date", "end_date"]),
+        "asset":        ("assets",        ["id", "name", "type", "value", "status", "created_at"]),
+        "contract":     ("contracts",     ["id", "title", "status", "start_date", "end_date", "client_id"]),
+        # Healthcare
+        "appointment":  ("appointments",  ["id", "patient_id", "doctor_id", "datetime", "status", "notes"]),
+        "patient":      ("patients",      ["id", "name", "dob", "contact", "gender", "created_at"]),
+        "doctor":       ("doctors",       ["id", "name", "specialization", "license_no", "email", "created_at"]),
+        "prescription": ("prescriptions", ["id", "patient_id", "doctor_id", "medication", "dosage", "issued_at"]),
+        "diagnosis":    ("diagnoses",     ["id", "patient_id", "doctor_id", "condition", "icd_code", "created_at"]),
+        "medication":   ("medications",   ["id", "name", "dosage", "frequency", "patient_id", "created_at"]),
+        "billing":      ("billing",       ["id", "patient_id", "amount", "status", "service", "created_at"]),
+        "lab":          ("lab_results",   ["id", "patient_id", "test_name", "result", "unit", "created_at"]),
+        "ward":         ("wards",         ["id", "name", "capacity", "type", "created_at"]),
+        "staff":        ("staff",         ["id", "name", "role", "department", "email", "created_at"]),
+        # Finance / Legal
+        "transaction":  ("transactions",  ["id", "amount", "type", "status", "reference", "created_at"]),
+        "account":      ("accounts",      ["id", "name", "type", "balance", "user_id", "created_at"]),
+        "claim":        ("claims",        ["id", "type", "status", "amount", "filed_at", "created_at"]),
+        "policy":       ("policies",      ["id", "type", "status", "start_date", "end_date", "holder_id"]),
+        # E-commerce / Logistics
+        "shipment":     ("shipments",     ["id", "order_id", "status", "carrier", "tracking_no", "created_at"]),
+        "inventory":    ("inventory",     ["id", "product_id", "quantity", "location", "updated_at"]),
+        "warehouse":    ("warehouses",    ["id", "name", "location", "capacity", "created_at"]),
+        "supplier":     ("suppliers",     ["id", "name", "email", "phone", "country", "created_at"]),
     }
     _existing_tables = {r["table"] for r in all_resources}
     _req_lower = raw_input.lower()
     for _kw, (_table, _cols) in _ENTITY_KEYWORDS.items():
-        if _kw in _req_lower and _table not in _existing_tables and len(all_resources) < 6:
+        if _kw in _req_lower and _table not in _existing_tables and len(all_resources) < 10:
             all_resources.append({"resource": _kw, "table": _table, "columns": _cols})
             _existing_tables.add(_table)
     primary = all_resources[0]

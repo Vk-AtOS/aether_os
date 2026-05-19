@@ -698,6 +698,8 @@ const ProjectView = () => {
 
   const getPhaseStatus = (phaseId) => {
     if (run?.phases?.[phaseId]) return run.phases[phaseId].status;
+    // For fully completed/passed runs with no phase detail rows, treat all phases as passed
+    if (['completed', 'passed'].includes(run?.status) && !Object.keys(run?.phases || {}).length) return 'passed';
     if (run?.current_phase === phaseId) return 'running';
     const currentIdx = PHASES.indexOf(run?.current_phase);
     const thisIdx    = PHASES.indexOf(phaseId);

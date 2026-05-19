@@ -2005,7 +2005,7 @@ def create_app() -> FastAPI:
                     current_phase = _phase
                     # Synthesize an agent event from each phase completion
                     _label = _phase.replace("_", " ").replace("p0", "Phase ").replace("p1", "Phase 1")
-                    _ts = _updated.timestamp() * 1000 if hasattr(_updated, "timestamp") else None
+                    _ts = _updated.timestamp() if hasattr(_updated, "timestamp") else None
                     synthesized_events.append({
                         "agent": _label.title(),
                         "action": _status,
@@ -2698,6 +2698,7 @@ def create_app() -> FastAPI:
 
         anthropic_available = bool(os.environ.get("ANTHROPIC_API_KEY"))
         gemini_available = bool(os.environ.get("GOOGLE_API_KEY"))
+        openrouter_available = bool(os.environ.get("OPENROUTER_API_KEY"))
 
         # Check Ollama with 2-second timeout
         ollama_available = False
@@ -2707,6 +2708,8 @@ def create_app() -> FastAPI:
                 ollama_available = resp.status_code == 200
         except Exception:
             ollama_available = False
+
+        any_llm = anthropic_available or gemini_available or ollama_available or openrouter_available
 
         # Determine active LLM provider from singleton or env
         from aether_os.core.llm.client import get_llm_client
@@ -2724,15 +2727,21 @@ def create_app() -> FastAPI:
         status = "healthy"
         message = "All systems operational."
 
-        if ollama_available and not anthropic_available and not gemini_available:
+        if openrouter_available and not anthropic_available and not gemini_available and not ollama_available:
+            status = "ok"
+            message = "Running on OpenRouter (configured)."
+        elif ollama_available and not anthropic_available and not gemini_available:
             status = "ok"
             message = "Running on local Ollama (configured)."
-        elif not (anthropic_available or gemini_available or ollama_available):
+        elif not any_llm:
             status = "warning"
             message = "No LLM providers available. System will fail to process tasks."
 
         llm_display = active_provider
-        if active_provider == "ollama":
+        if active_provider in ("openrouter", "none") and openrouter_available:
+            from aether_os.core.llm.openrouter_client import select_openrouter_model as _sel_or
+            llm_display = f"openrouter ({_sel_or('code_generation')})"
+        elif active_provider == "ollama":
             llm_display = f"ollama ({os.environ.get('OLLAMA_MODEL', 'qwen2.5-coder:7b')})"
 
         # Real database health check
@@ -2786,18 +2795,31 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
+        # Sandbox — check docker socket availability
+        import subprocess as _sp
+        _sandbox_status = "not_configured"
+        _sandbox_engine = "none"
+        try:
+            _docker_res = _sp.run(["docker", "info"], capture_output=True, timeout=3)
+            if _docker_res.returncode == 0:
+                _sandbox_status = "available"
+                _sandbox_engine = "docker"
+        except Exception:
+            pass
+
         return {
             "status": status,
             "message": message,
             # LLM fields — both naming conventions for compatibility
-            "llm": "healthy" if (anthropic_available or gemini_available or ollama_available) else "unavailable",
-            "provider": "healthy" if (anthropic_available or gemini_available or ollama_available) else "unavailable",
+            "llm": "healthy" if any_llm else "unavailable",
+            "provider": "healthy" if any_llm else "unavailable",
             "llm_provider": llm_display,
             "active_provider": active_provider,
             "active_model": routing.get("active_model") or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", ""),
             "anthropic_available": anthropic_available,
             "gemini_available": gemini_available,
             "ollama_available": ollama_available,
+            "openrouter_available": openrouter_available,
             "fallback_count_today": routing.get("fallback_count_today", 0),
             "model_availability": routing.get("model_availability", {}),
             # System info
@@ -2812,9 +2834,9 @@ def create_app() -> FastAPI:
             "redis": redis_status,
             "cache": redis_status,
             "memory_store": redis_status,
-            # Sandbox (basic)
-            "sandbox": "unknown",
-            "sandbox_engine": "docker",
+            # Sandbox — check docker availability
+            "sandbox": _sandbox_status,
+            "sandbox_engine": _sandbox_engine,
             "active_sandboxes": 0,
             # Network
             "network": "healthy",
