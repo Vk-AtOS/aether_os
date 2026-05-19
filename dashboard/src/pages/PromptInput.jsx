@@ -67,7 +67,7 @@ const PromptInput = () => {
         setMessages(prev => [...prev, { role: 'assistant', content: r.data.reply }]);
       } else {
         // No run context — start a new project
-        await api.startPipeline?.({ prompt: text });
+        await api.startPipeline?.({ raw_input: text });
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: "I've received your requirements and started the pipeline. You'll be redirected to your project shortly.",
