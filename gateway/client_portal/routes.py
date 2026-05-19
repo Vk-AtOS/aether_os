@@ -117,6 +117,16 @@ async def get_project_status(project_id: str):
         except Exception:
             pass
 
+        # Construct GitHub Codespaces deep-link if the run has a github_repo_url
+        github_url = rec.get("metadata", {}).get("github_repo_url", "")
+        codespaces_url = None
+        if github_url and "github.com" in github_url:
+            repo_path = github_url.replace("https://github.com/", "").rstrip("/")
+            codespaces_url = (
+                f"https://github.com/codespaces/new"
+                f"?repo={repo_path}&machine=basicLinux32gb"
+            )
+
         return {
             "project_id": project_id,
             "project_name": rec["project_name"],
@@ -130,6 +140,7 @@ async def get_project_status(project_id: str):
             "download_url": f"/portal/{project_id}/download",
             "provenance_url": f"/portal/{project_id}/provenance",
             "compliance_score": compliance_score,
+            "codespaces_url": codespaces_url,
         }
     except HTTPException:
         raise

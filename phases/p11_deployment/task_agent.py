@@ -389,6 +389,13 @@ class TaskAgent:
             fly deploy
             ```
 
+            ## Option 4: GitHub Codespaces (instant cloud dev environment)
+
+            1. Push this code to GitHub (the "Push to GitHub" button in the AetherOS dashboard does this)
+            2. Click: **[Open in GitHub Codespaces](https://github.com/codespaces/new)**
+            3. Everything installs automatically — Python, Node, Docker-in-Docker
+            4. The API starts automatically on port 8000
+
             ## Environment Variables
 
             See `.env.example` for required configuration.

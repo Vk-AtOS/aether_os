@@ -98,6 +98,13 @@ const NewProjectWizard = () => {
   const githubUrl = repoUrl; const setGithubUrl = setRepoUrl;
   const githubToken = repoToken; const setGithubToken = setRepoToken;
 
+  // Import existing schema
+  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schemaConnStr, setSchemaConnStr] = useState('');
+  const [importingSchema, setImportingSchema] = useState(false);
+  const [importedSchema, setImportedSchema] = useState(null);
+  const [schemaError, setSchemaError] = useState('');
+
   // Step 3 — configure
   const [models, setModels] = useState(DEFAULT_MODELS);
   const [model, setModel] = useState(DEFAULT_MODELS[0].value);
@@ -196,6 +203,25 @@ const NewProjectWizard = () => {
     }
   };
 
+  const handleImportSchema = async () => {
+    if (!schemaConnStr.trim()) return;
+    setImportingSchema(true);
+    setSchemaError('');
+    setImportedSchema(null);
+    try {
+      const res = await api.client.post('/factory/import-schema', { connection_string: schemaConnStr.trim() });
+      if (res.data?.error) {
+        setSchemaError(res.data.error);
+      } else {
+        setImportedSchema(res.data);
+      }
+    } catch (e) {
+      setSchemaError('Import failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setImportingSchema(false);
+    }
+  };
+
   const canProceed = () => {
     if (step === 1) return selectedTpl !== null;
     if (step === 2) return prompt.trim().length > 0;
@@ -216,6 +242,7 @@ const NewProjectWizard = () => {
         client_id: name.trim() ? name.trim().toLowerCase().replace(/\s+/g, '-') : 'client-001',
         tech_preferences: { backend: backendFw, frontend: frontendFw, database: dbChoice },
         codebase_mode: projectMode,
+        ...(importedSchema ? { existing_schema: importedSchema } : {}),
       };
       const res = await api.startPipeline(payload);
       navigate(res.data?.run_id ? `/project/${res.data.run_id}` : '/projects');
@@ -339,6 +366,57 @@ const NewProjectWizard = () => {
               ))}
             </select>
           </div>
+
+          {/* Import existing schema — collapsible */}
+          <div className="border border-border rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setSchemaOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-surface hover:bg-surface/80 transition-colors text-left"
+            >
+              <span className="text-xs font-semibold text-muted uppercase tracking-wider">
+                Import existing schema
+                {importedSchema && (
+                  <span className="ml-2 normal-case text-emerald-400 font-normal">
+                    — {importedSchema.tables.length} table{importedSchema.tables.length !== 1 ? 's' : ''} imported
+                  </span>
+                )}
+              </span>
+              <span className="text-muted text-xs">{schemaOpen ? '▲' : '▼'}</span>
+            </button>
+            {schemaOpen && (
+              <div className="px-4 pb-4 pt-3 space-y-3 bg-bg border-t border-border">
+                <p className="text-xs text-muted">
+                  Point at an existing PostgreSQL, MySQL, or SQLite database. AetherOS will read its schema
+                  and feed it into the architecture phase instead of generating one from scratch.
+                </p>
+                <input
+                  type="password"
+                  value={schemaConnStr}
+                  onChange={e => setSchemaConnStr(e.target.value)}
+                  placeholder="postgresql://user:pass@host:5432/dbname"
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright font-mono placeholder:text-muted/50 focus:outline-none focus:border-accent"
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleImportSchema}
+                    disabled={importingSchema || !schemaConnStr.trim()}
+                    className="px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
+                  >
+                    {importingSchema ? 'Connecting…' : 'Test & Import'}
+                  </button>
+                  {importedSchema && !schemaError && (
+                    <span className="text-xs text-emerald-400">
+                      {importedSchema.tables.length} table{importedSchema.tables.length !== 1 ? 's' : ''} detected
+                      {importedSchema.tables.length > 0 && ` (${importedSchema.tables.map(t => t.name).slice(0, 4).join(', ')}${importedSchema.tables.length > 4 ? '…' : ''})`}
+                    </span>
+                  )}
+                </div>
+                {schemaError && <p className="text-xs text-danger">{schemaError}</p>}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -418,6 +496,12 @@ const NewProjectWizard = () => {
               <div className="flex justify-between">
                 <span className="text-xs text-muted uppercase font-semibold tracking-wider">Repo</span>
                 <span className="text-sm text-emerald-400">{repoFetched}</span>
+              </div>
+            )}
+            {importedSchema && importedSchema.tables.length > 0 && (
+              <div className="flex justify-between">
+                <span className="text-xs text-muted uppercase font-semibold tracking-wider">Schema</span>
+                <span className="text-sm text-emerald-400">{importedSchema.tables.length} tables imported</span>
               </div>
             )}
             <div className="border-t border-border pt-3">

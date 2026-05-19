@@ -12,6 +12,47 @@ from aether_os.core.llm.client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
+
+def _write_devcontainer(project_dir: Path, project_name: str) -> None:
+    """Write .devcontainer/devcontainer.json for one-click VS Code / Codespaces."""
+    dc_dir = project_dir / ".devcontainer"
+    dc_dir.mkdir(exist_ok=True)
+
+    devcontainer = {
+        "name": project_name,
+        "image": "mcr.microsoft.com/devcontainers/python:3.11",
+        "features": {
+            "ghcr.io/devcontainers/features/node:1": {"version": "20"},
+            "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+        },
+        "postCreateCommand": "pip install -r requirements.txt && echo 'Ready! Run: uvicorn src.main:app --reload'",
+        "forwardPorts": [8000, 3000, 5432],
+        "portsAttributes": {
+            "8000": {"label": "API Server", "onAutoForward": "openBrowser"},
+            "3000": {"label": "Frontend Dev Server", "onAutoForward": "openBrowser"}
+        },
+        "customizations": {
+            "vscode": {
+                "extensions": [
+                    "ms-python.python",
+                    "ms-python.vscode-pylance",
+                    "esbenp.prettier-vscode",
+                    "dbaeumer.vscode-eslint",
+                    "bradlc.vscode-tailwindcss",
+                    "ms-azuretools.vscode-docker"
+                ],
+                "settings": {
+                    "python.defaultInterpreterPath": "/usr/local/bin/python",
+                    "editor.formatOnSave": True,
+                    "editor.defaultFormatter": "esbenp.prettier-vscode"
+                }
+            }
+        }
+    }
+
+    (dc_dir / "devcontainer.json").write_text(json.dumps(devcontainer, indent=2))
+
+
 TEMPLATE_MAP = {
     "fastapi": "https://github.com/tiangolo/full-stack-fastapi-template",
     "flask":   "https://github.com/cookiecutter-flask/cookiecutter-flask",
@@ -115,30 +156,7 @@ async def health():
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
 
     # Write .devcontainer/devcontainer.json
-    devcontainer_dir = project_dir / ".devcontainer"
-    devcontainer_dir.mkdir(parents=True, exist_ok=True)
-    devcontainer_json = f'''\
-{{
-  "name": "{project_name}",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
-  "features": {{
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {{}}
-  }},
-  "postCreateCommand": "pip install -r requirements.txt",
-  "customizations": {{
-    "vscode": {{
-      "extensions": [
-        "ms-python.python",
-        "ms-python.pylance",
-        "charliermarsh.ruff",
-        "ms-azuretools.vscode-docker"
-      ]
-    }}
-  }},
-  "forwardPorts": [8000, 5432, 6379]
-}}
-'''
-    (devcontainer_dir / "devcontainer.json").write_text(devcontainer_json)
+    _write_devcontainer(project_dir, project_name)
 
     return project_dir
 

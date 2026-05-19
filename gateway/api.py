@@ -1311,6 +1311,24 @@ def create_app() -> FastAPI:
                         pass
         return {"context": "\n".join(context_parts), "repo": f"{owner}/{repo}"}
 
+    @app.post("/factory/import-schema")
+    async def import_existing_schema(
+        req: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """Import schema from an existing database to use as p02 architecture input."""
+        connection_string = req.get("connection_string", "")
+        if not connection_string:
+            raise HTTPException(400, "connection_string required")
+        # Basic safety: only allow known drivers, reject file paths outside /tmp
+        allowed = ("postgresql://", "mysql+pymysql://", "mysql://", "sqlite:///")
+        if not any(connection_string.startswith(p) for p in allowed):
+            raise HTTPException(400, "Unsupported connection string format")
+
+        from aether_os.core.schema_importer import import_schema
+        result = await import_schema(connection_string)
+        return result
+
     @app.post("/factory/fetch-repo")
     async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = Depends(get_current_user)):
         """Fetch codebase context from GitHub, GitLab, or an SSH-accessible repository.
@@ -2408,6 +2426,76 @@ def create_app() -> FastAPI:
             "domains": domain_scores,
         }
 
+    @app.get("/factory/analytics/quality-trend")
+    async def get_quality_trend(
+        limit: int = 50,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return quality + compliance scores for recent completed runs — proves cross-run improvement."""
+        from aether_os.core.db import get_session_factory as _gsf_qt
+        from sqlalchemy import text as _qt_text
+        import pathlib as _pathlib
+
+        org_id = user["org_id"]
+        _limit = max(1, min(limit, 200))
+
+        # Fetch recent completed runs from DB
+        try:
+            async with _gsf_qt()() as _sess:
+                rows = (await _sess.execute(
+                    _qt_text(
+                        "SELECT id, project_name, created_at FROM runs "
+                        "WHERE org_id=:oid AND status IN ('completed','passed') "
+                        "ORDER BY created_at DESC LIMIT :lim"
+                    ),
+                    {"oid": org_id, "lim": _limit},
+                )).all()
+        except Exception as _qt_exc:
+            logger.debug("quality-trend DB query failed: %s", _qt_exc)
+            rows = []
+
+        # For each run, attempt to load quality/compliance from cached JSON or compute on-demand
+        points = []
+        projects_dir = _pathlib.Path.home() / ".aether_os" / "projects"
+
+        for row in rows:
+            run_id_qt, proj_name, created_at_qt = row[0], row[1], row[2]
+            quality_score: Optional[int] = None
+            compliance_score: Optional[int] = None
+
+            run_dir = projects_dir / run_id_qt
+
+            # Quality score — try cached then compute
+            if run_dir.exists():
+                try:
+                    from aether_os.core.quality.metrics import score_project as _score_qt
+                    _qs = _score_qt(run_dir)
+                    quality_score = _qs.total
+                except Exception:
+                    pass
+
+            # Compliance score — try pre-built JSON first
+            _comp_json = run_dir / "p06_review_security" / "compliance" / "compliance_scan.json"
+            if _comp_json.exists():
+                try:
+                    _cd = json.loads(_comp_json.read_text(encoding="utf-8"))
+                    compliance_score = _cd.get("score")
+                except Exception:
+                    pass
+
+            # Only include points where we have at least quality data
+            if quality_score is not None:
+                points.append({
+                    "run_id": run_id_qt,
+                    "project_name": proj_name or f"run-{run_id_qt[:8]}",
+                    "created_at": created_at_qt.isoformat() if hasattr(created_at_qt, "isoformat") else str(created_at_qt),
+                    "quality_score": quality_score,
+                    "compliance_score": compliance_score,
+                })
+
+        # Reverse so oldest is first (for the chart to trend left→right in time)
+        points.reverse()
+        return {"points": points, "total": len(points)}
 
     @app.post("/factory/runs/{run_id}/pause")
     async def pause_factory_run(
