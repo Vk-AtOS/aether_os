@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -23,6 +24,26 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if r.success and r.metadata:
             phase_input.input_data["backend_output_path"] = r.output_path
             phase_input.input_data.update({k: v for k, v in r.metadata.items() if k not in phase_input.input_data})
+            # Extract API routes from generated main.py so p05 can wire to real endpoints
+            _backend_out = Path(r.output_path)
+            for _main_candidate in [
+                _backend_out / "src" / "main.py",
+                _backend_out.parent / "src" / "main.py",
+            ]:
+                if _main_candidate.exists():
+                    _code = _main_candidate.read_text()
+                    _routes = []
+                    for _m in re.finditer(
+                        r'@app\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']',
+                        _code, re.IGNORECASE
+                    ):
+                        _routes.append({"method": _m.group(1).upper(), "path": _m.group(2)})
+                    if _routes:
+                        _routes_file = _backend_out / "api_routes.json"
+                        _routes_file.write_text(json.dumps(_routes, indent=2))
+                        phase_input.input_data["api_routes_path"] = str(_routes_file)
+                        logger.info("p04: extracted %d routes → %s", len(_routes), _routes_file)
+                    break
         logger.info("p04a_backend_codegen completed: %s", r.output_path)
     except Exception as e:
         logger.warning("p04a_backend_codegen failed: %s", e)

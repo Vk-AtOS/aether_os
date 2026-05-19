@@ -315,6 +315,35 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     out_md   = output_dir / "architecture.md"
     used_fallback = False
 
+    # ── Spec template cache: skip LLM for known domain+entity combinations ────
+    from aether_os.core import spec_cache as _spec_cache
+    _resources = _extract_resources(raw_input or requirements)
+    _entity_tables = [r["table"] for r in _resources]
+    _cached_arch = _spec_cache.get(domain, _entity_tables)
+    if _cached_arch:
+        logger.info("[p02] spec_cache HIT — skipping LLM architecture call")
+        doc = _cached_arch
+        used_fallback = False
+        out_json.write_text(json.dumps(doc, indent=2))
+        stack = doc.get("tech_stack", {})
+        md = ["# Architecture (from cache)\n\n## Tech Stack\n"]
+        for k, v in stack.items():
+            md.append(f"- **{k}**: {v}")
+        out_md.write_text("\n".join(md))
+        return TaskResult(
+            output_path=str(out_json),
+            confidence=0.88,
+            metadata={
+                "json_path": str(out_json),
+                "markdown_path": str(out_md),
+                "used_fallback": False,
+                "from_cache": True,
+                "endpoint_count": len(doc.get("api_endpoints", [])),
+            },
+            issues=[],
+            success=True,
+        )
+
     # ── Attempt LLM-generated architecture ───────────────────────────────────
     doc: dict = {}
     try:
@@ -386,6 +415,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     out_json.write_text(json.dumps(doc, indent=2))
     logger.info("[p02] architecture.json written (%d endpoints, fallback=%s)",
                 len(doc.get("api_endpoints", [])), used_fallback)
+
+    # ── Save to spec cache for future similar projects ────────────────────────
+    if not used_fallback and _entity_tables:
+        _spec_cache.put(domain, _entity_tables, doc)
 
     # ── Human-readable Markdown ───────────────────────────────────────────────
     stack = doc.get("tech_stack", {})

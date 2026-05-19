@@ -131,14 +131,15 @@ class FactoryPipeline:
                   plan: Optional[str] = None,
                   is_change_request: bool = False,
                   memory_context: Optional[str] = None,
-                  council_preflight: Optional[Dict[str, Any]] = None) -> dict:
+                  council_preflight: Optional[Dict[str, Any]] = None,
+                  github_url: Optional[str] = None) -> dict:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
         try:
             return await asyncio.wait_for(self._execute_pipeline(
                 client_id, raw_input, domain, project_name, start_phase,
                 run_id, org_id, org_slug, plan, is_change_request, memory_context,
-                council_preflight,
+                council_preflight, github_url,
             ), timeout=timeout)
         except asyncio.TimeoutError:
             logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
@@ -159,7 +160,8 @@ class FactoryPipeline:
                   plan: Optional[str] = None,
                   is_change_request: bool = False,
                   memory_context: Optional[str] = None,
-                  council_preflight: Optional[Dict[str, Any]] = None) -> dict:
+                  council_preflight: Optional[Dict[str, Any]] = None,
+                  github_url: Optional[str] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
 
@@ -209,6 +211,8 @@ class FactoryPipeline:
             "is_change_request": is_change_request,
             # Cross-run memory context injected from MemoryService (may be "")
             "memory_context": memory_context or "",
+            # Optional GitHub repo to fork/clone instead of generating from scratch
+            "github_url": github_url or "",
         }
 
         # Inject per-user learning patterns so every phase can tailor its prompts
