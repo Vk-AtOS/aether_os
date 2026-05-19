@@ -1753,6 +1753,7 @@ def create_app() -> FastAPI:
         raw_input = req.get("raw_input", req.get("requirement", ""))
         domain = req.get("domain", "general")
         project_name = req.get("project_name")
+        github_url = req.get("github_url", "").strip()
 
         if not raw_input:
             raise HTTPException(status_code=400, detail="raw_input or requirement is required")
@@ -1841,6 +1842,7 @@ def create_app() -> FastAPI:
                     run_id=run_id,
                     org_id=org_id,
                     council_preflight=_preflight,
+                    github_url=github_url or None,
                 )
             except Exception as exc:
                 logger.error("Background factory run failed: %s", exc)

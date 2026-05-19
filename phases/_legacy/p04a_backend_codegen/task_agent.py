@@ -593,7 +593,8 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         res   = r["resource"]
         cols  = [c for c in r["columns"] if c != "id"]
         field_defs = "\n".join(
-            f"    {col}: Optional[str] = None" if col.endswith(("_at", "_id"))
+            f"    {col}: Optional[int] = None" if col.endswith("_id")
+            else f"    {col}: Optional[str] = None" if col.endswith("_at")
             else f"    {col}: str"
             for col in cols[:6]
         )

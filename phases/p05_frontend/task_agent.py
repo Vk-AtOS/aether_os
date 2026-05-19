@@ -22,37 +22,62 @@ logger = logging.getLogger(__name__)
 # ── Architecture reader ────────────────────────────────────────────────────────
 
 def _read_architecture(data: dict) -> dict:
-    """Return architecture dict from any known location."""
+    """Return architecture dict from any known location, augmented with real API routes."""
+    arch: Optional[dict] = None
+
     arch_path = data.get("p02_architecture_path", "")
     if arch_path:
         try:
-            return json.loads(Path(arch_path).read_text())
+            arch = json.loads(Path(arch_path).read_text())
         except Exception:
             pass
 
-    project_dir = Path(data.get("project_dir", ""))
-    if project_dir.exists():
-        for candidate in sorted(project_dir.rglob("architecture.json"))[:3]:
-            try:
-                return json.loads(candidate.read_text())
-            except Exception:
-                continue
+    if arch is None:
+        project_dir = Path(data.get("project_dir", ""))
+        if project_dir.exists():
+            for candidate in sorted(project_dir.rglob("architecture.json"))[:3]:
+                try:
+                    arch = json.loads(candidate.read_text())
+                    break
+                except Exception:
+                    continue
 
-    return {
-        "api_endpoints": [
-            {"method": "GET",  "path": "/health",        "description": "Health check",      "auth": False},
-            {"method": "POST", "path": "/auth/login",    "description": "Login",             "auth": False},
-            {"method": "POST", "path": "/auth/register", "description": "Register",          "auth": False},
-            {"method": "GET",  "path": "/items",         "description": "List items",        "auth": True},
-            {"method": "POST", "path": "/items",         "description": "Create item",       "auth": True},
-            {"method": "PUT",  "path": "/items/{id}",    "description": "Update item",       "auth": True},
-            {"method": "DELETE", "path": "/items/{id}",  "description": "Delete item",       "auth": True},
-        ],
-        "database_schema": [
-            {"table": "items", "columns": ["id", "name", "description", "status", "created_at"]}
-        ],
-        "tech_stack": {"backend": "FastAPI", "frontend": "Vanilla JS", "database": "PostgreSQL"},
-    }
+    if arch is None:
+        arch = {
+            "api_endpoints": [
+                {"method": "GET",  "path": "/health",        "description": "Health check",      "auth": False},
+                {"method": "POST", "path": "/auth/login",    "description": "Login",             "auth": False},
+                {"method": "POST", "path": "/auth/register", "description": "Register",          "auth": False},
+                {"method": "GET",  "path": "/items",         "description": "List items",        "auth": True},
+                {"method": "POST", "path": "/items",         "description": "Create item",       "auth": True},
+                {"method": "PUT",  "path": "/items/{id}",    "description": "Update item",       "auth": True},
+                {"method": "DELETE", "path": "/items/{id}",  "description": "Delete item",       "auth": True},
+            ],
+            "database_schema": [
+                {"table": "items", "columns": ["id", "name", "description", "status", "created_at"]}
+            ],
+            "tech_stack": {"backend": "FastAPI", "frontend": "Vanilla JS", "database": "PostgreSQL"},
+        }
+
+    # Inject real endpoint paths from p04's route manifest so the SPA hits actual routes
+    api_routes_path = data.get("api_routes_path", "")
+    if api_routes_path:
+        try:
+            routes = json.loads(Path(api_routes_path).read_text())
+            route_map: Dict[str, str] = {}
+            for r in routes:
+                if r.get("method") == "GET" and "{" not in r.get("path", ""):
+                    path = r["path"]
+                    table = path.lstrip("/").split("/")[0]
+                    if table and table not in ("health", "docs", "openapi.json", "redoc"):
+                        route_map[table] = path
+            if route_map:
+                arch["api_route_map"] = route_map
+                logger.info("p05: loaded route_map with %d entries: %s", len(route_map), route_map)
+        except Exception as exc:
+            logger.warning("p05: could not load api_routes_path %s: %s", api_routes_path, exc)
+
+    return arch
 
 
 # ── Architecture analyser ──────────────────────────────────────────────────────
@@ -228,6 +253,7 @@ def _build_product_html(project_name: str, arch: dict) -> str:
         )
 
     # ── JS: entity definitions ────────────────────────────────────────────────
+    route_map: Dict[str, str] = arch.get("api_route_map", {})
     entity_defs = "const ENTITIES = {\n"
     for ent in entities:
         table = ent["table"]
@@ -236,10 +262,12 @@ def _build_product_html(project_name: str, arch: dict) -> str:
         display_cols = [c for c in cols if c.lower() != "id"][:5]
         # Form fields: exclude id, created_at, updated_at
         form_fields  = [c for c in cols if c.lower() not in ("id", "created_at", "updated_at")]
+        # Use actual generated endpoint if available, else fall back to /{table}
+        endpoint = route_map.get(table, f"/{table}")
 
         entity_defs += f'  "{table}": {{\n'
         entity_defs += f'    label: "{table.replace("_", " ").title()}",\n'
-        entity_defs += f'    endpoint: "/{table}",\n'
+        entity_defs += f'    endpoint: "{endpoint}",\n'
         entity_defs += f'    displayCols: {json.dumps(display_cols)},\n'
         entity_defs += f'    formFields: {json.dumps(form_fields)},\n'
         entity_defs += f'  }},\n'

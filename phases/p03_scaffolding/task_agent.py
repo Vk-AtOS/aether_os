@@ -155,7 +155,33 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     backend = str(tech_stack.get("backend", "fastapi")).lower()
     project_name = data.get("project_name", phase_input.project_id)
     domain = data.get("domain", "general")
-    
+
+    # ── GitHub repo fork: clone instead of generating from scratch ────────────
+    github_url = data.get("github_url", "").strip()
+    if github_url:
+        clone_dir = output_dir / project_name
+        clone_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            result = subprocess.run(
+                ["git", "clone", "--depth=1", github_url, str(clone_dir)],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                files_created = list(clone_dir.rglob("*"))
+                file_count = len([f for f in files_created if f.is_file()])
+                logger.info("p03: cloned %s → %d files", github_url, file_count)
+                return TaskResult(
+                    output_path=str(clone_dir),
+                    confidence=0.92,
+                    metadata={"file_count": file_count, "backend": backend,
+                              "github_url": github_url, "cloned": True},
+                    issues=[],
+                    success=True,
+                )
+            logger.warning("p03: git clone failed (rc=%d): %s", result.returncode, result.stderr[:200])
+        except Exception as exc:
+            logger.warning("p03: git clone error: %s — falling back to scaffold", exc)
+
     project_dir = create_minimal_scaffold(project_name, tech_stack, output_dir, domain=domain)
 
     files_created = list(project_dir.rglob("*"))
