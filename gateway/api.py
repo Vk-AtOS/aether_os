@@ -317,6 +317,9 @@ async def get_current_user(
     )
 
 
+# ── Module-level dict for generated-app processes (shared with pipeline) ───────
+_APP_PROCS: Dict[str, Any] = {}
+
 # ── App factory ────────────────────────────────────────────────────────────────
 
 def create_app() -> FastAPI:
@@ -2300,12 +2303,13 @@ def create_app() -> FastAPI:
 
     @app.get("/account/projects/search")
     async def search_projects(q: str, user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
-        """Search projects by requirement similarity."""
+        """Search projects by name or requirement text."""
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import Run
-        from sqlalchemy import select, func
+        from sqlalchemy import select, func, or_
 
         org_id = user["org_id"]
+        pattern = f"%{q}%"
         sf = get_session_factory()
         async with sf() as session:
             rows = (await session.execute(
@@ -2317,14 +2321,22 @@ def create_app() -> FastAPI:
                     func.max(Run.started_at).label("last_run_at"),
                     func.max(Run.id).label("run_id"),
                 )
-                .where(Run.org_id == org_id, Run.project_name.like(f"%{q}%"))
+                .where(
+                    Run.org_id == org_id,
+                    or_(
+                        Run.project_name.ilike(pattern),
+                        Run.command.ilike(pattern),
+                        Run.raw_input.ilike(pattern) if hasattr(Run, "raw_input") else Run.command.ilike(pattern),
+                    )
+                )
                 .group_by(Run.project_name, Run.domain, Run.status)
                 .order_by(func.max(Run.started_at).desc())
+                .limit(50)
             )).all()
         return [
             {
-                "project_name": r.project_name,
-                "domain": r.domain,
+                "project_name": r.project_name or f"run-{r.run_id[:8]}",
+                "domain": r.domain or "general",
                 "run_count": r.run_count,
                 "last_run_at": r.last_run_at,
                 "status": r.status,
@@ -3259,7 +3271,7 @@ def create_app() -> FastAPI:
 
         return {"run_id": run_id, "written": len(body.vars)}
 
-    _run_procs: Dict[str, Any] = {}
+    _run_procs = _APP_PROCS  # Reference module-level dict so pipeline can auto-start apps
 
     @app.post("/factory/runs/{run_id}/run-app")
     async def start_run_app(
@@ -4501,10 +4513,47 @@ def create_app() -> FastAPI:
     async def list_deployments(
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """List all running AetherOS Docker containers (non-blocking)."""
+        """List deployments: completed runs from DB plus running Docker containers."""
         import subprocess as _sp
         import asyncio as _aio
 
+        org_id = user.get("org_id")
+
+        # 1. Query completed/running runs from DB
+        db_deployments: List[Dict[str, Any]] = []
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_dep
+            from aether_os.core.models import Run as _RunDep
+            from sqlalchemy import select as _sel_dep
+            _sf_dep = _gsf_dep()
+            async with _sf_dep() as _sess_dep:
+                _run_rows = (await _sess_dep.execute(
+                    _sel_dep(_RunDep)
+                    .where(
+                        _RunDep.org_id == org_id,
+                        _RunDep.status.in_(["completed", "needs_review", "running"]),
+                    )
+                    .order_by(_RunDep.started_at.desc())
+                    .limit(50)
+                )).scalars().all()
+            for _r in _run_rows:
+                _running = _APP_PROCS.get(_r.id)
+                _proc_status = "stopped"
+                if _running is not None and _running.poll() is None:
+                    _proc_status = "running"
+                db_deployments.append({
+                    "run_id":       _r.id,
+                    "project_name": _r.project_name or f"run-{_r.id[:8]}",
+                    "domain":       _r.domain or "general",
+                    "status":       _r.status,
+                    "proc_status":  _proc_status,
+                    "started_at":   _r.started_at,
+                    "live_url":     getattr(_r, "live_url", None),
+                })
+        except Exception as _dep_exc:
+            logger.debug("Deployments DB query failed: %s", _dep_exc)
+
+        # 2. List running Docker containers
         def _list():
             return _sp.run(
                 ["docker", "ps", "--filter", "name=aetheros-app",
@@ -4522,7 +4571,7 @@ def create_app() -> FastAPI:
                     "ports":  parts[1] if len(parts) > 1 else "",
                     "status": parts[2] if len(parts) > 2 else "",
                 })
-        return {"containers": containers}
+        return {"deployments": db_deployments, "containers": containers}
 
     @app.get("/settings/phases/config")
     async def get_all_phase_configs(
