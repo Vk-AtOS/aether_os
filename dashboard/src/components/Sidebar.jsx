@@ -65,6 +65,7 @@ const Sidebar = () => {
     { name: 'Pricing',      path: '/pricing',      icon: Zap },
     { name: 'Settings',    path: '/settings',      icon: Settings },
     { name: 'Compliance',  path: '/compliance',    icon: Shield },
+    { name: 'Profile',     path: '/profile',       icon: UserCircle },
   ].filter(Boolean);
 
   const toolItems = [

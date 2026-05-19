@@ -57,7 +57,6 @@ function SkillCard({ skill, onGenerate }) {
     setGenerating(true);
     setResult(null);
     try {
-      // Parse locales param if present
       const processedParams = { ...params };
       if (processedParams.locales && typeof processedParams.locales === "string") {
         processedParams.locales = processedParams.locales.split(",").map((s) => s.trim());
@@ -80,29 +79,29 @@ function SkillCard({ skill, onGenerate }) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-panel rounded-xl border border-border overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
+        className="w-full p-4 text-left hover:bg-surface transition-colors"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Icon size={18} className="text-blue-600" />
+            <div className="p-2 bg-blue-950/40 rounded-lg">
+              <Icon size={18} className="text-blue-400" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{skill.name}</h3>
-              <p className="text-xs text-gray-500 mt-0.5">{skill.description}</p>
+              <h3 className="font-semibold text-bright">{skill.name}</h3>
+              <p className="text-xs text-muted mt-0.5">{skill.description}</p>
             </div>
           </div>
-          {expanded ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
+          {expanded ? <ChevronDown size={16} className="text-muted" /> : <ChevronRight size={16} className="text-muted" />}
         </div>
         <div className="flex flex-wrap gap-1 mt-2">
           {(skill.capabilities || []).slice(0, 4).map((cap) => (
-            <span key={cap} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{cap}</span>
+            <span key={cap} className="text-xs px-2 py-0.5 bg-border/20 text-muted rounded-full">{cap}</span>
           ))}
           {(skill.capabilities || []).length > 4 && (
-            <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">
+            <span className="text-xs px-2 py-0.5 bg-border/20 text-muted rounded-full">
               +{skill.capabilities.length - 4} more
             </span>
           )}
@@ -110,20 +109,20 @@ function SkillCard({ skill, onGenerate }) {
       </button>
 
       {expanded && (
-        <div className="border-t border-gray-100">
+        <div className="border-t border-border/50">
           {/* Params */}
           {hints.length > 0 && (
-            <div className="p-4 bg-gray-50 border-b border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Parameters</p>
+            <div className="p-4 bg-surface border-b border-border/50">
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Parameters</p>
               <div className="grid grid-cols-2 gap-3">
                 {hints.map((hint) => (
                   <div key={hint.key}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{hint.label}</label>
+                    <label className="block text-xs font-medium text-muted mb-1">{hint.label}</label>
                     {hint.options ? (
                       <select
                         value={params[hint.key] || hint.default}
                         onChange={(e) => setParams((p) => ({ ...p, [hint.key]: e.target.value }))}
-                        className="w-full text-sm px-3 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-blue-400"
+                        className="w-full text-sm px-3 py-1.5 border border-border rounded-lg bg-background text-bright focus:outline-none focus:border-blue-400"
                       >
                         {hint.options.map((o) => <option key={o} value={o}>{o}</option>)}
                       </select>
@@ -131,7 +130,7 @@ function SkillCard({ skill, onGenerate }) {
                       <input
                         value={params[hint.key] !== undefined ? params[hint.key] : hint.default}
                         onChange={(e) => setParams((p) => ({ ...p, [hint.key]: e.target.value }))}
-                        className="w-full text-sm px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
+                        className="w-full text-sm px-3 py-1.5 border border-border rounded-lg bg-background text-bright focus:outline-none focus:border-blue-400"
                       />
                     )}
                   </div>
@@ -155,31 +154,31 @@ function SkillCard({ skill, onGenerate }) {
 
           {/* Result */}
           {result && (
-            <div className="border-t border-gray-100 p-4">
+            <div className="border-t border-border/50 p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 text-green-600">
+                <div className="flex items-center gap-2 text-green-400">
                   <CheckCircle size={14} />
                   <span className="text-sm font-medium">
                     {result.file_count} file{result.file_count !== 1 ? "s" : ""} generated
                   </span>
                 </div>
                 <button onClick={copyAll}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-surface text-muted">
                   <Copy size={12} /> {copied ? "Copied!" : "Copy all"}
                 </button>
               </div>
 
               {result.dependencies?.length > 0 && (
-                <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs">
-                  <p className="font-medium text-amber-700 mb-1">Dependencies:</p>
-                  <code className="text-amber-600">{result.dependencies.join(", ")}</code>
+                <div className="mb-3 p-3 bg-amber-950/40 border border-amber-900 rounded-lg text-xs">
+                  <p className="font-medium text-amber-400 mb-1">Dependencies:</p>
+                  <code className="text-amber-300">{result.dependencies.join(", ")}</code>
                 </div>
               )}
 
               {result.env_vars?.length > 0 && (
-                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs">
-                  <p className="font-medium text-blue-700 mb-1">Required env vars:</p>
-                  <code className="text-blue-600">{result.env_vars.join(", ")}</code>
+                <div className="mb-3 p-3 bg-blue-950/40 border border-blue-900 rounded-lg text-xs">
+                  <p className="font-medium text-blue-400 mb-1">Required env vars:</p>
+                  <code className="text-blue-300">{result.env_vars.join(", ")}</code>
                 </div>
               )}
 
@@ -247,25 +246,25 @@ export default function PluginManager() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Skill Library</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-bright">Skill Library</h1>
+        <p className="text-sm text-muted mt-1">
           AI-powered code generators · {skills.length} skills available
         </p>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+        <div className="mb-4 p-3 bg-red-950/40 border border-red-900 rounded-lg text-red-400 text-sm">
           {error}
         </div>
       )}
 
       <div className="relative mb-6">
-        <SearchIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <SearchIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
         <input
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="Search skills..."
-          className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400"
+          className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm bg-background text-bright focus:outline-none focus:border-blue-400"
         />
       </div>
 
@@ -274,7 +273,7 @@ export default function PluginManager() {
           <SkillCard key={skill.id} skill={skill} onGenerate={handleGenerate} />
         ))}
         {filtered.length === 0 && (
-          <p className="text-center text-gray-400 py-12">No skills match your search.</p>
+          <p className="text-center text-muted py-12">No skills match your search.</p>
         )}
       </div>
     </div>

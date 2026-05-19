@@ -13,19 +13,19 @@ const ICON_MAP = {
 };
 
 const TAG_COLORS = {
-  vcs: "bg-blue-100 text-blue-700",
-  devtools: "bg-indigo-100 text-indigo-700",
-  pm: "bg-purple-100 text-purple-700",
-  agile: "bg-violet-100 text-violet-700",
-  comms: "bg-green-100 text-green-700",
-  design: "bg-pink-100 text-pink-700",
-  deploy: "bg-orange-100 text-orange-700",
-  cloud: "bg-sky-100 text-sky-700",
-  payments: "bg-emerald-100 text-emerald-700",
-  database: "bg-yellow-100 text-yellow-700",
-  backend: "bg-teal-100 text-teal-700",
-  observability: "bg-red-100 text-red-700",
-  monitoring: "bg-rose-100 text-rose-700",
+  vcs: "bg-blue-950/40 text-blue-400",
+  devtools: "bg-indigo-950/40 text-indigo-400",
+  pm: "bg-purple-950/40 text-purple-400",
+  agile: "bg-violet-950/40 text-violet-400",
+  comms: "bg-green-950/40 text-green-400",
+  design: "bg-pink-950/40 text-pink-400",
+  deploy: "bg-orange-950/40 text-orange-400",
+  cloud: "bg-sky-950/40 text-sky-400",
+  payments: "bg-emerald-950/40 text-emerald-400",
+  database: "bg-yellow-950/40 text-yellow-400",
+  backend: "bg-teal-950/40 text-teal-400",
+  observability: "bg-red-950/40 text-red-400",
+  monitoring: "bg-rose-950/40 text-rose-400",
 };
 
 function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
@@ -60,36 +60,36 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
   };
 
   return (
-    <div className={`bg-white rounded-xl border transition-all ${isInstalled ? "border-green-200" : "border-gray-200"} overflow-hidden`}>
+    <div className={`bg-panel rounded-xl border transition-all ${isInstalled ? "border-green-700" : "border-border"} overflow-hidden`}>
       <div className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isInstalled ? "bg-green-50" : "bg-gray-50"}`}>
-              <Icon size={20} className={isInstalled ? "text-green-600" : "text-gray-500"} />
+            <div className={`p-2 rounded-lg ${isInstalled ? "bg-green-950/40" : "bg-surface"}`}>
+              <Icon size={20} className={isInstalled ? "text-green-400" : "text-muted"} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">{plugin.name}</h3>
-                {isInstalled && <CheckCircle size={14} className="text-green-500" />}
+                <h3 className="font-semibold text-bright">{plugin.name}</h3>
+                {isInstalled && <CheckCircle size={14} className="text-green-400" />}
               </div>
-              <p className="text-xs text-gray-500 mt-0.5">{plugin.description}</p>
+              <p className="text-xs text-muted mt-0.5">{plugin.description}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {plugin.requires_plan && plugin.requires_plan !== "trial" && (
-              <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">
+              <span className="text-xs px-2 py-0.5 bg-purple-950/40 text-purple-400 rounded-full font-medium">
                 {plugin.requires_plan}+
               </span>
             )}
             {isInstalled ? (
               <>
                 <button onClick={handleTest} disabled={testing}
-                  className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 disabled:opacity-50 flex items-center gap-1">
+                  className="text-xs px-3 py-1.5 bg-blue-950/40 text-blue-400 rounded-lg hover:bg-blue-900/50 disabled:opacity-50 flex items-center gap-1">
                   {testing ? <Loader2 size={12} className="animate-spin" /> : null}
                   Test
                 </button>
                 <button onClick={() => onUninstall(plugin.id)}
-                  className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg">
+                  className="p-1.5 text-red-400 hover:bg-red-950/30 rounded-lg">
                   <Trash2 size={14} />
                 </button>
               </>
@@ -105,7 +105,7 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
         {/* Tags */}
         <div className="flex flex-wrap gap-1 mt-3">
           {(plugin.tags || []).map((tag) => (
-            <span key={tag} className={`text-xs px-2 py-0.5 rounded-full ${TAG_COLORS[tag] || "bg-gray-100 text-gray-600"}`}>
+            <span key={tag} className={`text-xs px-2 py-0.5 rounded-full ${TAG_COLORS[tag] || "bg-border/20 text-muted"}`}>
               {tag}
             </span>
           ))}
@@ -113,7 +113,7 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
 
         {/* Test result */}
         {testResult && (
-          <div className={`mt-3 text-xs px-3 py-2 rounded-lg flex items-center gap-2 ${testResult.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+          <div className={`mt-3 text-xs px-3 py-2 rounded-lg flex items-center gap-2 ${testResult.ok ? "bg-green-950/40 text-green-400" : "bg-red-950/40 text-red-400"}`}>
             {testResult.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
             {testResult.message}
           </div>
@@ -122,11 +122,11 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
 
       {/* Config form */}
       {expanded && !isInstalled && (
-        <div className="border-t border-gray-100 p-4 bg-gray-50">
-          <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Configuration</p>
+        <div className="border-t border-border/50 p-4 bg-surface">
+          <p className="text-xs font-semibold text-muted mb-3 uppercase tracking-wide">Configuration</p>
           {Object.entries(schema).map(([key, field]) => (
             <div key={key} className="mb-3">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label className="block text-xs font-medium text-muted mb-1">
                 {field.label || key}
                 {field.required && <span className="text-red-400 ml-1">*</span>}
               </label>
@@ -135,7 +135,7 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
                 placeholder={field.default ? String(field.default) : ""}
                 value={configValues[key] || ""}
                 onChange={(e) => setConfigValues((v) => ({ ...v, [key]: e.target.value }))}
-                className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-blue-400"
+                className="w-full text-sm px-3 py-2 border border-border rounded-lg bg-background text-bright focus:outline-none focus:border-blue-400"
               />
             </div>
           ))}
@@ -146,7 +146,7 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
               Install
             </button>
             <button onClick={() => setExpanded(false)}
-              className="px-4 py-2 text-gray-600 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">
+              className="px-4 py-2 text-muted border border-border rounded-lg text-sm hover:bg-surface">
               Cancel
             </button>
           </div>
@@ -218,14 +218,14 @@ export default function ConnectorHub() {
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Connector Hub</h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-bright">Connector Hub</h1>
+        <p className="text-sm text-muted mt-1">
           Connect your tools · {installedCount} connected · {catalog.length} available
         </p>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+        <div className="mb-4 p-3 bg-red-950/40 border border-red-900 rounded-lg text-red-400 text-sm">
           {error}
         </div>
       )}
@@ -233,12 +233,12 @@ export default function ConnectorHub() {
       {/* Search bar */}
       <div className="flex gap-3 mb-6">
         <div className="flex-1 relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search connectors..."
-            className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-400"
+            className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm bg-background text-bright focus:outline-none focus:border-blue-400"
           />
         </div>
       </div>
@@ -246,7 +246,7 @@ export default function ConnectorHub() {
       {/* Installed banner */}
       {installedCount > 0 && (
         <div className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">
             Connected ({installedCount})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -265,11 +265,11 @@ export default function ConnectorHub() {
       )}
 
       {/* Available */}
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+      <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">
         Available
       </h2>
       {filtered.filter((p) => !installed[p.id]).length === 0 ? (
-        <p className="text-gray-400 text-sm">No connectors match your search.</p>
+        <p className="text-muted text-sm">No connectors match your search.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.filter((p) => !installed[p.id]).map((plugin) => (
