@@ -4364,6 +4364,109 @@ def create_app() -> FastAPI:
         except PermissionError:
             raise HTTPException(status_code=403, detail="Decision belongs to a different org")
 
+    # ── LLM Council multi-model code review ──────────────────────────────────
+
+    @app.post("/factory/runs/{run_id}/council-review")
+    async def run_council_review(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """
+        Run the generated src/main.py through the LLM Council for multi-model review.
+
+        Dispatches up to 3 parallel model reviews (Claude, Gemini, Ollama).
+        Any model whose API key is absent is silently skipped.
+        Results are persisted to {project_dir}/council_review.json.
+
+        Takes 30-60 seconds depending on model availability.
+        """
+        from pathlib import Path
+        project_dir = Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        # Find src/main.py (same priority order as p11)
+        main_py_candidates = [
+            project_dir / "src" / "main.py",
+            project_dir / "p04_backend" / "src" / "main.py",
+            project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+            project_dir / "p04a_backend_codegen" / "src" / "main.py",
+        ]
+        main_py = None
+        for c in main_py_candidates:
+            if c.exists():
+                main_py = c
+                break
+        if main_py is None:
+            # fallback: any main.py
+            found = list(project_dir.rglob("main.py"))
+            main_py = found[0] if found else None
+        if main_py is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No main.py found for this run — run the pipeline first",
+            )
+
+        source_code = main_py.read_text(encoding="utf-8", errors="replace")
+
+        # Resolve project_name and domain from DB (best-effort)
+        _project_name = ""
+        _domain = "general"
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_cr
+            from aether_os.core.models import Run as _Run_cr
+            from sqlalchemy import select as _sel_cr
+            async with _gsf_cr()() as _sess_cr:
+                _run_cr = (await _sess_cr.execute(
+                    _sel_cr(_Run_cr).where(
+                        _Run_cr.id == run_id,
+                        _Run_cr.org_id == user["org_id"],
+                    )
+                )).scalar_one_or_none()
+                if _run_cr:
+                    _project_name = getattr(_run_cr, "project_name", "") or ""
+                    _domain = getattr(_run_cr, "domain", "general") or "general"
+        except Exception:
+            pass
+
+        from aether_os.core.council.council_reviewer import run_council
+        report = await run_council(
+            source_code=source_code,
+            run_id=run_id,
+            project_name=_project_name,
+            domain=_domain,
+        )
+
+        # Persist to disk
+        review_path = project_dir / "council_review.json"
+        review_path.write_text(
+            json.dumps(report.to_dict(), indent=2),
+            encoding="utf-8",
+        )
+
+        return report.to_dict()
+
+    @app.get("/factory/runs/{run_id}/council-review")
+    async def get_council_review(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """Get the previously generated council review for a run."""
+        from pathlib import Path
+        project_dir = Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
+        review_path = project_dir / "council_review.json"
+        if not review_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="No council review found — POST to this endpoint first",
+            )
+        try:
+            return json.loads(review_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read council review: {exc}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+
     @app.post("/factory/runs/{run_id}/kill")
     async def kill_run(run_id: str, user: Dict[str, Any] = Depends(get_current_user)):
         if user.get("role") not in ["owner", "admin"]:
