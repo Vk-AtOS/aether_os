@@ -522,8 +522,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
     if raw_input.strip() and domain == "general":
         return _generate_from_requirement(raw_input)
 
-    has_auth = domain in ("saas_multitenant", "healthcare", "fintech", "saas", "crm") or \
-           any(ep.get("path", "").startswith("/auth") for ep in endpoints)
+    has_auth = True  # All generated apps include JWT auth
 
     # ── Per-resource model + route generation ─────────────────────────────────
     all_resources = resources if resources else [{"resource": "item", "table": "items",
@@ -592,11 +591,15 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
     for r in all_resources:
         res   = r["resource"]
         cols  = [c for c in r["columns"] if c != "id"]
+        _FLOAT_FIELDS = {"price", "amount", "total", "value", "revenue", "cost", "balance", "salary", "budget", "fee", "tax", "discount"}
+        _INT_FIELDS = {"quantity", "stock", "count", "rating", "score", "capacity", "age", "year", "number"}
         field_defs = "\n".join(
-            f"    {col}: Optional[int] = None" if col.endswith("_id")
-            else f"    {col}: Optional[str] = None" if col.endswith("_at")
-            else f"    {col}: str"
-            for col in cols[:6]
+            f"    {col}: Optional[int] = None" if col.endswith("_id") or col == "id"
+            else f"    {col}: Optional[str] = None" if col.endswith("_at") or col in ("date", "datetime", "due_date", "start_date", "end_date", "close_date")
+            else f"    {col}: float = 0.0" if col.lower() in _FLOAT_FIELDS
+            else f"    {col}: int = 0" if col.lower() in _INT_FIELDS
+            else f"    {col}: Optional[str] = None"
+            for col in cols[:8]
         )
         all_models.append(
             f"class {res.title()}Create(BaseModel):\n"
@@ -617,11 +620,14 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             cols_for_sql.append("org_id")
         elif domain == "healthcare" and "fhir_resource_type" not in cols_for_sql:
             cols_for_sql.append("fhir_resource_type")
-        col_defs_sql = ", ".join(
-            f"{c} TEXT" if not c.endswith("_id") and c != "id" else
-            ("id INTEGER PRIMARY KEY AUTOINCREMENT" if c == "id" else f"{c} INTEGER")
-            for c in cols_for_sql
-        )
+        def _sql_type(c):
+            l = c.lower()
+            if c == "id": return "id INTEGER PRIMARY KEY AUTOINCREMENT"
+            if c.endswith("_id"): return f"{c} INTEGER"
+            if l in {"price","amount","total","value","revenue","cost","balance","salary","budget","fee","tax","discount"}: return f"{c} REAL"
+            if l in {"quantity","stock","count","rating","score","capacity","age","year","number"}: return f"{c} INTEGER"
+            return f"{c} TEXT"
+        col_defs_sql = ", ".join(_sql_type(c) for c in cols_for_sql)
         create_stmts.append(
             f"    conn.execute('CREATE TABLE IF NOT EXISTS {r['table']} ({col_defs_sql})')"
         )
@@ -659,7 +665,8 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
 
             f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n'
             f'    conn = get_db()\n'
-            f'    data = {{k: v for k, v in payload.dict().items() if v is not None}}\n'
+            f'    raw = payload.model_dump()\n'
+            f'    data = {{k: v for k, v in raw.items() if v is not None and k != "id"}}\n'
             f'    cols_list = list(data.keys())\n'
             f'    vals = [data[c] for c in cols_list]\n'
             f'    placeholders = ", ".join("?" for _ in cols_list)\n'
@@ -683,7 +690,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             f'    if not existing:\n'
             f'        conn.close()\n'
             f'        raise HTTPException(404, "{res} not found")\n'
-            f'    data = {{k: v for k, v in payload.dict().items() if v is not None}}\n'
+            f'    data = {{k: v for k, v in payload.model_dump().items() if v is not None and k != "id"}}\n'
             f'    if data:\n'
             f'        sets = ", ".join(f"{{k}}=?" for k in data)\n'
             f'        conn.execute(f"UPDATE {table} SET {{sets}} WHERE id=?", list(data.values()) + [item_id])\n'

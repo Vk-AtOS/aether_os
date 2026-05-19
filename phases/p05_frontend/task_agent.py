@@ -1390,7 +1390,7 @@ async function saveRecord() {{
     showToast(editingId ? "Record updated!" : "Record created!", "success");
     loadEntityData();
   }} catch(err) {{
-    showToast("Error: " + err.message, "danger");
+    showToast("Save failed: " + err.message, "danger");
   }} finally {{
     spinner.classList.add("d-none");
     saveBtn.disabled = false;
@@ -1503,8 +1503,10 @@ async function apiFetch(path, method, body) {{
   const json = await res.json().catch(() => ({{}}));
 
   if (!res.ok) {{
-    const msg = json.detail || json.message || json.error || ("HTTP " + res.status);
-    throw new Error(msg);
+    const detail = json.detail || json.message || json.error;
+    if (typeof detail === 'string') throw new Error(detail);
+    if (Array.isArray(detail)) throw new Error(detail.map(function(e) {{ return e.msg + ' (' + (e.loc||[]).join('.') + ')'; }}).join('; '));
+    throw new Error('HTTP ' + res.status);
   }}
 
   return json;

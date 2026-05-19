@@ -178,7 +178,20 @@ class FactoryPipeline:
             run_id=run_id,
         )
 
-        await self.ledger.async_save_run(run_id, f"factory: {raw_input[:60]}", org_id=org_id, status="running")
+        try:
+            from aether_os.core.db_utils import create_run as _create_run
+            await _create_run(
+                run_id=run_id,
+                command=f"factory: {raw_input[:60]}",
+                org_id=org_id or "",
+                project_name=project_name or f"project-{run_id[:8]}",
+                domain=domain,
+                client_id=client_id,
+                raw_input=raw_input,
+            )
+        except Exception as _cr_exc:
+            logger.warning("create_run failed, falling back to async_save_run: %s", _cr_exc)
+            await self.ledger.async_save_run(run_id, f"factory: {raw_input[:60]}", org_id=org_id, status="running")
 
         # Persist pre-flight council result to the run record
         if council_preflight:
@@ -525,6 +538,30 @@ class FactoryPipeline:
         # Mark run as complete
         await self._update_state(run_id, "pipeline", "complete")
         await self.ledger.async_update_run_status(run_id, "completed")
+
+        # Auto-start the generated app
+        try:
+            import sys as _sys
+            import subprocess as _sp
+            from aether_os.gateway.api import _APP_PROCS
+            _proj_dir = get_project_manager().get_project_dir(run_id).resolve()
+            _log = _proj_dir / "run_app.log"
+            _log_f = open(_log, "w")
+            _port = int(os.environ.get("RUN_APP_PORT", "8001"))
+            # Kill any existing process on that port
+            _sp.run(["fuser", "-k", f"{_port}/tcp"], capture_output=True)
+            import time as _time_m; _time_m.sleep(1)
+            _proc = _sp.Popen(
+                [_sys.executable, "-m", "uvicorn", "src.main:app",
+                 "--host", "127.0.0.1", "--port", str(_port)],
+                cwd=str(_proj_dir),
+                stdout=_log_f,
+                stderr=_log_f,
+            )
+            _APP_PROCS[run_id] = _proc
+            logger.info("Auto-started generated app for run %s on port %d (pid %d)", run_id, _port, _proc.pid)
+        except Exception as _e:
+            logger.warning("Auto-start generated app failed: %s", _e)
 
         duration = time.time() - pipeline_start
 
