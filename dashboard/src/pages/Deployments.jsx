@@ -4,10 +4,12 @@ import { Rocket, Loader2, RefreshCw, ExternalLink, Clock, CheckCircle2, AlertTri
 import { useNavigate } from 'react-router-dom';
 
 const STATUS_META = {
-  deployed:  { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
-  deploying: { color: 'text-accent', bg: 'bg-accent/10 border-accent/30', icon: Loader2 },
-  failed:    { color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30', icon: XCircle },
-  pending:   { color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30', icon: AlertTriangle },
+  deployed:   { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
+  completed:  { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
+  running:    { color: 'text-accent', bg: 'bg-accent/10 border-accent/30', icon: Loader2 },
+  deploying:  { color: 'text-accent', bg: 'bg-accent/10 border-accent/30', icon: Loader2 },
+  failed:     { color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30', icon: XCircle },
+  pending:    { color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30', icon: AlertTriangle },
 };
 
 const SkeletonRow = () => (
@@ -80,9 +82,14 @@ const Deployments = () => {
             : deployments.map((dep, i) => {
               const meta = STATUS_META[dep.status] || STATUS_META.pending;
               const Icon = meta.icon;
-              const ts = dep.deployed_at ? new Date(dep.deployed_at * 1000).toLocaleString() : '—';
+              const ts = dep.started_at ? new Date(dep.started_at * 1000).toLocaleString() : (dep.deployed_at ? new Date(dep.deployed_at * 1000).toLocaleString() : '—');
+              // Prefer the gateway proxy URL over raw docker port
+              const appUrl = dep.run_id
+                ? `/generated-app/${dep.run_id}/`
+                : (dep.url || dep.live_url || null);
+              const isSpinning = dep.status === 'deploying' || dep.status === 'running';
               return (
-                <div key={dep.id || i}
+                <div key={dep.id || dep.run_id || i}
                   className="bg-panel border border-border hover:border-accent/30 rounded-xl p-4 transition-all">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-lg bg-surface border border-border flex items-center justify-center shrink-0">
@@ -92,23 +99,32 @@ const Deployments = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <button onClick={() => navigate(`/project/${dep.run_id}`)}
                           className="text-sm font-semibold text-bright hover:text-accent transition-colors truncate">
-                          {dep.project_name || dep.run_id}
+                          {dep.project_name || dep.run_id?.substring(0, 8)}
                         </button>
                         <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${meta.bg} ${meta.color}`}>
-                          <Icon className="w-3 h-3 inline mr-0.5" style={dep.status === 'deploying' ? { animation: 'spin 1s linear infinite' } : {}} />
+                          <Icon className={`w-3 h-3 inline mr-0.5 ${isSpinning ? 'animate-spin' : ''}`} />
                           {dep.status}
                         </span>
+                        {dep.domain && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 font-medium">
+                            {dep.domain}
+                          </span>
+                        )}
+                        {dep.proc_status === 'running' && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 font-medium">
+                            live
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-[10px] text-muted flex-wrap">
                         <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{ts}</span>
-                        {dep.environment && <span className="uppercase">{dep.environment}</span>}
-                        {dep.version && <span>v{dep.version}</span>}
+                        {dep.run_id && <span className="font-mono opacity-60">{dep.run_id.substring(0, 8)}</span>}
                       </div>
                     </div>
-                    {dep.url && (
-                      <a href={dep.url} target="_blank" rel="noopener noreferrer"
+                    {appUrl && (
+                      <a href={appUrl} target="_blank" rel="noopener noreferrer"
                         className="shrink-0 flex items-center gap-1.5 text-xs font-bold text-accent hover:text-accent/80 transition-colors border border-accent/30 rounded-lg px-3 py-1.5">
-                        <ExternalLink className="w-3 h-3" /> Open
+                        <ExternalLink className="w-3 h-3" /> Open App
                       </a>
                     )}
                   </div>

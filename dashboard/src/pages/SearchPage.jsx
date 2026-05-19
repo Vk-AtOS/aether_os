@@ -146,8 +146,8 @@ const SearchPage = () => {
             {total === 0 ? 'No results found' : `${total} result${total !== 1 ? 's' : ''} for "${query}"`}
           </p>
           {results.map((r, i) => (
-            <ResultCard key={r.id || i} result={r} query={query}
-              onClick={run => navigate(`/project/${run.id}`)} />
+            <ResultCard key={r.run_id || r.id || i} result={r} query={query}
+              onClick={run => navigate(`/project/${run.run_id || run.id}`)} />
           ))}
         </div>
       )}
