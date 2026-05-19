@@ -457,6 +457,12 @@ class FactoryPipeline:
                             accumulated_context["backend_src_dir"] = str(_p04_src)
                             accumulated_context["backend_main_py"] = str(_p04_src / "main.py")
 
+                    # Propagate api_routes.json path so p05 can wire real endpoints
+                    _routes_candidate = project_dir / "p04_backend" / "backend_codegen" / "api_routes.json"
+                    if _routes_candidate.exists():
+                        accumulated_context["api_routes_path"] = str(_routes_candidate)
+                        logger.info("[pipeline] api_routes_path → %s", _routes_candidate)
+
                 # Update state
                 p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
                 await self._update_state(run_id, phase_name, p_status)
