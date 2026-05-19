@@ -88,7 +88,7 @@ _DOMAIN_KEYWORDS = {
 }
 
 
-def _extract_resources(raw_input: str) -> List[Dict]:
+def _extract_resources(raw_input: str, domain: str = "general") -> List[Dict]:
     """
     Parse raw_input to detect domain nouns and build a rich resource list.
     Returns a list of {"resource": str, "table": str, "columns": [...]} dicts.
@@ -102,7 +102,8 @@ def _extract_resources(raw_input: str) -> List[Dict]:
             found.append({"resource": keyword, "table": table, "columns": columns})
             seen_tables.add(table)
 
-    # Fallback: extract bare nouns from the sentence if nothing matched
+    # Fallback: extract bare nouns from the sentence if nothing matched.
+    # If still nothing, use domain-canonical entities (G15 fix) instead of random nouns.
     if not found:
         words = re.findall(r'\b([a-z]{3,})\b', lower)
         stop_words = {"the", "and", "for", "are", "with", "that", "this",
@@ -118,7 +119,103 @@ def _extract_resources(raw_input: str) -> List[Dict]:
                 "columns": ["id", "name", "description", "created_at"],
             })
 
+    # If still no resources found at all, use domain-canonical entity list
+    if not found:
+        fallback_entities = DOMAIN_FALLBACK_ENTITIES.get(domain, DOMAIN_FALLBACK_ENTITIES["general"])
+        for entity in fallback_entities[:3]:
+            noun = entity.rstrip("s")  # rough singularisation
+            found.append({
+                "resource": noun,
+                "table": entity,
+                "columns": ["id", "name", "description", "created_at"],
+            })
+
     return found
+
+
+# G15 fix: domain-aware fallback entity lists so we never get generic tasks/users/comments
+DOMAIN_FALLBACK_ENTITIES = {
+    "saas_multitenant": ["organizations", "memberships", "workspaces", "projects", "tasks"],
+    "saas": ["organizations", "memberships", "workspaces", "projects", "tasks"],
+    "healthcare": ["patients", "appointments", "providers", "records", "prescriptions"],
+    "fintech": ["accounts", "transactions", "ledger_entries", "users", "audit_logs"],
+    "ecommerce": ["products", "orders", "customers", "cart_items", "categories"],
+    "general": ["tasks", "users", "comments", "tags", "categories"],
+}
+
+# Domain-specific table schemas used in fallback
+_DOMAIN_FALLBACK_SCHEMAS = {
+    "healthcare": [
+        {"table": "patients",      "columns": ["id", "name", "dob", "email", "phone", "created_at"]},
+        {"table": "appointments",  "columns": ["id", "patient_id", "provider_id", "scheduled_at", "status", "notes"]},
+        {"table": "providers",     "columns": ["id", "name", "specialty", "email", "license_number"]},
+        {"table": "records",       "columns": ["id", "patient_id", "provider_id", "type", "content", "created_at"]},
+        {"table": "prescriptions", "columns": ["id", "patient_id", "provider_id", "medication", "dosage", "expires_at"]},
+        {"table": "users",         "columns": ["id", "email", "password_hash", "role", "created_at"]},
+    ],
+    "fintech": [
+        {"table": "users",          "columns": ["id", "email", "name", "password_hash", "kyc_status", "created_at"]},
+        {"table": "accounts",       "columns": ["id", "user_id", "type", "currency", "balance", "status", "created_at"]},
+        {"table": "transactions",   "columns": ["id", "account_id", "type", "amount", "currency", "status", "reference", "created_at"]},
+        {"table": "ledger_entries", "columns": ["id", "transaction_id", "account_id", "debit", "credit", "balance_after", "created_at"]},
+        {"table": "audit_logs",     "columns": ["id", "user_id", "action", "resource", "ip_address", "created_at"]},
+    ],
+    "ecommerce": [
+        {"table": "users",       "columns": ["id", "email", "name", "password_hash", "created_at"]},
+        {"table": "customers",   "columns": ["id", "user_id", "shipping_address", "billing_address", "created_at"]},
+        {"table": "categories",  "columns": ["id", "name", "slug", "parent_id", "description"]},
+        {"table": "products",    "columns": ["id", "name", "description", "price", "stock", "category_id", "sku", "created_at"]},
+        {"table": "orders",      "columns": ["id", "customer_id", "status", "total", "shipping_address", "created_at"]},
+        {"table": "cart_items",  "columns": ["id", "customer_id", "product_id", "quantity", "added_at"]},
+    ],
+}
+
+_DOMAIN_FALLBACK_ENDPOINTS = {
+    "healthcare": [
+        {"method": "POST",   "path": "/auth/register",           "description": "Register user",              "auth": False},
+        {"method": "POST",   "path": "/auth/login",              "description": "Login",                      "auth": False},
+        {"method": "GET",    "path": "/patients",                "description": "List patients",              "auth": True},
+        {"method": "POST",   "path": "/patients",                "description": "Create patient",             "auth": True},
+        {"method": "GET",    "path": "/patients/{id}",           "description": "Get patient",                "auth": True},
+        {"method": "GET",    "path": "/appointments",            "description": "List appointments",          "auth": True},
+        {"method": "POST",   "path": "/appointments",            "description": "Schedule appointment",       "auth": True},
+        {"method": "PUT",    "path": "/appointments/{id}",       "description": "Update appointment",         "auth": True},
+        {"method": "GET",    "path": "/providers",               "description": "List providers",             "auth": True},
+        {"method": "GET",    "path": "/records",                 "description": "List records",               "auth": True},
+        {"method": "POST",   "path": "/records",                 "description": "Create record",              "auth": True},
+        {"method": "GET",    "path": "/prescriptions",           "description": "List prescriptions",         "auth": True},
+        {"method": "POST",   "path": "/prescriptions",           "description": "Create prescription",        "auth": True},
+        {"method": "GET",    "path": "/health",                  "description": "Health check",               "auth": False},
+    ],
+    "fintech": [
+        {"method": "POST",   "path": "/auth/register",           "description": "Register user",              "auth": False},
+        {"method": "POST",   "path": "/auth/login",              "description": "Login",                      "auth": False},
+        {"method": "GET",    "path": "/accounts",                "description": "List accounts",              "auth": True},
+        {"method": "POST",   "path": "/accounts",                "description": "Create account",             "auth": True},
+        {"method": "GET",    "path": "/accounts/{id}",           "description": "Get account",                "auth": True},
+        {"method": "GET",    "path": "/transactions",            "description": "List transactions",          "auth": True},
+        {"method": "POST",   "path": "/transactions",            "description": "Create transaction",         "auth": True},
+        {"method": "GET",    "path": "/transactions/{id}",       "description": "Get transaction",            "auth": True},
+        {"method": "GET",    "path": "/ledger-entries",          "description": "List ledger entries",        "auth": True},
+        {"method": "GET",    "path": "/audit-logs",              "description": "List audit logs",            "auth": True},
+        {"method": "GET",    "path": "/health",                  "description": "Health check",               "auth": False},
+    ],
+    "ecommerce": [
+        {"method": "POST",   "path": "/auth/register",           "description": "Register user",              "auth": False},
+        {"method": "POST",   "path": "/auth/login",              "description": "Login",                      "auth": False},
+        {"method": "GET",    "path": "/products",                "description": "List products",              "auth": False},
+        {"method": "POST",   "path": "/products",                "description": "Create product",             "auth": True},
+        {"method": "GET",    "path": "/products/{id}",           "description": "Get product",                "auth": False},
+        {"method": "GET",    "path": "/categories",              "description": "List categories",            "auth": False},
+        {"method": "GET",    "path": "/orders",                  "description": "List orders",                "auth": True},
+        {"method": "POST",   "path": "/orders",                  "description": "Place order",                "auth": True},
+        {"method": "GET",    "path": "/orders/{id}",             "description": "Get order",                  "auth": True},
+        {"method": "POST",   "path": "/cart",                    "description": "Add item to cart",           "auth": True},
+        {"method": "GET",    "path": "/cart",                    "description": "View cart",                  "auth": True},
+        {"method": "DELETE", "path": "/cart/{id}",               "description": "Remove cart item",           "auth": True},
+        {"method": "GET",    "path": "/health",                  "description": "Health check",               "auth": False},
+    ],
+}
 
 
 def _build_fallback_architecture(raw_input: str, domain: str = "general") -> dict:
@@ -193,7 +290,56 @@ def _build_fallback_architecture(raw_input: str, domain: str = "general") -> dic
             "domain": domain,
         }
 
-    resources = _extract_resources(raw_input)
+    # G15 fix: domain-specific fallbacks for healthcare, fintech, ecommerce
+    if domain in _DOMAIN_FALLBACK_SCHEMAS:
+        stack = {**TECH_STACK_DEFAULTS, **profile.suggested_tech_stack}
+        db_type = stack.get("database", "PostgreSQL")
+        db_schema = _DOMAIN_FALLBACK_SCHEMAS[domain]
+        endpoints = _DOMAIN_FALLBACK_ENDPOINTS[domain]
+        entity_names = DOMAIN_FALLBACK_ENTITIES.get(domain, [])
+        # Build a simple component diagram
+        resource_nodes = "".join(
+            f"    API --> {t.get('table', '').title()}[{t.get('table', '').replace('_', ' ').title()}]\n"
+            for t in db_schema[:4]
+        )
+        return {
+            "tech_stack": stack,
+            "component_diagram": (
+                f"graph TD\n"
+                f"  Client --> API[FastAPI]\n"
+                f"  API --> DB[({db_type})]\n"
+                f"  API --> Auth[JWT Auth]\n"
+                f"  subgraph Resources\n"
+                f"{resource_nodes}"
+                f"  end"
+            ),
+            "database_schema": db_schema,
+            "api_endpoints": endpoints,
+            "data_flow": (
+                "sequenceDiagram\n"
+                "  Client->>API: HTTP Request\n"
+                "  API->>Auth: Validate JWT\n"
+                "  Auth-->>API: Payload\n"
+                f"  API->>Service: Business Logic\n"
+                f"  Service->>DB: SQL Query\n"
+                f"  DB-->>Service: Rows\n"
+                f"  Service-->>API: Result\n"
+                "  API-->>Client: JSON Response"
+            ),
+            "security_considerations": profile.security_requirements + [
+                "Pydantic input validation on all endpoints",
+                "SQL injection prevention via ORM",
+            ],
+            "scalability_notes": (
+                f"Stateless FastAPI app — scale horizontally behind nginx. "
+                f"{db_type} with read replicas."
+            ),
+            "_fallback": True,
+            "_detected_resources": entity_names,
+            "domain": domain,
+        }
+
+    resources = _extract_resources(raw_input, domain=domain)
     primary = resources[0] if resources else {"resource": "item", "table": "items",
                                                "columns": ["id", "name", "created_at"]}
 
@@ -317,7 +463,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Spec template cache: skip LLM for known domain+entity combinations ────
     from aether_os.core import spec_cache as _spec_cache
-    _resources = _extract_resources(raw_input or requirements)
+    _resources = _extract_resources(raw_input or requirements, domain=domain)
     _entity_tables = [r["table"] for r in _resources]
     _cached_arch = _spec_cache.get(domain, _entity_tables)
     if _cached_arch:

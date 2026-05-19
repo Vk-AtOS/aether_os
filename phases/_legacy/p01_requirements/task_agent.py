@@ -36,6 +36,28 @@ REQUIREMENTS_SCHEMA = {
     "domain": "general"
 }
 
+async def _web_enrich(query: str) -> str:
+    """Fetch DuckDuckGo instant answer for query enrichment. No API key needed.
+    Python 3.9 compatible (no match/case). Falls back silently on any error.
+    """
+    try:
+        import httpx
+        url = "https://api.duckduckgo.com/"
+        params = {"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(url, params=params)
+            data = r.json()
+            abstract = data.get("AbstractText", "")
+            related = " ".join(
+                t.get("Text", "")
+                for t in data.get("RelatedTopics", [])[:3]
+                if isinstance(t, dict) and "Text" in t
+            )
+            return (abstract + " " + related).strip()[:800]
+    except Exception:
+        return ""
+
+
 def apply_defaults(result: dict, raw_input: str) -> dict:
     defaults = {
         "functional_requirements": [
@@ -68,19 +90,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     from aether_os.core.domain_engine import get_domain_profile
     profile = get_domain_profile(domain)
 
-    # If short, research the domain first (optional, keeping for quality)
+    # If short, enrich the domain context via DuckDuckGo instant answer (Python 3.9 safe)
     research_context = ""
-    if len(raw.split()) < 100:
-        try:
-            from gpt_researcher import GPTResearcher
-            researcher = GPTResearcher(
-                query=f"technical requirements for: {raw} in {domain} domain",
-                report_type="research_report",
-            )
-            await researcher.conduct_research()
-            research_context = f"\n\nDomain research:\n{await researcher.write_report()}"
-        except Exception as e:
-            logger.debug("GPTResearcher skipped: %s", e)
+    if len(raw.split()) < 120:
+        research_context = await _web_enrich(
+            f"technical requirements for: {raw} in {domain} domain"
+        )
+        if research_context:
+            research_context = f"\n\nDomain research:\n{research_context}"
 
     mem_hint = ""
     if memory_ctx:

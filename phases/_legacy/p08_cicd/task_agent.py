@@ -146,17 +146,132 @@ jobs:
         ci_file.write_text(ci_config)
         results["ci_config_generated"] = True
         results["ci_config_path"] = str(ci_file)
-        
+
+        # G14 fix: generate docker-compose.yml with prometheus wired in, and
+        # inject prometheus-fastapi-instrumentator into main.py if the dep is present.
+        _wire_prometheus_monitoring(code_dir, output_dir, safe_name, results)
+
         # Write report
         report_file = output_dir / "scan_report.json"
         with open(report_file, "w") as f:
             json.dump(results, f, indent=2)
-        
+
         return {
             "output_path": str(output_dir),
             "scan_results": results,
             "status": "completed"
         }
+
+def _wire_prometheus_monitoring(code_dir: Path, output_dir: Path, safe_name: str,
+                                results: dict) -> None:
+    """
+    G14 fix: generate a docker-compose.yml with a prometheus service and (if the
+    prometheus-fastapi-instrumentator dep is present) inject instrumentation into
+    src/main.py so the /metrics endpoint actually works.
+    """
+    try:
+        # Check if prometheus-fastapi-instrumentator is in requirements.txt
+        req_file = code_dir.parent / "requirements.txt" if code_dir.exists() else None
+        if req_file is None or not req_file.exists():
+            # Try one level up
+            for candidate in [
+                code_dir / "requirements.txt",
+                code_dir.parent / "requirements.txt",
+                code_dir.parent.parent / "requirements.txt",
+            ]:
+                if candidate.exists():
+                    req_file = candidate
+                    break
+
+        has_instrumentator = False
+        has_prometheus_client = False
+        if req_file and req_file.exists():
+            req_text = req_file.read_text().lower()
+            has_instrumentator = "prometheus-fastapi-instrumentator" in req_text
+            has_prometheus_client = "prometheus" in req_text
+
+        # Generate docker-compose.yml with prometheus service if monitoring dep present
+        if has_instrumentator or has_prometheus_client:
+            dc_yml = f"""version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${{DATABASE_URL:-sqlite:///./data/app.db}}
+    depends_on: []
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      - app
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+"""
+            (output_dir / "docker-compose.yml").write_text(dc_yml)
+
+            # prometheus.yml scrape config pointing at the app
+            prom_yml = f"""global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: '{safe_name}'
+    static_configs:
+      - targets: ['app:8000']
+    metrics_path: /metrics
+"""
+            (output_dir / "prometheus.yml").write_text(prom_yml)
+            results["docker_compose_generated"] = True
+            results["prometheus_yml_generated"] = True
+
+        # Inject prometheus-fastapi-instrumentator into src/main.py if needed
+        if has_instrumentator and code_dir.exists():
+            main_py = code_dir / "main.py"
+            if not main_py.exists():
+                main_py = code_dir / "src" / "main.py"
+            if main_py.exists():
+                content = main_py.read_text()
+                # Only inject if not already instrumented
+                if "Instrumentator" not in content and "/metrics" not in content:
+                    inject_block = (
+                        "\n# Prometheus metrics (auto-injected by p08)\n"
+                        "try:\n"
+                        "    from prometheus_fastapi_instrumentator import Instrumentator\n"
+                        "    Instrumentator().instrument(app).expose(app)\n"
+                        "except ImportError:\n"
+                        "    pass\n"
+                    )
+                    # Insert after the first `app = FastAPI(...)` line
+                    if "app = FastAPI(" in content:
+                        lines = content.splitlines(keepends=True)
+                        new_lines = []
+                        injected = False
+                        for line in lines:
+                            new_lines.append(line)
+                            if not injected and "app = FastAPI(" in line:
+                                new_lines.append(inject_block)
+                                injected = True
+                        main_py.write_text("".join(new_lines))
+                        results["prometheus_instrumentation_injected"] = True
+    except Exception as _e:
+        logger.warning("[p08] prometheus wiring failed: %s", _e)
+
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     # Ensure output_dir in phase_input matches what we expect

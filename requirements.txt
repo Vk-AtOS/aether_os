@@ -99,7 +99,8 @@ structlog>=24.0.0
 langsmith>=0.1.0                # LangSmith tracing (explicit — also a transitive dep of langchain-core)
 
 # ── Factory Pipeline — Research ───────────────────────────────────────────────
-gpt-researcher>=0.8.0
+# gpt-researcher removed: uses Python 3.10+ match/case syntax, incompatible with Python 3.9
+# Web enrichment is now done via httpx + DuckDuckGo instant answer API (no API key needed)
 
 # ── Optional — Docker sandbox (p08 CI/CD phase) ──────────────────────────────
 # docker>=7.0.0
