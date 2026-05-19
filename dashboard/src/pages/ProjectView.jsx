@@ -26,6 +26,8 @@ import {
   Download,
   GitBranch,
   Zap,
+  ShieldCheck,
+  Star,
 } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -309,6 +311,10 @@ const ProjectView = () => {
 
   // Re-run dropdown (managed inside RerunDropdown component)
 
+  // Quality & Compliance
+  const [qualityData, setQualityData]       = useState(null);
+  const [complianceData, setComplianceData] = useState(null);
+
   const logEndRef = useRef(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
@@ -385,6 +391,23 @@ const ProjectView = () => {
       api.getEnvVars(id).then(r => setEnvVars(r.data?.vars || [])).catch(() => setEnvVars([]));
     }
   }, [activeArtifactTab, envVars, id]);
+
+  // Fetch quality + compliance once the run is done (or if already done on load)
+  useEffect(() => {
+    if (!run) return;
+    const isDoneStatus = ['completed', 'passed'].includes(run.status);
+    if (!isDoneStatus) return;
+    if (qualityData === null) {
+      api.getRunQuality(id)
+        .then(r => setQualityData(r.data?.quality || null))
+        .catch(() => setQualityData(false)); // false = unavailable
+    }
+    if (complianceData === null) {
+      api.getRunCompliance(id)
+        .then(r => setComplianceData(r.data || null))
+        .catch(() => setComplianceData(false));
+    }
+  }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SSE live feed ─────────────────────────────────────────────────────────
 
@@ -1137,6 +1160,128 @@ const ProjectView = () => {
             </div>
           )}
         </section>
+
+        {/* ── Quality Score + Compliance panels (shown for completed runs) ──── */}
+        {(qualityData || complianceData) && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
+            {/* Quality Score Panel */}
+            {qualityData && qualityData !== false && (
+              <section className="panel p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Star className="w-4 h-4 text-accent" />
+                    <span className="text-xs font-bold text-muted uppercase tracking-wider">Quality Score</span>
+                  </div>
+                  {/* Circular badge */}
+                  <div className={`flex items-center justify-center w-14 h-14 rounded-full border-4 font-black text-lg ${
+                    qualityData.total >= 80
+                      ? 'border-emerald-500 text-emerald-400 bg-emerald-900/20'
+                      : qualityData.total >= 60
+                      ? 'border-yellow-500 text-yellow-400 bg-yellow-900/20'
+                      : 'border-red-500 text-red-400 bg-red-900/20'
+                  }`}>
+                    {qualityData.total}
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${
+                      qualityData.total >= 80 ? 'bg-emerald-500' : qualityData.total >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${qualityData.total}%` }}
+                  />
+                </div>
+                {/* Dimensions breakdown */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'Auth Coverage',  value: qualityData.auth_coverage,   unit: '%' },
+                    { label: 'Input Validation', value: qualityData.input_validation, unit: '%' },
+                    { label: 'Test Coverage',  value: qualityData.test_coverage,   unit: '%' },
+                    { label: 'Docker',         value: qualityData.has_docker ? 100 : 0, unit: qualityData.has_docker ? '✓' : '✗', binary: true },
+                  ].map(({ label, value, unit, binary }) => (
+                    <div key={label} className="bg-border/10 rounded-lg p-3">
+                      <div className="text-[9px] font-bold text-muted uppercase tracking-wider mb-1">{label}</div>
+                      <div className={`text-sm font-bold ${
+                        value >= 80 ? 'text-emerald-400' : value >= 60 ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        {binary ? unit : `${value}${unit}`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Compliance Score Panel */}
+            {complianceData && complianceData !== false && complianceData.status !== 'not_available' && (
+              <section className="panel p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <ShieldCheck className="w-4 h-4 text-accent" />
+                    <span className="text-xs font-bold text-muted uppercase tracking-wider">Compliance Score</span>
+                  </div>
+                  {complianceData.score != null && (
+                    <div className={`flex items-center justify-center w-14 h-14 rounded-full border-4 font-black text-lg ${
+                      complianceData.score >= 80
+                        ? 'border-emerald-500 text-emerald-400 bg-emerald-900/20'
+                        : complianceData.score >= 60
+                        ? 'border-yellow-500 text-yellow-400 bg-yellow-900/20'
+                        : 'border-red-500 text-red-400 bg-red-900/20'
+                    }`}>
+                      {complianceData.score}
+                    </div>
+                  )}
+                </div>
+
+                {/* Framework badges */}
+                <div className="flex flex-wrap gap-2">
+                  {['HIPAA', 'GDPR', 'SOC2', 'PCI-DSS'].map(fw => {
+                    const fwFindings = (complianceData.findings || []).filter(f => f.framework === fw);
+                    const critical   = fwFindings.some(f => f.severity === 'critical');
+                    const high       = fwFindings.some(f => f.severity === 'high');
+                    const allPass    = fwFindings.every(f => f.severity === 'pass') && fwFindings.length > 0;
+                    const colorCls   = critical ? 'bg-red-900/40 border-red-700 text-red-300'
+                                     : high     ? 'bg-yellow-900/40 border-yellow-700 text-yellow-300'
+                                     : allPass  ? 'bg-emerald-900/40 border-emerald-700 text-emerald-300'
+                                     : 'bg-slate-800 border-slate-700 text-slate-400';
+                    return (
+                      <span key={fw} className={`text-[10px] font-bold px-2 py-0.5 rounded border ${colorCls}`}>
+                        {fw}
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* Top 3 findings */}
+                {(complianceData.findings || []).filter(f => f.severity !== 'pass').slice(0, 3).map((f, i) => (
+                  <div key={i} className="flex items-start space-x-2 text-xs">
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                      f.severity === 'critical' ? 'bg-red-900/60 text-red-300'
+                      : f.severity === 'high'   ? 'bg-orange-900/60 text-orange-300'
+                      : 'bg-yellow-900/60 text-yellow-300'
+                    }`}>{f.severity}</span>
+                    <span className="text-muted leading-snug">{f.description?.slice(0, 80) || f.title || 'Unknown finding'}</span>
+                  </div>
+                ))}
+                {(complianceData.findings || []).filter(f => f.severity !== 'pass').length === 0 && (
+                  <div className="text-xs text-emerald-400 font-medium">All compliance checks passed.</div>
+                )}
+
+                {/* Download PDF link */}
+                <a
+                  href={`/api/portal/${id}/download`}
+                  className="flex items-center space-x-1.5 text-xs text-accent hover:underline"
+                  title="Download compliance report ZIP"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>Download Compliance PDF (ZIP)</span>
+                </a>
+              </section>
+            )}
+          </div>
+        )}
 
         {/* Currently running indicator */}
         {isRunning && (

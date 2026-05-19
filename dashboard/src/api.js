@@ -180,6 +180,11 @@ export const api = {
   searchMemory: (query, top_k = 5) => client.post('/memory/search', { query, top_k }),
   getPreferences: () => client.get('/settings/preferences'),
   updatePreferences: (prefs) => client.put('/settings/preferences', prefs),
+
+  // Quality & Compliance
+  getRunQuality: (runId) => client.get(`/factory/runs/${runId}/quality`),
+  getRunCompliance: (runId) => client.get(`/factory/runs/${runId}/compliance`),
+  getQualityTrend: (limit = 50) => client.get('/factory/analytics/quality-trend', { params: { limit } }),
 };
 
 // Default export so pages can do: import api from '../api'
