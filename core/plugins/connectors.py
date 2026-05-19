@@ -550,6 +550,16 @@ class PlanetScaleConnector(BaseConnector):
 
 # ── Connector factory ─────────────────────────────────────────────────────────
 
+def _lazy_salesforce():
+    from aether_os.core.connectors.salesforce_connector import SalesforceConnector
+    return SalesforceConnector
+
+
+def _lazy_ldap():
+    from aether_os.core.connectors.ldap_connector import LDAPConnector
+    return LDAPConnector
+
+
 _CONNECTOR_MAP: Dict[str, type] = {
     "github": GitHubConnector,
     "gitlab": GitLabConnector,
@@ -566,10 +576,21 @@ _CONNECTOR_MAP: Dict[str, type] = {
     "sentry": SentryConnector,
 }
 
+# Enterprise connectors — loaded lazily to avoid hard import of optional deps
+_ENTERPRISE_CONNECTOR_FACTORIES: Dict[str, Any] = {
+    "salesforce": _lazy_salesforce,
+    "ldap":       _lazy_ldap,
+    "activedirectory": _lazy_ldap,  # alias
+}
+
 
 def get_connector(plugin_id: str, config: Dict[str, Any]) -> BaseConnector:
     """Instantiate the connector for the given plugin_id."""
     cls = _CONNECTOR_MAP.get(plugin_id)
-    if not cls:
-        raise ConnectorError(f"No connector implemented for plugin '{plugin_id}'")
-    return cls(config)
+    if cls:
+        return cls(config)
+    # Enterprise connectors loaded lazily
+    factory = _ENTERPRISE_CONNECTOR_FACTORIES.get(plugin_id)
+    if factory:
+        return factory()(config)
+    raise ConnectorError(f"No connector implemented for plugin '{plugin_id}'")

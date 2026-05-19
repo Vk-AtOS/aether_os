@@ -54,7 +54,22 @@ _DEFAULT_FALLBACK_MODELS = (
 
 def get_fallback_chain() -> List[ModelSpec]:
     """Build fallback chain from environment.  Re-called on every request so
-    settings changes take effect immediately without a server restart."""
+    settings changes take effect immediately without a server restart.
+
+    When OFFLINE_MODE=true the chain is restricted to Ollama only, bypassing
+    all cloud providers.  This is the correct setting for air-gapped deployments
+    (government, hospitals, banks) where no outbound internet is available.
+    """
+    # ── Air-gapped / offline mode ─────────────────────────────────────────────
+    if os.environ.get("OFFLINE_MODE", "").lower() == "true":
+        ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+        ollama_timeout = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
+        logger.info(
+            "OFFLINE_MODE=true — restricting LLM chain to Ollama only (model=%s)",
+            ollama_model,
+        )
+        return [ModelSpec("ollama", ollama_model, ollama_timeout, 2)]
+
     primary = os.environ.get("PRIMARY_LLM", "anthropic").lower()
     anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b")

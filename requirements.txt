@@ -114,3 +114,6 @@ asyncpg>=0.29.0
 # psycopg2-binary>=2.9.0
 psutil>=5.9.0
 razorpay>=1.4.2
+
+# ── Enterprise connectors ─────────────────────────────────────────────────────
+ldap3>=2.9          # Active Directory / LDAP connector (FDE-3)

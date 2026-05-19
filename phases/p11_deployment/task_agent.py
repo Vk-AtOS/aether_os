@@ -396,6 +396,52 @@ class TaskAgent:
             3. Everything installs automatically — Python, Node, Docker-in-Docker
             4. The API starts automatically on port 8000
 
+            ## Option 4: VPS (any Linux server)
+
+            ```bash
+            scp -r . user@your-server:/app
+            ssh user@your-server "cd /app && docker-compose up --build -d"
+            ```
+
+            ## Option 5: AWS ECS Fargate
+
+            Set environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+            AWS_ECR_REPO, AWS_ECS_CLUSTER, AWS_REGION.
+
+            The factory validates your credentials and generates the push commands automatically.
+            Run them to deploy:
+
+            ```bash
+            # Authenticate with ECR
+            aws ecr get-login-password --region $AWS_REGION | \\
+              docker login --username AWS --password-stdin \\
+              $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+            # Build and push
+            docker build -t $AWS_ECR_IMAGE .
+            docker push $AWS_ECR_IMAGE
+
+            # Update ECS service (triggers a new deployment)
+            aws ecs update-service --cluster $AWS_ECS_CLUSTER \\
+              --service $AWS_ECR_REPO --force-new-deployment
+            ```
+
+            ## Option 6: Google Cloud Run
+
+            Set GOOGLE_CLOUD_PROJECT and run `gcloud auth application-default login`.
+            The factory generates the gcloud deploy command automatically.
+
+            ```bash
+            # Submit build to Cloud Build and push to GCR
+            gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/$SERVICE_NAME .
+
+            # Deploy to Cloud Run
+            gcloud run deploy $SERVICE_NAME \\
+              --image gcr.io/$GOOGLE_CLOUD_PROJECT/$SERVICE_NAME \\
+              --region $GOOGLE_CLOUD_REGION \\
+              --allow-unauthenticated
+            ```
+
             ## Environment Variables
 
             See `.env.example` for required configuration.
@@ -405,10 +451,106 @@ class TaskAgent:
             - [ ] Set `SECRET_KEY` to a random 64-character hex string
             - [ ] Configure `DATABASE_URL` for PostgreSQL (recommended for production)
             - [ ] Set `CORS_ORIGINS` to your frontend domain
-            - [ ] Enable HTTPS (Railway/Fly handle this automatically)
+            - [ ] Enable HTTPS (Railway/Fly/Cloud Run handle this automatically)
         """)
         deploy_md.write_text(content)
         return deploy_md
+
+    async def _deploy_to_aws_ecs(self, project_dir: Path, run_id: str) -> Dict[str, Any]:
+        """
+        Deploy generated Docker container to AWS ECS Fargate.
+        Requires: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION env vars.
+        Uses the existing connector credentials if set.
+        """
+        key = os.environ.get("AWS_ACCESS_KEY_ID")
+        secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        ecr_repo = os.environ.get("AWS_ECR_REPO", "")
+        ecs_cluster = os.environ.get("AWS_ECS_CLUSTER", "")
+
+        if not all([key, secret, ecr_repo, ecs_cluster]):
+            return {
+                "aws_ecs": False,
+                "reason": (
+                    "Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ECR_REPO, "
+                    "AWS_ECS_CLUSTER to deploy to ECS"
+                ),
+                "guide": "See DEPLOY.md -> Option 5: AWS ECS Fargate",
+            }
+
+        # Build and push Docker image to ECR, then update ECS service.
+        # Credentials are validated via STS; the ECR push and ECS update
+        # are the actual deployment steps (run via subprocess/CI after this).
+        try:
+            import boto3  # type: ignore
+            session = boto3.Session(
+                aws_access_key_id=key,
+                aws_secret_access_key=secret,
+                region_name=region,
+            )
+            sts = session.client("sts")
+            identity = sts.get_caller_identity()
+            account_id = identity["Account"]
+
+            ecr_image_uri = (
+                f"{account_id}.dkr.ecr.{region}.amazonaws.com/{ecr_repo}:latest"
+            )
+
+            import logging as _logging
+            _ecs_logger = _logging.getLogger(__name__)
+            _ecs_logger.info(
+                "[p11] AWS ECS deployment: build image %s and update cluster %s. "
+                "Run: docker build -t %s %s && docker push %s && "
+                "aws ecs update-service --cluster %s --service %s --force-new-deployment",
+                ecr_image_uri, ecs_cluster, ecr_image_uri, project_dir,
+                ecr_image_uri, ecs_cluster, ecr_repo,
+            )
+
+            return {
+                "aws_ecs": True,
+                "ecr_image": ecr_image_uri,
+                "cluster": ecs_cluster,
+                "account": account_id,
+                "next_step": (
+                    f"docker build -t {ecr_image_uri} {project_dir} && "
+                    f"docker push {ecr_image_uri} && "
+                    f"aws ecs update-service --cluster {ecs_cluster} "
+                    f"--service {ecr_repo} --force-new-deployment"
+                ),
+            }
+        except Exception as exc:
+            return {"aws_ecs": False, "reason": str(exc)}
+
+    async def _deploy_to_cloud_run(self, project_dir: Path, run_id: str) -> Dict[str, Any]:
+        """
+        Deploy generated Docker container to Google Cloud Run.
+        Requires: GOOGLE_CLOUD_PROJECT env var.
+        Optional: GOOGLE_CLOUD_REGION (default us-central1).
+        """
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+        region = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
+
+        if not project:
+            return {
+                "cloud_run": False,
+                "reason": "Set GOOGLE_CLOUD_PROJECT to deploy to Cloud Run",
+                "guide": "See DEPLOY.md -> Option 6: Google Cloud Run",
+            }
+
+        service_name = f"aetheros-{run_id[:8]}"
+        image = f"gcr.io/{project}/{service_name}:latest"
+
+        return {
+            "cloud_run": True,
+            "image": image,
+            "service": service_name,
+            "region": region,
+            "next_step": (
+                f"gcloud builds submit --tag {image} {project_dir} && "
+                f"gcloud run deploy {service_name} --image {image} "
+                f"--region {region} --allow-unauthenticated"
+            ),
+        }
 
     async def _deploy_to_railway(
         self, project_dir: Path, run_id: str
