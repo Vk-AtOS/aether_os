@@ -2537,7 +2537,7 @@ def create_app() -> FastAPI:
                 points.append({
                     "run_id": run_id_qt,
                     "project_name": proj_name or f"run-{run_id_qt[:8]}",
-                    "created_at": created_at_qt.isoformat() if hasattr(created_at_qt, "isoformat") else str(created_at_qt),
+                    "created_at": str(started_at_qt),
                     "quality_score": quality_score,
                     "compliance_score": compliance_score,
                 })
