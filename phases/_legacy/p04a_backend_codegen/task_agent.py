@@ -657,14 +657,16 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
     for r in all_resources:
         res   = r["resource"]
         table = r["table"]
+        _auth_param = "user: dict = Depends(verify_token)" if has_auth else ""
+        _auth_sep   = ", " if has_auth else ""
         routes += [
-            f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}():\n'
+            f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}({_auth_param}):\n'
             f'    conn = get_db()\n'
             f'    rows = conn.execute("SELECT * FROM {table}").fetchall()\n'
             f'    conn.close()\n'
             f'    return [{res.title()}(**dict(row)) for row in rows]\n',
 
-            f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create):\n'
+            f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create{_auth_sep}{_auth_param}):\n'
             f'    conn = get_db()\n'
             f'    raw = payload.model_dump()\n'
             f'    data = {{k: v for k, v in raw.items() if v is not None and k != "id"}}\n'
@@ -677,7 +679,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             f'    conn.close()\n'
             f'    return {res.title()}(**dict(row))\n',
 
-            f'@app.get("/{table}/{{item_id}}", response_model={res.title()})\ndef get_{res}(item_id: int):\n'
+            f'@app.get("/{table}/{{item_id}}", response_model={res.title()})\ndef get_{res}(item_id: int{_auth_sep}{_auth_param}):\n'
             f'    conn = get_db()\n'
             f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
             f'    conn.close()\n'
@@ -685,7 +687,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             f'        raise HTTPException(404, "{res} not found")\n'
             f'    return {res.title()}(**dict(row))\n',
 
-            f'@app.put("/{table}/{{item_id}}", response_model={res.title()})\ndef update_{res}(item_id: int, payload: {res.title()}Create):\n'
+            f'@app.put("/{table}/{{item_id}}", response_model={res.title()})\ndef update_{res}(item_id: int, payload: {res.title()}Create{_auth_sep}{_auth_param}):\n'
             f'    conn = get_db()\n'
             f'    existing = conn.execute("SELECT id FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
             f'    if not existing:\n'
@@ -700,7 +702,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             f'    conn.close()\n'
             f'    return {res.title()}(**dict(row))\n',
 
-            f'@app.delete("/{table}/{{item_id}}")\ndef delete_{res}(item_id: int):\n'
+            f'@app.delete("/{table}/{{item_id}}")\ndef delete_{res}(item_id: int{_auth_sep}{_auth_param}):\n'
             f'    conn = get_db()\n'
             f'    cur = conn.execute("DELETE FROM {table} WHERE id=?", (item_id,))\n'
             f'    conn.commit(); conn.close()\n'
