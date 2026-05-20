@@ -3,15 +3,15 @@ AetherOS — OpenRouter LLM Client
 
 OpenAI-compatible REST API at https://openrouter.ai/api/v1
 
-Live free model catalogue (verified 2026-05-19 against openrouter.ai/api/v1/models):
+Live free model catalogue (verified 2026-05-20 against openrouter.ai/api/v1/models):
   minimax/minimax-m2.5:free                  — best free model for code generation
   meta-llama/llama-3.3-70b-instruct:free     — strong general + code, 128K ctx
-  qwen/qwen3-coder:free                      — code-specialised
+  qwen/qwen3-8b:free                         — code-specialised, 8B parameter Qwen3
   nvidia/nemotron-3-super-120b-a12b:free     — 120B, strong reasoning
   deepseek/deepseek-v4-flash:free            — fast, reasoning, 1M ctx
   nousresearch/hermes-3-llama-3.1-405b:free  — 405B, very capable
   meta-llama/llama-3.2-3b-instruct:free      — small/fast for light tasks
-  google/gemma-4-27b-it:free                 — balanced free model, 262K ctx
+  google/gemma-3-27b-it:free                 — balanced free model, 262K ctx
   google/gemma-4-31b-it:free                 — 262K ctx, function calling
   poolside/laguna-m.1:free                   — 131K ctx, purpose-built coding agent
   poolside/laguna-xs.2:free                  — 131K ctx, efficient coding agent
@@ -21,8 +21,8 @@ Live free model catalogue (verified 2026-05-19 against openrouter.ai/api/v1/mode
 
 Previously available models that are now 404 (do NOT use):
   deepseek/deepseek-r1:free, meta-llama/llama-4-maverick:free,
-  meta-llama/llama-4-scout:free, google/gemma-3-27b-it:free,
-  qwen/qwen3-235b-a22b:free, microsoft/phi-4:free,
+  meta-llama/llama-4-scout:free, google/gemma-4-27b-it:free,
+  qwen/qwen3-coder:free, qwen/qwen3-235b-a22b:free, microsoft/phi-4:free,
   mistralai/mistral-7b-instruct:free, nvidia/llama-3.1-nemotron-70b-instruct:free
 
 Task routing:
@@ -46,13 +46,13 @@ OPENROUTER_MODELS = {
     "minimax-m2.5-free":      "minimax/minimax-m2.5:free",
     "llama33-70b-free":       "meta-llama/llama-3.3-70b-instruct:free",
     "llama32-3b-free":        "meta-llama/llama-3.2-3b-instruct:free",
-    "qwen3-coder-free":       "qwen/qwen3-coder:free",
+    "qwen3-8b-free":          "qwen/qwen3-8b:free",
     "qwen3-80b-free":         "qwen/qwen3-next-80b-a3b-instruct:free",
     "nemotron-super-120b":    "nvidia/nemotron-3-super-120b-a12b:free",
     "nemotron-nano-9b":       "nvidia/nemotron-nano-9b-v2:free",
     "deepseek-v4-flash-free": "deepseek/deepseek-v4-flash:free",
     "hermes3-405b-free":      "nousresearch/hermes-3-llama-3.1-405b:free",
-    "gemma4-27b-free":        "google/gemma-4-27b-it:free",
+    "gemma3-27b-free":        "google/gemma-3-27b-it:free",
     "gemma4-31b-free":        "google/gemma-4-31b-it:free",
     "gemma4-26b-free":        "google/gemma-4-26b-a4b-it:free",
     "gpt-oss-120b-free":      "openai/gpt-oss-120b:free",
@@ -75,7 +75,7 @@ OPENROUTER_MODELS = {
 COUNCIL_MODELS = [
     "deepseek/deepseek-v4-flash:free",          # 1M ctx, fast reasoning
     "poolside/laguna-m.1:free",                 # 131K ctx, coding specialist
-    "qwen/qwen3-coder:free",                    # code-specialised
+    "qwen/qwen3-8b:free",                       # code-specialised, 8B Qwen3
     "arcee-ai/trinity-large-thinking:free",     # 262K ctx, reasoning
     "google/gemma-4-31b-it:free",               # 262K ctx, balanced
     "meta-llama/llama-3.3-70b-instruct:free",   # reliable fallback

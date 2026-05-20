@@ -1146,6 +1146,40 @@ def create_app() -> FastAPI:
                             await _ls.extract_patterns_from_run(run_id, org_id, user_id, _s2)
                     except Exception as _le:
                         logger.debug("[pipeline] Learning loop skipped: %s", _le)
+
+                # Record GlobalPattern aggregate learning after each completed build
+                try:
+                    from aether_os.core.quality.metrics import score_project
+                    from aether_os.core.projects import get_project_manager
+                    from aether_os.core.db import get_session_factory as _gsf_gp
+                    from aether_os.core.services.global_pattern_service import record_global_pattern
+                    _project_dir = get_project_manager().get_project_dir(run_id)
+                    if _project_dir.exists():
+                        _qscore = score_project(_project_dir)
+                        # Resolve domain from the run record
+                        _gp_domain = "general"
+                        try:
+                            from aether_os.core.models import Run as _Run_gp
+                            from sqlalchemy import select as _sel_gp
+                            async with _gsf_gp()() as _s_gp:
+                                _run_row = (await _s_gp.execute(
+                                    _sel_gp(_Run_gp.domain).where(_Run_gp.id == run_id)
+                                )).scalar_one_or_none()
+                                if _run_row:
+                                    _gp_domain = _run_row or "general"
+                                async with _gsf_gp()() as _s_gp2:
+                                    await record_global_pattern(
+                                        run_id=run_id,
+                                        domain=_gp_domain,
+                                        quality_score_total=float(_qscore.total),
+                                        quality_details=_qscore.details,
+                                        session=_s_gp2,
+                                    )
+                        except Exception as _dom_e:
+                            logger.debug("[GlobalPattern] domain resolve failed: %s", _dom_e)
+                except Exception as _gpe:
+                    logger.debug("[GlobalPattern] recording skipped: %s", _gpe)
+
                 logger.info("Pipeline completed: run_id=%s status=%s", result.get("run_id"), result.get("status"))
             except Exception as exc:
                 logger.error("Background pipeline failed: %s", exc)
@@ -2234,29 +2268,61 @@ def create_app() -> FastAPI:
 
     @app.get("/intelligence/global-insights")
     async def get_global_insights(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-        """Authenticated intelligence feed — aggregated from completed runs in the main DB."""
+        """Authenticated intelligence feed — aggregated from GlobalPattern + completed runs."""
         try:
             from aether_os.core.db import get_session_factory
-            from sqlalchemy import text as _text
+            from aether_os.core.models import GlobalPattern
+            from sqlalchemy import text as _text, select as _sel, func as _func
             session_factory = get_session_factory()
             async with session_factory() as session:
-                # Domain distribution from completed runs
-                domain_rows = await session.execute(
-                    _text("SELECT domain, COUNT(*) as count FROM runs WHERE status='completed' AND domain IS NOT NULL GROUP BY domain ORDER BY count DESC LIMIT 20")
-                )
-                stats = [{"domain": r[0], "count": r[1]} for r in domain_rows]
-                # Tech stack signals from run metadata (best-effort, no crash if column missing)
+                # ── GlobalPattern rows — real learned data ─────────────────────
+                gp_rows = (await session.execute(
+                    _sel(GlobalPattern)
+                    .order_by(GlobalPattern.usage_count.desc())
+                    .limit(50)
+                )).scalars().all()
+
+                patterns = [
+                    {
+                        "domain": gp.domain,
+                        "pattern_name": gp.pattern_name,
+                        "pattern_type": gp.pattern_type,
+                        "success_rate": round(gp.success_rate, 3),
+                        "avg_quality_score": round(gp.avg_quality_score, 1),
+                        "usage_count": gp.usage_count,
+                        "last_updated": gp.last_updated.isoformat() if gp.last_updated else None,
+                    }
+                    for gp in gp_rows
+                ]
+
+                # ── Top domains by success_rate from GlobalPattern ─────────────
+                top_patterns = sorted(
+                    [p for p in patterns if p["usage_count"] >= 2],
+                    key=lambda x: (-x["success_rate"], -x["avg_quality_score"]),
+                )[:5]
+
+                # ── Domain distribution from completed runs (fallback/supplement) ─
                 try:
-                    stack_rows = await session.execute(
-                        _text("SELECT raw_input, domain FROM runs WHERE status='completed' ORDER BY created_at DESC LIMIT 100")
+                    domain_rows = await session.execute(
+                        _text(
+                            "SELECT domain, COUNT(*) as count FROM runs "
+                            "WHERE status='completed' AND domain IS NOT NULL "
+                            "GROUP BY domain ORDER BY count DESC LIMIT 20"
+                        )
                     )
-                    best = [{"domain": r[1], "success_rate": 1.0} for r in stack_rows if r[1]][:5]
+                    stats = [{"domain": r[0], "count": r[1]} for r in domain_rows]
                 except Exception:
-                    best = []
-            return {"stats": stats, "top_tech_stacks": best}
+                    stats = []
+
+            return {
+                "stats": stats,
+                "top_tech_stacks": top_patterns,
+                "global_patterns": patterns,
+                "total_patterns_learned": len(patterns),
+            }
         except Exception as exc:
             logger.debug("global-insights failed: %s", exc)
-            return {"stats": [], "top_tech_stacks": []}
+            return {"stats": [], "top_tech_stacks": [], "global_patterns": [], "total_patterns_learned": 0}
 
     @app.post("/marketplace/publish")
     async def publish_profile(
