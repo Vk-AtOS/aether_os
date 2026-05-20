@@ -44,7 +44,7 @@ class ModelSpec:
 _DEFAULT_FALLBACK_MODELS = (
     "minimax/minimax-m2.5:free,"
     "meta-llama/llama-3.3-70b-instruct:free,"
-    "qwen/qwen3-coder:free,"
+    "qwen/qwen3-8b:free,"
     "nvidia/nemotron-3-super-120b-a12b:free,"
     "deepseek/deepseek-v4-flash:free,"
     "nousresearch/hermes-3-llama-3.1-405b:free,"
@@ -272,9 +272,10 @@ class ModelRouter:
             if models_tried > 0:
                 _fallback_count_today += 1
                 logger.info(
-                    "Router: falling back to %s/%s (fallbacks today: %d)",
+                    "Router: falling back to %s/%s (fallbacks today: %d) — waiting 15 s",
                     spec.provider, spec.model, _fallback_count_today,
                 )
+                await asyncio.sleep(15)  # 15-second cooldown between fallback attempts
 
             models_tried += 1
             error_class = "fallback"  # default if no attempt completes

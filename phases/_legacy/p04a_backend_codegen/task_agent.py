@@ -310,9 +310,24 @@ class BackendCodegenAgent:
             f"- Before each domain-specific logic, include '# Domain pattern: {{name}} — {{why used}}' comments\n"
             f"- Include security comments like '# Security: why this pattern is required for this domain'\n"
             f"- Use Pydantic v2 BaseModel for request/response bodies\n"
-            f"- Use SQLite via Python's stdlib sqlite3 for persistence\n"
-            f"- On startup call a create_tables() function that runs CREATE TABLE IF NOT EXISTS for each resource\n"
-            f"- Store the DB at './data.db'; use sqlite3.connect('./data.db') in each route\n"
+            f"- Use SQLAlchemy ORM (not raw sqlite3) for all database access — NEVER use f-string SQL\n"
+            f"- Import: from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, text, Index\n"
+            f"- Import: from sqlalchemy.ext.declarative import declarative_base\n"
+            f"- Import: from sqlalchemy.orm import sessionmaker, Session\n"
+            f"- Import: from fastapi import Query, Request\n"
+            f"- Setup: DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data.db')\n"
+            f"- Setup: engine = create_engine(DATABASE_URL, connect_args={{\"check_same_thread\": False}} if 'sqlite' in DATABASE_URL else {{}})\n"
+            f"- Setup: SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)\n"
+            f"- Setup: Base = declarative_base()\n"
+            f"- Provide a get_db() dependency that yields a Session and closes it in finally\n"
+            f"- Define SQLAlchemy model classes (subclass Base) with __tablename__ for each resource\n"
+            f"- Call Base.metadata.create_all(bind=engine) on startup to create tables\n"
+            f"- After create_all, create indexes on common lookup columns using sqlalchemy Index objects\n"
+            f"- All list endpoints MUST accept skip: int = 0 and limit: int = Query(default=50, le=500) for pagination\n"
+            f"- Add rate limiting using slowapi: from slowapi import Limiter, _rate_limit_exceeded_handler; from slowapi.util import get_remote_address; from slowapi.errors import RateLimitExceeded\n"
+            f"- Setup limiter: limiter = Limiter(key_func=get_remote_address); app.state.limiter = limiter; app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)\n"
+            f"- Decorate every route with @limiter.limit('100/minute') and add request: Request as first parameter\n"
+            f"- Never use cursor.execute(f'...') or any f-string SQL — all queries must go through ORM or db.execute(text('...'), {{params}})\n"
             f"- Include CORS middleware\n"
             f"{rules_str}\n"
             f"- No placeholder comments like 'TODO' or 'implement this'\n"
@@ -613,45 +628,89 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         )
     create_model = "\n".join(all_models)
 
-    # Build CREATE TABLE statements for ALL resources
-    create_stmts = []
+    # Build SQLAlchemy ORM model classes for ALL resources
+    _FLOAT_FIELDS_ORM = {"price", "amount", "total", "value", "revenue", "cost", "balance",
+                         "salary", "budget", "fee", "tax", "discount"}
+    _INT_FIELDS_ORM   = {"quantity", "stock", "count", "rating", "score", "capacity",
+                         "age", "year", "number"}
+
+    def _sa_col_type(col: str) -> str:
+        if col == "id":
+            return "Column(Integer, primary_key=True, autoincrement=True)"
+        if col.endswith("_id"):
+            return "Column(Integer, index=True)"
+        if col.lower() in _FLOAT_FIELDS_ORM:
+            return "Column(Float, default=0.0)"
+        if col.lower() in _INT_FIELDS_ORM:
+            return "Column(Integer, default=0)"
+        if col.endswith("_at") or col in ("date", "datetime", "due_date",
+                                           "start_date", "end_date", "close_date"):
+            return "Column(DateTime, nullable=True)"
+        return "Column(String, nullable=True)"
+
+    orm_models = []
+    index_lines = []
     for r in all_resources:
-        cols_for_sql = list(r["columns"])
-        if domain == "saas_multitenant" and "org_id" not in cols_for_sql:
-            cols_for_sql.append("org_id")
-        elif domain == "healthcare" and "fhir_resource_type" not in cols_for_sql:
-            cols_for_sql.append("fhir_resource_type")
-        def _sql_type(c):
-            l = c.lower()
-            if c == "id": return "id INTEGER PRIMARY KEY AUTOINCREMENT"
-            if c.endswith("_id"): return f"{c} INTEGER"
-            if l in {"price","amount","total","value","revenue","cost","balance","salary","budget","fee","tax","discount"}: return f"{c} REAL"
-            if l in {"quantity","stock","count","rating","score","capacity","age","year","number"}: return f"{c} INTEGER"
-            return f"{c} TEXT"
-        col_defs_sql = ", ".join(_sql_type(c) for c in cols_for_sql)
-        create_stmts.append(
-            f"    conn.execute('CREATE TABLE IF NOT EXISTS {r['table']} ({col_defs_sql})')"
+        res   = r["resource"]
+        table = r["table"]
+        cols_for_orm = list(r["columns"])
+        if domain == "saas_multitenant" and "org_id" not in cols_for_orm:
+            cols_for_orm.append("org_id")
+        elif domain == "healthcare" and "fhir_resource_type" not in cols_for_orm:
+            cols_for_orm.append("fhir_resource_type")
+        col_defs_orm = "\n".join(
+            f"    {c} = {_sa_col_type(c)}" for c in cols_for_orm
         )
-    # Always ensure users table exists for auth
+        orm_models.append(
+            f"class {res.title()}ORM(Base):\n"
+            f"    __tablename__ = '{table}'\n"
+            f"{col_defs_orm}\n"
+        )
+        # Index on first non-id, non-_at foreign key for common lookups
+        lookup_cols = [c for c in cols_for_orm
+                       if c != "id" and not c.endswith("_at") and c.endswith("_id")]
+        for lc in lookup_cols[:1]:
+            index_lines.append(
+                f"Index('ix_{table}_{lc}', {res.title()}ORM.{lc}, "
+                f"postgresql_using='btree').create(bind=engine, checkfirst=True)"
+            )
+
+    # Always ensure users table for auth
     if has_auth:
-        create_stmts.append(
-            "    conn.execute('CREATE TABLE IF NOT EXISTS users "
-            "(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, "
-            "password_hash TEXT NOT NULL, name TEXT DEFAULT \"\")')"
+        orm_models.append(
+            "class UserORM(Base):\n"
+            "    __tablename__ = 'users'\n"
+            "    id = Column(Integer, primary_key=True, autoincrement=True)\n"
+            "    email = Column(String, unique=True, nullable=False, index=True)\n"
+            "    password_hash = Column(String, nullable=False)\n"
+            "    name = Column(String, default='')\n"
         )
 
-    # Build routes for ALL resources
+    orm_models_str = "\n".join(orm_models)
+    index_creation = "\n".join(f"    {ln}" for ln in index_lines) or "    pass  # no additional indexes"
+
+    # Build routes for ALL resources using SQLAlchemy ORM + pagination + rate limiting
     routes = [
-        f'@app.get("/health")\ndef health():\n    return {{"status": "ok", "domain": "{domain}"}}\n',
+        f'@app.get("/health")\n'
+        f'@limiter.limit("200/minute")\n'
+        f'def health(request: Request):\n'
+        f'    return {{"status": "ok", "domain": "{domain}"}}\n',
     ]
 
     if domain == "industrial":
         routes.append(
-            '@app.post("/telemetry")\ndef post_telemetry(data: dict):\n    # High-frequency ingestion\n    return {"status": "recorded", "ts": 123456789}\n'
+            '@app.post("/telemetry")\n'
+            '@limiter.limit("500/minute")\n'
+            'def post_telemetry(request: Request, data: dict):\n'
+            '    # High-frequency sensor ingestion\n'
+            '    return {"status": "recorded", "ts": 123456789}\n'
         )
     elif domain == "fintech":
         routes.append(
-            'def idempotent(func):\n    def wrapper(*args, **kwargs):\n        return func(*args, **kwargs)\n    return wrapper\n'
+            'def idempotent(func):\n'
+            '    def wrapper(*args, **kwargs):\n'
+            '        return func(*args, **kwargs)\n'
+            '    return wrapper\n'
         )
 
     for r in all_resources:
@@ -660,54 +719,56 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         _auth_param = "user: dict = Depends(verify_token)" if has_auth else ""
         _auth_sep   = ", " if has_auth else ""
         routes += [
-            f'@app.get("/{table}", response_model=List[{res.title()}])\ndef list_{table}({_auth_param}):\n'
-            f'    conn = get_db()\n'
-            f'    rows = conn.execute("SELECT * FROM {table}").fetchall()\n'
-            f'    conn.close()\n'
-            f'    return [{res.title()}(**dict(row)) for row in rows]\n',
+            # LIST with pagination
+            f'@app.get("/{table}", response_model=List[{res.title()}])\n'
+            f'@limiter.limit("100/minute")\n'
+            f'def list_{table}(request: Request, skip: int = 0, limit: int = Query(default=50, le=500){_auth_sep}{_auth_param}, db: Session = Depends(get_db)):\n'
+            f'    # Security: ORM query prevents SQL injection; pagination prevents DoS\n'
+            f'    return db.query({res.title()}ORM).offset(skip).limit(limit).all()\n',
 
-            f'@app.post("/{table}", response_model={res.title()}, status_code=201)\ndef create_{res}(payload: {res.title()}Create{_auth_sep}{_auth_param}):\n'
-            f'    conn = get_db()\n'
-            f'    raw = payload.model_dump()\n'
-            f'    data = {{k: v for k, v in raw.items() if v is not None and k != "id"}}\n'
-            f'    cols_list = list(data.keys())\n'
-            f'    vals = [data[c] for c in cols_list]\n'
-            f'    placeholders = ", ".join("?" for _ in cols_list)\n'
-            f'    cur = conn.execute(f"INSERT INTO {table} ({{chr(44).join(cols_list)}}) VALUES ({{placeholders}})", vals)\n'
-            f'    conn.commit()\n'
-            f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (cur.lastrowid,)).fetchone()\n'
-            f'    conn.close()\n'
-            f'    return {res.title()}(**dict(row))\n',
+            # CREATE
+            f'@app.post("/{table}", response_model={res.title()}, status_code=201)\n'
+            f'@limiter.limit("60/minute")\n'
+            f'def create_{res}(request: Request, payload: {res.title()}Create{_auth_sep}{_auth_param}, db: Session = Depends(get_db)):\n'
+            f'    # Security: ORM constructor avoids f-string SQL injection\n'
+            f'    obj = {res.title()}ORM(**{{k: v for k, v in payload.model_dump().items() if v is not None}})\n'
+            f'    db.add(obj)\n'
+            f'    db.commit()\n'
+            f'    db.refresh(obj)\n'
+            f'    return obj\n',
 
-            f'@app.get("/{table}/{{item_id}}", response_model={res.title()})\ndef get_{res}(item_id: int{_auth_sep}{_auth_param}):\n'
-            f'    conn = get_db()\n'
-            f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
-            f'    conn.close()\n'
-            f'    if not row:\n'
+            # GET by ID
+            f'@app.get("/{table}/{{item_id}}", response_model={res.title()})\n'
+            f'@limiter.limit("200/minute")\n'
+            f'def get_{res}(request: Request, item_id: int{_auth_sep}{_auth_param}, db: Session = Depends(get_db)):\n'
+            f'    obj = db.query({res.title()}ORM).filter({res.title()}ORM.id == item_id).first()\n'
+            f'    if not obj:\n'
             f'        raise HTTPException(404, "{res} not found")\n'
-            f'    return {res.title()}(**dict(row))\n',
+            f'    return obj\n',
 
-            f'@app.put("/{table}/{{item_id}}", response_model={res.title()})\ndef update_{res}(item_id: int, payload: {res.title()}Create{_auth_sep}{_auth_param}):\n'
-            f'    conn = get_db()\n'
-            f'    existing = conn.execute("SELECT id FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
-            f'    if not existing:\n'
-            f'        conn.close()\n'
+            # UPDATE
+            f'@app.put("/{table}/{{item_id}}", response_model={res.title()})\n'
+            f'@limiter.limit("60/minute")\n'
+            f'def update_{res}(request: Request, item_id: int, payload: {res.title()}Create{_auth_sep}{_auth_param}, db: Session = Depends(get_db)):\n'
+            f'    obj = db.query({res.title()}ORM).filter({res.title()}ORM.id == item_id).first()\n'
+            f'    if not obj:\n'
             f'        raise HTTPException(404, "{res} not found")\n'
-            f'    data = {{k: v for k, v in payload.model_dump().items() if v is not None and k != "id"}}\n'
-            f'    if data:\n'
-            f'        sets = ", ".join(f"{{k}}=?" for k in data)\n'
-            f'        conn.execute(f"UPDATE {table} SET {{sets}} WHERE id=?", list(data.values()) + [item_id])\n'
-            f'        conn.commit()\n'
-            f'    row = conn.execute("SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()\n'
-            f'    conn.close()\n'
-            f'    return {res.title()}(**dict(row))\n',
+            f'    for k, v in payload.model_dump(exclude_unset=True).items():\n'
+            f'        if k != "id" and v is not None:\n'
+            f'            setattr(obj, k, v)\n'
+            f'    db.commit()\n'
+            f'    db.refresh(obj)\n'
+            f'    return obj\n',
 
-            f'@app.delete("/{table}/{{item_id}}")\ndef delete_{res}(item_id: int{_auth_sep}{_auth_param}):\n'
-            f'    conn = get_db()\n'
-            f'    cur = conn.execute("DELETE FROM {table} WHERE id=?", (item_id,))\n'
-            f'    conn.commit(); conn.close()\n'
-            f'    if cur.rowcount == 0:\n'
+            # DELETE
+            f'@app.delete("/{table}/{{item_id}}")\n'
+            f'@limiter.limit("60/minute")\n'
+            f'def delete_{res}(request: Request, item_id: int{_auth_sep}{_auth_param}, db: Session = Depends(get_db)):\n'
+            f'    obj = db.query({res.title()}ORM).filter({res.title()}ORM.id == item_id).first()\n'
+            f'    if not obj:\n'
             f'        raise HTTPException(404, "{res} not found")\n'
+            f'    db.delete(obj)\n'
+            f'    db.commit()\n'
             f'    return {{"status": "deleted", "id": item_id}}\n',
         ]
 
@@ -721,7 +782,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             "    return response\n"
         )
 
-    # JWT auth block
+    # JWT auth block — using SQLAlchemy ORM (no raw SQL)
     auth_block = ""
     if has_auth:
         auth_block = (
@@ -744,33 +805,35 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             "    except JWTError:\n"
             "        raise HTTPException(status_code=401, detail='Invalid token')\n\n"
             "@app.post('/auth/register')\n"
-            "def register(email: str = Body(...), password: str = Body(...), name: str = Body('')):\n"
-            "    conn = get_db()\n"
-            "    existing = conn.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()\n"
+            "@limiter.limit('20/minute')\n"
+            "def register(request: Request, email: str = Body(...), password: str = Body(...), name: str = Body(''), db: Session = Depends(get_db)):\n"
+            "    # Security: parameterised ORM query — no SQL injection risk\n"
+            "    existing = db.query(UserORM).filter(UserORM.email == email).first()\n"
             "    if existing:\n"
-            "        conn.close()\n"
             "        raise HTTPException(400, 'Email already registered')\n"
             "    hashed = pwd_context.hash(password)\n"
-            "    cur = conn.execute('INSERT INTO users (email, password_hash, name) VALUES (?,?,?)', (email, hashed, name))\n"
-            "    conn.commit(); uid = cur.lastrowid; conn.close()\n"
-            "    token = create_token({'sub': str(uid), 'email': email})\n"
-            "    return {'access_token': token, 'token_type': 'bearer', 'user_id': uid}\n\n"
+            "    user = UserORM(email=email, password_hash=hashed, name=name)\n"
+            "    db.add(user)\n"
+            "    db.commit()\n"
+            "    db.refresh(user)\n"
+            "    token = create_token({'sub': str(user.id), 'email': email})\n"
+            "    return {'access_token': token, 'token_type': 'bearer', 'user_id': user.id}\n\n"
             "@app.post('/auth/login')\n"
-            "def login(email: str = Body(...), password: str = Body(...)):\n"
-            "    conn = get_db()\n"
-            "    row = conn.execute('SELECT id, password_hash FROM users WHERE email=?', (email,)).fetchone()\n"
-            "    conn.close()\n"
-            "    if not row or not pwd_context.verify(password, row['password_hash']):\n"
+            "@limiter.limit('20/minute')\n"
+            "def login(request: Request, email: str = Body(...), password: str = Body(...), db: Session = Depends(get_db)):\n"
+            "    # Security: ORM filter — no SQL injection risk\n"
+            "    user = db.query(UserORM).filter(UserORM.email == email).first()\n"
+            "    if not user or not pwd_context.verify(password, user.password_hash):\n"
             "        raise HTTPException(401, 'Invalid credentials')\n"
-            "    token = create_token({'sub': str(row['id']), 'email': email})\n"
+            "    token = create_token({'sub': str(user.id), 'email': email})\n"
             "    return {'access_token': token, 'token_type': 'bearer'}\n"
         )
 
     imports_extra = ""
     if has_auth:
-        imports_extra = "from fastapi import FastAPI, HTTPException, Depends, Body\n"
+        imports_extra = "from fastapi import FastAPI, HTTPException, Depends, Body, Query, Request\n"
     else:
-        imports_extra = "from fastapi import FastAPI, HTTPException\n"
+        imports_extra = "from fastapi import FastAPI, HTTPException, Query, Request\n"
 
     # FIX G8: RBAC helper for saas/healthcare/fintech domains
     if domain in ("saas_multitenant", "healthcare", "fintech"):
@@ -786,18 +849,32 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
     else:
         rbac_block = ""
 
-    create_tables_body = "\n".join(create_stmts)
-
     return (
         "import os\n"
-        "import sqlite3\n"
         f"{imports_extra}"
         "from fastapi.middleware.cors import CORSMiddleware\n"
         "from slowapi import Limiter, _rate_limit_exceeded_handler\n"
         "from slowapi.util import get_remote_address\n"
         "from slowapi.errors import RateLimitExceeded\n"
         "from pydantic import BaseModel\n"
-        "from typing import List, Optional\n\n"
+        "from typing import List, Optional\n"
+        "from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Index\n"
+        "from sqlalchemy.ext.declarative import declarative_base\n"
+        "from sqlalchemy.orm import sessionmaker, Session\n\n"
+        "# ── Database setup (SQLAlchemy ORM — no raw SQL) ──────────────────────────\n"
+        "DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data.db')\n"
+        "engine = create_engine(\n"
+        "    DATABASE_URL,\n"
+        "    connect_args={'check_same_thread': False} if 'sqlite' in DATABASE_URL else {}\n"
+        ")\n"
+        "SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)\n"
+        "Base = declarative_base()\n\n"
+        "def get_db():\n"
+        "    db = SessionLocal()\n"
+        "    try:\n"
+        "        yield db\n"
+        "    finally:\n"
+        "        db.close()\n\n"
         f"app = FastAPI(title='{domain.title()} API', version='1.0.0')\n\n"
         "app.add_middleware(\n"
         "    CORSMiddleware,\n"
@@ -805,24 +882,21 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         "    allow_methods=['*'],\n"
         "    allow_headers=['*'],\n"
         ")\n\n"
-        "# FIX G5: rate limiting via slowapi\n"
+        "# Rate limiting via slowapi\n"
         "limiter = Limiter(key_func=get_remote_address, default_limits=['200/day', '50/hour'])\n"
         "app.state.limiter = limiter\n"
         "app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)\n\n"
-        "DB_PATH = './data.db'\n\n"
-        "def get_db():\n"
-        "    conn = sqlite3.connect(DB_PATH)\n"
-        "    conn.row_factory = sqlite3.Row\n"
-        "    return conn\n\n"
-        "def create_tables():\n"
-        "    conn = get_db()\n"
-        f"{create_tables_body}\n"
-        "    conn.commit(); conn.close()\n\n"
-        "create_tables()\n\n"
+        "# ── SQLAlchemy ORM models ─────────────────────────────────────────────────\n"
+        f"{orm_models_str}\n"
+        "# Create tables and indexes on startup\n"
+        "Base.metadata.create_all(bind=engine)\n\n"
+        "def _create_indexes():\n"
+        f"{index_creation}\n"
+        "_create_indexes()\n\n"
         f"{auth_block}\n"
         f"{rbac_block}"
         f"{middleware}\n"
-        f"# Pydantic models\n{create_model}\n"
+        f"# Pydantic response models\n{create_model}\n"
         + "\n".join(routes)
     )
 
@@ -852,11 +926,12 @@ def _build_requirements(stack: dict) -> str:
     pkgs = ["fastapi>=0.111.0", "uvicorn[standard]>=0.29.0", "pydantic>=2.0.0"]
     db = stack.get("database", "").lower()
     if "postgres" in db:
-        pkgs += ["asyncpg", "sqlalchemy[asyncio]>=2.0.0", "alembic"]
+        pkgs += ["asyncpg", "sqlalchemy>=2.0.0", "alembic", "psycopg2-binary"]
     elif "mongo" in db:
         pkgs += ["motor", "beanie"]
     else:
-        pkgs += ["aiosqlite", "sqlalchemy[asyncio]>=2.0.0"]
+        # SQLite default: synchronous SQLAlchemy + aiosqlite for async support
+        pkgs += ["aiosqlite", "sqlalchemy>=2.0.0", "alembic"]
     if "redis" in stack.get("cache", "").lower():
         pkgs += ["redis[hiredis]"]
     pkgs += [
@@ -867,7 +942,7 @@ def _build_requirements(stack: dict) -> str:
         "httpx",
         "pytest>=8.0.0",
         "pytest-asyncio>=0.23.0",
-        "slowapi",
+        "slowapi>=0.1.9",
     ]
     return "\n".join(sorted(set(pkgs))) + "\n"
 
