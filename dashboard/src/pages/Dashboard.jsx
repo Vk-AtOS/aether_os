@@ -223,7 +223,7 @@ const Dashboard = () => {
         return started.toDateString() === today.toDateString() && (r.status === 'PASSED' || r.status === 'passed' || r.status === 'completed');
       }).length, icon: CheckCircle2, color: 'text-success' },
     { label: 'Total Cost Today', value: `$${costs.today_usd?.toFixed(2) || '0.00'}`, icon: Clock, color: 'text-warning' },
-    { label: 'Tokens (Month)', value: costs.tokens_today > 0 ? costs.tokens_today.toLocaleString() : '—', icon: Coins, color: 'text-success' },
+    { label: 'Tokens (Month)', value: costs.tokens_today != null ? costs.tokens_today.toLocaleString() : '—', icon: Coins, color: 'text-success' },
   ];
 
   const noLLM = health && !health.anthropic_available && !health.gemini_available && !health.ollama_available && !health.openrouter_available;
