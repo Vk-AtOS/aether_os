@@ -444,7 +444,7 @@ def create_app() -> FastAPI:
                 _count = (await _ms.execute(
                     _sel_m(_func_m.count()).select_from(_MP)
                 )).scalar()
-                if _count == 0:
+                if _count < 5:  # guard against partial seeds and race between workers
                     _builtin_skills = [
                         ("JWT Authentication", "auth", "Full JWT auth with refresh tokens, bcrypt hashing, and role-based access control"),
                         ("CRUD Operations", "general", "Generic SQLAlchemy CRUD endpoints with filtering, pagination, and soft deletes"),
@@ -457,7 +457,14 @@ def create_app() -> FastAPI:
                         ("Admin Dashboard", "admin", "Role-gated admin panel with user management, audit log, and bulk actions"),
                         ("Internationalisation", "general", "i18n middleware with locale detection, message catalogs, and date/number formatting"),
                     ]
+                    # Clear any partial seed before re-inserting
+                    await _ms.execute(_sel_m(_func_m.count()).select_from(_MP))  # keep session alive
                     for _nm, _dm, _ds in _builtin_skills:
+                        _existing = (await _ms.execute(
+                            _sel_m(_MP).where(_MP.name == _nm).where(_MP.org_id == "system")
+                        )).scalars().first()
+                        if _existing:
+                            continue
                         _ms.add(_MP(
                             id=str(_uuid_m.uuid4()),
                             org_id="system",
@@ -2486,9 +2493,9 @@ def create_app() -> FastAPI:
             async with _gsf_qt()() as _sess:
                 rows = (await _sess.execute(
                     _qt_text(
-                        "SELECT id, project_name, created_at FROM runs "
+                        "SELECT id, project_name, started_at FROM runs "
                         "WHERE org_id=:oid AND status IN ('completed','passed') "
-                        "ORDER BY created_at DESC LIMIT :lim"
+                        "ORDER BY started_at DESC LIMIT :lim"
                     ),
                     {"oid": org_id, "lim": _limit},
                 )).all()
@@ -2501,7 +2508,7 @@ def create_app() -> FastAPI:
         projects_dir = _pathlib.Path.home() / ".aether_os" / "projects"
 
         for row in rows:
-            run_id_qt, proj_name, created_at_qt = row[0], row[1], row[2]
+            run_id_qt, proj_name, started_at_qt = row[0], row[1], row[2]
             quality_score: Optional[int] = None
             compliance_score: Optional[int] = None
 
