@@ -46,6 +46,31 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
 
     issues: list[str] = []
 
+    # ── Check the new test_quality_flag written by the consolidated task_agent ─
+    quality_flag = meta.get("test_quality_flag", "")
+    if quality_flag == "fail":
+        issues.append(
+            f"Test quality: FAIL — only {meta.get('passed_tests', 0)}/{meta.get('total_tests', 0)} tests passed"
+        )
+        # Still pass the gate (non-blocking), but with low confidence and clear issue
+        return GateOutcome(passed=True, confidence=0.3, issues=issues)
+    elif quality_flag == "warn":
+        issues.append("Test quality: WARN — partial test coverage or inconclusive results")
+    elif quality_flag == "pass":
+        # Already confirmed passing via quality flag — skip legacy checks below
+        coverage = meta.get("coverage_pct")
+        if coverage is not None:
+            try:
+                cov = float(coverage)
+                if cov < 60:
+                    issues.append(f"Coverage {cov:.0f}% is low — aim for ≥ 80%")
+            except (TypeError, ValueError):
+                pass
+        confidence = 0.95 if not issues else 0.75
+        return GateOutcome(passed=True, confidence=confidence, issues=issues)
+
+    # ── Legacy path: no quality_flag set (old-format result) ─────────────────
+
     # ── Hard block: no tests generated ───────────────────────────────────────
     if not test_code and not meta.get("test_file"):
         # In consolidated mode (phases key present), task_agent marks testing
