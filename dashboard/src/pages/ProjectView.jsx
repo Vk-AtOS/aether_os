@@ -1833,8 +1833,15 @@ const ProjectView = () => {
                     </div>
 
                     {councilReport.reviews && councilReport.reviews.length === 0 && (
-                      <div className="text-center text-muted text-sm py-8">
-                        No model responses were received. Check your API keys (ANTHROPIC_API_KEY, GOOGLE_API_KEY) or ensure Ollama is running.
+                      <div className="mt-2 p-4 rounded-lg bg-amber-900/20 border border-amber-700/30">
+                        <p className="text-sm font-medium text-amber-400 mb-1">No model responses received</p>
+                        <p className="text-xs text-amber-300/70">
+                          Add API keys in{' '}
+                          <a href="/dashboard/settings" className="underline text-amber-300 hover:text-amber-200">
+                            Settings → API Keys
+                          </a>{' '}
+                          to enable Claude and Gemini reviews, or start Ollama locally for a free offline review.
+                        </p>
                       </div>
                     )}
 

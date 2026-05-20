@@ -222,11 +222,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
             "img-src 'self' data: blob:; "
-            "connect-src 'self'; "
-            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' https://cdn.jsdelivr.net; "
+            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+            "frame-src 'self' http://139.59.87.218:* http://localhost:*; "
+            "worker-src 'self' blob: https://cdn.jsdelivr.net; "
             "frame-ancestors 'none'"
         )
         # B11: HSTS only in production — prevents breaking local dev over HTTP
@@ -430,6 +432,46 @@ def create_app() -> FastAPI:
                 )
         except Exception as _exc:
             logger.warning("Crash recovery cleanup failed: %s", _exc)
+
+        # Seed marketplace with built-in skills if empty
+        try:
+            from aether_os.core.db import get_session_factory as _sf_market
+            from aether_os.core.models import MarketplaceProfile as _MP
+            from sqlalchemy import select as _sel_m, func as _func_m
+            import uuid as _uuid_m
+            _sf_m = _sf_market()
+            async with _sf_m() as _ms:
+                _count = (await _ms.execute(
+                    _sel_m(_func_m.count()).select_from(_MP)
+                )).scalar()
+                if _count == 0:
+                    _builtin_skills = [
+                        ("JWT Authentication", "Full JWT auth with refresh tokens, bcrypt hashing, and role-based access control", "auth"),
+                        ("CRUD Operations", "Generic SQLAlchemy CRUD endpoints with filtering, pagination, and soft deletes", "crud"),
+                        ("Stripe Payments", "Stripe checkout, subscription management, webhook handler, and invoice generation", "payments"),
+                        ("Email Service", "SMTP/SendGrid email sender with templating, queue, and delivery tracking", "email"),
+                        ("Full-text Search", "PostgreSQL full-text search with ranking, facets, and autocomplete", "search"),
+                        ("File Upload", "S3/local file upload with thumbnail generation and CDN URLs", "file_upload"),
+                        ("Push Notifications", "Firebase FCM push notifications with topic subscriptions and delivery receipts", "notifications"),
+                        ("Analytics Events", "Event tracking pipeline with aggregation, funnel analysis, and retention metrics", "analytics"),
+                        ("Admin Dashboard", "Role-gated admin panel with user management, audit log, and bulk actions", "admin"),
+                        ("Internationalisation", "i18n middleware with locale detection, message catalogs, and date/number formatting", "i18n"),
+                    ]
+                    for _nm, _ds, _dm in _builtin_skills:
+                        _ms.add(_MP(
+                            id=str(_uuid_m.uuid4()),
+                            name=_nm,
+                            description=_ds,
+                            domain=_dm,
+                            is_published=True,
+                            usage_count=0,
+                            published_by="system",
+                            published_at=time.time(),
+                        ))
+                    await _ms.commit()
+                    logger.info("Marketplace seeded with %d built-in skills", len(_builtin_skills))
+        except Exception as _exc:
+            logger.warning("Marketplace seeding skipped: %s", _exc)
 
         yield
 
@@ -3102,6 +3144,7 @@ def create_app() -> FastAPI:
                 "budget_tokens": budget_tokens,
                 "budget_used_pct": budget_used_pct,
             },
+            "tokens_today": usage["total_tokens"],
             "history": history,
             "cache": cache_stats,
             "targets": {
