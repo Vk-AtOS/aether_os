@@ -4,7 +4,8 @@ Strategy:
   1. Read architecture.json from p02 to get project name, db_schema, endpoints, route_map.
   2. Generate a complete frontend/ subdirectory with a production-ready React/Vite/TanStack project.
   3. Write docker-compose.yml to the parent project directory.
-  4. No LLM calls — fully deterministic template generation.
+  4. ONE optional LLM call generates a domain-specific React component (DomainWidget.jsx) and
+     injects it into Dashboard.tsx — non-fatal if it fails.
 """
 from __future__ import annotations
 
@@ -17,6 +18,144 @@ from typing import Any, Dict, List, Optional, Tuple
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
+
+# ── Domain detection ──────────────────────────────────────────────────────────
+
+def _detect_domain(phase_input: Any) -> str:
+    """Detect application domain from project description and entity names."""
+    data = (
+        phase_input.input_data
+        if hasattr(phase_input, "input_data")
+        else (phase_input if isinstance(phase_input, dict) else {})
+    )
+    description = (
+        data.get("description") or data.get("prompt") or data.get("project_name") or ""
+    ).lower()
+    entities = [e.get("name", "").lower() for e in data.get("entities", [])]
+    all_text = description + " " + " ".join(entities)
+
+    domain_keywords = {
+        "healthcare":          ["patient", "appointment", "doctor", "clinic", "medical",
+                                "prescription", "diagnosis", "health", "vitals", "nurse"],
+        "crm":                 ["lead", "deal", "pipeline", "contact", "opportunity",
+                                "prospect", "sales", "funnel", "crm"],
+        "ecommerce":           ["product", "order", "cart", "inventory", "sku",
+                                "purchase", "shop", "store", "payment", "checkout"],
+        "hrm":                 ["employee", "payroll", "attendance", "leave",
+                                "department", "salary", "hr", "hire", "onboard"],
+        "finance":             ["invoice", "payment", "expense", "budget",
+                                "transaction", "account", "billing", "ledger"],
+        "project_management":  ["task", "sprint", "milestone", "ticket",
+                                "board", "kanban", "project", "backlog"],
+        "restaurant":          ["menu", "table", "reservation", "kitchen",
+                                "dish", "waiter", "restaurant", "pos"],
+        "education":           ["student", "course", "grade", "teacher",
+                                "enrollment", "class", "lesson", "school"],
+    }
+
+    for domain, keywords in domain_keywords.items():
+        if any(kw in all_text for kw in keywords):
+            return domain
+    return "saas"
+
+
+# ── Domain-specific stat-card labels ─────────────────────────────────────────
+
+_DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
+    "healthcare":         ["Patients Today", "Appointments", "Avg Wait Time", "Staff On Duty"],
+    "crm":                ["New Leads", "Open Deals", "Revenue This Month", "Conversion Rate"],
+    "ecommerce":          ["Orders Today", "Revenue", "Items in Stock", "Cart Abandonment"],
+    "hrm":                ["Headcount", "On Leave Today", "Open Positions", "Avg Tenure (yrs)"],
+    "finance":            ["Invoices Due", "Revenue MTD", "Overdue Payments", "Burn Rate"],
+    "project_management": ["Open Tasks", "Sprints Active", "PRs Merged", "Bugs Open"],
+    "restaurant":         ["Tables Occupied", "Orders in Queue", "Avg Order Value", "Covers Today"],
+    "education":          ["Enrolled Students", "Courses Active", "Avg Grade", "Attendance %"],
+    "saas":               ["Active Users", "MRR", "Churn Rate", "NPS Score"],
+}
+
+# ── LLM-powered domain component generation ──────────────────────────────────
+
+_DOMAIN_COMPONENT_DESC: Dict[str, str] = {
+    "healthcare": (
+        "a PatientVitals card showing mock vitals (Heart Rate: 72 bpm, BP: 120/80, SpO2: 98%) "
+        "with coloured status badges and a compact appointment list for today"
+    ),
+    "crm": (
+        "a DealPipeline kanban-style row with 4 columns (New, Contacted, Proposal, Closed) "
+        "showing deal count and total value badges per column"
+    ),
+    "ecommerce": (
+        "a ProductGrid showing 4 product cards with image placeholder, name, price, "
+        "stock badge (In Stock / Low Stock / Out), and an Add-to-Cart button"
+    ),
+    "hrm": (
+        "an AttendanceTracker showing a 5-day weekly grid for 5 mock employees "
+        "with colour-coded cells (Present=green, Absent=red, Leave=yellow)"
+    ),
+    "finance": (
+        "an InvoiceStatus panel showing a row of 3 summary tiles "
+        "(Paid, Pending, Overdue) with amounts and a small recent-invoices list"
+    ),
+    "project_management": (
+        "a KanbanBoard with 3 columns (Todo, In Progress, Done) "
+        "each containing 2-3 task cards with priority badges and assignee avatars"
+    ),
+    "restaurant": (
+        "a TableMap showing a 3×4 grid of table circles colour-coded by status "
+        "(Free=green, Occupied=red, Reserved=yellow) with table numbers"
+    ),
+    "education": (
+        "a GradeDistribution component showing a horizontal bar chart of grade bands "
+        "(A/B/C/D/F) with student counts and a pass-rate summary"
+    ),
+    "saas": (
+        "a MetricsDashboard showing 4 KPI tiles (Active Users, MRR, Churn Rate, NPS) "
+        "each with a trend arrow (up/down) and a sparkline-style indicator row"
+    ),
+}
+
+
+async def _generate_domain_component(domain: str, entities: List[dict], project_name: str) -> Optional[str]:
+    """Generate a domain-specific React component via one LLM call.
+
+    Returns JSX source (str) on success, or None when the call fails or the
+    response looks invalid. This is always wrapped in a try/except at the call
+    site so failures are non-fatal.
+    """
+    from aether_os.core.llm.client import get_llm_client  # lazy import
+
+    component_desc = _DOMAIN_COMPONENT_DESC.get(domain, _DOMAIN_COMPONENT_DESC["saas"])
+    entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []
+
+    prompt = (
+        f'Generate a React functional component for a {domain} application called "{project_name}".\n\n'
+        f"The component should render: {component_desc}\n\n"
+        "Hard requirements:\n"
+        "- Tailwind CSS only (dark theme: bg-gray-900, bg-gray-800, text-white, etc.)\n"
+        "- Use lucide-react icons (import at top: import {{ ... }} from 'lucide-react')\n"
+        "- ALL data is static/mock — zero API calls, zero props, zero useState hooks for fetching\n"
+        "- Export: export default function DomainWidget() {{}}\n"
+        "- Maximum 120 lines\n"
+        "- Visual polish: rounded-2xl, shadows, colour badges, proper spacing\n"
+        f"- Entities available in this app (for label inspiration): {', '.join(entity_names)}\n\n"
+        "Return ONLY the React component code. No markdown fences, no explanation."
+    )
+
+    client = get_llm_client()
+    result = await client.call(prompt, task_type="ui_component", max_tokens=2000)
+    if (
+        result
+        and "export default" in result
+        and "function" in result
+        and "return" in result
+        and len(result) > 200
+    ):
+        # Strip accidental markdown fences
+        result = re.sub(r"^```[a-z]*\n?", "", result.strip())
+        result = re.sub(r"\n?```$", "", result.strip())
+        return result
+    return None
+
 
 # ── Columns to exclude from display and forms ─────────────────────────────────
 _EXCLUDED_COLS = frozenset([
@@ -385,20 +524,21 @@ def _generate_package_json(project_slug: str) -> str:
         "dependencies": {
             "react": "^18.3.1",
             "react-dom": "^18.3.1",
-            "@tanstack/react-query": "^5.56.2",
+            "@tanstack/react-query": "^5.62.7",
             "@tanstack/react-router": "^1.58.3",
             "@tanstack/react-table": "^8.20.5",
-            "axios": "^1.7.7",
-            "lucide-react": "^0.441.0",
+            "axios": "^1.7.9",
+            "lucide-react": "^0.469.0",
+            "recharts": "^2.14.1",
             "react-hook-form": "^7.53.0"
         },
         "devDependencies": {
             "@types/react": "^18.3.5",
             "@types/react-dom": "^18.3.0",
-            "@vitejs/plugin-react": "^4.3.1",
+            "@vitejs/plugin-react": "^4.3.4",
             "typescript": "^5.5.3",
-            "vite": "^5.4.2",
-            "tailwindcss": "^3.4.10",
+            "vite": "^6.0.5",
+            "tailwindcss": "^3.4.17",
             "autoprefixer": "^10.4.20",
             "postcss": "^8.4.45"
         }
@@ -1174,18 +1314,22 @@ export function LoginPage() {{
 """
 
 
-def _generate_dashboard(entities: List[dict], route_map: Dict[str, str]) -> str:
-    """Generate src/pages/Dashboard.tsx with stat cards."""
+def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain: str = "saas") -> str:
+    """Generate src/pages/Dashboard.tsx with domain-aware stat cards."""
     query_lines: List[str] = []
     stat_cards: List[str] = []
 
     icons = ["BarChart3", "Users", "Activity", "TrendingUp", "Package", "FileText", "Calendar", "Database"]
 
+    # Use domain-specific labels for the first four stat cards; fall back to entity label
+    domain_labels = _DOMAIN_STAT_LABELS.get(domain, _DOMAIN_STAT_LABELS["saas"])
+
     for i, ent in enumerate(entities):
         table = ent["table"]
         camel = table[0].lower() + _to_pascal_case(table)[1:]
         endpoint = route_map.get(table, f"/{table}")
-        label = _to_label(table)
+        # Use domain-specific label for first N cards, then fall back to entity name
+        label = domain_labels[i] if i < len(domain_labels) else _to_label(table)
         icon = icons[i % len(icons)]
 
         query_lines.append(
@@ -1212,7 +1356,7 @@ def _generate_dashboard(entities: List[dict], route_map: Dict[str, str]) -> str:
     icons_import = ", ".join(used_icons) if used_icons else "BarChart3"
 
     return f"""\
-// Auto-generated by AetherOS p05_frontend
+// Auto-generated by AetherOS p05_frontend  (domain: {domain})
 import {{ useQuery }} from '@tanstack/react-query'
 import {{ {icons_import} }} from 'lucide-react'
 import {{ apiClient }} from '../lib/api'
@@ -1226,6 +1370,7 @@ export function Dashboard() {{
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
 {cards_str}
       </div>
+      {{/* DOMAIN_WIDGET_SLOT */}}
     </div>
   )
 }}
@@ -1451,6 +1596,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # 2. Normalise entities
     entities = _normalise_entities(arch)
 
+    # 2a. Detect application domain (used for stat labels + LLM widget)
+    domain = _detect_domain(phase_input)
+    logger.info("p05_frontend: detected domain=%s for project=%s", domain, project_name)
+
     # 3. Build frontend/ directory
     frontend_dir = output_dir / "frontend"
     src_dir = frontend_dir / "src"
@@ -1487,13 +1636,58 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── pages/ ────────────────────────────────────────────────────────────────
     (src_dir / "pages" / "LoginPage.tsx").write_text(_generate_login_page(project_name))
-    (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map))
+    (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain))
     for ent in entities:
         pascal = _to_pascal_case(ent["table"])
         (src_dir / "pages" / f"{pascal}Page.tsx").write_text(_generate_entity_page(ent, route_map))
 
     # ── App.tsx ───────────────────────────────────────────────────────────────
     (src_dir / "App.tsx").write_text(_generate_app(entities))
+
+    # ── Domain-specific LLM component (non-fatal bonus step) ─────────────────
+    domain_widget_generated = False
+    try:
+        domain_component = await _generate_domain_component(domain, entities, project_name)
+        if domain_component:
+            domain_file = src_dir / "components" / "DomainWidget.jsx"
+            domain_file.write_text(domain_component)
+
+            # Patch Dashboard.tsx: add import + replace slot sentinel with actual widget
+            dashboard_file = src_dir / "pages" / "Dashboard.tsx"
+            if dashboard_file.exists():
+                content = dashboard_file.read_text()
+                if "DomainWidget" not in content:
+                    # Insert import after the first import line
+                    content = content.replace(
+                        "import { useQuery }",
+                        "import DomainWidget from '../components/DomainWidget'\nimport { useQuery }",
+                        1,
+                    )
+                    # Replace the sentinel slot with the actual rendered widget
+                    content = content.replace(
+                        "{/* DOMAIN_WIDGET_SLOT */}",
+                        '<div className="mt-8"><DomainWidget /></div>',
+                        1,
+                    )
+                    dashboard_file.write_text(content)
+
+            domain_widget_generated = True
+            logger.info(
+                "p05_frontend: generated %s DomainWidget.jsx (%d chars)",
+                domain,
+                len(domain_component),
+            )
+    except Exception as _de:
+        logger.debug("p05_frontend: domain component generation failed (non-fatal): %s", _de)
+        # Clean up the sentinel comment so it doesn't appear in the shipped JSX
+        try:
+            dashboard_file = src_dir / "pages" / "Dashboard.tsx"
+            if dashboard_file.exists():
+                content = dashboard_file.read_text()
+                content = content.replace("      {/* DOMAIN_WIDGET_SLOT */}\n", "")
+                dashboard_file.write_text(content)
+        except Exception:
+            pass
 
     # 4. Write docker-compose.yml to the project root (one level up from output_dir)
     # output_dir is like ~/.aether_os/projects/<run_id>/p05_frontend
@@ -1503,39 +1697,45 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     docker_compose_path.write_text(_generate_docker_compose(project_dir))
 
     # 5. Write frontend_meta.json
+    generated_files = [
+        "frontend/package.json",
+        "frontend/vite.config.ts",
+        "frontend/tsconfig.json",
+        "frontend/tailwind.config.js",
+        "frontend/postcss.config.js",
+        "frontend/index.html",
+        "frontend/nginx.conf",
+        "frontend/Dockerfile",
+        "frontend/.env.example",
+        "frontend/src/index.css",
+        "frontend/src/main.tsx",
+        "frontend/src/App.tsx",
+        "frontend/src/lib/auth.ts",
+        "frontend/src/lib/api.ts",
+        "frontend/src/types/index.ts",
+        "frontend/src/components/Layout.tsx",
+        "frontend/src/components/DataTable.tsx",
+        "frontend/src/components/CrudModal.tsx",
+        "frontend/src/components/Toaster.tsx",
+        "frontend/src/pages/LoginPage.tsx",
+        "frontend/src/pages/Dashboard.tsx",
+    ] + [f"frontend/src/pages/{_to_pascal_case(e['table'])}Page.tsx" for e in entities]
+    if domain_widget_generated:
+        generated_files.append("frontend/src/components/DomainWidget.jsx")
+
     meta = {
         "renderer": "react-vite-tanstack",
         "framework": "react18",
         "version": "0.1.0",
         "project_name": project_name,
         "project_slug": project_slug,
+        "domain": domain,
         "entities": [e["table"] for e in entities],
         "entity_count": len(entities),
-        "used_llm": False,
+        "used_llm": domain_widget_generated,
+        "domain_widget_generated": domain_widget_generated,
         "confidence": 0.9,
-        "files_generated": [
-            "frontend/package.json",
-            "frontend/vite.config.ts",
-            "frontend/tsconfig.json",
-            "frontend/tailwind.config.js",
-            "frontend/postcss.config.js",
-            "frontend/index.html",
-            "frontend/nginx.conf",
-            "frontend/Dockerfile",
-            "frontend/.env.example",
-            "frontend/src/index.css",
-            "frontend/src/main.tsx",
-            "frontend/src/App.tsx",
-            "frontend/src/lib/auth.ts",
-            "frontend/src/lib/api.ts",
-            "frontend/src/types/index.ts",
-            "frontend/src/components/Layout.tsx",
-            "frontend/src/components/DataTable.tsx",
-            "frontend/src/components/CrudModal.tsx",
-            "frontend/src/components/Toaster.tsx",
-            "frontend/src/pages/LoginPage.tsx",
-            "frontend/src/pages/Dashboard.tsx",
-        ] + [f"frontend/src/pages/{_to_pascal_case(e['table'])}Page.tsx" for e in entities],
+        "files_generated": generated_files,
     }
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
 

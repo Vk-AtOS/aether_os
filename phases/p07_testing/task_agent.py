@@ -44,13 +44,45 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             for k, v in results.items()
         }
     }
+
+    # Aggregate real test results from sub-phases
+    total_tests = 0
+    passed_tests = 0
+    test_code_found = False
+    pytest_actually_passed = False
+
+    for key, r in results.items():
+        if r.metadata:
+            total_tests += r.metadata.get("total_tests", 0)
+            passed_tests += r.metadata.get("passed_tests", 0)
+            if r.metadata.get("test_code") or r.metadata.get("test_file"):
+                test_code_found = True
+            if r.metadata.get("pytest_passed"):
+                pytest_actually_passed = True
+
+    # Determine real quality outcome
+    if total_tests > 0:
+        pass_rate = passed_tests / total_tests
+        quality_flag = "pass" if pass_rate >= 0.7 else ("warn" if pass_rate >= 0.4 else "fail")
+    elif pytest_actually_passed:
+        quality_flag = "pass"
+    elif test_code_found:
+        quality_flag = "warn"  # tests exist but we don't know results
+    else:
+        quality_flag = "warn"  # no tests (rate limited etc)
+
+    summary["test_quality_flag"] = quality_flag
+    summary["total_tests"] = total_tests
+    summary["passed_tests"] = passed_tests
+    summary["pytest_actually_passed"] = pytest_actually_passed
+
     summary_path = output_dir / "consolidated.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
     return TaskResult(
         output_path=str(summary_path),
-        confidence=0.8,
+        confidence=0.95 if quality_flag == "pass" else (0.6 if quality_flag == "warn" else 0.3),
         metadata=summary,
-        success=True,  # Testing is non-blocking
-        issues=[],
+        success=True,  # KEEP non-blocking — but now carry real quality data
+        issues=[] if quality_flag != "fail" else [f"Tests failing: {passed_tests}/{total_tests} passed"],
     )

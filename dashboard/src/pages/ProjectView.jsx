@@ -1090,6 +1090,20 @@ const ProjectView = () => {
                     isDone2 ? 'bg-emerald-500' : isActive ? 'bg-accent animate-pulse' : isFailed ? 'bg-danger' : 'bg-slate-700'
                   }`} />
                   <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
+                  {p === 'p07_testing' && pData?.output?.test_quality_flag && (
+                    <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${
+                      pData.output.test_quality_flag === 'pass'
+                        ? 'bg-green-500/20 text-green-400'
+                        : pData.output.test_quality_flag === 'warn'
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {pData.output.test_quality_flag === 'pass'
+                        ? `${pData.output.passed_tests}/${pData.output.total_tests} passed`
+                        : pData.output.test_quality_flag === 'warn' ? 'inconclusive'
+                        : `${pData.output.passed_tests || 0}/${pData.output.total_tests || 0} FAILED`}
+                    </span>
+                  )}
                   {dur && <span className="text-[9px] text-muted ml-1 shrink-0 font-mono">{dur}</span>}
                 </button>
                 {(isDone2 || isFailed) && (
