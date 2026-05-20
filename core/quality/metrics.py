@@ -37,12 +37,12 @@ class QualityScore:
 
 # Patterns used to detect route decorators in generated FastAPI code
 _ROUTE_RE = re.compile(
-    r'@app\.(get|post|put|patch|delete)\s*\(\s*["\']([^"\']+)["\']',
+    r'@(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
 # Patterns that indicate JWT/auth dependency injection
 _AUTH_DEP_RE = re.compile(
-    r'Depends\s*\(\s*(get_current_user|require_auth|verify_token|authenticate|jwt_required)',
+    r'Depends\s*\(\s*(get_current_user|get_current_active_user|require_auth|verify_token|authenticate|jwt_required|get_user_from_token|current_user_dep|oauth2_scheme)',
     re.IGNORECASE,
 )
 # Pydantic BaseModel body parameter pattern (input validation)
@@ -117,10 +117,24 @@ def score_project(project_dir: Path) -> QualityScore:
 
     # ── Locate main.py ────────────────────────────────────────────────────────
     main_py: Optional[Path] = None
-    for candidate in [project_dir / "src" / "main.py", project_dir / "main.py"]:
+    for candidate in [
+        project_dir / "src" / "main.py",
+        project_dir / "main.py",
+        project_dir / "p04_backend" / "src" / "main.py",
+        project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+        project_dir / "p04a_backend_codegen" / "src" / "main.py",
+        project_dir / "backend" / "src" / "main.py",
+        project_dir / "backend" / "main.py",
+    ]:
         if candidate.exists():
             main_py = candidate
             break
+    # Last resort: glob
+    if main_py is None:
+        found = list(project_dir.rglob("main.py"))
+        found = [f for f in found if "__pycache__" not in str(f) and ".venv" not in str(f)]
+        if found:
+            main_py = found[0]
 
     routes: List[RouteInfo] = []
 

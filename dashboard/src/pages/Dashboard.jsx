@@ -31,11 +31,11 @@ const QualityTrendChart = () => {
     );
   }
 
-  if (!trendData || trendData.length < 2) {
+  if (!trendData || trendData.length < 1) {
     return (
       <div className="flex flex-col items-center justify-center h-40 space-y-2 text-center">
         <TrendingUp className="w-8 h-8 text-muted/40" />
-        <p className="text-muted text-sm">Not enough data yet — complete at least 2 runs to see the trend.</p>
+        <p className="text-muted text-sm">Complete your first run to start tracking build quality.</p>
       </div>
     );
   }
@@ -50,7 +50,7 @@ const QualityTrendChart = () => {
   const maxY = Math.min(100, Math.max(...scores) + 5);
   const rangeY = maxY - minY || 1;
 
-  const xOf = (i) => PAD_L + (i / (trendData.length - 1)) * innerW;
+  const xOf = (i) => trendData.length === 1 ? PAD_L + innerW / 2 : PAD_L + (i / (trendData.length - 1)) * innerW;
   const yOf = (v) => PAD_T + innerH - ((v - minY) / rangeY) * innerH;
 
   // Build polyline points for quality scores
@@ -154,7 +154,7 @@ const QualityTrendChart = () => {
         <div className="ml-auto flex items-center gap-1.5">
           <TrendingUp className="w-3 h-3" style={{ color: trendColor }} />
           <span className="text-[10px] font-bold" style={{ color: trendColor }}>
-            {trendLabel} over last {trendData.length} builds
+            {trendData.length === 1 ? `First build: ${scores[0]}/100` : `${trendLabel} over last ${trendData.length} builds`}
           </span>
         </div>
       </div>
@@ -223,7 +223,7 @@ const Dashboard = () => {
         return started.toDateString() === today.toDateString() && (r.status === 'PASSED' || r.status === 'passed' || r.status === 'completed');
       }).length, icon: CheckCircle2, color: 'text-success' },
     { label: 'Total Cost Today', value: `$${costs.today_usd?.toFixed(2) || '0.00'}`, icon: Clock, color: 'text-warning' },
-    { label: 'Tokens Today', value: costs.tokens_today || '—', icon: Coins, color: 'text-success' },
+    { label: 'Tokens (Month)', value: costs.tokens_today > 0 ? costs.tokens_today.toLocaleString() : '—', icon: Coins, color: 'text-success' },
   ];
 
   const noLLM = health && !health.anthropic_available && !health.gemini_available && !health.ollama_available && !health.openrouter_available;
