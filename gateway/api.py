@@ -446,27 +446,27 @@ def create_app() -> FastAPI:
                 )).scalar()
                 if _count == 0:
                     _builtin_skills = [
-                        ("JWT Authentication", "Full JWT auth with refresh tokens, bcrypt hashing, and role-based access control", "auth"),
-                        ("CRUD Operations", "Generic SQLAlchemy CRUD endpoints with filtering, pagination, and soft deletes", "crud"),
-                        ("Stripe Payments", "Stripe checkout, subscription management, webhook handler, and invoice generation", "payments"),
-                        ("Email Service", "SMTP/SendGrid email sender with templating, queue, and delivery tracking", "email"),
-                        ("Full-text Search", "PostgreSQL full-text search with ranking, facets, and autocomplete", "search"),
-                        ("File Upload", "S3/local file upload with thumbnail generation and CDN URLs", "file_upload"),
-                        ("Push Notifications", "Firebase FCM push notifications with topic subscriptions and delivery receipts", "notifications"),
-                        ("Analytics Events", "Event tracking pipeline with aggregation, funnel analysis, and retention metrics", "analytics"),
-                        ("Admin Dashboard", "Role-gated admin panel with user management, audit log, and bulk actions", "admin"),
-                        ("Internationalisation", "i18n middleware with locale detection, message catalogs, and date/number formatting", "i18n"),
+                        ("JWT Authentication", "auth", "Full JWT auth with refresh tokens, bcrypt hashing, and role-based access control"),
+                        ("CRUD Operations", "general", "Generic SQLAlchemy CRUD endpoints with filtering, pagination, and soft deletes"),
+                        ("Stripe Payments", "payments", "Stripe checkout, subscription management, webhook handler, and invoice generation"),
+                        ("Email Service", "general", "SMTP/SendGrid email sender with templating, queue, and delivery tracking"),
+                        ("Full-text Search", "general", "PostgreSQL full-text search with ranking, facets, and autocomplete"),
+                        ("File Upload", "general", "S3/local file upload with thumbnail generation and CDN URLs"),
+                        ("Push Notifications", "general", "Firebase FCM push notifications with topic subscriptions and delivery receipts"),
+                        ("Analytics Events", "general", "Event tracking pipeline with aggregation, funnel analysis, and retention metrics"),
+                        ("Admin Dashboard", "admin", "Role-gated admin panel with user management, audit log, and bulk actions"),
+                        ("Internationalisation", "general", "i18n middleware with locale detection, message catalogs, and date/number formatting"),
                     ]
-                    for _nm, _ds, _dm in _builtin_skills:
+                    for _nm, _dm, _ds in _builtin_skills:
                         _ms.add(_MP(
                             id=str(_uuid_m.uuid4()),
+                            org_id="system",
                             name=_nm,
+                            base_domain=_dm,
                             description=_ds,
-                            domain=_dm,
+                            profile_yaml=f"name: {_nm}\ndomain: {_dm}\ndescription: {_ds}\n",
                             is_published=True,
                             usage_count=0,
-                            published_by="system",
-                            published_at=time.time(),
                         ))
                     await _ms.commit()
                     logger.info("Marketplace seeded with %d built-in skills", len(_builtin_skills))
