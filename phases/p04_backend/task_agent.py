@@ -68,17 +68,22 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
             errors.append(f"SyntaxError: {stderr.decode()[:500]}")
 
         # Step 2: import check (only if syntax OK)
+        # Override DATABASE_URL so create_all() targets an isolated temp SQLite
+        # rather than the AetherOS production database.
         if not errors:
             check_code = (
                 "import sys, os; "
                 "os.chdir(str(__import__('pathlib').Path(__file__).parent)); "
                 "exec(compile(open('main.py').read().split('\\napp ')[0], 'main.py', 'exec'))"
             )
+            import os as _os
+            smoke_env = {**_os.environ, "DATABASE_URL": "sqlite:///./smoke_test.db"}
             proc2 = await asyncio.create_subprocess_exec(
                 "python3", "-c", check_code,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(src_dir),
+                env=smoke_env,
             )
             try:
                 _, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=20)
