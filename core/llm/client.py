@@ -345,6 +345,8 @@ async def _call_bedrock(
         "messages": [{"role": "user", "content": prompt}],
     })
 
+    _per_call_usage: dict = {}
+
     def _invoke() -> str:
         client = boto3.client(
             "bedrock-runtime",
@@ -360,17 +362,15 @@ async def _call_bedrock(
         )
         result = _json.loads(resp["body"].read())
         text = result.get("content", [{}])[0].get("text", "")
-        # Track token usage
         usage = result.get("usage", {})
-        _cost_registry["prompt_tokens"] += usage.get("input_tokens", 0)
-        _cost_registry["completion_tokens"] += usage.get("output_tokens", 0)
+        _in  = usage.get("input_tokens", 0)
+        _out = usage.get("output_tokens", 0)
+        _cost_registry["prompt_tokens"] += _in
+        _cost_registry["completion_tokens"] += _out
         _cost_registry["calls"] += 1
-        logger.debug(
-            "Bedrock [%s] tokens=%d+%d",
-            model_id,
-            usage.get("input_tokens", 0),
-            usage.get("output_tokens", 0),
-        )
+        _per_call_usage["input_tokens"] = _in
+        _per_call_usage["output_tokens"] = _out
+        logger.debug("Bedrock [%s] tokens=%d+%d", model_id, _in, _out)
         return text
 
     # boto3 is synchronous — run in executor to avoid blocking the event loop
@@ -380,6 +380,24 @@ async def _call_bedrock(
     for attempt in range(retries):
         try:
             text = await loop.run_in_executor(None, _invoke)
+            # Record per-call LLM usage in DB (best-effort)
+            try:
+                from aether_os.core.billing import get_billing_tracker as _gbt
+                from aether_os.orchestrator.factory_pipeline import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP
+                _run_id = _ARID.get("") or os.environ.get("ACTIVE_RUN_ID", "unknown")
+                _phase  = _AP.get("") or os.environ.get("ACTIVE_PHASE", "unknown")
+                asyncio.create_task(
+                    _gbt()._async_record_llm_call(
+                        project_id=_run_id,
+                        phase=_phase,
+                        model=f"bedrock/{model_id}",
+                        input_tokens=_per_call_usage.get("input_tokens", 0),
+                        output_tokens=_per_call_usage.get("output_tokens", 0),
+                        cost_usd=0.0,
+                    )
+                )
+            except Exception:
+                pass
             return text
         except Exception as exc:
             last_exc = exc

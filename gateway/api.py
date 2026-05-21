@@ -615,36 +615,90 @@ def create_app() -> FastAPI:
 
     @app.get("/system/metrics")
     async def system_metrics() -> Dict[str, Any]:
-        """System resource metrics — CPU, memory, disk, Redis."""
-        result: Dict[str, Any] = {}
+        """System resource metrics — CPU, memory, disk, Redis, DB, pipeline."""
+        import time as _time
+        result: Dict[str, Any] = {"timestamp": _time.time()}
+
+        # System resources
         try:
-            import psutil
+            import psutil as _ps
             loop = asyncio.get_event_loop()
-            cpu_pct = await loop.run_in_executor(None, lambda: psutil.cpu_percent(interval=0.1))
+            cpu_pct = await loop.run_in_executor(None, lambda: _ps.cpu_percent(interval=0.2))
+            vm = _ps.virtual_memory()
+            du = _ps.disk_usage("/")
             result["system"] = {
-                "cpu_pct":    cpu_pct,
-                "mem_pct":    psutil.virtual_memory().percent,
-                "disk_pct":   psutil.disk_usage("/").percent,
-                "swap_pct":   psutil.swap_memory().percent,
-                "load_1m":    psutil.getloadavg()[0],
-                "load_5m":    psutil.getloadavg()[1],
-                "cpu_cores":  psutil.cpu_count(),
+                "cpu_pct":   round(cpu_pct, 1),
+                "mem_pct":   round(vm.percent, 1),
+                "mem_used_mb": round(vm.used / 1024 / 1024),
+                "mem_total_mb": round(vm.total / 1024 / 1024),
+                "disk_pct":  round(du.percent, 1),
+                "disk_free_gb": round(du.free / 1024 / 1024 / 1024, 1),
+                "swap_pct":  round(_ps.swap_memory().percent, 1),
+                "load_1m":   round(_ps.getloadavg()[0], 2),
+                "load_5m":   round(_ps.getloadavg()[1], 2),
+                "cpu_cores": _ps.cpu_count(),
+                "uptime_sec": int(_time.time() - _ps.boot_time()),
             }
-        except Exception:
-            pass
+        except Exception as _e:
+            result["system"] = {"error": str(_e)}
+
+        # Redis
         try:
             import redis.asyncio as _redis_mod
             _r = _redis_mod.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
             info = await _r.info("all")
             await _r.aclose()
             result["redis"] = {
-                "used_memory_human":   info.get("used_memory_human"),
-                "connected_clients":   info.get("connected_clients"),
-                "uptime_in_seconds":   info.get("uptime_in_seconds"),
+                "used_memory_human": info.get("used_memory_human"),
+                "connected_clients": info.get("connected_clients"),
+                "uptime_in_seconds": info.get("uptime_in_seconds"),
+                "keyspace_hits":     info.get("keyspace_hits", 0),
+                "keyspace_misses":   info.get("keyspace_misses", 0),
+                "instantaneous_ops_per_sec": info.get("instantaneous_ops_per_sec", 0),
             }
         except Exception:
-            pass
-        result["latency_ms"] = 0
+            result["redis"] = {"status": "unavailable"}
+
+        # Database — run counts and pool info
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_m
+            from sqlalchemy import text as _text_m
+            async with _gsf_m()() as _s_m:
+                rows = (await _s_m.execute(_text_m(
+                    "SELECT status, COUNT(*) FROM runs GROUP BY status"
+                ))).fetchall()
+            run_counts = {r[0]: r[1] for r in rows}
+            result["pipeline"] = {
+                "runs_total":     sum(run_counts.values()),
+                "runs_completed": run_counts.get("completed", 0),
+                "runs_running":   run_counts.get("running", 0),
+                "runs_failed":    run_counts.get("failed", 0) + run_counts.get("interrupted", 0),
+            }
+        except Exception:
+            result["pipeline"] = {}
+
+        # LLM cost tracking
+        try:
+            from aether_os.core.llm.client import _cost_registry
+            result["llm"] = {
+                "calls_today":        _cost_registry.get("calls", 0),
+                "prompt_tokens":      _cost_registry.get("prompt_tokens", 0),
+                "completion_tokens":  _cost_registry.get("completion_tokens", 0),
+                "provider":           os.environ.get("PRIMARY_LLM", "unknown"),
+            }
+        except Exception:
+            result["llm"] = {}
+
+        # API latency (simple self-ping)
+        try:
+            import httpx as _httpx
+            t0 = _time.monotonic()
+            async with _httpx.AsyncClient() as _hc:
+                await _hc.get("http://localhost:8000/health", timeout=2.0)
+            result["latency_ms"] = round((_time.monotonic() - t0) * 1000)
+        except Exception:
+            result["latency_ms"] = 0
+
         return result
 
     @app.post("/auth/register", response_model=LoginResponse)
@@ -3031,7 +3085,14 @@ def create_app() -> FastAPI:
         status = "healthy"
         message = "All systems operational."
 
-        if openrouter_available and not anthropic_available and not gemini_available and not ollama_available:
+        bedrock_available = bool(
+            os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
+        )
+        if bedrock_available:
+            _bm_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")
+            status = "healthy"
+            message = f"Running on Amazon Bedrock ({_bm_heavy})."
+        elif openrouter_available and not anthropic_available and not gemini_available and not ollama_available:
             status = "ok"
             message = "Running on OpenRouter (configured)."
         elif ollama_available and not anthropic_available and not gemini_available:
@@ -3624,6 +3685,22 @@ def create_app() -> FastAPI:
             proc.kill()
         del _run_procs[run_id]
         return {"status": "stopped", "run_id": run_id}
+
+    @app.get("/factory/runs/{run_id}/run-app/status")
+    async def run_app_status(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return whether the generated app is currently running."""
+        port = int(os.environ.get("RUN_APP_PORT", "8001"))
+        proc = _run_procs.get(run_id)
+        running = proc is not None and proc.poll() is None
+        return {
+            "running": running,
+            "port": port,
+            "pid": proc.pid if running else None,
+            "preview_url": f"/app-preview/" if running else None,
+        }
 
     # ── System Settings (Endpoints 3, 4, 5) ────────────────────────────────────
 

@@ -1849,22 +1849,50 @@ const ProjectView = () => {
                 )}
               </div>
             )}
-          {/* ── App Preview (iframe of live_url) ──────────────────────────── */}
-          {activeArtifactTab === 'iframe' && run?.live_url && (
+          {/* ── App Preview ───────────────────────────────────────────────── */}
+          {activeArtifactTab === 'iframe' && (
             <div className="flex flex-col" style={{ height: '480px' }}>
               <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-border/10 shrink-0">
-                <span className="text-[10px] font-mono text-muted truncate">{run.live_url}</span>
-                <a href={run.live_url} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0 ml-2">
-                  <OpenTab className="w-3 h-3" /> Open in tab
-                </a>
+                <span className="text-[10px] font-mono text-muted truncate">
+                  {appRunning ? 'Generated app running — live preview' : (run?.live_url || 'Start the app to see live preview')}
+                </span>
+                <div className="flex items-center gap-2">
+                  {appRunning && (
+                    <a href="/app-preview/" target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0">
+                      <OpenTab className="w-3 h-3" /> Open in tab
+                    </a>
+                  )}
+                  {!appRunning && run?.live_url && (
+                    <a href={run.live_url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0 ml-2">
+                      <OpenTab className="w-3 h-3" /> Open
+                    </a>
+                  )}
+                </div>
               </div>
-              <iframe
-                src={run.live_url}
-                className="flex-1 w-full border-0 bg-white"
-                title="Live App Preview"
-                sandbox="allow-scripts allow-same-origin allow-forms"
-              />
+              {appRunning ? (
+                <iframe
+                  key="app-preview-live"
+                  src="/app-preview/"
+                  className="flex-1 w-full border-0 bg-white"
+                  title="Live App Preview"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                />
+              ) : run?.live_url ? (
+                <iframe
+                  key="app-preview-url"
+                  src={run.live_url}
+                  className="flex-1 w-full border-0 bg-white"
+                  title="Deployed App Preview"
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                />
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted text-sm">
+                  <span className="text-4xl opacity-30">▶</span>
+                  <p>Click <strong className="text-bright">RUN APP</strong> to start the generated app and see a live preview here.</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -2103,7 +2131,7 @@ const ProjectView = () => {
                         try {
                           await api.startRunApp(id);
                           setAppRunning(true);
-                          setAppOutput(['[AetherOS] Starting app on port 8001…', '[AetherOS] Open http://localhost:8001 to view it.']);
+                          setAppOutput(['[AetherOS] Starting app…', '[AetherOS] Preview available at /app-preview/ (click "Open App Preview" above)']);
                           setToast('App starting on port 8001…');
                         } catch (e) {
                           setToast('Failed to start app: ' + (e.response?.data?.detail || e.message));
@@ -2129,19 +2157,19 @@ const ProjectView = () => {
                   )}
                   {appRunning && (
                     <a
-                      href="http://localhost:8001"
+                      href="/app-preview/"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center space-x-1 text-xs text-emerald-400 hover:text-emerald-300"
                     >
-                      <ExternalLink className="w-3 h-3" /> localhost:8001
+                      <ExternalLink className="w-3 h-3" /> Open App Preview
                     </a>
                   )}
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 bg-[#0a0c10] font-mono text-[11px] text-emerald-300 custom-scrollbar space-y-0.5">
                 {appOutput.length === 0 ? (
-                  <div className="text-muted italic">Press "Run App" to start the generated backend on port 8001.</div>
+                  <div className="text-muted italic">Press "Run App" to start the generated app. A live preview will appear in the APP PREVIEW tab.</div>
                 ) : (
                   appOutput.map((line, i) => <div key={i} className="leading-relaxed">{line}</div>)
                 )}
