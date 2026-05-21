@@ -266,6 +266,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         else:
             logger.warning("[p07a] Smoke test FAILED — generated app did not start cleanly")
 
+    # Write test_result.json so quality/metrics.py can read pytest status from filesystem
+    import json as _json
+    _result_data = {
+        "pytest_passed": pytest_passed,
+        "smoke_test_passed": smoke_passed,
+        "used_llm": llm_success,
+        "test_file": str(test_file),
+    }
+    (tests_dir / "test_result.json").write_text(_json.dumps(_result_data, indent=2))
+
     return TaskResult(
         output_path=str(tests_dir),
         confidence=0.85 if pytest_passed else 0.6,

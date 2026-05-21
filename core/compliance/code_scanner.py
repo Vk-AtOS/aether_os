@@ -114,6 +114,10 @@ def _extract_routes(source: str) -> List[RouteInfo]:
     auth_patterns = [
         r'Depends\s*\(\s*get_current_user',
         r'Depends\s*\(\s*require_role',
+        r'Depends\s*\(\s*verify_token',      # AetherOS generated code
+        r'Depends\s*\(\s*authenticate',
+        r'Depends\s*\(\s*jwt_required',
+        r'Depends\s*\(\s*get_user',
         r'Authorization.*Bearer',
         r'current_user.*Depends',
         r'token.*Depends',
