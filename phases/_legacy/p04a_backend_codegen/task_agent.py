@@ -315,7 +315,8 @@ class BackendCodegenAgent:
             f"- Import: from sqlalchemy.ext.declarative import declarative_base\n"
             f"- Import: from sqlalchemy.orm import sessionmaker, Session\n"
             f"- Import: from fastapi import Query, Request\n"
-            f"- Setup: DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data.db')\n"
+            f"- Before database setup, add: import pathlib; pathlib.Path('data').mkdir(exist_ok=True)\n"
+            f"- Setup: DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data/app.db')\n"
             f"- Setup: engine = create_engine(DATABASE_URL, connect_args={{\"check_same_thread\": False}} if 'sqlite' in DATABASE_URL else {{}})\n"
             f"- Setup: SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)\n"
             f"- Setup: Base = declarative_base()\n"
@@ -399,8 +400,8 @@ class BackendCodegenAgent:
             "  # python -c \"import secrets; print(secrets.token_hex(32))\"\n"
             "ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173\n\n"
             "# Database\n"
-            "DATABASE_URL=sqlite+aiosqlite:///./data/app.db\n"
-            "# DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/dbname\n\n"
+            "DATABASE_URL=sqlite:///./data/app.db\n"
+            "# DATABASE_URL=postgresql://user:password@localhost:5432/dbname\n\n"
             "# App\n"
             "APP_ENV=production\n"
         )
@@ -490,6 +491,26 @@ class BackendCodegenAgent:
         for target_dir in [root_dir, phase_dir]:
             (target_dir / "README.md").write_text(readme)
             generated_files.append(str(target_dir / "README.md"))
+
+        # ── alembic.ini ───────────────────────────────────────────────────────
+        # Minimal alembic config so `alembic upgrade head` works out of the box.
+        alembic_ini = (
+            "[alembic]\n"
+            "script_location = alembic\n"
+            "sqlalchemy.url = sqlite:///./data/app.db\n\n"
+            "[loggers]\nkeys = root,sqlalchemy,alembic\n\n"
+            "[handlers]\nkeys = console\n\n"
+            "[formatters]\nkeys = generic\n\n"
+            "[logger_root]\nlevel = WARN\nhandlers = console\nqualname =\n\n"
+            "[logger_sqlalchemy]\nlevel = WARN\nhandlers =\nqualname = sqlalchemy.engine\n\n"
+            "[logger_alembic]\nlevel = INFO\nhandlers =\nqualname = alembic\n\n"
+            "[handler_console]\nclass = StreamHandler\nargs = (sys.stderr,)\nlevel = NOTSET\n"
+            "formatter = generic\n\n"
+            "[formatter_generic]\nformat = %(levelname)-5.5s [%(name)s] %(message)s\n"
+            "datefmt = %H:%M:%S\n"
+        )
+        (root_dir / "alembic.ini").write_text(alembic_ini)
+        generated_files.append(str(root_dir / "alembic.ini"))
 
         logger.info("[p04a] Generated %d files in root=%s phase=%s",
                     len(generated_files), root_dir, phase_dir)
@@ -880,7 +901,9 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         "from sqlalchemy.ext.declarative import declarative_base\n"
         "from sqlalchemy.orm import sessionmaker, Session\n\n"
         "# ── Database setup (SQLAlchemy ORM — no raw SQL) ──────────────────────────\n"
-        "DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data.db')\n"
+        "import pathlib as _pathlib\n"
+        "_pathlib.Path('data').mkdir(exist_ok=True)  # ensure SQLite data dir exists\n"
+        "DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data/app.db')\n"
         "engine = create_engine(\n"
         "    DATABASE_URL,\n"
         "    connect_args={'check_same_thread': False} if 'sqlite' in DATABASE_URL else {}\n"

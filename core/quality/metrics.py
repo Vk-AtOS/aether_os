@@ -194,9 +194,19 @@ def score_project(project_dir: Path) -> QualityScore:
     has_docker = (
         (project_dir / "Dockerfile").exists()
         or (project_dir / "docker-compose.yml").exists()
+        or bool(list(project_dir.rglob("Dockerfile")))
+        or bool(list(project_dir.rglob("docker-compose.yml")))
     )
-    has_env_example = (project_dir / ".env.example").exists()
-    has_readme = (project_dir / "README.md").exists()
+    has_env_example = (
+        (project_dir / ".env.example").exists()
+        or (project_dir / "src" / ".env.example").exists()
+        or bool(list(project_dir.rglob(".env.example")))
+    )
+    has_readme = (
+        (project_dir / "README.md").exists()
+        or (project_dir / "src" / "README.md").exists()
+        or bool(list(project_dir.rglob("README.md")))
+    )
     has_frontend = bool(
         (project_dir / "frontend").is_dir()
         or list(project_dir.rglob("package.json"))
