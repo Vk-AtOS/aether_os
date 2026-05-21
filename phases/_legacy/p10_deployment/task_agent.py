@@ -39,7 +39,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Generate docker-compose.yml
     db = stack.get("database", "postgres").lower()
     cache = stack.get("cache", "redis").lower()
-    compose = _generate_compose(project_slug, db, cache)
+    has_frontend = (project_dir / "frontend" / "Dockerfile").exists()
+    compose = _generate_compose(project_slug, db, cache, has_frontend=has_frontend)
     compose_path = project_dir / "docker-compose.yml"
     compose_path.write_text(compose)
 
@@ -122,7 +123,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
 
 
-def _generate_compose(slug: str, db: str, cache: str) -> str:
+def _generate_compose(slug: str, db: str, cache: str, has_frontend: bool = False) -> str:
     db_service = ""
     db_env = ""
     use_db_depends = False
@@ -198,6 +199,23 @@ def _generate_compose(slug: str, db: str, cache: str) -> str:
         sqlite_volume_mount = "    volumes:\n      - app_data:/app/data\n"
         sqlite_volume_def = "\nvolumes:\n  app_data:"
 
+    frontend_service = ""
+    if has_frontend:
+        frontend_service = f"""
+  frontend:
+    build: ./frontend
+    ports:
+      - "${{FRONTEND_PORT:-3000}}:80"
+    environment:
+      - VITE_API_URL=http://localhost:${{PORT:-8000}}
+    depends_on:
+      - app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3"""
+
     return f"""version: '3.8'
 
 services:
@@ -214,6 +232,7 @@ services:
       retries: 3
 {db_service}
 {cache_service}
+{frontend_service}
 {volumes}{sqlite_volume_def}
 """
 
