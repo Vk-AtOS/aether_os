@@ -444,6 +444,10 @@ class ModelRouter:
                     logger.warning("Router: %s", msg)
                     errors.append(msg)
                     error_class = _classify_error(exc)
+                    # For OpenRouter free-tier, a rate-limit on one model won't
+                    # clear in 1-2 seconds — skip immediately to the next model.
+                    if spec.provider == "openrouter" and error_class == "retry":
+                        error_class = "fallback"
 
                 if error_class == "fallback":
                     break  # don't retry, move to next model in chain
