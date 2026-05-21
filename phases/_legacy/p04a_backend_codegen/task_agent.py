@@ -427,10 +427,12 @@ class BackendCodegenAgent:
         models_prompt = (
             f"Write Pydantic v2 models for this database schema:\n{schema_str}\n\n"
             f"Rules:\n"
+            f"- Import: from pydantic import BaseModel, ConfigDict\n"
             f"- Each table becomes a BaseModel with all columns as typed fields\n"
             f"- Use Optional[int] = None for id fields\n"
             f"- Use appropriate types: str, int, float, bool, Optional\n"
-            f"- Include a Create model (no id) and a full model (with id) for each table\n"
+            f"- Include a Create model (no id) and a full response model (with id) for each table\n"
+            f"- Add model_config = ConfigDict(from_attributes=True) to each response model (not Create)\n"
             f"Reply with ONLY valid Python code, no markdown fences."
         )
         models_code = await self._generate_python(models_prompt, client,
