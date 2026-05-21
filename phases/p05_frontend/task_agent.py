@@ -527,7 +527,9 @@ def _generate_package_json(project_slug: str) -> str:
         "scripts": {
             "dev": "vite",
             "build": "tsc && vite build",
-            "preview": "vite preview"
+            "preview": "vite preview",
+            "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
+            "typecheck": "tsc --noEmit"
         },
         "dependencies": {
             "react": "^18.3.1",
@@ -543,6 +545,11 @@ def _generate_package_json(project_slug: str) -> str:
         "devDependencies": {
             "@types/react": "^18.3.5",
             "@types/react-dom": "^18.3.0",
+            "@typescript-eslint/eslint-plugin": "^7.18.0",
+            "@typescript-eslint/parser": "^7.18.0",
+            "eslint": "^8.57.0",
+            "eslint-plugin-react-hooks": "^4.6.2",
+            "eslint-plugin-react-refresh": "^0.4.9",
             "@vitejs/plugin-react": "^4.3.4",
             "typescript": "^5.5.3",
             "vite": "^6.0.5",
@@ -552,6 +559,28 @@ def _generate_package_json(project_slug: str) -> str:
         }
     }
     return json.dumps(data, indent=2)
+
+
+def _generate_eslint_config() -> str:
+    return """\
+module.exports = {
+  root: true,
+  env: { browser: true, es2020: true },
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:react-hooks/recommended',
+  ],
+  ignorePatterns: ['dist', '.eslintrc.cjs'],
+  parser: '@typescript-eslint/parser',
+  plugins: ['react-refresh'],
+  rules: {
+    'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+  },
+}
+"""
 
 
 def _generate_vite_config() -> str:
@@ -1658,6 +1687,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (frontend_dir / "nginx.conf").write_text(_generate_nginx_conf())
     (frontend_dir / "Dockerfile").write_text(_generate_dockerfile())
     (frontend_dir / ".env.example").write_text(_generate_env_example())
+    (frontend_dir / ".eslintrc.cjs").write_text(_generate_eslint_config())
     (src_dir / "index.css").write_text(_generate_index_css())
     (src_dir / "main.tsx").write_text(_generate_main_tsx())
 
@@ -1759,6 +1789,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "frontend/nginx.conf",
         "frontend/Dockerfile",
         "frontend/.env.example",
+        "frontend/.eslintrc.cjs",
         "frontend/src/index.css",
         "frontend/src/main.tsx",
         "frontend/src/App.tsx",

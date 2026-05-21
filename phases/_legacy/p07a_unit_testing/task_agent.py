@@ -168,6 +168,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (tests_dir / "__init__.py").write_text("")
     test_file = tests_dir / "test_main.py"
 
+    # Write conftest.py — overrides DATABASE_URL so tests use in-memory SQLite
+    conftest_content = (
+        'import os\n'
+        'import pytest\n'
+        'os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test.db")\n'
+        'os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")\n'
+        'os.environ.setdefault("APP_ENV", "test")\n'
+        '\n\n'
+        '@pytest.fixture(autouse=True)\n'
+        'def _set_test_env(monkeypatch):\n'
+        '    monkeypatch.setenv("DATABASE_URL", "sqlite:///./data/test.db")\n'
+        '    monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest-only")\n'
+    )
+    (tests_dir / "conftest.py").write_text(conftest_content)
+
     # Try LLM generation first
     main_py = src_dir / "main.py"
     llm_success = False
@@ -287,6 +302,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _shutil.copy2(test_file, _canonical_tests / "test_main.py")
             (_canonical_tests / "__init__.py").touch()
             (_canonical_tests / "test_result.json").write_text(_json.dumps(_result_data, indent=2))
+            # Mirror conftest.py too
+            _conftest_src = tests_dir / "conftest.py"
+            if _conftest_src.exists():
+                _shutil.copy2(_conftest_src, _canonical_tests / "conftest.py")
         except Exception as _cp_e:
             logger.warning("p07a: could not mirror tests to project root: %s", _cp_e)
 
