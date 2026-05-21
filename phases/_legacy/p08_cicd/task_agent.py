@@ -125,22 +125,32 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest pytest-timeout httpx
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short --timeout=30
 
       - name: Security scan
-        run: bandit -r src/ -ll --exit-zero
+        run: |
+          pip install bandit --quiet
+          bandit -r src/ -ll --exit-zero
 
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build image
-        run: docker build -t {safe_name}:${{{{ github.sha }}}} .
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: {safe_name}:${{{{ github.sha }}}}
 """
         ci_file = output_dir / "ci.yml"
         ci_file.write_text(ci_config)
