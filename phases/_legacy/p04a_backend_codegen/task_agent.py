@@ -628,6 +628,79 @@ class BackendCodegenAgent:
         (root_dir / "alembic.ini").write_text(alembic_ini)
         generated_files.append(str(root_dir / "alembic.ini"))
 
+        # ── alembic/ directory ────────────────────────────────────────────────
+        # Without env.py and script.py.mako, `alembic upgrade head` will fail.
+        _alembic_dir = root_dir / "alembic"
+        _alembic_dir.mkdir(exist_ok=True)
+        (_alembic_dir / "versions").mkdir(exist_ok=True)
+        (_alembic_dir / "__init__.py").write_text("")
+        (_alembic_dir / "versions" / "__init__.py").write_text("")
+
+        alembic_env_py = (
+            "import os\n"
+            "from logging.config import fileConfig\n"
+            "from sqlalchemy import engine_from_config, pool\n"
+            "from alembic import context\n\n"
+            "config = context.config\n\n"
+            "if config.config_file_name is not None:\n"
+            "    fileConfig(config.config_file_name)\n\n"
+            "# Override sqlalchemy.url with DATABASE_URL env var if set\n"
+            "_db_url = os.getenv('DATABASE_URL', config.get_main_option('sqlalchemy.url'))\n"
+            "if _db_url and _db_url.startswith('postgresql+asyncpg://'):\n"
+            "    _db_url = _db_url.replace('postgresql+asyncpg://', 'postgresql://', 1)\n"
+            "config.set_main_option('sqlalchemy.url', _db_url)\n\n"
+            "# Import your models' Base so autogenerate can detect schema changes.\n"
+            "try:\n"
+            "    from src.main import Base  # noqa: F401\n"
+            "    target_metadata = Base.metadata\n"
+            "except Exception:\n"
+            "    target_metadata = None\n\n\n"
+            "def run_migrations_offline() -> None:\n"
+            "    url = config.get_main_option('sqlalchemy.url')\n"
+            "    context.configure(url=url, target_metadata=target_metadata,\n"
+            "                      literal_binds=True, dialect_opts={'paramstyle': 'named'})\n"
+            "    with context.begin_transaction():\n"
+            "        context.run_migrations()\n\n\n"
+            "def run_migrations_online() -> None:\n"
+            "    connectable = engine_from_config(\n"
+            "        config.get_section(config.config_ini_section, {}),\n"
+            "        prefix='sqlalchemy.', poolclass=pool.NullPool)\n"
+            "    with connectable.connect() as connection:\n"
+            "        context.configure(connection=connection, target_metadata=target_metadata)\n"
+            "        with context.begin_transaction():\n"
+            "            context.run_migrations()\n\n\n"
+            "if context.is_offline_mode():\n"
+            "    run_migrations_offline()\n"
+            "else:\n"
+            "    run_migrations_online()\n"
+        )
+        (_alembic_dir / "env.py").write_text(alembic_env_py)
+
+        script_mako = (
+            '"""${message}\n\n'
+            "Revision ID: ${up_revision}\n"
+            "Revises: ${down_revision | comma,n}\n"
+            "Create Date: ${create_date}\n\n"
+            '"""\n'
+            "from typing import Sequence, Union\n"
+            "from alembic import op\n"
+            "import sqlalchemy as sa\n"
+            "${imports if imports else ''}\n\n"
+            "revision: str = ${repr(up_revision)}\n"
+            "down_revision: Union[str, None] = ${repr(down_revision)}\n"
+            "branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}\n"
+            "depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}\n\n\n"
+            "def upgrade() -> None:\n"
+            "    ${upgrades if upgrades else 'pass'}\n\n\n"
+            "def downgrade() -> None:\n"
+            "    ${downgrades if downgrades else 'pass'}\n"
+        )
+        (_alembic_dir / "script.py.mako").write_text(script_mako)
+        generated_files.extend([
+            str(_alembic_dir / "env.py"),
+            str(_alembic_dir / "script.py.mako"),
+        ])
+
         logger.info("[p04a] Generated %d files in root=%s phase=%s",
                     len(generated_files), root_dir, phase_dir)
         return generated_files
