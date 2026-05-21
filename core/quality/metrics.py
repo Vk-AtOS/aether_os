@@ -189,6 +189,19 @@ def score_project(project_dir: Path) -> QualityScore:
     details["test_files"] = len(test_files)
     if test_files:
         test_score = 75 if len(test_files) > 1 else 50
+        # Boost to 100 if p07a reported pytest or smoke test passing
+        _result_files = list(project_dir.rglob("test_result.json"))
+        _result_files = [f for f in _result_files if "__pycache__" not in str(f)]
+        for _rf in _result_files[:1]:
+            try:
+                import json as _json
+                _res = _json.loads(_rf.read_text())
+                if _res.get("pytest_passed") or _res.get("smoke_test_passed"):
+                    test_score = 100
+                    details["pytest_passed"] = True
+                    break
+            except Exception:
+                pass
 
     # ── File presence checks ──────────────────────────────────────────────────
     has_docker = (
