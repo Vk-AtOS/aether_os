@@ -154,6 +154,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
               "total": len(all_findings), "auto_fixed": sum(1 for f in high_findings if f.get("auto_fixed"))}
     (output_dir / "security_report.json").write_text(json.dumps(report, indent=2))
 
+    # Mirror to project root as compliance_scan.json so the quality scorer detects it
+    _pdir = Path(data.get("project_dir", ""))
+    if _pdir.exists():
+        try:
+            (_pdir / "compliance_scan.json").write_text(json.dumps(report, indent=2))
+        except Exception as _e:
+            logger.warning("p06: could not mirror compliance_scan.json to project root: %s", _e)
+
     issues = []
     if remaining_high:
         issues.append(f"{len(remaining_high)} HIGH severity findings remain")

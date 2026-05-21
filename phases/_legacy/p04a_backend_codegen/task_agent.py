@@ -404,6 +404,15 @@ class BackendCodegenAgent:
                 init_file.touch()
             generated_files.append(str(init_file))
 
+        # Ensure data/ directory exists so SQLite can write app.db on first start
+        for target_dir in [root_dir, phase_dir]:
+            _data_dir = target_dir / "data"
+            _data_dir.mkdir(exist_ok=True)
+            _gitkeep = _data_dir / ".gitkeep"
+            if not _gitkeep.exists():
+                _gitkeep.write_text("")
+            generated_files.append(str(_gitkeep))
+
         # FIX G6: write .env.example documenting all env vars used in generated code
         env_example = (
             "# Generated .env.example — copy to .env and fill in values\n\n"
