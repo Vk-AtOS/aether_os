@@ -31,21 +31,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     main_py, app_module = _find_main_py(project_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate Dockerfile
-    dockerfile_code = await llm.call(
-        f"Write a production Dockerfile for a {stack.get('backend','FastAPI')} app.\n"
-        f"Requirements:\n"
-        f"- Multi-stage build (builder + runtime)\n"
-        f"- Non-root user\n"
-        f"- COPY requirements.txt and install deps before copying code\n"
-        f"- HEALTHCHECK instruction\n"
-        f"- Expose port 8000\n"
-        f"- Use python:3.11-slim base image for Python apps\n"
-        f"- CMD: uvicorn {app_module}:app --host 0.0.0.0 --port 8000 --workers 4",
-        task_type="code_generation",
-    )
+    # Generate Dockerfile from template (not LLM — avoids markdown leaking in)
     dockerfile_path = project_dir / "Dockerfile"
-    dockerfile_path.write_text(_strip_fences(dockerfile_code))
+    if not dockerfile_path.exists() or not _is_valid_dockerfile(dockerfile_path):
+        dockerfile_path.write_text(_build_dockerfile(app_module))
 
     # Generate docker-compose.yml
     db = stack.get("database", "postgres").lower()
@@ -284,10 +273,55 @@ def _detect_cloud(arch: Dict) -> str:
     return "aws"
 
 
+def _is_valid_dockerfile(path: Path) -> bool:
+    """Return True only if the file looks like a valid Dockerfile (no markdown content)."""
+    try:
+        content = path.read_text()
+        return "FROM " in content and "```" not in content and "**" not in content
+    except Exception:
+        return False
+
+
+def _build_dockerfile(app_module: str) -> str:
+    """Return a production-ready Dockerfile template."""
+    import textwrap
+    return textwrap.dedent(f"""\
+        FROM python:3.11-slim AS builder
+        WORKDIR /app
+        ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+        RUN apt-get update && apt-get install -y --no-install-recommends \\
+            build-essential gcc libffi-dev && rm -rf /var/lib/apt/lists/*
+        COPY requirements.txt* ./
+        RUN pip install --no-cache-dir --upgrade pip && \\
+            pip install --no-cache-dir -r requirements.txt
+
+        FROM python:3.11-slim
+        WORKDIR /app
+        ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+        RUN apt-get update && apt-get install -y --no-install-recommends \\
+            curl && rm -rf /var/lib/apt/lists/*
+        RUN adduser --system --no-create-home --group appuser
+        COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+        COPY --from=builder /usr/local/bin /usr/local/bin
+        COPY . .
+        RUN mkdir -p /app/data && chown -R appuser:appuser /app
+        USER appuser
+        EXPOSE 8000
+        HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \\
+            CMD curl -f http://localhost:8000/health || exit 1
+        CMD ["uvicorn", "{app_module}:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    """)
+
+
 def _strip_fences(code: str) -> str:
+    """Strip markdown code fences and any trailing explanation text from LLM output."""
     lines = code.strip().splitlines()
+    # Strip opening fence
     if lines and lines[0].startswith("```"):
         lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
+    # Find and strip at closing fence — everything after is markdown explanation
+    for i, line in enumerate(lines):
+        if line.strip() == "```":
+            lines = lines[:i]
+            break
     return "\n".join(lines)
