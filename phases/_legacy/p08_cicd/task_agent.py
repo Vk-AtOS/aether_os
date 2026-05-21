@@ -150,11 +150,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --prefer-offline || npm install
+        run: npm install
 
       - name: Type-check
         run: npm run typecheck

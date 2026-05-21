@@ -688,8 +688,9 @@ server {
   gzip_min_length 1024;
 
   # Proxy /api/* to the backend (strips /api prefix)
+  # Backend service is named 'app' in docker-compose.yml
   location /api/ {
-    proxy_pass http://api:8000/;
+    proxy_pass http://app:8000/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -717,7 +718,8 @@ def _generate_dockerfile() -> str:
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# Use npm ci if lockfile exists, otherwise npm install (for first-time builds)
+RUN [ -f package-lock.json ] && npm ci || npm install
 COPY . .
 # Accept backend URL as build arg so API calls are baked into the bundle
 ARG VITE_API_URL=http://localhost:8000
@@ -728,6 +730,7 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD wget -qO- http://localhost:80 || exit 1
 """
 
 
