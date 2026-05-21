@@ -690,6 +690,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+# Accept backend URL as build arg so API calls are baked into the bundle
+ARG VITE_API_URL=http://localhost:8000
+ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
 FROM nginx:alpine
@@ -701,10 +704,11 @@ EXPOSE 80
 
 def _generate_env_example() -> str:
     return (
-        "# Frontend environment variables\n"
-        "# Default (/api) works with both Vite dev proxy and Docker nginx proxy.\n"
-        "# Set to http://localhost:8000 to bypass proxy and hit the API directly.\n"
-        "# VITE_API_URL=http://localhost:8000\n"
+        "# Frontend environment variables — copy to .env\n\n"
+        "# API base URL. Must be accessible from the user's browser.\n"
+        "# Dev: http://localhost:8000  (default, direct to backend)\n"
+        "# Docker remote server: http://your-server-ip:8000\n"
+        "VITE_API_URL=http://localhost:8000\n"
     )
 
 
@@ -794,7 +798,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     all_type_imports = type_imports + create_imports
     lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
     lines.append("")
-    lines.append("const BASE = import.meta.env.VITE_API_URL ?? '/api'")
+    lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
     lines.append("")
     lines.append("export const apiClient = axios.create({ baseURL: BASE })")
     lines.append("")
@@ -1586,20 +1590,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    ports:
+      - "${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/app.db}
       SECRET_KEY: ${SECRET_KEY:-changeme-in-production-use-64-char-hex}
     volumes:
       - db_data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   web:
     build:
       context: ./frontend
+      args:
+        # Set to your server's public IP or domain for remote deployments
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     ports:
       - "${PORT:-80}:80"
     depends_on:

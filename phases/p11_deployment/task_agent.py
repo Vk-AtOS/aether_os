@@ -341,10 +341,11 @@ class TaskAgent:
                 volumes:
                   - app_data:/app/data
                 healthcheck:
-                  test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+                  test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
                   interval: 10s
                   timeout: 5s
                   retries: 5
+                  start_period: 20s
 
             volumes:
               app_data:
