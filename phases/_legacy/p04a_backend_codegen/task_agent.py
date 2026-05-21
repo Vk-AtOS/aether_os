@@ -695,6 +695,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             "    email = Column(String, unique=True, nullable=False, index=True)\n"
             "    password_hash = Column(String, nullable=False)\n"
             "    name = Column(String, default='')\n"
+            "    role = Column(String, default='user', nullable=False)\n"
         )
 
     orm_models_str = "\n".join(orm_models)
@@ -800,8 +801,14 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             "from jose import jwt, JWTError\n"
             "from passlib.context import CryptContext\n"
             "from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials\n"
+            "from pydantic import EmailStr\n"
             "import secrets\n\n"
-            "SECRET_KEY = os.getenv('SECRET_KEY', secrets.token_hex(32))\n"
+            "_default_key = secrets.token_hex(32)\n"
+            "if not os.getenv('SECRET_KEY'):\n"
+            "    import logging as _logging; _logging.getLogger(__name__).warning(\n"
+            "        'SECRET_KEY not set — using ephemeral key; tokens will be invalidated on restart. '\n"
+            "        'Set SECRET_KEY in .env for production.')\n"
+            "SECRET_KEY = os.getenv('SECRET_KEY', _default_key)\n"
             "ALGORITHM = 'HS256'\n"
             "pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')\n"
             "bearer = HTTPBearer()\n\n"
@@ -817,26 +824,26 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             "        raise HTTPException(status_code=401, detail='Invalid token')\n\n"
             "@app.post('/auth/register')\n"
             "@limiter.limit('20/minute')\n"
-            "def register(request: Request, email: str = Body(...), password: str = Body(...), name: str = Body(''), db: Session = Depends(get_db)):\n"
+            "def register(request: Request, email: EmailStr = Body(...), password: str = Body(..., min_length=8), name: str = Body(''), db: Session = Depends(get_db)):\n"
             "    # Security: parameterised ORM query — no SQL injection risk\n"
             "    existing = db.query(UserORM).filter(UserORM.email == email).first()\n"
             "    if existing:\n"
             "        raise HTTPException(400, 'Email already registered')\n"
             "    hashed = pwd_context.hash(password)\n"
-            "    user = UserORM(email=email, password_hash=hashed, name=name)\n"
+            "    user = UserORM(email=email, password_hash=hashed, name=name, role='user')\n"
             "    db.add(user)\n"
             "    db.commit()\n"
             "    db.refresh(user)\n"
-            "    token = create_token({'sub': str(user.id), 'email': email})\n"
+            "    token = create_token({'sub': str(user.id), 'email': email, 'role': user.role})\n"
             "    return {'access_token': token, 'token_type': 'bearer', 'user_id': user.id}\n\n"
             "@app.post('/auth/login')\n"
             "@limiter.limit('20/minute')\n"
-            "def login(request: Request, email: str = Body(...), password: str = Body(...), db: Session = Depends(get_db)):\n"
+            "def login(request: Request, email: EmailStr = Body(...), password: str = Body(...), db: Session = Depends(get_db)):\n"
             "    # Security: ORM filter — no SQL injection risk\n"
             "    user = db.query(UserORM).filter(UserORM.email == email).first()\n"
             "    if not user or not pwd_context.verify(password, user.password_hash):\n"
             "        raise HTTPException(401, 'Invalid credentials')\n"
-            "    token = create_token({'sub': str(user.id), 'email': email})\n"
+            "    token = create_token({'sub': str(user.id), 'email': email, 'role': user.role})\n"
             "    return {'access_token': token, 'token_type': 'bearer'}\n"
         )
 
@@ -939,6 +946,7 @@ def _build_requirements(has_postgres: bool = False, has_uploads: bool = False, h
         "fastapi==0.115.6",
         "uvicorn[standard]==0.32.1",
         "pydantic==2.10.3",
+        "email-validator==2.2.0",
         "python-multipart==0.0.20",
         "sqlalchemy==2.0.36",
         "alembic==1.14.0",

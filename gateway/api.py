@@ -677,17 +677,38 @@ def create_app() -> FastAPI:
         except Exception:
             result["pipeline"] = {}
 
-        # LLM cost tracking
+        # LLM cost tracking — query DB for today's totals (persists across restarts)
         try:
-            from aether_os.core.llm.client import _cost_registry
+            from aether_os.core.db import get_session_factory as _gsf_llm
+            from aether_os.core.models import LLMCallRecord as _LCR
+            from sqlalchemy import select as _sel_llm, func as _func_llm
+            import time as _time_llm
+            _today_start = float(int(_time_llm.time() // 86400) * 86400)
+            async with _gsf_llm()() as _sess_llm:
+                _row = (await _sess_llm.execute(
+                    _sel_llm(
+                        _func_llm.count(_LCR.id),
+                        _func_llm.coalesce(_func_llm.sum(_LCR.input_tokens), 0),
+                        _func_llm.coalesce(_func_llm.sum(_LCR.output_tokens), 0),
+                    ).where(_LCR.created_at >= _today_start)
+                )).one()
             result["llm"] = {
-                "calls_today":        _cost_registry.get("calls", 0),
-                "prompt_tokens":      _cost_registry.get("prompt_tokens", 0),
-                "completion_tokens":  _cost_registry.get("completion_tokens", 0),
-                "provider":           os.environ.get("PRIMARY_LLM", "unknown"),
+                "calls_today":       int(_row[0]),
+                "prompt_tokens":     int(_row[1]),
+                "completion_tokens": int(_row[2]),
+                "provider":          os.environ.get("PRIMARY_LLM", "unknown"),
             }
         except Exception:
-            result["llm"] = {}
+            try:
+                from aether_os.core.llm.client import _cost_registry
+                result["llm"] = {
+                    "calls_today":        _cost_registry.get("calls", 0),
+                    "prompt_tokens":      _cost_registry.get("prompt_tokens", 0),
+                    "completion_tokens":  _cost_registry.get("completion_tokens", 0),
+                    "provider":           os.environ.get("PRIMARY_LLM", "unknown"),
+                }
+            except Exception:
+                result["llm"] = {}
 
         # API latency (simple self-ping)
         try:
@@ -2666,12 +2687,12 @@ def create_app() -> FastAPI:
         org_id = user["org_id"]
         _limit = max(1, min(limit, 200))
 
-        # Fetch recent completed runs from DB
+        # Fetch recent completed runs from DB — include cached quality_score column
         try:
             async with _gsf_qt()() as _sess:
                 rows = (await _sess.execute(
                     _qt_text(
-                        "SELECT id, project_name, started_at FROM runs "
+                        "SELECT id, project_name, started_at, quality_score FROM runs "
                         "WHERE org_id=:oid AND status IN ('completed','passed') "
                         "ORDER BY started_at DESC LIMIT :lim"
                     ),
@@ -2681,27 +2702,35 @@ def create_app() -> FastAPI:
             logger.debug("quality-trend DB query failed: %s", _qt_exc)
             rows = []
 
-        # For each run, attempt to load quality/compliance from cached JSON or compute on-demand
         points = []
         projects_dir = _pathlib.Path.home() / ".aether_os" / "projects"
 
         for row in rows:
-            run_id_qt, proj_name, started_at_qt = row[0], row[1], row[2]
-            quality_score: Optional[int] = None
+            run_id_qt, proj_name, started_at_qt, db_quality_score = row[0], row[1], row[2], row[3]
+
+            # Convert epoch float to ISO string
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                _ts = float(started_at_qt) if started_at_qt else 0.0
+                created_at_iso = _dt.fromtimestamp(_ts, tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                created_at_iso = str(started_at_qt)
+
+            # Use cached DB quality_score first; fall back to on-demand compute only if absent
+            quality_score: Optional[int] = db_quality_score
+            if quality_score is None:
+                run_dir = projects_dir / run_id_qt
+                if run_dir.exists():
+                    try:
+                        from aether_os.core.quality.metrics import score_project as _score_qt
+                        _qs = _score_qt(run_dir)
+                        quality_score = _qs.total
+                    except Exception:
+                        pass
+
+            # Compliance score from pre-built scan JSON
             compliance_score: Optional[int] = None
-
             run_dir = projects_dir / run_id_qt
-
-            # Quality score — try cached then compute
-            if run_dir.exists():
-                try:
-                    from aether_os.core.quality.metrics import score_project as _score_qt
-                    _qs = _score_qt(run_dir)
-                    quality_score = _qs.total
-                except Exception:
-                    pass
-
-            # Compliance score — try pre-built JSON first
             _comp_json = run_dir / "p06_review_security" / "compliance" / "compliance_scan.json"
             if _comp_json.exists():
                 try:
@@ -2710,17 +2739,16 @@ def create_app() -> FastAPI:
                 except Exception:
                     pass
 
-            # Only include points where we have at least quality data
             if quality_score is not None:
                 points.append({
                     "run_id": run_id_qt,
                     "project_name": proj_name or f"run-{run_id_qt[:8]}",
-                    "created_at": str(started_at_qt),
+                    "created_at": created_at_iso,
                     "quality_score": quality_score,
                     "compliance_score": compliance_score,
                 })
 
-        # Reverse so oldest is first (for the chart to trend left→right in time)
+        # Reverse so oldest is first (for chart to trend left→right in time)
         points.reverse()
         return {"points": points, "total": len(points)}
 

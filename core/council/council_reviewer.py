@@ -116,7 +116,7 @@ _PROMPTS = {
     },
 }
 
-_MAX_CODE_CHARS = 12_000  # trim very large files to keep tokens reasonable
+_MAX_CODE_CHARS = 40_000  # trim very large files to keep tokens reasonable
 
 
 # ── Parser ────────────────────────────────────────────────────────────────────
