@@ -311,17 +311,22 @@ scrape_configs:
                         "except ImportError:\n"
                         "    pass\n"
                     )
-                    # Insert after the first `app = FastAPI(...)` line
+                    # Insert after the closing ) of app = FastAPI(...) — handles multi-line
                     if "app = FastAPI(" in content:
-                        lines = content.splitlines(keepends=True)
-                        new_lines = []
-                        injected = False
-                        for line in lines:
-                            new_lines.append(line)
-                            if not injected and "app = FastAPI(" in line:
-                                new_lines.append(inject_block)
-                                injected = True
-                        main_py.write_text("".join(new_lines))
+                        _start = content.find("app = FastAPI(")
+                        _depth, _end = 0, _start
+                        for _i, _ch in enumerate(content[_start:], _start):
+                            if _ch == "(":
+                                _depth += 1
+                            elif _ch == ")":
+                                _depth -= 1
+                                if _depth == 0:
+                                    _end = _i
+                                    break
+                        _end_nl = content.find("\n", _end)
+                        if _end_nl > 0:
+                            content = content[:_end_nl + 1] + inject_block + content[_end_nl + 1:]
+                            main_py.write_text(content)
                         results["prometheus_instrumentation_injected"] = True
     except Exception as _e:
         logger.warning("[p08] prometheus wiring failed: %s", _e)
