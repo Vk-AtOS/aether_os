@@ -486,16 +486,26 @@ class BackendCodegenAgent:
             logger.warning("[p04a] Requirements verification skipped: %s", _e)
 
         # ── DECISIONS.md ──────────────────────────────────────────────────────
+        def _fmt_list(val) -> str:
+            """Format a list or string as Markdown bullet points."""
+            if isinstance(val, list):
+                return "\n".join(f"- {item}" for item in val) if val else "- (none)"
+            return str(val)
+
         decisions_content = (
             f"# Architecture Decisions\n\n"
             f"## Why {tech_stack.get('backend', 'FastAPI')}\n"
             f"{getattr(profile, 'why_this_stack_was_chosen', profile.description)}\n\n"
+            f"## Tech Stack\n\n"
+            f"| Layer | Choice |\n|-------|--------|\n"
+            + "\n".join(f"| {k.title()} | {v} |" for k, v in tech_stack.items() if v and str(v).lower() not in ("none", ""))
+            + "\n\n"
             f"## Key patterns used\n"
-            f"{profile.required_patterns}\n\n"
+            f"{_fmt_list(profile.required_patterns)}\n\n"
             f"## Security requirements\n"
-            f"{profile.security_requirements}\n\n"
+            f"{_fmt_list(profile.security_requirements)}\n\n"
             f"## How to extend this project\n"
-            f"{getattr(profile, 'domain_specific_guidance', ', '.join(profile.required_patterns))}\n"
+            f"{getattr(profile, 'domain_specific_guidance', _fmt_list(profile.required_patterns))}\n"
         )
         decisions_file = root_dir / "DECISIONS.md"
         decisions_file.write_text(decisions_content)
