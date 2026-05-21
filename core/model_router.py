@@ -52,6 +52,24 @@ _DEFAULT_FALLBACK_MODELS = (
 )
 
 
+def _is_provider_configured(spec: ModelSpec) -> bool:
+    """Return True if the provider has usable credentials / can be reached."""
+    if spec.provider == "anthropic":
+        return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    if spec.provider == "gemini":
+        key = os.environ.get("GOOGLE_API_KEY", "").strip()
+        return bool(key) and key != "REPLACE_WITH_YOUR_GEMINI_KEY"
+    if spec.provider == "openrouter":
+        return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+    if spec.provider == "bedrock":
+        return bool(
+            os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+            and os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        )
+    # Ollama: always attempt — will fail at call time if not running
+    return True
+
+
 def get_fallback_chain() -> List[ModelSpec]:
     """Build fallback chain from environment.  Re-called on every request so
     settings changes take effect immediately without a server restart.
@@ -143,24 +161,6 @@ def _classify_error(exc: Exception) -> str:
         return "fallback"
     # Default: fallback on unknown errors to preserve pipeline progress
     return "fallback"
-
-
-def _is_provider_configured(spec: ModelSpec) -> bool:
-    """Return True if the provider has usable credentials / can be reached."""
-    if spec.provider == "anthropic":
-        return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
-    if spec.provider == "gemini":
-        key = os.environ.get("GOOGLE_API_KEY", "").strip()
-        return bool(key) and key != "REPLACE_WITH_YOUR_GEMINI_KEY"
-    if spec.provider == "openrouter":
-        return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
-    if spec.provider == "bedrock":
-        return bool(
-            os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
-            and os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
-        )
-    # Ollama: always attempt — will fail at call time if not running
-    return True
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
