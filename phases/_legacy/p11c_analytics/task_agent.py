@@ -16,20 +16,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Event tracking
     (analytics_dir / "analytics_service.py").write_text("def track(event, data): pass")
     (analytics_dir / "analytics_events.py").write_text("EVENTS = ['page_view', 'error']")
-    (analytics_dir / "analytics_middleware.py").write_text("def middleware(request, call_next): return await call_next(request)")
+    (analytics_dir / "analytics_middleware.py").write_text(
+        "from fastapi import Request\n"
+        "async def analytics_middleware(request: Request, call_next):\n"
+        "    response = await call_next(request)\n"
+        "    return response\n"
+    )
     (analytics_dir / "analytics_dashboard.html").write_text("<html><body>Analytics Dashboard</body></html>")
     (analytics_dir / "analytics_insights.json").write_text('{"insights": ["Track funnel effectiveness"]}')
     
     # Migrations
     (migrations_dir / "add_analytics_events.sql").write_text("CREATE TABLE IF NOT EXISTS analytics_events (...)")
     
-    # Patch main.py
-    main_py_path = project_dir / phase_input.input_data.get("backend_main_py", "main.py")
-    if main_py_path.exists():
-        content = main_py_path.read_text()
-        if "analytics" not in content:
-            content = "from .analytics.analytics_middleware import analytics_router\napp.include_router(analytics_router)\n" + content
-            main_py_path.write_text(content)
+    # No main.py patching — analytics middleware output dir is separate from generated app src
             
     return TaskResult(
         output_path=str(analytics_dir),
