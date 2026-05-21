@@ -567,6 +567,7 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\\/api/, ''),
       }
     }
   }
@@ -653,12 +654,28 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
+  gzip on;
+  gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+  gzip_min_length 1024;
+
+  # Proxy /api/* to the backend (strips /api prefix)
   location /api/ {
     proxy_pass http://api:8000/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 10s;
   }
 
+  # Static assets — long cache
+  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+    try_files $uri =404;
+  }
+
+  # SPA fallback — React Router handles client-side routes
   location / {
     try_files $uri $uri/ /index.html;
   }
@@ -683,7 +700,12 @@ EXPOSE 80
 
 
 def _generate_env_example() -> str:
-    return "VITE_API_URL=http://localhost:8000\n"
+    return (
+        "# Frontend environment variables\n"
+        "# Default (/api) works with both Vite dev proxy and Docker nginx proxy.\n"
+        "# Set to http://localhost:8000 to bypass proxy and hit the API directly.\n"
+        "# VITE_API_URL=http://localhost:8000\n"
+    )
 
 
 def _generate_index_css() -> str:
@@ -772,7 +794,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     all_type_imports = type_imports + create_imports
     lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
     lines.append("")
-    lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
+    lines.append("const BASE = import.meta.env.VITE_API_URL ?? '/api'")
     lines.append("")
     lines.append("export const apiClient = axios.create({ baseURL: BASE })")
     lines.append("")
@@ -1565,7 +1587,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///./data/app.db}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/app.db}
       SECRET_KEY: ${SECRET_KEY:-changeme-in-production-use-64-char-hex}
     volumes:
       - db_data:/app/data

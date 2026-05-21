@@ -169,7 +169,7 @@ def _generate_compose(slug: str, db: str, cache: str) -> str:
         db_env = f"MONGODB_URL=mongodb://db:27017/{slug}"
     else:
         # SQLite — no db service needed
-        db_env = f"DATABASE_URL=sqlite+aiosqlite:///./data/{slug}.db"
+        db_env = f"DATABASE_URL=sqlite:///./data/{slug}.db"
 
     cache_service = ""
     cache_env = ""

@@ -459,6 +459,7 @@ class BackendCodegenAgent:
                         "fastapi==0.115.6\n"
                         "uvicorn[standard]==0.32.1\n"
                         "pydantic==2.10.3\n"
+                        "email-validator==2.2.0\n"
                         "python-multipart==0.0.20\n"
                         "sqlalchemy==2.0.36\n"
                         "alembic==1.14.0\n"
