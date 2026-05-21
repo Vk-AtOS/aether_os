@@ -197,9 +197,9 @@ def score_project(project_dir: Path) -> QualityScore:
     )
     has_env_example = (project_dir / ".env.example").exists()
     has_readme = (project_dir / "README.md").exists()
-    has_frontend = (
+    has_frontend = bool(
         (project_dir / "frontend").is_dir()
-        or (project_dir / "frontend" / "package.json").exists()
+        or list(project_dir.rglob("package.json"))
     )
     has_compliance = bool(
         list(project_dir.rglob("compliance_report.pdf"))
