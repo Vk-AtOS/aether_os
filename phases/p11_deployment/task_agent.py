@@ -334,7 +334,7 @@ class TaskAgent:
               api:
                 build: {build_ctx}
                 environment:
-                  DATABASE_URL: ${{DATABASE_URL:-sqlite+aiosqlite:///./data/app.db}}
+                  DATABASE_URL: ${{DATABASE_URL:-sqlite:///./data/app.db}}
                   SECRET_KEY: ${{SECRET_KEY:-changeme-in-production-set-64-char-hex}}
                 ports:
                   - "8000:8000"
