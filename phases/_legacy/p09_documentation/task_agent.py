@@ -93,10 +93,27 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         pass
 
     # Generate docs with Claude
+    # Prefer the canonical src/main.py so code_preview reflects the actual app
     code_preview = ""
     if source_dir and Path(source_dir).exists():
-        py_files = list(Path(source_dir).rglob("*.py"))[:3]
-        code_preview = "\n".join(f.read_text()[:500] for f in py_files)
+        _src_dir = Path(source_dir)
+        _preferred = [
+            _src_dir / "src" / "main.py",
+            _src_dir / "main.py",
+        ]
+        _main_file = next((p for p in _preferred if p.exists()), None)
+        if _main_file:
+            code_preview = _main_file.read_text()[:2000]
+        else:
+            # Fall back to first .py file not in a phase output directory
+            _SKIP_PREFIXES = ("p01_", "p02_", "p03_", "p04_", "p05_", "p06_",
+                              "p07_", "p08_", "p09_", "p10_", "p11_", "p12_", "p13_", "p14_")
+            py_files = [
+                f for f in _src_dir.rglob("*.py")
+                if not any(part.startswith(_SKIP_PREFIXES) for part in f.relative_to(_src_dir).parts)
+                   and "__pycache__" not in str(f)
+            ][:3]
+            code_preview = "\n".join(f.read_text()[:500] for f in py_files)
 
     _endpoints_instruction = ""
     if actual_endpoints:
@@ -111,13 +128,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             f"{actual_models}. Use these exact names — do not invent others.\n"
         )
 
+    raw_input = data.get("raw_input", requirements_doc or "")
     try:
         readme = await llm.call(
             f"Write a comprehensive README.md (min 500 words) for '{project_name}'.\n"
-            f"Requirements overview: {requirements_doc[:1000]}\n"
+            f"Original requirement: {raw_input[:500]}\n"
+            f"Requirements overview: {requirements_doc[:500]}\n"
             f"Tech stack: {json.dumps(arch_json.get('tech_stack',{}))}\n"
-            f"Code preview:\n{code_preview[:1000]}\n"
+            f"Code preview (src/main.py):\n{code_preview[:1500]}\n"
             f"{_endpoints_instruction}\n"
+            f"IMPORTANT: The README must describe THIS specific application based on the "
+            f"requirement above. Do not describe a generic app or something unrelated.\n"
             f"Include: Overview, Features, Installation, Configuration, "
             f"Usage Examples, API Reference summary, Deployment, Contributing, License.",
             task_type="documentation",
@@ -135,14 +156,39 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     readme_path = docs_dir / "README.md"
     readme_path.write_text(readme)
 
+    # Mirror the generated comprehensive README to the project root so the
+    # delivery ZIP has a polished README at the top level (not just p04a's quick-start)
+    if source_dir:
+        _root_readme = Path(source_dir) / "README.md"
+        try:
+            if not _root_readme.exists() or len(_root_readme.read_text()) < 200:
+                _root_readme.write_text(readme)
+            # Always write a DEPLOY.md at project root referencing the DEPLOYMENT.md
+            _deploy_md = Path(source_dir) / "DEPLOY.md"
+            if not _deploy_md.exists():
+                # Will be generated below — placeholder
+                pass
+        except Exception as _mir_err:
+            logger.debug("Could not mirror README to project root: %s", _mir_err)
+
     deployment_doc = await llm.call(
         f"Write a DEPLOYMENT.md for '{project_name}'.\n"
+        f"Original requirement: {raw_input[:200]}\n"
         f"Tech stack: {json.dumps(arch_json.get('tech_stack',{}))}\n"
         f"Include: Prerequisites, Docker deployment, Environment variables, "
         f"Health checks, Scaling, Rollback procedure.",
         task_type="documentation",
     )
-    (docs_dir / "DEPLOYMENT.md").write_text(_strip_fences(deployment_doc))
+    deployment_content = _strip_fences(deployment_doc)
+    (docs_dir / "DEPLOYMENT.md").write_text(deployment_content)
+    # Mirror DEPLOYMENT.md to project root as DEPLOY.md
+    if source_dir:
+        try:
+            _deploy_root = Path(source_dir) / "DEPLOY.md"
+            if not _deploy_root.exists():
+                _deploy_root.write_text(deployment_content)
+        except Exception:
+            pass
 
     _brand = os.environ.get("DEPLOYMENT_BRAND", "AetherOS Factory")
     changelog_path = docs_dir / "CHANGELOG.md"
