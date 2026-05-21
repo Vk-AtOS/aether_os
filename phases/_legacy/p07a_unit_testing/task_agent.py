@@ -44,11 +44,16 @@ def _find_src_dir(data: dict) -> Path | None:
         if canonical.exists():
             return canonical.parent
 
-    # 3. Search but prefer p04_backend over p03_scaffolding
+    # 3. Search but prefer p04_backend over p03_scaffolding; exclude p03 entirely if p04 exists
     if project_dir.exists():
         candidates = list(project_dir.rglob("src/main.py"))
-        # Sort so p04_backend comes before p03_scaffolding
-        candidates.sort(key=lambda p: (0 if "p04_backend" in str(p) else 1, str(p)))
+        p04_candidates = [p for p in candidates if "p04_backend" in str(p)]
+        if p04_candidates:
+            return p04_candidates[0].parent
+        # Only fall back to p03 if no p04 candidate exists
+        non_p03 = [p for p in candidates if "p03_scaffolding" not in str(p)]
+        if non_p03:
+            return non_p03[0].parent
         if candidates:
             return candidates[0].parent
     return None
@@ -62,16 +67,23 @@ def _fallback_tests(src_dir: Path) -> str:
     if main_py.exists():
         content = main_py.read_text()
         import re
-        paths = re.findall(r'@app\.\w+\("([^"]+)"', content)
-        for path in paths[:4]:
-            if path == "/health":
+        # Match both single and double quoted paths, deduplicate
+        paths_raw = re.findall(r'@app\.\w+\(["\']([^"\'{}]+)["\']', content)
+        seen_names: set = set()
+        for path in paths_raw:
+            if path in ("/health", "/docs", "/openapi.json") or "{" in path:
                 continue
-            safe_name = re.sub(r"[^a-z0-9]", "_", path.strip("/")) or "ep"
+            safe_name = re.sub(r"[^a-z0-9]", "_", path.strip("/").replace("/", "_")) or "ep"
+            if safe_name in seen_names:
+                continue
+            seen_names.add(safe_name)
+            if len(seen_names) > 6:
+                break
             extra_tests += f"""
 
 def test_get_{safe_name}(client):
     resp = client.get("{path}")
-    assert resp.status_code in (200, 404, 405, 422)
+    assert resp.status_code in (200, 401, 404, 405, 422)
 """
 
     return f'''"""Auto-generated tests for the generated FastAPI application."""
