@@ -5415,14 +5415,20 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Run not found")
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
         artifacts = []
-        _ARTIFACT_SKIP = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules", ".git"}
+        _ARTIFACT_SKIP = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+                          "node_modules", ".git", ".venv", "venv", ".aetheros"}
+        _ALLOW_HIDDEN = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
+                         ".prettierrc", ".editorconfig", ".nvmrc"}
         if project_dir.exists():
             for fpath in sorted(project_dir.rglob("*")):
                 if not fpath.is_file():
                     continue
                 rel = fpath.relative_to(project_dir)
                 parts = rel.parts
-                if any(p.startswith('.') or p in _ARTIFACT_SKIP for p in parts):
+                if any(p in _ARTIFACT_SKIP for p in parts):
+                    continue
+                # Allow known deployment dotfiles; skip other hidden files/dirs
+                if any(p.startswith('.') for p in parts) and fpath.name not in _ALLOW_HIDDEN:
                     continue
                 if fpath.suffix in {".pyc", ".pyo"}:
                     continue
@@ -5451,16 +5457,28 @@ def create_app() -> FastAPI:
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
         if not project_dir.exists():
             raise HTTPException(status_code=404, detail="Project files not found")
-        _SKIP = {"__pycache__", ".pytest_cache", ".mypy_cache", "node_modules", ".git"}
+        _SKIP = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+                 "node_modules", ".git", ".venv", "venv", ".mypy_cache", ".aetheros"}
+        _ALLOW_HIDDEN = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
+                         ".prettierrc", ".editorconfig", ".nvmrc"}
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for fpath in sorted(project_dir.rglob("*")):
                 if not fpath.is_file():
                     continue
                 rel = fpath.relative_to(project_dir)
-                if any(p in _SKIP or p.startswith(".") for p in rel.parts):
+                parts = rel.parts
+                if any(p in _SKIP for p in parts):
                     continue
-                if fpath.suffix in {".pyc", ".pyo"}:
+                # Allow known deployment dotfiles; skip other hidden files/dirs
+                if any(p.startswith('.') for p in parts) and fpath.name not in _ALLOW_HIDDEN:
+                    continue
+                if fpath.suffix in {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}:
+                    continue
+                try:
+                    if fpath.stat().st_size > 5 * 1024 * 1024:
+                        continue
+                except OSError:
                     continue
                 zf.write(fpath, rel)
         buf.seek(0)
