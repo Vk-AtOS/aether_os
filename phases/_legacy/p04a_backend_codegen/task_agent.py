@@ -187,10 +187,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as _ce:
         logger.warning("Compliance injection skipped: %s", _ce)
 
+    # Expose canonical src dir so downstream phases (p05, p07a) can locate main.py
+    _src_dir = str(root_dir / "src") if root_dir.exists() else str(output_dir / "src")
+
     return TaskResult(
         output_path=str(output_dir),
         confidence=0.9 if generated_files else 0.0,
-        metadata={"generated_files": generated_files, "file_count": len(generated_files)},
+        metadata={
+            "generated_files": generated_files,
+            "file_count": len(generated_files),
+            "backend_src_dir": _src_dir,
+            "project_dir": str(root_dir),
+        },
         issues=issues,
         success=len(generated_files) > 0,
     )
