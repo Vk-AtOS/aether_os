@@ -292,18 +292,25 @@ async def portal_download_zip(run_id: str):
     # Build ZIP in memory
     buf = io.BytesIO()
     try:
-        _SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".venv", "venv", ".mypy_cache"}
+        _SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".venv", "venv", ".mypy_cache",
+                      ".pytest_cache", ".aetheros"}
         _SKIP_SUFFIXES = {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}
+        # These hidden files are safe to include — clients need them for deployment
+        _ALLOW_HIDDEN_FILES = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
+                               ".prettierrc", ".editorconfig", ".nvmrc"}
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for file_path in project_dir.rglob("*"):
                 if not file_path.is_file():
                     continue
-                # Skip hidden dirs/files (e.g. .git, .env) and heavy/noisy dirs
                 parts_set = set(file_path.parts)
-                if any(part.startswith(".") for part in file_path.parts):
-                    continue
+                # Skip known heavy/sensitive/internal directories
                 if parts_set & _SKIP_DIRS:
                     continue
+                # Skip hidden files UNLESS they're on the allowed list
+                # (exclude .env, .git/* etc. but allow .env.example, .gitignore)
+                if any(part.startswith(".") for part in file_path.relative_to(project_dir).parts):
+                    if file_path.name not in _ALLOW_HIDDEN_FILES:
+                        continue
                 # Skip byte-compiled and DB journal files
                 if file_path.suffix in _SKIP_SUFFIXES:
                     continue
