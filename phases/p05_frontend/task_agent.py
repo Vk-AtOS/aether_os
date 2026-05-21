@@ -23,13 +23,21 @@ logger = logging.getLogger(__name__)
 
 def _detect_domain(phase_input: Any) -> str:
     """Detect application domain from project description and entity names."""
+    # If the pipeline already resolved a domain, use it directly.
+    if hasattr(phase_input, "domain") and phase_input.domain and phase_input.domain not in ("", "unknown"):
+        return phase_input.domain
+
     data = (
         phase_input.input_data
         if hasattr(phase_input, "input_data")
         else (phase_input if isinstance(phase_input, dict) else {})
     )
     description = (
-        data.get("description") or data.get("prompt") or data.get("project_name") or ""
+        data.get("description")
+        or data.get("prompt")
+        or data.get("raw_input")   # pipeline accumulates user prompt here
+        or data.get("project_name")
+        or ""
     ).lower()
     entities = [e.get("name", "").lower() for e in data.get("entities", [])]
     all_text = description + " " + " ".join(entities)
