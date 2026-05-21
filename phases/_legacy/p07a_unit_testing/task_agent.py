@@ -276,6 +276,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     }
     (tests_dir / "test_result.json").write_text(_json.dumps(_result_data, indent=2))
 
+    # Mirror test_main.py to canonical project_dir/tests/ so the delivery ZIP
+    # contains tests/ at the top level, not buried in the phase output tree.
+    _project_dir = Path(data.get("project_dir", ""))
+    if _project_dir.exists() and test_file.exists():
+        try:
+            import shutil as _shutil
+            _canonical_tests = _project_dir / "tests"
+            _canonical_tests.mkdir(exist_ok=True)
+            _shutil.copy2(test_file, _canonical_tests / "test_main.py")
+            (_canonical_tests / "__init__.py").touch()
+            (_canonical_tests / "test_result.json").write_text(_json.dumps(_result_data, indent=2))
+        except Exception as _cp_e:
+            logger.warning("p07a: could not mirror tests to project root: %s", _cp_e)
+
     return TaskResult(
         output_path=str(tests_dir),
         confidence=0.85 if pytest_passed else 0.6,
