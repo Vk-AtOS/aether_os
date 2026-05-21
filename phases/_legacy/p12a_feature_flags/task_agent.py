@@ -28,13 +28,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Tests
     (test_dir / "test_feature_flags.py").write_text("def test_flag(): assert True")
     
-    # Patch main.py
-    main_py_path = project_dir / phase_input.input_data.get("backend_main_py", "main.py")
-    if main_py_path.exists():
-        content = main_py_path.read_text()
-        if "flag_admin_router" not in content:
-            content = "from .feature_flags.flag_admin_router import router as flag_router\napp.include_router(flag_router, prefix='/flags')\n" + content
-            main_py_path.write_text(content)
+    # No main.py patching — feature_flags output dir is separate from generated app src
             
     return TaskResult(
         output_path=str(ff_dir),

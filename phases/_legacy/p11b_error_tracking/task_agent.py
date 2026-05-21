@@ -48,13 +48,26 @@ async def error_middleware(request: Request, call_next):
     # Tests
     (test_dir / "test_error_tracking.py").write_text("def test_init(): assert True")
     
-    # Patch main.py
-    main_py_path = project_dir / phase_input.input_data.get("backend_main_py", "main.py")
-    if main_py_path.exists():
-        content = main_py_path.read_text()
-        if "init_sentry" not in content:
-            content = "from .error_tracking.sentry_setup import init_sentry\ninit_sentry()\n" + content
-            main_py_path.write_text(content)
+    # Inject Sentry into main.py (best-effort, inline try/except — no relative import)
+    _src_dir = project_dir / "src"
+    _main_py = _src_dir / "main.py" if (_src_dir / "main.py").exists() else project_dir / "main.py"
+    if _main_py.exists():
+        content = _main_py.read_text()
+        if "sentry_sdk" not in content and "app = FastAPI(" in content:
+            _sentry_snippet = (
+                "\ntry:\n"
+                "    import sentry_sdk as _sentry\n"
+                "    import os as _os\n"
+                "    _dsn = _os.getenv('SENTRY_DSN', '')\n"
+                "    if _dsn:\n"
+                "        _sentry.init(dsn=_dsn, traces_sample_rate=0.1)\n"
+                "except ImportError:\n"
+                "    pass\n"
+            )
+            _insert_pos = content.find("app = FastAPI(")
+            if _insert_pos > 0:
+                content = content[:_insert_pos] + _sentry_snippet + content[_insert_pos:]
+                _main_py.write_text(content)
             
     return TaskResult(
         output_path=str(error_dir),
