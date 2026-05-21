@@ -307,8 +307,9 @@ async def _call_ollama(prompt: str, task_type: str) -> str:
 # ── Amazon Bedrock ────────────────────────────────────────────────────────────
 
 # Bedrock model IDs for Claude — mapped from task weight
-_BEDROCK_HEAVY = os.environ.get("BEDROCK_MODEL_HEAVY", "anthropic.claude-3-5-sonnet-20241022-v2:0")
-_BEDROCK_LIGHT = os.environ.get("BEDROCK_MODEL_LIGHT", "anthropic.claude-3-5-haiku-20241022-v1:0")
+# AWS requires inference profile IDs (us./eu./ap. prefix) for on-demand throughput
+_BEDROCK_HEAVY = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
+_BEDROCK_LIGHT = os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-3-5-haiku-20241022-v1:0")
 
 
 def _select_bedrock_model(task_type: str) -> str:
