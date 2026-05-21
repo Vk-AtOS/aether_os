@@ -505,6 +505,52 @@ class BackendCodegenAgent:
             (target_dir / "README.md").write_text(readme)
             generated_files.append(str(target_dir / "README.md"))
 
+        # ── .gitignore ────────────────────────────────────────────────────────
+        gitignore = (
+            "# Python\n"
+            "__pycache__/\n"
+            "*.pyc\n"
+            "*.pyo\n"
+            "*.pyd\n"
+            ".Python\n"
+            "*.egg-info/\n"
+            "dist/\n"
+            "build/\n"
+            ".eggs/\n\n"
+            "# Virtual environments\n"
+            ".venv/\n"
+            "venv/\n"
+            "env/\n\n"
+            "# Environment / secrets\n"
+            ".env\n"
+            "*.env\n\n"
+            "# Database\n"
+            "data/\n"
+            "*.db\n"
+            "*.db-shm\n"
+            "*.db-wal\n\n"
+            "# Logs\n"
+            "*.log\n"
+            "logs/\n\n"
+            "# Test artifacts\n"
+            ".pytest_cache/\n"
+            ".coverage\n"
+            "htmlcov/\n\n"
+            "# IDE\n"
+            ".idea/\n"
+            ".vscode/\n"
+            "*.swp\n"
+            "*.swo\n\n"
+            "# Node / frontend\n"
+            "node_modules/\n"
+            "frontend/dist/\n"
+            "frontend/.env\n"
+        )
+        _gitignore_path = root_dir / ".gitignore"
+        if not _gitignore_path.exists():
+            _gitignore_path.write_text(gitignore)
+            generated_files.append(str(_gitignore_path))
+
         # ── alembic.ini ───────────────────────────────────────────────────────
         # Minimal alembic config so `alembic upgrade head` works out of the box.
         alembic_ini = (
