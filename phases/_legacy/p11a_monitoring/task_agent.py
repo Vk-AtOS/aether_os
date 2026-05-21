@@ -83,14 +83,33 @@ def instrument_app(app: FastAPI):
     """
     (monitoring_dir / "app_instrumentation.py").write_text(app_instrumentation)
     
-    # Inject into main.py
-    main_py_path = project_dir / phase_input.input_data.get("backend_main_py", "main.py")
-    if main_py_path.exists():
-        content = main_py_path.read_text()
-        if "prometheus_client" not in content:
-            content = "from .monitoring.app_instrumentation import instrument_app\n" + content
-            content = content.replace("app = FastAPI()", "app = FastAPI()\ninstrument_app(app)")
-            main_py_path.write_text(content)
+    # Inject Prometheus instrumentation into main.py (best-effort, non-blocking)
+    _src_dir = project_dir / "src"
+    _main_py_path = _src_dir / "main.py" if (_src_dir / "main.py").exists() else project_dir / "main.py"
+    if _main_py_path.exists():
+        try:
+            content = _main_py_path.read_text()
+            if "prometheus_client" not in content and "app = FastAPI(" in content:
+                _metrics_snippet = (
+                    "\ntry:\n"
+                    "    from prometheus_fastapi_instrumentator import Instrumentator as _Instr\n"
+                    "    _Instr().instrument(app).expose(app)\n"
+                    "except ImportError:\n"
+                    "    pass  # prometheus_fastapi_instrumentator not installed — metrics disabled\n"
+                )
+                # Insert after the first `app = FastAPI(` declaration
+                content = content.replace(
+                    "app = FastAPI(",
+                    "app = FastAPI(",
+                    1,  # only first occurrence
+                )
+                _insert_pos = content.find("app = FastAPI(")
+                _end_line = content.find("\n", _insert_pos)
+                if _end_line > 0:
+                    content = content[:_end_line + 1] + _metrics_snippet + content[_end_line + 1:]
+                    _main_py_path.write_text(content)
+        except Exception as _e:
+            issues.append(f"Prometheus injection skipped: {_e}")
             
     return TaskResult(
         output_path=str(monitoring_dir),
