@@ -235,8 +235,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _main_py = src_dir / "main.py" if src_dir else None
     smoke_passed = False
     if _main_py and _main_py.exists():
-        import subprocess as _sp2, time as _time, urllib.request as _ur
-        _smoke_port = 18999
+        import subprocess as _sp2, time as _time, urllib.request as _ur, socket as _sock
+        # Find a free port dynamically to avoid conflicts between parallel builds
+        with _sock.socket() as _s:
+            _s.bind(('', 0))
+            _smoke_port = _s.getsockname()[1]
         _smoke_proc = None
         try:
             _smoke_proc = _sp2.Popen(
