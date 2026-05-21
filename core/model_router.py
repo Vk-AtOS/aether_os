@@ -143,6 +143,9 @@ _RETRY_PATTERNS = ("rate limit", "429", "overloaded", "server error", "503", "50
 _FALLBACK_PATTERNS = (
     "api key", "authentication", "invalid_api_key", "unauthorized",
     "not installed", "model not found", "no such model",
+    # Bedrock-specific hard failures
+    "accessdeniedexception", "invalid_payment_instrument", "invalidpaymentinstrument",
+    "not authorized", "validationexception",
 )
 
 
@@ -277,11 +280,17 @@ class ModelRouter:
             # Every model after the first one is a fallback
             if models_tried > 0:
                 _fallback_count_today += 1
+                # Shorter wait between OpenRouter free-tier models (5s); longer
+                # for provider switches (10s). Hard errors need no wait at all.
+                _wait = 5 if spec.provider == "openrouter" else 10
+                if error_class == "fallback":
+                    _wait = 0  # hard failure → no cooldown, switch immediately
                 logger.info(
-                    "Router: falling back to %s/%s (fallbacks today: %d) — waiting 15 s",
-                    spec.provider, spec.model, _fallback_count_today,
+                    "Router: falling back to %s/%s (fallbacks today: %d) — waiting %ds",
+                    spec.provider, spec.model, _fallback_count_today, _wait,
                 )
-                await asyncio.sleep(15)  # 15-second cooldown between fallback attempts
+                if _wait > 0:
+                    await asyncio.sleep(_wait)
 
             models_tried += 1
             error_class = "fallback"  # default if no attempt completes
