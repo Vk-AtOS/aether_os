@@ -311,9 +311,9 @@ class BackendCodegenAgent:
             f"- Include security comments like '# Security: why this pattern is required for this domain'\n"
             f"- Use Pydantic v2 BaseModel for request/response bodies\n"
             f"- Use SQLAlchemy ORM (not raw sqlite3) for all database access — NEVER use f-string SQL\n"
-            f"- Import: from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, text, Index\n"
-            f"- Import: from sqlalchemy.ext.declarative import declarative_base\n"
-            f"- Import: from sqlalchemy.orm import sessionmaker, Session\n"
+            f"- Import: from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Index\n"
+            f"- Import: from sqlalchemy.orm import declarative_base, sessionmaker, Session\n"
+            f"- Import: from pydantic import BaseModel, ConfigDict\n"
             f"- Import: from fastapi import Query, Request\n"
             f"- Before database setup, add: import pathlib; pathlib.Path('data').mkdir(exist_ok=True)\n"
             f"- Setup: DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./data/app.db')\n"
@@ -325,11 +325,12 @@ class BackendCodegenAgent:
             f"- Call Base.metadata.create_all(bind=engine) on startup to create tables\n"
             f"- After create_all, create indexes on common lookup columns using sqlalchemy Index objects\n"
             f"- All list endpoints MUST accept skip: int = 0 and limit: int = Query(default=50, le=500) for pagination\n"
+            f"- All Pydantic response models (non-Create) MUST include: model_config = ConfigDict(from_attributes=True)\n"
             f"- Add rate limiting using slowapi: from slowapi import Limiter, _rate_limit_exceeded_handler; from slowapi.util import get_remote_address; from slowapi.errors import RateLimitExceeded\n"
             f"- Setup limiter: limiter = Limiter(key_func=get_remote_address); app.state.limiter = limiter; app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)\n"
             f"- Decorate every route with @limiter.limit('100/minute') and add request: Request as first parameter\n"
             f"- Never use cursor.execute(f'...') or any f-string SQL — all queries must go through ORM or db.execute(text('...'), {{params}})\n"
-            f"- Include CORS middleware\n"
+            f"- Include CORS middleware with allow_credentials=True\n"
             f"{rules_str}\n"
             f"- No placeholder comments like 'TODO' or 'implement this'\n"
             f"Reply with ONLY valid Python code, no markdown fences."
@@ -380,6 +381,9 @@ class BackendCodegenAgent:
                     logger.info("[p04a] BackendAuditCouncil: all checks passed")
             except Exception as _exc:
                 logger.warning("[p04a] BackendAuditCouncil skipped: %s", _exc)
+
+        # ── Deterministic post-processor — fix known LLM anti-patterns ─────────
+        main_code = _post_process_main(main_code)
 
         main_files = _write_to_both(main_code, root_dir, phase_dir, Path("src") / "main.py")
         generated_files.extend(main_files)
@@ -549,6 +553,60 @@ def _write_to_both(content: str, root_dir: Path, phase_dir: Path,
     return written
 
 
+# ── Deterministic post-processor ─────────────────────────────────────────────
+
+def _post_process_main(code: str) -> str:
+    """Apply deterministic fixes to LLM-generated main.py regardless of model quality.
+
+    Fixes applied:
+    1. Replace deprecated sqlalchemy.ext.declarative import with sqlalchemy.orm
+    2. Ensure Boolean is in sqlalchemy imports
+    3. Add ConfigDict to pydantic imports if missing
+    4. Add allow_credentials=True to CORSMiddleware if missing
+    5. Add from_attributes=True to Pydantic response models that return ORM objects
+    """
+    import re
+
+    # Fix 1: deprecated declarative_base import
+    code = re.sub(
+        r'from sqlalchemy\.ext\.declarative import declarative_base',
+        'from sqlalchemy.orm import declarative_base',
+        code,
+    )
+
+    # Fix 2: add Boolean to sqlalchemy column imports if missing
+    def _add_boolean(m: re.Match) -> str:
+        imports = m.group(0)
+        if "Boolean" not in imports:
+            imports = imports.rstrip(")").rstrip() + ", Boolean)"
+        return imports
+    code = re.sub(
+        r'from sqlalchemy import [^\n]+',
+        _add_boolean,
+        code,
+    )
+
+    # Fix 3: add ConfigDict to pydantic imports
+    if "ConfigDict" not in code and "from pydantic import" in code:
+        code = re.sub(
+            r'from pydantic import (BaseModel)',
+            r'from pydantic import BaseModel, ConfigDict',
+            code,
+        )
+    elif "ConfigDict" not in code and "from pydantic import" not in code:
+        code = "from pydantic import BaseModel, ConfigDict\n" + code
+
+    # Fix 4: add allow_credentials=True to CORSMiddleware
+    if "CORSMiddleware" in code and "allow_credentials" not in code:
+        code = re.sub(
+            r'(CORSMiddleware,\s*\n\s*allow_origins=[^\n]+)',
+            r'\1\n    allow_credentials=True,',
+            code,
+        )
+
+    return code
+
+
 # ── Fallback code generators ──────────────────────────────────────────────────
 
 def _strip_fences(code: str) -> str:
@@ -641,11 +699,14 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         cols  = [c for c in r["columns"] if c != "id"]
         _FLOAT_FIELDS = {"price", "amount", "total", "value", "revenue", "cost", "balance", "salary", "budget", "fee", "tax", "discount"}
         _INT_FIELDS = {"quantity", "stock", "count", "rating", "score", "capacity", "age", "year", "number"}
+        _BOOL_FIELDS = {"is_active", "is_enabled", "is_verified", "is_deleted", "is_archived",
+                        "is_published", "is_paid", "is_read", "active", "enabled", "verified"}
         field_defs = "\n".join(
             f"    {col}: Optional[int] = None" if col.endswith("_id") or col == "id"
             else f"    {col}: Optional[str] = None" if col.endswith("_at") or col in ("date", "datetime", "due_date", "start_date", "end_date", "close_date")
             else f"    {col}: float = 0.0" if col.lower() in _FLOAT_FIELDS
             else f"    {col}: int = 0" if col.lower() in _INT_FIELDS
+            else f"    {col}: bool = True" if col.lower() in _BOOL_FIELDS or col.startswith("is_") or col.startswith("has_")
             else f"    {col}: Optional[str] = None"
             for col in cols[:8]
         )
@@ -656,7 +717,8 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
             f"class {res.title()}(BaseModel):\n"
             f"    id: int\n"
             f"{field_defs}\n"
-            f"{extra_fields}\n"
+            f"{extra_fields}"
+            f"    model_config = ConfigDict(from_attributes=True)\n\n"
         )
     create_model = "\n".join(all_models)
 
@@ -665,6 +727,9 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
                          "salary", "budget", "fee", "tax", "discount"}
     _INT_FIELDS_ORM   = {"quantity", "stock", "count", "rating", "score", "capacity",
                          "age", "year", "number"}
+
+    _BOOL_FIELDS_ORM = {"is_active", "is_enabled", "is_verified", "is_deleted", "is_archived",
+                        "is_published", "is_paid", "is_read", "active", "enabled", "verified"}
 
     def _sa_col_type(col: str) -> str:
         if col == "id":
@@ -678,6 +743,8 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         if col.endswith("_at") or col in ("date", "datetime", "due_date",
                                            "start_date", "end_date", "close_date"):
             return "Column(DateTime, nullable=True)"
+        if col.lower() in _BOOL_FIELDS_ORM or col.startswith("is_") or col.startswith("has_"):
+            return "Column(Boolean, default=True)"
         return "Column(String, nullable=True)"
 
     orm_models = []
@@ -895,11 +962,10 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         "from slowapi import Limiter, _rate_limit_exceeded_handler\n"
         "from slowapi.util import get_remote_address\n"
         "from slowapi.errors import RateLimitExceeded\n"
-        "from pydantic import BaseModel\n"
+        "from pydantic import BaseModel, ConfigDict\n"
         "from typing import List, Optional\n"
-        "from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Index\n"
-        "from sqlalchemy.ext.declarative import declarative_base\n"
-        "from sqlalchemy.orm import sessionmaker, Session\n\n"
+        "from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Index\n"
+        "from sqlalchemy.orm import declarative_base, sessionmaker, Session\n\n"
         "# ── Database setup (SQLAlchemy ORM — no raw SQL) ──────────────────────────\n"
         "import pathlib as _pathlib\n"
         "_pathlib.Path('data').mkdir(exist_ok=True)  # ensure SQLite data dir exists\n"
@@ -920,6 +986,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
         "app.add_middleware(\n"
         "    CORSMiddleware,\n"
         "    allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(','),\n"
+        "    allow_credentials=True,\n"
         "    allow_methods=['*'],\n"
         "    allow_headers=['*'],\n"
         ")\n\n"
@@ -944,7 +1011,7 @@ def _intelligent_fallback_main(endpoints: list, resources: List[Dict],
 
 def _fallback_models(db_schema: list) -> str:
     lines = [
-        "from pydantic import BaseModel\n"
+        "from pydantic import BaseModel, ConfigDict\n"
         "from typing import Optional, List\n"
     ]
     for table in db_schema[:6]:
@@ -959,6 +1026,7 @@ def _fallback_models(db_schema: list) -> str:
         lines.append("")
         lines.append(f"class {name}({name}Create):")
         lines.append(f"    id: Optional[int] = None")
+        lines.append(f"    model_config = ConfigDict(from_attributes=True)")
         lines.append("")
     return "\n".join(lines)
 
