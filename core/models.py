@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -84,6 +84,7 @@ class Run(Base):
     council_delivery: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     parent_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     branch_phase: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    quality_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     organisation: Mapped[Optional["Organisation"]] = relationship(back_populates="runs")
     events: Mapped[List["Event"]] = relationship(back_populates="run", cascade="all, delete-orphan")
