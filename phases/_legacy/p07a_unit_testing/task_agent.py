@@ -92,8 +92,14 @@ import importlib.util
 from pathlib import Path
 import pytest
 
-# ── locate main.py — use absolute path baked in at generation time ────────────
-_MAIN = Path(r"{src_dir}/main.py")
+# ── locate main.py — search relative to this file, then absolute fallback ─────
+_HERE = Path(__file__).parent
+_SEARCH_PATHS = [
+    _HERE.parent / "src" / "main.py",  # project_root/src/main.py
+    _HERE.parent / "main.py",          # project_root/main.py
+    Path(r"{src_dir}/main.py"),        # absolute generation-time path (fallback)
+]
+_MAIN = next((p for p in _SEARCH_PATHS if p.exists()), Path(r"{src_dir}/main.py"))
 
 
 @pytest.fixture(scope="module")
@@ -103,6 +109,10 @@ def client():
         from fastapi.testclient import TestClient
         spec = importlib.util.spec_from_file_location("main_module", str(_MAIN))
         mod = importlib.util.module_from_spec(spec)
+        # Add src dir to sys.path so relative imports in main.py work
+        _src_dir = str(_MAIN.parent)
+        if _src_dir not in sys.path:
+            sys.path.insert(0, _src_dir)
         spec.loader.exec_module(mod)
         app = mod.app
         return TestClient(app)

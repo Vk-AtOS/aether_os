@@ -331,7 +331,7 @@ class TaskAgent:
         content = textwrap.dedent(f"""\
             version: '3.8'
             services:
-              api:
+              app:
                 build: {build_ctx}
                 environment:
                   DATABASE_URL: ${{DATABASE_URL:-sqlite:///./data/app.db}}

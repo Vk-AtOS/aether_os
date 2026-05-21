@@ -759,7 +759,9 @@ def _post_process_main(code: str) -> str:
     2. Ensure Boolean is in sqlalchemy imports
     3. Add ConfigDict to pydantic imports if missing
     4. Add allow_credentials=True to CORSMiddleware if missing
-    5. Add from_attributes=True to Pydantic response models that return ORM objects
+    5. Ensure Request is imported from fastapi when used in function params
+    6. Ensure data/ directory is created before SQLite create_all()
+    7. Replace deprecated @app.on_event("startup") with lifespan handler
     """
     import re
 
@@ -810,6 +812,50 @@ def _post_process_main(code: str) -> str:
             code,
             count=1,
         )
+
+    # Fix 6: ensure data/ directory exists before SQLite create_all()
+    # If code uses sqlite:///./data/ but doesn't mkdir data/, add it
+    if "sqlite:///./data/" in code and "Path('data').mkdir" not in code and "pathlib" not in code:
+        # Insert mkdir call right before the first create_all() or engine creation
+        code = re.sub(
+            r'(Base\.metadata\.create_all\()',
+            r"import pathlib as _pl; _pl.Path('data').mkdir(exist_ok=True)\n\1",
+            code,
+            count=1,
+        )
+
+    # Fix 7: replace @app.on_event("startup") with lifespan if it appears
+    # This avoids DeprecationWarning from FastAPI 0.103+
+    if '@app.on_event("startup")' in code or "@app.on_event('startup')" in code:
+        # Extract the startup function body and rewrite using @asynccontextmanager lifespan
+        # Simple cases only — wrap in try/except to avoid breaking complex cases
+        try:
+            _startup_match = re.search(
+                r'@app\.on_event\(["\']startup["\']\)\s*\nasync def (\w+)\(\):\s*\n((?:[ \t][^\n]*\n)*)',
+                code,
+            )
+            if _startup_match:
+                _fn_name = _startup_match.group(1)
+                _fn_body = _startup_match.group(2)
+                _old = _startup_match.group(0)
+                # Add contextlib import if needed
+                if "asynccontextmanager" not in code:
+                    code = "from contextlib import asynccontextmanager\n" + code
+                # Build lifespan replacement
+                _lifespan = (
+                    f"@asynccontextmanager\nasync def lifespan(app):\n"
+                    f"{_fn_body}    yield\n\n"
+                )
+                code = code.replace(_old, _lifespan)
+                # Update app = FastAPI() to use lifespan=lifespan
+                code = re.sub(
+                    r'app\s*=\s*FastAPI\(',
+                    'app = FastAPI(lifespan=lifespan, ',
+                    code,
+                    count=1,
+                )
+        except Exception:
+            pass  # don't break code for complex cases
 
     return code
 
