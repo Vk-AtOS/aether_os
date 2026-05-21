@@ -171,18 +171,27 @@ def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
         for f in scan_result.findings
     )
     if not rate_pass and "slowapi" not in source and "Limiter" not in source:
+        # Inject a fully-wired slowapi limiter AFTER app = FastAPI(...)
+        # so app is defined when we set app.state.limiter
         rate_limit_block = (
-            "\n"
-            "# Compliance: Rate limiting (SOC2-CC6.6)\n"
-            "from slowapi import Limiter, _rate_limit_exceeded_handler\n"
-            "from slowapi.util import get_remote_address\n"
-            "from slowapi.errors import RateLimitExceeded\n"
-            "limiter = Limiter(\n"
-            "    key_func=get_remote_address,\n"
-            "    default_limits=[\"200/day\", \"50/hour\"],\n"
-            ")\n"
+            "\ntry:\n"
+            "    from slowapi import Limiter as _Limiter, _rate_limit_exceeded_handler as _rleh\n"
+            "    from slowapi.util import get_remote_address as _gra\n"
+            "    from slowapi.errors import RateLimitExceeded as _RLE\n"
+            "    _limiter = _Limiter(key_func=_gra, default_limits=[\"200/day\",\"50/hour\"])\n"
+            "    app.state.limiter = _limiter\n"
+            "    app.add_exception_handler(_RLE, _rleh)\n"
+            "except ImportError:\n"
+            "    pass  # slowapi not installed — rate limiting disabled\n"
         )
-        source = _insert_after_imports(source, rate_limit_block)
+        # Insert after the first `app = FastAPI(...)` line
+        _fastapi_pos = source.find("app = FastAPI(")
+        if _fastapi_pos > 0:
+            _end_line = source.find("\n", _fastapi_pos)
+            if _end_line > 0:
+                source = source[:_end_line + 1] + rate_limit_block + source[_end_line + 1:]
+        else:
+            source = _insert_after_imports(source, rate_limit_block)
         injections.append("rate_limiting")
 
     # ── Audit-logging middleware (HIPAA-TS-164.312(b)) ────────────────────────

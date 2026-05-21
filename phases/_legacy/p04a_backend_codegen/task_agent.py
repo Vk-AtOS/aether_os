@@ -682,6 +682,17 @@ def _post_process_main(code: str) -> str:
             code,
         )
 
+    # Fix 5: ensure Request is imported from fastapi when it's used in function params
+    if re.search(r':\s*Request\b', code) and "Request" not in re.findall(
+        r'from fastapi import ([^\n]+)', code
+    ):
+        code = re.sub(
+            r'from fastapi import (FastAPI[^\n]+)',
+            lambda m: m.group(0) if "Request" in m.group(0) else m.group(0).rstrip() + ", Request",
+            code,
+            count=1,
+        )
+
     return code
 
 
