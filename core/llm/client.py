@@ -304,6 +304,90 @@ async def _call_ollama(prompt: str, task_type: str) -> str:
     return await _call_ollama_with_model(prompt, task_type, model)
 
 
+# ── Amazon Bedrock ────────────────────────────────────────────────────────────
+
+# Bedrock model IDs for Claude — mapped from task weight
+_BEDROCK_HEAVY = os.environ.get("BEDROCK_MODEL_HEAVY", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+_BEDROCK_LIGHT = os.environ.get("BEDROCK_MODEL_LIGHT", "anthropic.claude-3-5-haiku-20241022-v1:0")
+
+
+def _select_bedrock_model(task_type: str) -> str:
+    explicit = os.environ.get("BEDROCK_MODEL", "").strip()
+    if explicit:
+        return explicit
+    return _BEDROCK_HEAVY if task_type in _HEAVY_TASKS else _BEDROCK_LIGHT
+
+
+async def _call_bedrock(
+    prompt: str,
+    task_type: str,
+    system: Optional[str] = None,
+    max_tokens: int = 8192,
+) -> str:
+    """Call Claude on Amazon Bedrock using boto3 (sync wrapped in executor)."""
+    import boto3  # type: ignore
+    import json as _json
+
+    model_id = _select_bedrock_model(task_type)
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    system_prompt = system or (
+        "You are AetherOS, an expert autonomous software development system. "
+        "Provide precise, production-quality responses."
+    )
+
+    logger.info("LLM call: provider=bedrock model=%s task=%s region=%s", model_id, task_type, region)
+
+    body = _json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": max_tokens,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": prompt}],
+    })
+
+    def _invoke() -> str:
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=region,
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+        )
+        resp = client.invoke_model(
+            modelId=model_id,
+            body=body,
+            contentType="application/json",
+            accept="application/json",
+        )
+        result = _json.loads(resp["body"].read())
+        text = result.get("content", [{}])[0].get("text", "")
+        # Track token usage
+        usage = result.get("usage", {})
+        _cost_registry["prompt_tokens"] += usage.get("input_tokens", 0)
+        _cost_registry["completion_tokens"] += usage.get("output_tokens", 0)
+        _cost_registry["calls"] += 1
+        logger.debug(
+            "Bedrock [%s] tokens=%d+%d",
+            model_id,
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+        )
+        return text
+
+    # boto3 is synchronous — run in executor to avoid blocking the event loop
+    loop = asyncio.get_event_loop()
+    retries = 3
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            text = await loop.run_in_executor(None, _invoke)
+            return text
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Bedrock call failed (attempt %d/%d): %s", attempt + 1, retries, exc)
+            if attempt < retries - 1:
+                await asyncio.sleep(2 * (2 ** attempt))
+    raise last_exc  # type: ignore
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def is_local_llm() -> bool:

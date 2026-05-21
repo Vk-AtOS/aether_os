@@ -85,8 +85,10 @@ def get_fallback_chain() -> List[ModelSpec]:
         defaults = [m.strip() for m in _DEFAULT_FALLBACK_MODELS.split(",")]
         openrouter_models = list(dict.fromkeys([heavy] + defaults))  # dedup, preserve order
 
+    bedrock_model = os.environ.get("BEDROCK_MODEL", "anthropic.claude-3-5-haiku-20241022-v1:0")
     non_openrouter = {
         "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),
+        "bedrock":   ModelSpec("bedrock",   bedrock_model,   45, 2),
         "gemini":    ModelSpec("gemini",    "gemini-2.5-flash", 45, 2),
         "ollama":    ModelSpec("ollama",    ollama_model, ollama_timeout, 1),
     }
@@ -100,14 +102,13 @@ def get_fallback_chain() -> List[ModelSpec]:
         # OpenRouter is primary — put all its models first
         for m in openrouter_models:
             chain.append(ModelSpec("openrouter", m, 60, 2))
-        for p in ("anthropic", "gemini", "ollama"):
-            if p != primary:
+        for p in ("anthropic", "bedrock", "gemini", "ollama"):
+            if p != primary and _is_provider_configured(non_openrouter[p]):
                 chain.append(non_openrouter[p])
     else:
-        # Non-OpenRouter primary — Anthropic/Gemini first, then each OpenRouter
-        # model in order, then Ollama as last resort
-        for p in ("anthropic", "gemini"):
-            if p != primary:
+        # Non-OpenRouter primary — cloud providers first, then OpenRouter, then Ollama
+        for p in ("anthropic", "bedrock", "gemini"):
+            if p != primary and _is_provider_configured(non_openrouter[p]):
                 chain.append(non_openrouter[p])
         for m in openrouter_models:
             chain.append(ModelSpec("openrouter", m, 60, 2))
@@ -153,6 +154,11 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         return bool(key) and key != "REPLACE_WITH_YOUR_GEMINI_KEY"
     if spec.provider == "openrouter":
         return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+    if spec.provider == "bedrock":
+        return bool(
+            os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+            and os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        )
     # Ollama: always attempt — will fail at call time if not running
     return True
 
@@ -461,6 +467,10 @@ class ModelRouter:
 
         if spec.provider == "anthropic":
             return await _llm_mod._call_anthropic(
+                prompt, task_type, system=system, max_tokens=max_tokens
+            )
+        if spec.provider == "bedrock":
+            return await _llm_mod._call_bedrock(
                 prompt, task_type, system=system, max_tokens=max_tokens
             )
         if spec.provider == "gemini":
