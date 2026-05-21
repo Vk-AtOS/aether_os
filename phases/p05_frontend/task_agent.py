@@ -1736,6 +1736,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     docker_compose_path = project_dir / "docker-compose.yml"
     docker_compose_path.write_text(_generate_docker_compose(project_dir))
 
+    # 4a. Copy frontend to canonical project_dir/frontend/ so docker-compose
+    # `context: ./frontend` resolves correctly and the delivery ZIP has frontend/ at root.
+    _canonical_frontend = project_dir / "frontend"
+    if not _canonical_frontend.exists() and frontend_dir.exists():
+        try:
+            import shutil as _shutil
+            _shutil.copytree(str(frontend_dir), str(_canonical_frontend),
+                             ignore=_shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
+            logger.info("p05_frontend: mirrored frontend/ to project root")
+        except Exception as _copy_err:
+            logger.warning("p05_frontend: could not mirror frontend to project root: %s", _copy_err)
+
     # 5. Write frontend_meta.json
     generated_files = [
         "frontend/package.json",
