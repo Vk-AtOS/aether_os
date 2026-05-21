@@ -292,15 +292,20 @@ async def portal_download_zip(run_id: str):
     # Build ZIP in memory
     buf = io.BytesIO()
     try:
+        _SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".venv", "venv", ".mypy_cache"}
+        _SKIP_SUFFIXES = {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for file_path in project_dir.rglob("*"):
                 if not file_path.is_file():
                     continue
-                # Skip hidden dirs/files (e.g. .git, __pycache__)
+                # Skip hidden dirs/files (e.g. .git, .env) and heavy/noisy dirs
+                parts_set = set(file_path.parts)
                 if any(part.startswith(".") for part in file_path.parts):
                     continue
+                if parts_set & _SKIP_DIRS:
+                    continue
                 # Skip byte-compiled and DB journal files
-                if file_path.suffix in (".pyc", ".db", ".db-shm", ".db-wal", ".log"):
+                if file_path.suffix in _SKIP_SUFFIXES:
                     continue
                 # Skip files larger than 5 MB
                 try:
