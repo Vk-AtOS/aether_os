@@ -295,9 +295,10 @@ async def portal_download_zip(run_id: str):
         _SKIP_DIRS = {"__pycache__", "node_modules", ".git", ".venv", "venv", ".mypy_cache",
                       ".pytest_cache", ".aetheros"}
         _SKIP_SUFFIXES = {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}
-        # These hidden files are safe to include — clients need them for deployment
+        # These hidden files/dirs are safe to include — clients need them for deployment
         _ALLOW_HIDDEN_FILES = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
                                ".prettierrc", ".editorconfig", ".nvmrc"}
+        _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for file_path in project_dir.rglob("*"):
                 if not file_path.is_file():
@@ -306,10 +307,10 @@ async def portal_download_zip(run_id: str):
                 # Skip known heavy/sensitive/internal directories
                 if parts_set & _SKIP_DIRS:
                     continue
-                # Skip hidden files UNLESS they're on the allowed list
-                # (exclude .env, .git/* etc. but allow .env.example, .gitignore)
-                if any(part.startswith(".") for part in file_path.relative_to(project_dir).parts):
-                    if file_path.name not in _ALLOW_HIDDEN_FILES:
+                # Allow .github/ and .devcontainer/; allow known dotfiles; skip everything else hidden
+                rel_parts = file_path.relative_to(project_dir).parts
+                if any(part.startswith(".") for part in rel_parts):
+                    if not (rel_parts[0] in _ALLOW_HIDDEN_DIRS or file_path.name in _ALLOW_HIDDEN_FILES):
                         continue
                 # Skip byte-compiled and DB journal files
                 if file_path.suffix in _SKIP_SUFFIXES:

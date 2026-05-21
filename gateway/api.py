@@ -5419,6 +5419,7 @@ def create_app() -> FastAPI:
                           "node_modules", ".git", ".venv", "venv", ".aetheros"}
         _ALLOW_HIDDEN = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
                          ".prettierrc", ".editorconfig", ".nvmrc"}
+        _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
         if project_dir.exists():
             for fpath in sorted(project_dir.rglob("*")):
                 if not fpath.is_file():
@@ -5427,9 +5428,10 @@ def create_app() -> FastAPI:
                 parts = rel.parts
                 if any(p in _ARTIFACT_SKIP for p in parts):
                     continue
-                # Allow known deployment dotfiles; skip other hidden files/dirs
-                if any(p.startswith('.') for p in parts) and fpath.name not in _ALLOW_HIDDEN:
-                    continue
+                # Allow .github/ and .devcontainer/ dirs; allow known dotfiles; skip everything else hidden
+                if any(p.startswith('.') for p in parts):
+                    if not (parts[0] in _ALLOW_HIDDEN_DIRS or fpath.name in _ALLOW_HIDDEN):
+                        continue
                 if fpath.suffix in {".pyc", ".pyo"}:
                     continue
                 artifacts.append({
@@ -5461,6 +5463,7 @@ def create_app() -> FastAPI:
                  "node_modules", ".git", ".venv", "venv", ".mypy_cache", ".aetheros"}
         _ALLOW_HIDDEN = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
                          ".prettierrc", ".editorconfig", ".nvmrc"}
+        _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for fpath in sorted(project_dir.rglob("*")):
@@ -5470,9 +5473,10 @@ def create_app() -> FastAPI:
                 parts = rel.parts
                 if any(p in _SKIP for p in parts):
                     continue
-                # Allow known deployment dotfiles; skip other hidden files/dirs
-                if any(p.startswith('.') for p in parts) and fpath.name not in _ALLOW_HIDDEN:
-                    continue
+                # Allow .github/ and .devcontainer/ dirs; allow known dotfiles; skip everything else hidden
+                if any(p.startswith('.') for p in parts):
+                    if not (parts[0] in _ALLOW_HIDDEN_DIRS or fpath.name in _ALLOW_HIDDEN):
+                        continue
                 if fpath.suffix in {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}:
                     continue
                 try:
@@ -5523,14 +5527,21 @@ def create_app() -> FastAPI:
             user_res = await gh.get("https://api.github.com/user", headers=headers)
             gh_user = user_res.json().get("login", "aetheros")
             # Push files (up to 50 key files to avoid GitHub API limits)
-            _SKIP = {"__pycache__", ".pytest_cache", "node_modules", ".git"}
+            _SKIP = {"__pycache__", ".pytest_cache", "node_modules", ".git", ".venv", "venv"}
+            _ALLOW_HIDDEN = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
+                             ".prettierrc", ".editorconfig", ".nvmrc"}
+            _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
             files_pushed = 0
             for fpath in sorted(project_dir.rglob("*")):
                 if not fpath.is_file() or files_pushed >= 50:
                     break
                 rel = fpath.relative_to(project_dir)
-                if any(p in _SKIP or p.startswith(".") for p in rel.parts):
+                parts = rel.parts
+                if any(p in _SKIP for p in parts):
                     continue
+                if any(p.startswith(".") for p in parts):
+                    if not (parts[0] in _ALLOW_HIDDEN_DIRS or fpath.name in _ALLOW_HIDDEN):
+                        continue
                 if fpath.suffix in {".pyc", ".pyo"}:
                     continue
                 try:

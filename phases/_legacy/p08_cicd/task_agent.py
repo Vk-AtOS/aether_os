@@ -101,44 +101,74 @@ class CICDAgent:
         # Generate GitHub Actions CI config with real project context
         project_name = phase_input.input_data.get("project_name", "app") if hasattr(phase_input, "input_data") else "app"
         safe_name = project_name.lower().replace(" ", "-")[:40]
-        ci_config = f"""name: CI — {project_name}
+        ci_config = f"""name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
   pull_request:
     branches: [main, master]
 
 jobs:
-  test:
-    name: Test & Lint
+  backend:
+    name: Backend — Test & Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout httpx
+          pip install pytest pytest-timeout httpx ruff bandit
+
+      - name: Lint (ruff)
+        run: ruff check src/ --output-format=github
 
       - name: Run tests
         run: pytest tests/ -v --tb=short --timeout=30
 
       - name: Security scan
-        run: |
-          pip install bandit --quiet
-          bandit -r src/ -ll --exit-zero
+        run: bandit -r src/ -ll --exit-zero
 
-  build:
+  frontend:
+    name: Frontend — Type-check & Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline || npm install
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  docker:
     name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: test
+    needs: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
 
@@ -151,11 +181,25 @@ jobs:
           context: .
           push: false
           tags: {safe_name}:${{{{ github.sha }}}}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 """
         ci_file = output_dir / "ci.yml"
         ci_file.write_text(ci_config)
         results["ci_config_generated"] = True
         results["ci_config_path"] = str(ci_file)
+
+        # Mirror to .github/workflows/ci.yml in the project root so it's
+        # included in the delivery ZIP and works when user pushes to GitHub
+        _project_dir = Path(phase_input.input_data.get("project_dir", "")) if hasattr(phase_input, "input_data") else Path("")
+        if _project_dir.exists():
+            _workflows_dir = _project_dir / ".github" / "workflows"
+            try:
+                _workflows_dir.mkdir(parents=True, exist_ok=True)
+                (_workflows_dir / "ci.yml").write_text(ci_config)
+                results["ci_workflow_mirrored"] = str(_workflows_dir / "ci.yml")
+            except Exception as _wf_e:
+                logger.warning("p08: could not mirror CI workflow: %s", _wf_e)
 
         # G14 fix: generate docker-compose.yml with prometheus wired in, and
         # inject prometheus-fastapi-instrumentator into main.py if the dep is present.

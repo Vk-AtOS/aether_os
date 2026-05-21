@@ -565,17 +565,21 @@ class BackendCodegenAgent:
 
         # ── Makefile ──────────────────────────────────────────────────────────
         makefile = (
-            ".PHONY: dev test docker lint\n\n"
+            ".PHONY: dev test docker lint format install help\n\n"
             "dev:  ## Start backend in dev mode\n"
             "\tuvicorn src.main:app --reload --host 0.0.0.0 --port 8000\n\n"
             "test:  ## Run tests\n"
             "\tpytest tests/ -v --tb=short\n\n"
             "docker:  ## Build and run with Docker Compose\n"
             "\tdocker-compose up --build\n\n"
-            "lint:  ## Security scan\n"
+            "lint:  ## Lint and security scan\n"
+            "\truff check src/ tests/\n"
             "\tbandit -r src/ -ll --exit-zero\n\n"
+            "format:  ## Auto-format code\n"
+            "\truff format src/ tests/\n\n"
             "install:  ## Install dependencies\n"
-            "\tpip install -r requirements.txt\n\n"
+            "\tpip install -r requirements.txt\n"
+            "\tpip install ruff bandit pytest pytest-timeout httpx\n\n"
             "help:  ## Show this help\n"
             "\t@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = \":.*?## \"}; {printf \"\\033[36m%-15s\\033[0m %s\\n\", $$1, $$2}'\n"
         )
@@ -583,6 +587,26 @@ class BackendCodegenAgent:
         if not _makefile_path.exists():
             _makefile_path.write_text(makefile)
             generated_files.append(str(_makefile_path))
+
+        # ── pyproject.toml ────────────────────────────────────────────────────
+        pyproject_toml = (
+            "[tool.ruff]\n"
+            "target-version = \"py311\"\n"
+            "line-length = 100\n\n"
+            "[tool.ruff.lint]\n"
+            "select = [\"E\", \"F\", \"W\", \"I\", \"UP\"]\n"
+            "ignore = [\"E501\"]  # line-too-long — enforced by formatter, not linter\n\n"
+            "[tool.ruff.lint.isort]\n"
+            "known-first-party = [\"src\"]\n\n"
+            "[tool.pytest.ini_options]\n"
+            "testpaths = [\"tests\"]\n"
+            "timeout = 30\n"
+            "addopts = \"-v --tb=short\"\n"
+        )
+        _pyproject_path = root_dir / "pyproject.toml"
+        if not _pyproject_path.exists():
+            _pyproject_path.write_text(pyproject_toml)
+            generated_files.append(str(_pyproject_path))
 
         # ── alembic.ini ───────────────────────────────────────────────────────
         # Minimal alembic config so `alembic upgrade head` works out of the box.
