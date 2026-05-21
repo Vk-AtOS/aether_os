@@ -185,66 +185,105 @@ def _parse_review_response(raw: str, model: str, focus: str) -> CouncilReview:
 
 # ── Per-model callers ─────────────────────────────────────────────────────────
 
-async def _call_claude(code: str, domain: str) -> Optional[CouncilReview]:
-    """Call Anthropic Claude for a security-focused review."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        logger.debug("CouncilReviewer: skipping Claude — ANTHROPIC_API_KEY not set")
+async def _call_via_bedrock(code: str, domain: str, role_key: str) -> Optional[CouncilReview]:
+    """Call Claude on Amazon Bedrock (used when direct Anthropic API key is absent)."""
+    aws_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+    aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+    if not aws_key or not aws_secret:
         return None
     try:
-        import anthropic  # type: ignore
-        spec = _PROMPTS["claude"]
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        msg = await asyncio.wait_for(
-            client.messages.create(
-                model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5"),
-                max_tokens=1024,
-                system=spec["system"],
-                messages=[{
-                    "role": "user",
-                    "content": spec["prompt_tmpl"].format(
-                        domain=domain,
-                        code=code[:_MAX_CODE_CHARS],
-                    ),
-                }],
-            ),
-            timeout=60,
+        import boto3, json as _json  # type: ignore
+        spec = _PROMPTS[role_key]
+        model_id = (
+            os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")
+            if role_key == "claude"
+            else os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
         )
-        raw = msg.content[0].text if msg.content else ""
-        logger.info("CouncilReviewer: Claude review complete (len=%d)", len(raw))
-        return _parse_review_response(raw, "claude", spec["focus"])
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        body = _json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1024,
+            "system": spec["system"],
+            "messages": [{
+                "role": "user",
+                "content": spec["prompt_tmpl"].format(domain=domain, code=code[:_MAX_CODE_CHARS]),
+            }],
+        })
+        def _invoke():
+            c = boto3.client(
+                "bedrock-runtime", region_name=region,
+                aws_access_key_id=aws_key, aws_secret_access_key=aws_secret,
+            )
+            resp = c.invoke_model(modelId=model_id, body=body,
+                                  contentType="application/json", accept="application/json")
+            return _json.loads(resp["body"].read()).get("content", [{}])[0].get("text", "")
+
+        raw = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, _invoke), timeout=90
+        )
+        logger.info("CouncilReviewer: Bedrock/%s review complete (len=%d)", role_key, len(raw))
+        return _parse_review_response(raw, f"claude-bedrock ({model_id.split('.')[-1]})", spec["focus"])
     except Exception as exc:
-        logger.warning("CouncilReviewer: Claude call failed — %s", exc)
+        logger.warning("CouncilReviewer: Bedrock/%s failed — %s", role_key, exc)
         return None
+
+
+async def _call_claude(code: str, domain: str) -> Optional[CouncilReview]:
+    """Call Anthropic Claude for a security-focused review. Falls back to Bedrock."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if api_key:
+        try:
+            import anthropic  # type: ignore
+            spec = _PROMPTS["claude"]
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            msg = await asyncio.wait_for(
+                client.messages.create(
+                    model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+                    max_tokens=1024,
+                    system=spec["system"],
+                    messages=[{
+                        "role": "user",
+                        "content": spec["prompt_tmpl"].format(
+                            domain=domain, code=code[:_MAX_CODE_CHARS],
+                        ),
+                    }],
+                ),
+                timeout=60,
+            )
+            raw = msg.content[0].text if msg.content else ""
+            logger.info("CouncilReviewer: Claude review complete (len=%d)", len(raw))
+            return _parse_review_response(raw, "claude", spec["focus"])
+        except Exception as exc:
+            logger.warning("CouncilReviewer: Claude API failed — %s", exc)
+
+    # Fallback: use Bedrock (Sonnet) when direct API key is absent or failed
+    return await _call_via_bedrock(code, domain, "claude")
 
 
 async def _call_gemini(code: str, domain: str) -> Optional[CouncilReview]:
-    """Call Google Gemini for an architecture-focused review."""
+    """Call Google Gemini for an architecture-focused review. Falls back to Bedrock Haiku."""
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
-    if not api_key or api_key == "REPLACE_WITH_YOUR_GEMINI_KEY":
-        logger.debug("CouncilReviewer: skipping Gemini — GOOGLE_API_KEY not set")
-        return None
-    try:
-        from google import genai  # type: ignore
-        spec = _PROMPTS["gemini"]
-        client = genai.Client(api_key=api_key)
-        full_prompt = f"{spec['system']}\n\n{spec['prompt_tmpl'].format(domain=domain, code=code[:_MAX_CODE_CHARS])}"
-        response = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=full_prompt,
+    if api_key and api_key not in ("REPLACE_WITH_YOUR_GEMINI_KEY", "your_google_api_key"):
+        try:
+            from google import genai  # type: ignore
+            spec = _PROMPTS["gemini"]
+            client = genai.Client(api_key=api_key)
+            full_prompt = f"{spec['system']}\n\n{spec['prompt_tmpl'].format(domain=domain, code=code[:_MAX_CODE_CHARS])}"
+            response = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: client.models.generate_content(model="gemini-2.0-flash", contents=full_prompt),
                 ),
-            ),
-            timeout=60,
-        )
-        raw = response.text or ""
-        logger.info("CouncilReviewer: Gemini review complete (len=%d)", len(raw))
-        return _parse_review_response(raw, "gemini", spec["focus"])
-    except Exception as exc:
-        logger.warning("CouncilReviewer: Gemini call failed — %s", exc)
-        return None
+                timeout=60,
+            )
+            raw = response.text or ""
+            logger.info("CouncilReviewer: Gemini review complete (len=%d)", len(raw))
+            return _parse_review_response(raw, "gemini", spec["focus"])
+        except Exception as exc:
+            logger.warning("CouncilReviewer: Gemini call failed — %s", exc)
+
+    # Fallback: Bedrock Haiku for architecture review
+    return await _call_via_bedrock(code, domain, "gemini")
 
 
 async def _call_ollama(code: str, domain: str) -> Optional[CouncilReview]:
