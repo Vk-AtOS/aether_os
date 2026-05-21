@@ -306,17 +306,34 @@ async def _call_ollama(prompt: str, task_type: str) -> str:
 
 # ── Amazon Bedrock ────────────────────────────────────────────────────────────
 
-# Bedrock model IDs for Claude — mapped from task weight
-# AWS requires inference profile IDs (us./eu./ap. prefix) for on-demand throughput
-_BEDROCK_HEAVY = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")
-_BEDROCK_LIGHT = os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+# Bedrock model IDs — standard (non-cross-region) IDs that don't require
+# Marketplace subscriptions. Override via BEDROCK_MODEL_HEAVY / BEDROCK_MODEL_LIGHT.
+_BEDROCK_HEAVY_DEFAULT = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+_BEDROCK_LIGHT_DEFAULT = "anthropic.claude-3-haiku-20240307-v1:0"
+
+# Cross-region inference profiles (us./eu./ap. prefix) require AWS Marketplace
+# subscriptions with a valid payment instrument. Automatically remap to the
+# equivalent standard Bedrock model IDs which only need model access enabled.
+_CROSS_REGION_REMAP = {
+    "us.anthropic.claude-sonnet-4-6":           "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": "anthropic.claude-3-haiku-20240307-v1:0",
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "eu.anthropic.claude-sonnet-4-6":           "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": "anthropic.claude-3-haiku-20240307-v1:0",
+    "ap.anthropic.claude-sonnet-4-6":           "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "ap.anthropic.claude-haiku-4-5-20251001-v1:0": "anthropic.claude-3-haiku-20240307-v1:0",
+}
 
 
 def _select_bedrock_model(task_type: str) -> str:
+    # Read at call time so env-var changes take effect without restart
     explicit = os.environ.get("BEDROCK_MODEL", "").strip()
     if explicit:
-        return explicit
-    return _BEDROCK_HEAVY if task_type in _HEAVY_TASKS else _BEDROCK_LIGHT
+        return _CROSS_REGION_REMAP.get(explicit, explicit)
+    heavy = os.environ.get("BEDROCK_MODEL_HEAVY", _BEDROCK_HEAVY_DEFAULT).strip()
+    light = os.environ.get("BEDROCK_MODEL_LIGHT", _BEDROCK_LIGHT_DEFAULT).strip()
+    model = heavy if task_type in _HEAVY_TASKS else light
+    return _CROSS_REGION_REMAP.get(model, model)
 
 
 async def _call_bedrock(
@@ -374,6 +391,13 @@ async def _call_bedrock(
         return text
 
     # boto3 is synchronous — run in executor to avoid blocking the event loop
+    # Hard-failure keywords that should not be retried — raise immediately
+    _BEDROCK_HARD_ERRORS = (
+        "invalidpaymentinstrument", "invalid_payment_instrument",
+        "accessdeniedexception", "unauthorized", "not authorized",
+        "model not found", "validationexception",
+    )
+
     loop = asyncio.get_event_loop()
     retries = 3
     last_exc: Exception | None = None
@@ -401,6 +425,10 @@ async def _call_bedrock(
             return text
         except Exception as exc:
             last_exc = exc
+            exc_lower = str(exc).lower()
+            if any(p in exc_lower for p in _BEDROCK_HARD_ERRORS):
+                logger.warning("Bedrock hard failure (no retry): %s", exc)
+                raise  # immediate re-raise, no backoff
             logger.warning("Bedrock call failed (attempt %d/%d): %s", attempt + 1, retries, exc)
             if attempt < retries - 1:
                 await asyncio.sleep(2 * (2 ** attempt))
