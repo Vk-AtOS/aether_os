@@ -275,29 +275,29 @@ class TaskAgent:
         rel_main = main_py.relative_to(app_dir)
         module_path = str(rel_main).replace("/", ".").replace(".py", "")
 
-        pip_reqs = (
-            "RUN pip install --no-cache-dir -r requirements.txt"
-            if has_requirements
-            else "RUN pip install fastapi uvicorn"
-        )
+        if has_requirements:
+            pip_cmd = "RUN pip install --no-cache-dir -r requirements.txt"
+        else:
+            pip_cmd = (
+                "RUN pip install --no-cache-dir "
+                "fastapi uvicorn[standard] pydantic sqlalchemy python-jose passlib bcrypt "
+                "python-multipart slowapi python-dotenv httpx"
+            )
 
         content = textwrap.dedent(f"""
             FROM python:3.11-slim
             WORKDIR /app
+            COPY requirements.txt* ./
+            {pip_cmd}
             COPY . .
-            {pip_reqs}
-            RUN pip install --no-cache-dir \\
-                fastapi uvicorn pydantic \\
-                python-jose passlib bcrypt \\
-                python-multipart aiofiles \\
-                sentry-sdk[fastapi] sqlalchemy \\
-                prometheus-client httpx requests \\
-                python-dotenv 2>/dev/null || true
-            RUN useradd -u 1001 -r -s /sbin/nologin appuser && chown -R appuser /app
+            RUN useradd -u 1001 -r -s /sbin/nologin appuser && \\
+                mkdir -p /app/data && chown -R appuser /app
             USER 1001
             EXPOSE 8000
+            HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \\
+                CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
             CMD ["uvicorn", "{module_path}:app", \\
-                "--host", "0.0.0.0", "--port", "8000"]
+                "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
         """).strip()
 
         dockerfile_path = app_dir / "Dockerfile"
