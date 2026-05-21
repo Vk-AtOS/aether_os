@@ -2155,26 +2155,30 @@ def create_app() -> FastAPI:
                     )).all()
                     for _rid2, _pri in _rm_rows:
                         priority_map[_rid2] = _pri
-                    # Live URLs
+                    # Live URLs + quality scores
                     _url_rows = (await _sess.execute(
-                        _sel(_Run.id, _Run.live_url)
-                        .where(_Run.org_id == org_id, _Run.live_url.isnot(None))
+                        _sel(_Run.id, _Run.live_url, _Run.quality_score)
+                        .where(_Run.org_id == org_id)
                     )).all()
-                    for _rid3, _url in _url_rows:
-                        live_url_map[_rid3] = _url
+                    quality_map: Dict[str, Any] = {}
+                    for _rid3, _url, _qs in _url_rows:
+                        if _url:
+                            live_url_map[_rid3] = _url
+                        if _qs is not None:
+                            quality_map[_rid3] = _qs
             except Exception as _e:
                 logger.debug("ORM enrichment for run list failed: %s", _e)
+                quality_map = {}
 
             formatted = []
             for run in history:
                 d = dict(run)
-                # db_utils already converts timestamps to ms and sets project_name;
-                # only override current_phase / priority / live_url from enrichment maps
                 d.setdefault("cost", 0.0)
                 d["current_phase"] = phase_map.get(d.get("id", "")) or d.get("current_phase")
                 d.setdefault("phases", {})
                 d["priority"] = priority_map.get(d.get("id", ""), d.get("priority", "normal"))
                 d["live_url"] = live_url_map.get(d.get("id", "")) or d.get("live_url")
+                d["quality_score"] = quality_map.get(d.get("id", ""))
                 formatted.append(d)
 
             # Apply pagination slice
