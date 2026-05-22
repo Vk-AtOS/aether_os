@@ -1864,10 +1864,10 @@ def create_app() -> FastAPI:
                 import os as _os
                 from aether_os.core.council import PreFlightCouncil
                 _council = PreFlightCouncil()
-                # Cap the council call at 15s total — if LLM is slow, skip it
+                # Cap the council call at 60s total — if LLM is slow, skip it
                 _preflight = await asyncio.wait_for(
                     _council.run(raw_input=raw_input, domain=domain, org_id=org_id),
-                    timeout=15.0,
+                    timeout=60.0,
                 )
                 if not _preflight.get("passed", True):
                     if _os.environ.get("COUNCIL_STRICT_MODE", "false").lower() == "true":

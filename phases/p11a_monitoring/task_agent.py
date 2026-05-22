@@ -134,6 +134,33 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         json.dumps(resources_dashboard, indent=2)
     )
 
+    business_dashboard = {
+        "uid": "business-kpis",
+        "title": f"{project_name} — Business KPIs",
+        "tags": ["business", "kpis"],
+        "refresh": "1m",
+        "panels": [
+            {
+                "id": 1, "title": "Active Users (24h)",
+                "type": "stat", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+                "targets": [{"expr": "sum(increase(http_requests_total[24h]))", "legendFormat": "requests"}]
+            },
+            {
+                "id": 2, "title": "API Availability (%)",
+                "type": "gauge", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+                "targets": [{"expr": "avg_over_time(up[24h]) * 100", "legendFormat": "uptime %"}]
+            },
+            {
+                "id": 3, "title": "Requests by Endpoint",
+                "type": "table", "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
+                "targets": [{"expr": "topk(10, sum by (handler) (rate(http_requests_total[5m])))", "legendFormat": "{{handler}}"}]
+            },
+        ]
+    }
+    (monitoring_dir / "grafana" / "dashboards" / "business_kpis.json").write_text(
+        json.dumps(business_dashboard, indent=2)
+    )
+
     # ── Grafana provisioning ──────────────────────────────────────────────────
     datasource_config = textwrap.dedent("""\
         apiVersion: 1
@@ -338,7 +365,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     return TaskResult(
         output_path=str(monitoring_dir),
         confidence=0.9,
-        metadata={"domain": domain, "files_written": 12, "project": project_name},
+        metadata={"domain": domain, "files_written": 13, "grafana_dashboards": 3, "project": project_name},
         issues=issues,
         success=True,
     )
