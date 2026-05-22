@@ -205,6 +205,20 @@ class SamlConfigRequest(BaseModel):
     idp_cert: str
 
 
+class WorkspaceCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_shared: bool = False
+    preferences: Optional[Dict[str, Any]] = None
+
+
+class WorkspaceUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_shared: Optional[bool] = None
+    preferences: Optional[Dict[str, Any]] = None
+
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import RedirectResponse
 import os
@@ -6355,18 +6369,6 @@ def create_app() -> FastAPI:
         }
 
     # ── Workspaces ────────────────────────────────────────────────────────────
-
-    class WorkspaceCreate(BaseModel):
-        name: str
-        description: Optional[str] = None
-        is_shared: bool = False
-        preferences: Optional[Dict[str, Any]] = None
-
-    class WorkspaceUpdate(BaseModel):
-        name: Optional[str] = None
-        description: Optional[str] = None
-        is_shared: Optional[bool] = None
-        preferences: Optional[Dict[str, Any]] = None
 
     @app.get("/workspaces")
     async def list_workspaces(user: Dict[str, Any] = Depends(get_current_user)):
