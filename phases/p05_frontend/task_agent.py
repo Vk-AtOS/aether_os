@@ -721,8 +721,10 @@ COPY package*.json ./
 # Use npm ci if lockfile exists, otherwise npm install (for first-time builds)
 RUN [ -f package-lock.json ] && npm ci || npm install
 COPY . .
-# Accept backend URL as build arg so API calls are baked into the bundle
-ARG VITE_API_URL=http://localhost:8000
+# Accept backend URL as build arg so API calls are baked into the bundle.
+# Default is empty — nginx /api/ proxy handles routing on any server.
+# Override: docker build --build-arg VITE_API_URL=http://your-server:8000 .
+ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
