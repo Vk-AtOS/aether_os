@@ -5082,6 +5082,62 @@ def create_app() -> FastAPI:
             "run_id": result.get("run_id"),
         }
 
+    @app.get("/marketplace/profiles/{profile_id}")
+    async def get_marketplace_profile(profile_id: str) -> Dict[str, Any]:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import MarketplaceProfile
+        from sqlalchemy import select as _sel
+        sf = get_session_factory()
+        async with sf() as session:
+            p = (await session.execute(
+                _sel(MarketplaceProfile).where(MarketplaceProfile.id == profile_id)
+            )).scalar_one_or_none()
+        if not p or not p.is_published:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        return {
+            "id": p.id, "name": p.name, "base_domain": p.base_domain,
+            "description": p.description, "price_usd": p.price_usd,
+            "profile_yaml": p.profile_yaml, "usage_count": p.usage_count,
+            "org_id": p.org_id, "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+
+    @app.put("/marketplace/profiles/{profile_id}")
+    async def update_marketplace_profile(
+        profile_id: str,
+        body: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import MarketplaceProfile
+        sf = get_session_factory()
+        async with sf() as session:
+            p = await session.get(MarketplaceProfile, profile_id)
+            if not p or p.org_id != user["org_id"]:
+                raise HTTPException(status_code=404, detail="Profile not found")
+            for field_name in ("name", "description", "base_domain", "price_usd", "profile_yaml"):
+                if field_name in body:
+                    setattr(p, field_name, body[field_name])
+            await session.commit()
+            await session.refresh(p)
+        return {"id": p.id, "name": p.name, "updated": True}
+
+    @app.delete("/marketplace/profiles/{profile_id}", status_code=204)
+    async def delete_marketplace_profile(
+        profile_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import MarketplaceProfile
+        sf = get_session_factory()
+        async with sf() as session:
+            p = await session.get(MarketplaceProfile, profile_id)
+            if not p or p.org_id != user["org_id"]:
+                raise HTTPException(status_code=404, detail="Profile not found")
+            await session.delete(p)
+            await session.commit()
+
     # ── Deployment endpoints ───────────────────────────────────────────────────
 
     @app.post("/factory/runs/{run_id}/deploy")
@@ -5287,6 +5343,52 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("memory_search failed: %s", exc)
             return {"matches": [], "query": query}
+
+    @app.get("/memory/graph")
+    async def memory_graph(
+        limit: int = 50,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return memory store data in graph format for visualisation (nodes + edges)."""
+        org_id = user.get("org_id", "default")
+        try:
+            from aether_os.core.memory.store import get_memory_store
+            store = get_memory_store()
+            stats = store.stats()
+            records = store.retrieve_sync("", k=min(limit, 100))
+
+            nodes = []
+            edges = []
+            task_type_idx: Dict[str, str] = {}
+
+            # Task-type cluster nodes
+            for task_type, count in stats.get("by_task_type", {}).items():
+                nid = f"task:{task_type}"
+                task_type_idx[task_type] = nid
+                nodes.append({"id": nid, "label": task_type, "type": "task_type", "count": count})
+
+            # Memory record leaf nodes
+            for r in records:
+                nid = f"mem:{r.id}"
+                nodes.append({
+                    "id": nid,
+                    "label": (r.input_text[:40] + "…") if len(r.input_text) > 40 else r.input_text,
+                    "type": "memory",
+                    "success_count": r.success_count,
+                    "task_type": r.task_type,
+                })
+                parent = task_type_idx.get(r.task_type)
+                if parent:
+                    edges.append({"source": parent, "target": nid, "weight": r.success_count})
+
+            return {
+                "nodes": nodes,
+                "edges": edges,
+                "stats": stats,
+            }
+        except Exception as exc:
+            logger.warning("memory_graph failed: %s", exc)
+            return {"nodes": [], "edges": [], "stats": {}}
 
     @app.get("/settings/preferences")
     async def get_preferences(
