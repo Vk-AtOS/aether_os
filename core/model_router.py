@@ -62,6 +62,10 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
     if spec.provider == "openrouter":
         return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
     if spec.provider == "bedrock":
+        # BEDROCK_ENABLED must be explicitly set to "true" — payment instrument required
+        # for cross-region inference profiles. Credentials alone are not sufficient.
+        if os.environ.get("BEDROCK_ENABLED", "false").lower() != "true":
+            return False
         return bool(
             os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
             and os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
