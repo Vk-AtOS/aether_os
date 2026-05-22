@@ -5396,8 +5396,8 @@ def create_app() -> FastAPI:
             prefs = await ms.get_user_preferences(user_id)
             return prefs
         except Exception as exc:
-            logger.warning("get_preferences failed: %s", exc)
-            return {}
+            logger.error("get_preferences failed for user %s: %s", user_id, exc)
+            raise HTTPException(status_code=500, detail="Failed to load preferences")
 
     @app.put("/settings/preferences")
     async def update_preferences(

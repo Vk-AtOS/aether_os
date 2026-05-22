@@ -447,6 +447,7 @@ const Settings = () => {
                   <div className="flex space-x-2">
                     <input
                       type="password"
+                      autoComplete="new-password"
                       placeholder="••••••••••••••••"
                       value={apiKeys[id]}
                       onChange={(e) => setApiKeys({...apiKeys, [id]: e.target.value})}
@@ -697,6 +698,7 @@ const Settings = () => {
                 </label>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   placeholder={langsmithConfig.api_key_set ? '••••••••••••••••  (key saved)' : 'ls-...'}
                   value={langsmithConfig.api_key}
                   onChange={(e) => setLangsmithConfig(c => ({ ...c, api_key: e.target.value }))}
