@@ -310,7 +310,7 @@ async def _call_ollama(prompt: str, task_type: str) -> str:
 # These require a valid payment instrument on the AWS account (credits count).
 # Enable via BEDROCK_ENABLED=true in environment.
 _BEDROCK_HEAVY_DEFAULT = "au.anthropic.claude-sonnet-4-6"
-_BEDROCK_LIGHT_DEFAULT = "au.anthropic.claude-haiku-4-5-20251001-v1:0"
+_BEDROCK_LIGHT_DEFAULT = "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 def _select_bedrock_model(task_type: str) -> str:
