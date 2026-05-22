@@ -278,11 +278,10 @@ def _emit_run_notification(run, status: str) -> None:
         except Exception:
             pass
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_create())
-    except Exception:
-        pass
+        loop = asyncio.get_running_loop()
+        asyncio.ensure_future(_create())
+    except RuntimeError:
+        pass  # no running event loop — skip background notification
 
 
 async def create_run(
