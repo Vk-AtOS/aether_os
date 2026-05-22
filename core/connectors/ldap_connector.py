@@ -35,7 +35,7 @@ _USER_FILTER = "(&(objectClass=person)(objectCategory=user))"
 
 def _run_sync(fn, *args):
     """Run a synchronous function in the default thread pool executor."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return loop.run_in_executor(None, fn, *args)
 
 
@@ -142,7 +142,7 @@ class LDAPConnector(BaseConnector):
             except Exception as exc:
                 return {"ok": False, "message": str(exc)}
 
-        return await asyncio.get_event_loop().run_in_executor(None, _sync)
+        return await asyncio.get_running_loop().run_in_executor(None, _sync)
 
     async def test(self) -> Dict[str, Any]:
         """BaseConnector compatibility — delegates to validate()."""
@@ -196,7 +196,7 @@ class LDAPConnector(BaseConnector):
                 conn.unbind()
 
         try:
-            return await asyncio.get_event_loop().run_in_executor(None, _sync)
+            return await asyncio.get_running_loop().run_in_executor(None, _sync)
         except ConnectorError:
             raise
         except Exception as exc:
@@ -269,7 +269,7 @@ class LDAPConnector(BaseConnector):
                 return False
 
         try:
-            return await asyncio.get_event_loop().run_in_executor(None, _sync)
+            return await asyncio.get_running_loop().run_in_executor(None, _sync)
         except ConnectorError:
             raise
         except Exception as exc:

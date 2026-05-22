@@ -156,7 +156,7 @@ class MemoryStore:
 
     async def store(self, record: MemoryRecord) -> None:
         """Async wrapper for store_sync."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.store_sync, record)
 
     def retrieve_sync(self, input_hash: str, k: int = 5) -> List[MemoryRecord]:
@@ -204,7 +204,7 @@ class MemoryStore:
 
     async def retrieve(self, input_hash: str, k: int = 5) -> List[MemoryRecord]:
         """Async wrapper for retrieve_sync."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self.retrieve_sync, input_hash, k)
 
     def stats(self) -> Dict[str, Any]:

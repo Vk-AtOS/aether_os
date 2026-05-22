@@ -76,7 +76,7 @@ class MemoryService:
         if status not in ("completed", "passed"):
             return  # Only learn from successful runs
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._sync_store_outcome,
                                         org_id, run_id, raw_input, domain, phase_outputs or {})
         except Exception as exc:
@@ -110,7 +110,7 @@ class MemoryService:
         top_k: int = 3,
     ) -> List[Dict[str, Any]]:
         """Use fingerprinter + matcher to find similar past runs."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, self._sync_find_similar, org_id, raw_input, top_k
         )
@@ -178,7 +178,7 @@ class MemoryService:
 
     async def build_repo_graph(self, project_dir: str) -> Dict[str, Any]:
         """Build symbol/call graph for a project directory (used by p02_architecture)."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._sync_build_graph, project_dir)
 
     def _sync_build_graph(self, project_dir: str) -> Dict[str, Any]:

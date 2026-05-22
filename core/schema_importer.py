@@ -48,7 +48,7 @@ async def import_schema(connection_string: str) -> Dict[str, Any]:
 
 async def _do_import(connection_string: str) -> Dict[str, Any]:
     """Run the synchronous SQLAlchemy inspection in a thread pool."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_inspect, connection_string)
 
 
