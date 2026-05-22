@@ -225,6 +225,31 @@ class RateLimiter:
                 pass
         _mem.registrations[ip].append(time.time())
 
+    # ── public (unauthenticated) endpoint guard ───────────────────────────────
+
+    async def record_public_request(self, ip: str) -> None:
+        """Count a request to a public, unauthenticated endpoint."""
+        if self._is_exempt_ip(ip):
+            return
+        r = await _get_async_redis()
+        if r:
+            try:
+                await _redis_incr_window(r, f"pub:{ip}", 60)
+            except Exception:
+                pass
+
+    async def check_public_ratelimit(self, ip: str, max_per_minute: int = 100) -> bool:
+        """True = request is allowed. False = 429 should be returned."""
+        if self._is_exempt_ip(ip):
+            return True
+        r = await _get_async_redis()
+        if r:
+            try:
+                return await _redis_get_count(r, f"pub:{ip}", 60) < max_per_minute
+            except Exception:
+                pass
+        return True  # allow on Redis failure
+
 
 _instance: Optional[RateLimiter] = None
 
