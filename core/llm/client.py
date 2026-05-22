@@ -398,7 +398,7 @@ async def _call_bedrock(
         "model not found", "validationexception",
     )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     retries = 3
     last_exc: Exception | None = None
     for attempt in range(retries):

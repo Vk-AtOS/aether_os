@@ -219,7 +219,7 @@ async def _call_via_bedrock(code: str, domain: str, role_key: str) -> Optional[C
             return _json.loads(resp["body"].read()).get("content", [{}])[0].get("text", "")
 
         raw = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, _invoke), timeout=90
+            asyncio.get_running_loop().run_in_executor(None, _invoke), timeout=90
         )
         logger.info("CouncilReviewer: Bedrock/%s review complete (len=%d)", role_key, len(raw))
         return _parse_review_response(raw, f"claude-bedrock ({model_id.split('.')[-1]})", spec["focus"])
@@ -270,7 +270,7 @@ async def _call_gemini(code: str, domain: str) -> Optional[CouncilReview]:
             client = genai.Client(api_key=api_key)
             full_prompt = f"{spec['system']}\n\n{spec['prompt_tmpl'].format(domain=domain, code=code[:_MAX_CODE_CHARS])}"
             response = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
+                asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: client.models.generate_content(model="gemini-2.0-flash", contents=full_prompt),
                 ),
