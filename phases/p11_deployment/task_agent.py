@@ -691,7 +691,7 @@ class TaskAgent:
         try:
             import aiohttp
             url = f"http://localhost:{port}/health"
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             deadline = loop.time() + timeout
             while loop.time() < deadline:
                 try:

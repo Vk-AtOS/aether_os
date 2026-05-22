@@ -178,17 +178,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (tests_dir / "__init__.py").write_text("")
     test_file = tests_dir / "test_main.py"
 
-    # Write conftest.py — overrides DATABASE_URL so tests use in-memory SQLite
+    # Write conftest.py — overrides DATABASE_URL so tests use local SQLite (no server needed)
     conftest_content = (
         'import os\n'
         'import pytest\n'
-        'os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test.db")\n'
+        # Use flat file (no subdir) so SQLite doesn't need data/ to pre-exist
+        'os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")\n'
         'os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")\n'
         'os.environ.setdefault("APP_ENV", "test")\n'
         '\n\n'
         '@pytest.fixture(autouse=True)\n'
         'def _set_test_env(monkeypatch):\n'
-        '    monkeypatch.setenv("DATABASE_URL", "sqlite:///./data/test.db")\n'
+        '    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")\n'
         '    monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest-only")\n'
     )
     (tests_dir / "conftest.py").write_text(conftest_content)
@@ -267,11 +268,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _smoke_port = _s.getsockname()[1]
         _smoke_proc = None
         try:
+            _smoke_env = dict(_os.environ)
+            _smoke_env["DATABASE_URL"] = "sqlite:///./test.db"
+            _smoke_env["SECRET_KEY"] = "smoke-test-secret-key"
+            _smoke_env["APP_ENV"] = "test"
             _smoke_proc = _sp2.Popen(
                 ["python3", "-m", "uvicorn", "main:app",
                  "--host", "127.0.0.1", "--port", str(_smoke_port), "--log-level", "warning"],
                 cwd=str(src_dir),
                 stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL,
+                env=_smoke_env,
             )
             _time.sleep(3)
             _resp = _ur.urlopen(f"http://127.0.0.1:{_smoke_port}/health", timeout=5)

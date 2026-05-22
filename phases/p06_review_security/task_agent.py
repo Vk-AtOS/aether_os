@@ -214,6 +214,14 @@ def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
         and "audit_log_middleware" not in source
         and "@app.middleware" not in source
     ):
+        # Ensure Request is imported — middleware uses `request: Request`
+        if re.search(r'from fastapi import [^\n]+', source) and "Request" not in source:
+            source = re.sub(
+                r'(from fastapi import [^\n]+)',
+                lambda m: m.group(0) if "Request" in m.group(0) else m.group(0).rstrip() + ", Request",
+                source,
+                count=1,
+            )
         audit_block = (
             "\n"
             "# Compliance: Audit logging middleware (HIPAA §164.312(b))\n"

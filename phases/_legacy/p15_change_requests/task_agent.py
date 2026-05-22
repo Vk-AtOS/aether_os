@@ -91,8 +91,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 },
             ),
         )
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(get_bus(phase_input.run_id).publish(msg))
+        await get_bus(phase_input.run_id).publish(msg)
     except Exception as e:
         logger.warning("Bus publish failed: %s", e)
 
