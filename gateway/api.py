@@ -2493,6 +2493,132 @@ def create_app() -> FastAPI:
             await session.refresh(profile)
         return {"status": "published", "id": profile.id, "name": profile.name}
 
+    # ── Code Snapshots ────────────────────────────────────────────────────────
+
+    @app.get("/factory/runs/{run_id}/snapshots")
+    async def list_run_snapshots(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """List all code snapshots for a run (versioned file history)."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run, Snapshot
+        from sqlalchemy import select as _sel
+        sf = get_session_factory()
+        async with sf() as sess:
+            run = await sess.get(Run, run_id)
+            if not run or run.org_id != user["org_id"]:
+                raise HTTPException(status_code=404, detail="Run not found")
+            rows = (await sess.execute(
+                _sel(Snapshot)
+                .where(Snapshot.run_id == run_id)
+                .order_by(Snapshot.created_at.desc())
+            )).scalars().all()
+        return {
+            "run_id": run_id,
+            "snapshots": [
+                {
+                    "id": s.id,
+                    "file_path": s.file_path,
+                    "created_at": s.created_at,
+                }
+                for s in rows
+            ],
+        }
+
+    @app.get("/factory/runs/{run_id}/snapshots/{snapshot_id}")
+    async def get_run_snapshot(
+        run_id: str,
+        snapshot_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Get full content of a specific code snapshot."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run, Snapshot
+        sf = get_session_factory()
+        async with sf() as sess:
+            run = await sess.get(Run, run_id)
+            if not run or run.org_id != user["org_id"]:
+                raise HTTPException(status_code=404, detail="Run not found")
+            snap = await sess.get(Snapshot, snapshot_id)
+            if not snap or snap.run_id != run_id:
+                raise HTTPException(status_code=404, detail="Snapshot not found")
+        return {
+            "id": snap.id,
+            "run_id": snap.run_id,
+            "file_path": snap.file_path,
+            "content": snap.content,
+            "created_at": snap.created_at,
+        }
+
+    # ── GlobalPattern admin CRUD ──────────────────────────────────────────────
+
+    @app.post("/intelligence/global-patterns", status_code=201)
+    async def create_global_pattern(
+        body: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Admin: create a GlobalPattern override to manually tune learned behaviors."""
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import GlobalPattern
+        sf = get_session_factory()
+        async with sf() as sess:
+            p = GlobalPattern(
+                domain=body.get("domain", "general"),
+                pattern_name=body.get("pattern_name", ""),
+                pattern_type=body.get("pattern_type", "manual"),
+                success_rate=float(body.get("success_rate", 1.0)),
+                usage_count=int(body.get("usage_count", 1)),
+                avg_quality_score=float(body.get("avg_quality_score", 0.8)),
+            )
+            sess.add(p)
+            await sess.commit()
+            await sess.refresh(p)
+        return {"id": p.id, "domain": p.domain, "pattern_name": p.pattern_name, "created": True}
+
+    @app.put("/intelligence/global-patterns/{pattern_id}")
+    async def update_global_pattern(
+        pattern_id: str,
+        body: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Admin: update a GlobalPattern to correct learned behavior."""
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import GlobalPattern
+        sf = get_session_factory()
+        async with sf() as sess:
+            p = await sess.get(GlobalPattern, pattern_id)
+            if not p:
+                raise HTTPException(status_code=404, detail="Pattern not found")
+            for field_name in ("domain", "pattern_name", "pattern_type", "success_rate", "usage_count", "avg_quality_score"):
+                if field_name in body:
+                    setattr(p, field_name, body[field_name])
+            await sess.commit()
+            await sess.refresh(p)
+        return {"id": p.id, "domain": p.domain, "pattern_name": p.pattern_name, "updated": True}
+
+    @app.delete("/intelligence/global-patterns/{pattern_id}", status_code=204)
+    async def delete_global_pattern(
+        pattern_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """Admin: delete a GlobalPattern entry to remove incorrect learned behaviors."""
+        if user.get("role") not in ["owner", "admin"]:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import GlobalPattern
+        sf = get_session_factory()
+        async with sf() as sess:
+            p = await sess.get(GlobalPattern, pattern_id)
+            if not p:
+                raise HTTPException(status_code=404, detail="Pattern not found")
+            await sess.delete(p)
+            await sess.commit()
+
     @app.get("/account/preferences")
     async def get_preferences(
         user: Dict[str, Any] = Depends(get_current_user),
