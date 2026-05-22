@@ -81,9 +81,10 @@ const Sidebar = () => {
   ];
 
   const adminItems = isAdmin ? [
-    { name: 'Users',      path: '/admin/users',    icon: Users },
-    { name: 'Audit Logs', path: '/audit',          icon: ScrollText },
-    { name: 'Billing',    path: '/admin/billing',  icon: CreditCard },
+    { name: 'Users',        path: '/admin/users',        icon: Users },
+    { name: 'Audit Logs',   path: '/audit',              icon: ScrollText },
+    { name: 'Billing',      path: '/admin/billing',      icon: CreditCard },
+    { name: 'Intelligence', path: '/admin/intelligence', icon: Sparkles },
   ] : [];
 
   const isActiveRoute = (path) => {

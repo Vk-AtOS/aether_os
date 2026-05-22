@@ -34,6 +34,7 @@ import SystemHealth from './pages/SystemHealth';
 import Signup from './pages/Signup';
 import Pricing from './pages/Pricing';
 import Agents from './pages/Agents';
+import GlobalPatternsTuning from './pages/GlobalPatternsTuning';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -101,6 +102,7 @@ function App() {
         <Route path="dashboard/tools/costs" element={<Navigate to="/costs" replace />} />
         <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
         <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
         <Route path="webhooks" element={<Navigate to="/settings/webhooks" replace />} />

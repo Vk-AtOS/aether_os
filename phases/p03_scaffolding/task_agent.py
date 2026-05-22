@@ -53,14 +53,6 @@ def _write_devcontainer(project_dir: Path, project_name: str) -> None:
     (dc_dir / "devcontainer.json").write_text(json.dumps(devcontainer, indent=2))
 
 
-TEMPLATE_MAP = {
-    "fastapi": "https://github.com/tiangolo/full-stack-fastapi-template",
-    "flask":   "https://github.com/cookiecutter-flask/cookiecutter-flask",
-    "django":  "https://github.com/cookiecutter/cookiecutter-django",
-    "express": "https://github.com/nicholasgasior/cookiecutter-express",
-    "node":    "https://github.com/nicholasgasior/cookiecutter-express",
-}
-
 def create_minimal_scaffold(
         project_name: str,
         tech_stack: dict,
