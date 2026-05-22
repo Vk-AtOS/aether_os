@@ -149,7 +149,8 @@ _FALLBACK_PATTERNS = (
     "not installed", "model not found", "no such model",
     # Bedrock-specific hard failures
     "accessdeniedexception", "invalid_payment_instrument", "invalidpaymentinstrument",
-    "not authorized", "validationexception",
+    "not authorized", "validationexception", "resourcenotfoundexception",
+    "end of its life", "no longer supported",
 )
 
 
