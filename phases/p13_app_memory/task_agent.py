@@ -14,6 +14,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     migrations_dir.mkdir(parents=True, exist_ok=True)
     test_dir.mkdir(parents=True, exist_ok=True)
 
+    (mem_dir / "__init__.py").write_text("")
+
     (mem_dir / "memory_service.py").write_text(
         '''import logging
 from typing import Optional, List as _List

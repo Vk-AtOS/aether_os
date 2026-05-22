@@ -14,6 +14,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     migrations_dir.mkdir(parents=True, exist_ok=True)
     test_dir.mkdir(parents=True, exist_ok=True)
 
+    (ff_dir / "__init__.py").write_text("")
+
     # Feature flag service (standalone, no relative imports)
     (ff_dir / "feature_flags.py").write_text(
         '''import os

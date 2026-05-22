@@ -20,7 +20,7 @@ async def _noop_emit(event: dict) -> None:  # noqa: ARG001
 
 async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noqa: ARG001
     """Ask LLM to fix a startup error in main.py. Returns True if fixed."""
-    from core.llm.client import get_llm_client
+    from aether_os.core.llm.client import get_llm_client
     client = get_llm_client()
     source = main_py.read_text()
     prompt = (
