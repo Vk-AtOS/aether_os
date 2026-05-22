@@ -622,7 +622,7 @@ def create_app() -> FastAPI:
         # System resources
         try:
             import psutil as _ps
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             cpu_pct = await loop.run_in_executor(None, lambda: _ps.cpu_percent(interval=0.2))
             vm = _ps.virtual_memory()
             du = _ps.disk_usage("/")
@@ -836,7 +836,7 @@ def create_app() -> FastAPI:
                     detail="Invalid credentials",
                 )
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pw_ok = await loop.run_in_executor(None, verify_password, req.password, row[0].password_hash)
             if not pw_ok:
                 raise HTTPException(
@@ -4985,7 +4985,7 @@ def create_app() -> FastAPI:
             db_user = await session.get(User, user_id)
             if not db_user:
                 raise HTTPException(status_code=404)
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pw_ok = await loop.run_in_executor(None, verify_password, current_pw, db_user.password_hash)
             if not pw_ok:
                 raise HTTPException(status_code=401, detail="Current password is incorrect.")
