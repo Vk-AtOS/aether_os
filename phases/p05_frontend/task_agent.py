@@ -830,9 +830,12 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     all_type_imports = type_imports + create_imports
     lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
     lines.append("")
+    lines.append("// When VITE_API_URL is set: direct calls to backend URL (prod/Docker)")
+    lines.append("// When unset: proxy via Vite /api → backend (dev) or nginx /api → backend (prod)")
     lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
+    lines.append("const API_PREFIX = BASE ? '' : '/api'")
     lines.append("")
-    lines.append("export const apiClient = axios.create({ baseURL: BASE })")
+    lines.append("export const apiClient = axios.create({ baseURL: BASE + API_PREFIX })")
     lines.append("")
     lines.append("apiClient.interceptors.request.use(cfg => {")
     lines.append("  const token = getToken()")

@@ -857,6 +857,39 @@ def _post_process_main(code: str) -> str:
         except Exception:
             pass  # don't break code for complex cases
 
+    # Fix 8: add Field to pydantic imports if used but not imported
+    if re.search(r'\bField\s*\(', code) and "from pydantic import" in code:
+        if "Field" not in re.findall(r'from pydantic import ([^\n]+)', code)[0]:
+            code = re.sub(
+                r'(from pydantic import [^\n]+)',
+                lambda m: m.group(0) if "Field" in m.group(0) else m.group(0).rstrip() + ", Field",
+                code,
+                count=1,
+            )
+
+    # Fix 9: add text to sqlalchemy imports if db.execute(text(...)) is used but text not imported
+    if re.search(r'\btext\s*\(', code) and "from sqlalchemy import" in code:
+        if "text" not in re.findall(r'from sqlalchemy import ([^\n]+)', code)[0]:
+            code = re.sub(
+                r'(from sqlalchemy import [^\n]+)',
+                lambda m: m.group(0) if "text" in m.group(0) else m.group(0).rstrip() + ", text",
+                code,
+                count=1,
+            )
+
+    # Fix 10: suppress deprecated datetime.utcnow() — replace with datetime.now(UTC)
+    if "datetime.utcnow()" in code:
+        if "from datetime import" in code:
+            if "timezone" not in code:
+                code = re.sub(
+                    r'from datetime import ([^\n]+)',
+                    lambda m: m.group(0) if "timezone" in m.group(0)
+                    else m.group(0).rstrip() + ", timezone",
+                    code,
+                    count=1,
+                )
+        code = code.replace("datetime.utcnow()", "datetime.now(timezone.utc)")
+
     return code
 
 
