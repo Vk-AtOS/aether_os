@@ -14,6 +14,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     migrations_dir.mkdir(parents=True, exist_ok=True)
     test_dir.mkdir(parents=True, exist_ok=True)
 
+    (ab_dir / "__init__.py").write_text("")
+
     # A/B testing engine (standalone)
     (ab_dir / "ab_testing.py").write_text(
         '''import hashlib

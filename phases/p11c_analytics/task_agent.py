@@ -98,9 +98,20 @@ async def analytics_middleware(request: Request, call_next):
                     "except Exception:\n"
                     "    pass\n"
                 )
-                _end_app_line = content.find("\n", content.find("app = FastAPI("))
-                if _end_app_line > 0:
-                    content = content[:_end_app_line + 1] + _middleware_snippet + content[_end_app_line + 1:]
+                # Find the closing ) of app = FastAPI(...) using bracket depth counting
+                _start = content.find("app = FastAPI(")
+                _depth, _end_pos = 0, _start
+                for _i, _ch in enumerate(content[_start:], _start):
+                    if _ch == "(":
+                        _depth += 1
+                    elif _ch == ")":
+                        _depth -= 1
+                        if _depth == 0:
+                            _end_pos = _i
+                            break
+                _end_nl = content.find("\n", _end_pos)
+                if _end_nl > 0:
+                    content = content[:_end_nl + 1] + _middleware_snippet + content[_end_nl + 1:]
                     _main_py.write_text(content)
         except Exception as exc:
             issues.append(f"Analytics middleware injection skipped: {exc}")

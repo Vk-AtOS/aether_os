@@ -184,12 +184,21 @@ def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
             "except ImportError:\n"
             "    pass  # slowapi not installed — rate limiting disabled\n"
         )
-        # Insert after the first `app = FastAPI(...)` line
+        # Insert after the closing ) of app = FastAPI(...) using bracket depth counting
         _fastapi_pos = source.find("app = FastAPI(")
         if _fastapi_pos > 0:
-            _end_line = source.find("\n", _fastapi_pos)
-            if _end_line > 0:
-                source = source[:_end_line + 1] + rate_limit_block + source[_end_line + 1:]
+            _depth, _end_pos = 0, _fastapi_pos
+            for _i, _ch in enumerate(source[_fastapi_pos:], _fastapi_pos):
+                if _ch == "(":
+                    _depth += 1
+                elif _ch == ")":
+                    _depth -= 1
+                    if _depth == 0:
+                        _end_pos = _i
+                        break
+            _end_nl = source.find("\n", _end_pos)
+            if _end_nl > 0:
+                source = source[:_end_nl + 1] + rate_limit_block + source[_end_nl + 1:]
         else:
             source = _insert_after_imports(source, rate_limit_block)
         injections.append("rate_limiting")

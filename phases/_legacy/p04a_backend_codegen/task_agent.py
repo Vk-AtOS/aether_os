@@ -1310,6 +1310,12 @@ def _build_requirements(has_postgres: bool = False, has_uploads: bool = False, h
         lines.append("aiofiles==24.1.0")
     if has_email:
         lines.append("fastapi-mail==1.4.1")
+    # Always include — p11a injects Instrumentator(), p11b injects sentry_sdk.init()
+    lines.append("prometheus-fastapi-instrumentator==0.21.0")
+    lines.append("sentry-sdk==2.19.0")
+    # Test deps pinned here so `pip install -r requirements.txt` covers pytest runs
+    lines.append("pytest==8.3.4")
+    lines.append("pytest-timeout==2.3.1")
     return "\n".join(lines) + "\n"
 
 
