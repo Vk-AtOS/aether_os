@@ -32,7 +32,6 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
         total        = int(meta.get("total_tests", 0))
         passed_count = int(meta.get("passed_tests", total))
         # Consolidated format: sub-phase results are nested under "phases" key
-        # task_agent.py sets success=True unconditionally (testing is non-blocking)
         if "phases" in meta:
             # Extract test_code from any sub-phase that produced it
             test_code = ""
