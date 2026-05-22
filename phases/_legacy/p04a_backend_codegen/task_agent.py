@@ -755,13 +755,18 @@ def _post_process_main(code: str) -> str:
     """Apply deterministic fixes to LLM-generated main.py regardless of model quality.
 
     Fixes applied:
-    1. Replace deprecated sqlalchemy.ext.declarative import with sqlalchemy.orm
-    2. Ensure Boolean is in sqlalchemy imports
-    3. Add ConfigDict to pydantic imports if missing
-    4. Add allow_credentials=True to CORSMiddleware if missing
-    5. Ensure Request is imported from fastapi when used in function params
-    6. Ensure data/ directory is created before SQLite create_all()
-    7. Replace deprecated @app.on_event("startup") with lifespan handler
+    1.  Replace deprecated sqlalchemy.ext.declarative import with sqlalchemy.orm
+    2.  Add Boolean to sqlalchemy imports (handles parenthesized and non-parenthesized forms)
+    3.  Add ConfigDict to any pydantic import line if missing
+    4.  Add allow_credentials=True to CORSMiddleware if missing
+    5.  Add Request to fastapi imports when used but missing
+    6.  Ensure data/ directory is created before SQLite create_all()
+    7.  Replace deprecated @app.on_event("startup") with lifespan handler
+    8.  Add Field to pydantic imports if used but missing
+    9.  Add text to sqlalchemy imports if db.execute(text()) is used but missing
+    10. Replace deprecated datetime.utcnow() with datetime.now(timezone.utc)
+    11. Inject load_dotenv() so .env files are auto-loaded in local dev
+    12. Add import os if os.getenv() is used without it
     """
     import re
 
@@ -776,7 +781,11 @@ def _post_process_main(code: str) -> str:
     def _add_boolean(m: re.Match) -> str:
         imports = m.group(0)
         if "Boolean" not in imports:
-            imports = imports.rstrip(")").rstrip() + ", Boolean)"
+            stripped = imports.rstrip()
+            if stripped.endswith(")"):
+                imports = stripped[:-1].rstrip() + ", Boolean)"
+            else:
+                imports = stripped + ", Boolean"
         return imports
     code = re.sub(
         r'from sqlalchemy import [^\n]+',
@@ -784,12 +793,13 @@ def _post_process_main(code: str) -> str:
         code,
     )
 
-    # Fix 3: add ConfigDict to pydantic imports
+    # Fix 3: add ConfigDict to any pydantic import line if missing
     if "ConfigDict" not in code and "from pydantic import" in code:
         code = re.sub(
-            r'from pydantic import (BaseModel)',
-            r'from pydantic import BaseModel, ConfigDict',
+            r'(from pydantic import [^\n]+)',
+            lambda m: m.group(0) if "ConfigDict" in m.group(0) else m.group(0).rstrip() + ", ConfigDict",
             code,
+            count=1,
         )
     elif "ConfigDict" not in code and "from pydantic import" not in code:
         code = "from pydantic import BaseModel, ConfigDict\n" + code
@@ -889,6 +899,18 @@ def _post_process_main(code: str) -> str:
                     count=1,
                 )
         code = code.replace("datetime.utcnow()", "datetime.now(timezone.utc)")
+
+    # Fix 11: inject load_dotenv() so .env files are auto-loaded in local dev
+    if "load_dotenv" not in code and "import os" in code:
+        code = code.replace(
+            "import os\n",
+            "import os\ntry:\n    from dotenv import load_dotenv; load_dotenv()\nexcept ImportError:\n    pass\n",
+            1,
+        )
+
+    # Fix 12: ensure `import os` is present when os.getenv() is used
+    if "os.getenv(" in code and "import os" not in code:
+        code = "import os\n" + code
 
     return code
 

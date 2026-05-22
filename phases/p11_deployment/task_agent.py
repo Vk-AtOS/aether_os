@@ -657,9 +657,10 @@ class TaskAgent:
                 "--network", "aetheros-isolated",
                 # D7: non-root
                 "--user", "1001:1001",
-                # D7: read-only root filesystem, writable /tmp only
+                # D7: read-only root filesystem; tmpfs for /tmp and /app/data (SQLite writes)
                 "--read-only",
                 "--tmpfs", "/tmp:size=64m,mode=1777",
+                "--tmpfs", "/app/data:size=256m,uid=1001,gid=1001",
                 # D7: resource limits
                 "--memory", "512m",
                 "--cpus", "0.5",
