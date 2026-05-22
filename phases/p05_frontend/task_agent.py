@@ -1644,7 +1644,9 @@ services:
       context: ./frontend
       args:
         # VITE_ vars baked at build time — pass as args, not runtime env
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        # Default is empty so nginx /api/ proxy is used (works on any server)
+        # Override: VITE_API_URL=http://your-server:8000 docker-compose up
+        VITE_API_URL: ${VITE_API_URL:-}
     ports:
       - "${PORT:-80}:80"
     depends_on:
