@@ -88,7 +88,7 @@ async def error_middleware(request: Request, call_next):
                     "    pass\n"
                 )
                 _insert_pos = content.find("app = FastAPI(")
-                if _insert_pos > 0:
+                if _insert_pos >= 0:
                     content = content[:_insert_pos] + _sentry_snippet + content[_insert_pos:]
                     _main_py.write_text(content)
         except Exception as exc:
