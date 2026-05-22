@@ -55,8 +55,22 @@ class TruthEngine:
                 if not run:
                     return {"error": "Run not found"}
                 req = run.requirement or run.raw_input or ""
-                # Code would be in output files; use placeholder for now
-                code = f"[Generated output for run {run_id}]"
+                # Load actual generated code from the run output directory
+                import os
+                project_dir = os.path.expanduser(f"~/.aether_os/projects/{run_id}")
+                code_parts: list[str] = []
+                for candidate in [
+                    f"{project_dir}/src/main.py",
+                    f"{project_dir}/main.py",
+                    f"{project_dir}/p04_backend/src/main.py",
+                    f"{project_dir}/p04a_backend_codegen/src/main.py",
+                ]:
+                    if os.path.isfile(candidate):
+                        try:
+                            code_parts.append(open(candidate).read(8000))
+                        except Exception:
+                            pass
+                code = "\n\n---\n\n".join(code_parts) if code_parts else f"[No generated files found for run {run_id}]"
         except Exception as exc:
             return {"error": str(exc)}
         return await self.validate(req, code)
