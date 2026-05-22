@@ -52,8 +52,7 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
         issues.append(
             f"Test quality: FAIL — only {meta.get('passed_tests', 0)}/{meta.get('total_tests', 0)} tests passed"
         )
-        # Still pass the gate (non-blocking), but with low confidence and clear issue
-        return GateOutcome(passed=True, confidence=0.3, issues=issues)
+        return GateOutcome(passed=False, confidence=0.3, issues=issues)
     elif quality_flag == "warn":
         issues.append("Test quality: WARN — partial test coverage or inconclusive results")
     elif quality_flag == "pass":

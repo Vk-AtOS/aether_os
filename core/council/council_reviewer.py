@@ -369,6 +369,63 @@ def _find_consensus(reviews: List[CouncilReview], min_models: int = 2) -> List[s
     return consensus
 
 
+# ── Static security checks ────────────────────────────────────────────────────
+
+_SECRET_PATTERNS = [
+    # AWS
+    (r'AKIA[0-9A-Z]{16}', "Hardcoded AWS Access Key ID detected"),
+    (r'(?i)(aws_secret|aws_key)\s*=\s*["\'][^"\']{20,}["\']', "Hardcoded AWS secret value detected"),
+    # Generic API keys / tokens / passwords
+    (r'(?i)(api_key|secret_key|private_key|password|passwd|token|auth_token)\s*=\s*["\'][^"\']{8,}["\']',
+     "Hardcoded credential or secret value detected"),
+    # Private key PEM blocks
+    (r'-----BEGIN (RSA |EC )?PRIVATE KEY-----', "Private key PEM block embedded in source code"),
+    # Basic auth in URLs
+    (r'https?://[^:]+:[^@]{4,}@', "Credentials embedded in URL"),
+]
+
+_RESOURCE_LIMIT_MARKERS = [
+    "slowapi", "ratelimit", "RateLimiter", "limiter",           # rate limiting
+    "timeout", "asyncio.wait_for", "httpx.AsyncClient",        # timeouts
+    "MAX_", "max_size", "max_length", "content_length",        # payload limits
+]
+
+_INPUT_VALIDATION_MARKERS = [
+    "BaseModel", "validator", "field_validator", "constr",     # Pydantic
+    "Query(", "Body(", "Path(", "Header(",                     # FastAPI dependency validators
+    "re.match", "re.fullmatch",                                # regex validation
+]
+
+
+def _static_security_checks(code: str) -> List[str]:
+    """Run fast regex-based checks that LLM models sometimes miss."""
+    issues: List[str] = []
+
+    # 1. Secret leakage scanner
+    for pattern, message in _SECRET_PATTERNS:
+        if re.search(pattern, code):
+            issues.append(f"[Static] Secret leakage: {message}")
+
+    # 2. Resource limits check
+    has_limit = any(m in code for m in _RESOURCE_LIMIT_MARKERS)
+    if not has_limit and len(code) > 500:
+        issues.append(
+            "[Static] No rate limiting or timeout controls detected — "
+            "add slowapi/RateLimiter and httpx timeout settings"
+        )
+
+    # 3. Input constraint validation check
+    has_validation = any(m in code for m in _INPUT_VALIDATION_MARKERS)
+    route_count = len(re.findall(r'@(?:app|router)\.(get|post|put|delete|patch)\(', code))
+    if not has_validation and route_count > 2:
+        issues.append(
+            "[Static] No input validation patterns found (Pydantic models or FastAPI validators) — "
+            "all route parameters should be validated"
+        )
+
+    return issues
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 async def run_council(
@@ -411,9 +468,15 @@ async def run_council(
 
     consensus = _find_consensus(reviews, min_models=2)
 
+    # Merge static checks — they are always included regardless of LLM availability
+    static_issues = _static_security_checks(source_code)
+    for si in static_issues:
+        if si not in consensus:
+            consensus.append(si)
+
     logger.info(
-        "CouncilReviewer: complete — %d reviews, %d consensus issues",
-        len(reviews), len(consensus),
+        "CouncilReviewer: complete — %d reviews, %d consensus issues (%d static)",
+        len(reviews), len(consensus), len(static_issues),
     )
 
     return CouncilReport(

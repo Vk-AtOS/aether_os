@@ -60,17 +60,6 @@ PHASE_SEQUENCE = [
     "p14_client_portal",    # Standalone client review portal
 ]
 
-# Legacy 26-phase map kept for reference / partial re-runs
-PHASE_SEQUENCE_LEGACY = [
-    "p00_intake", "p01_requirements", "p02_architecture", "p03_scaffolding",
-    "p04a_backend_codegen", "p04b_uiux_design", "p04c_frontend_codegen",
-    "p04d_component_library", "p04e_integration", "p05_code_review", "p06_security",
-    "p07a_unit_testing", "p07b_performance_testing", "p07c_accessibility_testing",
-    "p07d_e2e_testing", "p08_cicd", "p09_documentation", "p10_deployment",
-    "p11a_monitoring", "p11b_error_tracking", "p11c_analytics", "p11d_alerting",
-    "p12a_feature_flags", "p12b_ab_testing", "p13_app_memory", "p14_client_portal",
-]
-
 # Phase name → supervisor class path (20 phases: 12 core + 8 post-deployment)
 PHASE_SUPERVISORS: Dict[str, str] = {
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
