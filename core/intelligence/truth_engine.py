@@ -28,7 +28,7 @@ class TruthEngine:
             prompt = (
                 f"You are a requirements traceability system.\n\n"
                 f"Requirements:\n{requirements[:2000]}\n\n"
-                f"Generated code:\n{generated_code[:5000]}\n\n"
+                f"Generated code:\n{generated_code[:12000]}\n\n"
                 f"For each requirement, determine if it is addressed in the code.\n"
                 f"Return JSON: {{'coverage': [{{'requirement': str, 'addressed': bool, 'evidence': str}}], "
                 f"'coverage_percent': 0-100, 'unaddressed': [str]}}"
