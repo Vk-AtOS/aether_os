@@ -1220,7 +1220,7 @@ def create_app() -> FastAPI:
 
     # Wire CI webhook router — lives in the consolidated p08_cicd_deployment phase
     try:
-        from aether_os.phases._legacy.p08_cicd.webhook import router as ci_router
+        from aether_os.phases.p08_cicd.webhook import router as ci_router
         app.include_router(ci_router, tags=["CI/CD"])
         logger.info("CI webhook router mounted")
     except Exception as exc:
