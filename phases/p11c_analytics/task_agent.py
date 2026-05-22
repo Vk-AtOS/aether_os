@@ -110,7 +110,7 @@ async def analytics_middleware(request: Request, call_next):
                             _end_pos = _i
                             break
                 _end_nl = content.find("\n", _end_pos)
-                if _end_nl > 0:
+                if _end_nl >= 0:
                     content = content[:_end_nl + 1] + _middleware_snippet + content[_end_nl + 1:]
                     _main_py.write_text(content)
         except Exception as exc:

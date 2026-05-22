@@ -91,7 +91,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                   severity: critical
                 annotations:
                   summary: "High error rate on {project_name}"
-                  description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+                  description: "Error rate is {{{{ $value | humanizePercentage }}}} (threshold: 5%)"
                   runbook: "alert_runbooks/HighErrorRate.md"
 
               - alert: HighLatencyP95
@@ -104,7 +104,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                   severity: warning
                 annotations:
                   summary: "High P95 latency on {project_name}"
-                  description: "P95 latency is {{ $value }}s for handler {{ $labels.handler }} (threshold: 2s)"
+                  description: "P95 latency is {{{{ $value }}}}s for handler {{{{ $labels.handler }}}} (threshold: 2s)"
                   runbook: "alert_runbooks/HighLatency.md"
 
               - alert: DatabaseConnectionPoolExhausted
@@ -115,7 +115,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                   severity: critical
                 annotations:
                   summary: "Database connection pool exhausted"
-                  description: "Only {{ $value }} connections available in the pool"
+                  description: "Only {{{{ $value }}}} connections available in the pool"
                   runbook: "alert_runbooks/DBConnectionPoolExhausted.md"
 
               - alert: ServiceDown
@@ -135,7 +135,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                   severity: warning
                 annotations:
                   summary: "High memory usage on {project_name}"
-                  description: "Memory usage is {{ $value | humanize }}B (threshold: 500MB)"
+                  description: "Memory usage is {{{{ $value | humanize }}}}B (threshold: 500MB)"
 
               - alert: HighCPUUsage
                 expr: |
@@ -145,7 +145,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                   severity: warning
                 annotations:
                   summary: "High CPU usage on {project_name}"
-                  description: "CPU usage is {{ $value | humanizePercentage }}"
+                  description: "CPU usage is {{{{ $value | humanizePercentage }}}}"
     """)
     (alerting_dir / "alert_rules.yml").write_text(alert_rules_yml)
 
