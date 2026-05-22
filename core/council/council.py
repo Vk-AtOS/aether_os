@@ -258,6 +258,17 @@ class BackendAuditCouncil:
         if not _is_enabled():
             return {"passed": True, "failures": [], "corrections": ""}
 
+        # Fast static pre-checks run before any LLM calls
+        from aether_os.core.council.council_reviewer import _static_security_checks
+        static_issues = _static_security_checks(code)
+        pre_failures = [
+            {"check": "static_security", "label": issue, "detail": issue, "model": "static"}
+            for issue in static_issues
+        ]
+        static_corrections = [
+            "CORRECTION: Remove hardcoded secrets — use environment variables instead."
+        ] if any("[Static] Secret leakage" in i for i in static_issues) else []
+
         from aether_os.core.llm.openrouter_client import call_openrouter, COUNCIL_MODELS
 
         # org_isolation check only makes sense for multi-tenant domains
@@ -330,10 +341,12 @@ class BackendAuditCouncil:
                     "BackendAuditCouncil PASS: check=%s via=%s", check["id"], model
                 )
 
+        all_failures = pre_failures + failures
+        all_corrections = static_corrections + corrections
         return {
-            "passed": len(failures) == 0,
-            "failures": failures,
-            "corrections": "\n\n".join(corrections),
+            "passed": len(all_failures) == 0,
+            "failures": all_failures,
+            "corrections": "\n\n".join(all_corrections),
         }
 
 
