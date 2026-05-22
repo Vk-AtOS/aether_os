@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 _SUB_PHASES = [
     ("cicd",           "aether_os.phases.p08_cicd.task_agent",        "run"),
-    ("deployment",     "aether_os.phases.p10_deployment.task_agent",   "run"),
+    ("deployment",     "aether_os.phases.p11_deployment.task_agent",   "TaskAgent"),
     ("monitoring",     "aether_os.phases.p11a_monitoring.task_agent",  "run"),
     ("error_tracking", "aether_os.phases.p11b_error_tracking.task_agent", "run"),
     ("analytics",      "aether_os.phases.p11c_analytics.task_agent",   "run"),
@@ -40,6 +40,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     confidence=0.8,
                     metadata=sub_result,
                     success=sub_result.get("status") not in ("failed",),
+                )
+            elif key == "deployment":
+                from aether_os.phases.p11_deployment.task_agent import TaskAgent as DeployAgent
+                agent = DeployAgent()
+                sub_result = await asyncio.wait_for(agent.run(phase_input), timeout=_SUBTASK_TIMEOUT)
+                r = TaskResult(
+                    output_path=sub_result.get("output_file", sub_result.get("output_path", "")),
+                    confidence=0.85,
+                    metadata=sub_result,
+                    success=sub_result.get("success", False),
                 )
             else:
                 fn = getattr(mod, fn_name)
