@@ -33,6 +33,15 @@ class ArtifactStore:
         if self._initialised:
             return
         with self._get_connection() as conn:
+            # Migrate old schema that used id TEXT PRIMARY KEY (incompatible with current code)
+            cur = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_embeddings'"
+            )
+            if cur.fetchone():
+                col_cur = conn.execute("PRAGMA table_info(artifact_embeddings)")
+                cols = [row[1] for row in col_cur.fetchall()]
+                if "id" in cols:
+                    conn.execute("DROP TABLE artifact_embeddings")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS artifact_embeddings (
                     run_id TEXT,
@@ -67,6 +76,9 @@ class ArtifactStore:
         try:
             client = get_llm_client()
             embedding = await client.embed(content)
+            # Skip storage when Ollama is unavailable (embed() returns all-zero vector)
+            if not embedding or all(v == 0.0 for v in embedding):
+                return
             await asyncio.to_thread(self._store_artifact_sync, run_id, file_path, content_hash, embedding)
         except Exception as exc:
             logger.error("Failed to store artifact %s: %s", file_path, exc)

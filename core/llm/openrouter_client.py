@@ -129,7 +129,7 @@ async def call_openrouter(
         "HTTP-Referer": "https://aetheros.dev",
         "X-Title": "AetherOS",
     }
-    timeout = float(os.environ.get("OPENROUTER_TIMEOUT", "60"))
+    timeout = float(os.environ.get("OPENROUTER_TIMEOUT", "25"))
 
     logger.info("LLM call: provider=openrouter model=%s task=%s", chosen_model, task_type)
 
