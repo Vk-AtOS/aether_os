@@ -73,7 +73,6 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
         if not errors:
             check_code = (
                 "import sys, os; "
-                "os.chdir(str(__import__('pathlib').Path(__file__).parent)); "
                 "exec(compile(open('main.py').read().split('\\napp ')[0], 'main.py', 'exec'))"
             )
             import os as _os
