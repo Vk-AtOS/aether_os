@@ -1613,12 +1613,12 @@ export function {pascal}Page() {{
 
 
 def _generate_docker_compose(project_dir: Path) -> str:
-    """Generate a docker-compose.yml that wires api + web services."""
+    """Generate a docker-compose.yml that wires app + frontend services."""
     return """\
 version: '3.8'
 
 services:
-  api:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
@@ -1636,16 +1636,16 @@ services:
       retries: 5
       start_period: 20s
 
-  web:
+  frontend:
     build:
       context: ./frontend
       args:
-        # Set to your server's public IP or domain for remote deployments
+        # VITE_ vars baked at build time — pass as args, not runtime env
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     ports:
       - "${PORT:-80}:80"
     depends_on:
-      api:
+      app:
         condition: service_healthy
 
 volumes:
