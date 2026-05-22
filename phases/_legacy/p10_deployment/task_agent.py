@@ -203,15 +203,17 @@ def _generate_compose(slug: str, db: str, cache: str, has_frontend: bool = False
     if has_frontend:
         frontend_service = f"""
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # VITE_ vars are baked in at build time — must be passed as build args, not env
+        VITE_API_URL: ${{VITE_API_URL:-http://localhost:${{PORT:-8000}}}}
     ports:
       - "${{FRONTEND_PORT:-3000}}:80"
-    environment:
-      - VITE_API_URL=http://localhost:${{PORT:-8000}}
     depends_on:
       - app
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3"""

@@ -15,11 +15,20 @@ logger = logging.getLogger(__name__)
 class CICDAgent:
     async def run(self, phase_input: Any) -> dict:
         context = phase_input.input_data
-        # phase_input.output_dir is usually something like .../project_id/p08_cicd
-        project_dir = Path(phase_input.output_dir).parent
-        
+        # Prefer explicit project_dir from input_data; fall back to parent of output_dir.
+        # When factory_pipeline sets output_dir = project_root the .parent would be wrong.
+        _explicit = context.get("project_dir", "")
+        if _explicit and Path(_explicit).exists():
+            project_dir = Path(_explicit)
+        else:
+            project_dir = Path(phase_input.output_dir).parent
+
         # Find generated code from p04a
-        code_dir = project_dir / "p04a_backend_codegen"
+        code_dir = project_dir / "src"
+        if not code_dir.exists():
+            code_dir = project_dir / "p04_backend" / "backend_codegen" / "src"
+        if not code_dir.exists():
+            code_dir = project_dir / "p04a_backend_codegen" / "src"
         
         ci_failure = context.get("ci_failure") or context.get("test_failures")
         
@@ -34,10 +43,14 @@ class CICDAgent:
         """Run DCSP repair loop."""
         from aether_os.phases.p08_cicd.pipeline import run_repair
         
-        # We need the generated code in a temp dir or just use the code_dir
-        code_dir = project_dir / "p04a_backend_codegen" / "src"
+        # Find canonical src dir (priority: project_dir/src, then phase output locations)
+        code_dir = project_dir / "src"
         if not code_dir.exists():
-             code_dir = project_dir / "p04a_backend_codegen"
+            code_dir = project_dir / "p04_backend" / "backend_codegen" / "src"
+        if not code_dir.exists():
+            code_dir = project_dir / "p04a_backend_codegen" / "src"
+        if not code_dir.exists():
+            code_dir = project_dir / "p04a_backend_codegen"
 
         repair_result = run_repair(
             log_content=str(ci_failure),
@@ -66,8 +79,11 @@ class CICDAgent:
     async def _run_scan(self, code_dir: Path, phase_input: Any) -> dict:
         """Run security and quality scan."""
         import subprocess
-        
-        output_dir = Path(phase_input.output_dir)
+
+        # Write phase artifacts to a subdirectory of the project phase dir,
+        # not to the project root (phase_input.output_dir may be the project root).
+        _pdir = Path(phase_input.input_data.get("project_dir", phase_input.output_dir))
+        output_dir = _pdir / "p08_cicd_deployment" / "cicd"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         results = {
