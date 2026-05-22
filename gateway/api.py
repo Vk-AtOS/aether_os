@@ -1144,138 +1144,6 @@ def create_app() -> FastAPI:
         """
         return HTMLResponse(content=html)
 
-    @app.post("/pipeline/start", response_model=PipelineStartResponse, deprecated=True,
-              summary="[DEPRECATED] Start pipeline run — use POST /factory/start instead")
-    async def start_pipeline(
-        req: PipelineStartRequest,
-        user: Dict[str, Any] = Depends(get_current_user),
-    ) -> PipelineStartResponse:
-        """Deprecated v1 endpoint. Use POST /factory/start instead."""
-        from aether_os.orchestrator.pipeline import get_pipeline
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation
-        from sqlalchemy import select, update as _sa_update
-        import asyncio
-
-        org_id = user.get("org_id")
-
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            stmt = select(Organisation).where(Organisation.id == org_id)
-            result = await session.execute(stmt)
-            org = result.scalar_one_or_none()
-
-            if not org:
-                raise HTTPException(status_code=404, detail="Organisation not found")
-
-            # Check storage limit
-            limit = -1
-            if org.plan == "trial": limit = float(os.environ.get("STORAGE_LIMIT_MB_TRIAL", 500))
-            elif org.plan == "pro": limit = float(os.environ.get("STORAGE_LIMIT_MB_PRO", 10000))
-
-            if limit > 0 and org.storage_used_mb >= limit:
-                raise HTTPException(
-                    status_code=402,
-                    detail={"error": "storage_limit_reached", "used_mb": org.storage_used_mb, "limit_mb": limit}
-                )
-
-            if org.plan == "trial":
-                # Atomic increment — prevents TOCTOU race (K-04)
-                upd = await session.execute(
-                    _sa_update(Organisation)
-                    .where(Organisation.id == org_id)
-                    .where(Organisation.trial_runs_used < Organisation.trial_runs_limit)
-                    .values(trial_runs_used=Organisation.trial_runs_used + 1)
-                )
-                await session.commit()
-                if upd.rowcount == 0:
-                    raise HTTPException(
-                        status_code=402,
-                        detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"}
-                    )
-
-        # Pre-generate run_id so client and pipeline share the same ID (FIX-004)
-        import uuid as _uuid
-        run_id = str(_uuid.uuid4())
-        user_id = user.get("id") or user.get("sub")
-
-        pipeline = get_pipeline()
-        logger.info("Pipeline start requested by %s (org: %s): %s", user.get("sub"), org_id, req.requirement[:60])
-
-        async def _run_bg():
-            try:
-                result = await pipeline.run(
-                    requirement=req.requirement,
-                    project_name=req.project_name,
-                    language=req.language,
-                    output_dir=req.output_dir,
-                    max_retries=req.max_retries,
-                    run_id=run_id,
-                    org_id=org_id,
-                )
-                # Stamp user_id on the run record so the learning loop can find it
-                if user_id and org_id:
-                    try:
-                        from aether_os.core.db import get_session_factory as _gsf
-                        from aether_os.core.models import Run as _Run
-                        from sqlalchemy import update as _upd2
-                        _sf = _gsf()
-                        async with _sf() as _s:
-                            await _s.execute(_upd2(_Run).where(_Run.id == run_id).values(user_id=user_id))
-                            await _s.commit()
-                        from aether_os.core.services import learning_service as _ls
-                        async with _gsf()() as _s2:
-                            await _ls.extract_patterns_from_run(run_id, org_id, user_id, _s2)
-                    except Exception as _le:
-                        logger.debug("[pipeline] Learning loop skipped: %s", _le)
-
-                # Record GlobalPattern aggregate learning after each completed build
-                try:
-                    from aether_os.core.quality.metrics import score_project
-                    from aether_os.core.projects import get_project_manager
-                    from aether_os.core.db import get_session_factory as _gsf_gp
-                    from aether_os.core.services.global_pattern_service import record_global_pattern
-                    _project_dir = get_project_manager().get_project_dir(run_id)
-                    if _project_dir.exists():
-                        _qscore = score_project(_project_dir)
-                        # Resolve domain from the run record
-                        _gp_domain = "general"
-                        try:
-                            from aether_os.core.models import Run as _Run_gp
-                            from sqlalchemy import select as _sel_gp
-                            async with _gsf_gp()() as _s_gp:
-                                _run_row = (await _s_gp.execute(
-                                    _sel_gp(_Run_gp.domain).where(_Run_gp.id == run_id)
-                                )).scalar_one_or_none()
-                                if _run_row:
-                                    _gp_domain = _run_row or "general"
-                                async with _gsf_gp()() as _s_gp2:
-                                    await record_global_pattern(
-                                        run_id=run_id,
-                                        domain=_gp_domain,
-                                        quality_score_total=float(_qscore.total),
-                                        quality_details=_qscore.details,
-                                        session=_s_gp2,
-                                    )
-                        except Exception as _dom_e:
-                            logger.debug("[GlobalPattern] domain resolve failed: %s", _dom_e)
-                except Exception as _gpe:
-                    logger.debug("[GlobalPattern] recording skipped: %s", _gpe)
-
-                logger.info("Pipeline completed: run_id=%s status=%s", result.get("run_id"), result.get("status"))
-            except Exception as exc:
-                logger.error("Background pipeline failed: %s", exc)
-
-        _t = asyncio.create_task(_run_bg())
-        _background_tasks.add(_t)
-        _t.add_done_callback(_background_tasks.discard)
-
-        return PipelineStartResponse(
-            run_id=run_id,
-            status="started",
-            message=f"Pipeline queued for: {req.requirement[:60]}",
-        )
-
     @app.get("/pipeline/status/{run_id}")
     async def get_pipeline_status(
         run_id: str,
@@ -6374,8 +6242,14 @@ def create_app() -> FastAPI:
     # ── Legal documents (GDPR D-001) — public, no auth required ──────────────
 
     @app.get("/legal/tos", tags=["legal"])
-    async def legal_tos():
+    async def legal_tos(request: Request):
         """Terms of Service / EULA."""
+        from aether_os.core.rate_limiter import get_rate_limiter
+        _ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or "unknown"
+        _rl = get_rate_limiter()
+        await _rl.record_public_request(_ip)
+        if not await _rl.check_public_ratelimit(_ip):
+            raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
         return {
             "document": "terms_of_service",
             "version": "1.0",
@@ -6403,8 +6277,14 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/legal/privacy", tags=["legal"])
-    async def legal_privacy():
+    async def legal_privacy(request: Request):
         """Privacy Policy."""
+        from aether_os.core.rate_limiter import get_rate_limiter
+        _ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or "unknown"
+        _rl = get_rate_limiter()
+        await _rl.record_public_request(_ip)
+        if not await _rl.check_public_ratelimit(_ip):
+            raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
         return {
             "document": "privacy_policy",
             "version": "1.0",
@@ -6437,8 +6317,14 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/legal/dpa", tags=["legal"])
-    async def legal_dpa():
+    async def legal_dpa(request: Request):
         """Data Processing Agreement (GDPR Art. 28)."""
+        from aether_os.core.rate_limiter import get_rate_limiter
+        _ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or "unknown"
+        _rl = get_rate_limiter()
+        await _rl.record_public_request(_ip)
+        if not await _rl.check_public_ratelimit(_ip):
+            raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
         return {
             "document": "data_processing_agreement",
             "version": "1.0",
