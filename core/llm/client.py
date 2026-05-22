@@ -329,9 +329,8 @@ async def _call_bedrock(
     system: Optional[str] = None,
     max_tokens: int = 8192,
 ) -> str:
-    """Call Claude on Amazon Bedrock using boto3 (sync wrapped in executor)."""
+    """Call Claude on Amazon Bedrock via the Converse API (boto3, sync in executor)."""
     import boto3  # type: ignore
-    import json as _json
 
     model_id = _select_bedrock_model(task_type)
     region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
@@ -342,13 +341,6 @@ async def _call_bedrock(
 
     logger.info("LLM call: provider=bedrock model=%s task=%s region=%s", model_id, task_type, region)
 
-    body = _json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": max_tokens,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": prompt}],
-    })
-
     _per_call_usage: dict = {}
 
     def _invoke() -> str:
@@ -358,17 +350,17 @@ async def _call_bedrock(
             aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
         )
-        resp = client.invoke_model(
+        # Converse API: unified across providers, no anthropic_version header needed
+        resp = client.converse(
             modelId=model_id,
-            body=body,
-            contentType="application/json",
-            accept="application/json",
+            system=[{"text": system_prompt}],
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": max_tokens},
         )
-        result = _json.loads(resp["body"].read())
-        text = result.get("content", [{}])[0].get("text", "")
-        usage = result.get("usage", {})
-        _in  = usage.get("input_tokens", 0)
-        _out = usage.get("output_tokens", 0)
+        text = resp["output"]["message"]["content"][0]["text"]
+        usage = resp.get("usage", {})
+        _in  = usage.get("inputTokens", 0)
+        _out = usage.get("outputTokens", 0)
         _cost_registry["prompt_tokens"] += _in
         _cost_registry["completion_tokens"] += _out
         _cost_registry["calls"] += 1
@@ -377,12 +369,12 @@ async def _call_bedrock(
         logger.debug("Bedrock [%s] tokens=%d+%d", model_id, _in, _out)
         return text
 
-    # boto3 is synchronous — run in executor to avoid blocking the event loop
-    # Hard-failure keywords that should not be retried — raise immediately
+    # Hard-failure keywords — raise immediately, no backoff
     _BEDROCK_HARD_ERRORS = (
         "invalidpaymentinstrument", "invalid_payment_instrument",
         "accessdeniedexception", "unauthorized", "not authorized",
         "model not found", "validationexception",
+        "resourcenotfoundexception", "end of its life",
     )
 
     loop = asyncio.get_running_loop()
@@ -415,7 +407,7 @@ async def _call_bedrock(
             exc_lower = str(exc).lower()
             if any(p in exc_lower for p in _BEDROCK_HARD_ERRORS):
                 logger.warning("Bedrock hard failure (no retry): %s", exc)
-                raise  # immediate re-raise, no backoff
+                raise
             logger.warning("Bedrock call failed (attempt %d/%d): %s", attempt + 1, retries, exc)
             if attempt < retries - 1:
                 await asyncio.sleep(2 * (2 ** attempt))
