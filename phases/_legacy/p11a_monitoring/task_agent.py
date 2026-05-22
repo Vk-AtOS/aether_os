@@ -170,7 +170,7 @@ def instrument_app(app: FastAPI):
                             _end = _i
                             break
                 _end_nl = content.find("\n", _end)
-                if _end_nl > 0:
+                if _end_nl >= 0:
                     content = content[:_end_nl + 1] + _metrics_snippet + content[_end_nl + 1:]
                     _main_py_path.write_text(content)
         except Exception as _e:

@@ -197,7 +197,7 @@ def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
                         _end_pos = _i
                         break
             _end_nl = source.find("\n", _end_pos)
-            if _end_nl > 0:
+            if _end_nl >= 0:
                 source = source[:_end_nl + 1] + rate_limit_block + source[_end_nl + 1:]
         else:
             source = _insert_after_imports(source, rate_limit_block)
