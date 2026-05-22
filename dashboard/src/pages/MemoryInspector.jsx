@@ -52,17 +52,20 @@ export default function MemoryInspector() {
   const [searching, setSearching] = useState(false);
   const [matchResults, setMatchResults] = useState(null);
   const [cacheStats, setCacheStats] = useState(null);
+  const [graphStats, setGraphStats] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        const [prefsRes, cacheRes] = await Promise.all([
+        const [prefsRes, cacheRes, graphRes] = await Promise.all([
           api.client.get("/settings/preferences").catch(() => ({ data: {} })),
           api.client.get("/system/costs").catch(() => ({ data: {} })),
+          api.client.get("/memory/graph?limit=20").catch(() => ({ data: {} })),
         ]);
         setPrefs(prefsRes.data || {});
         setCacheStats(cacheRes.data?.cache || null);
+        setGraphStats(graphRes.data || null);
       } catch (e) {
         setError("Could not load memory data");
       } finally {
@@ -204,6 +207,30 @@ export default function MemoryInspector() {
           </div>
         )}
       </div>
+
+      {/* Memory topology */}
+      {graphStats?.stats && (
+        <div className="bg-panel rounded-xl border border-border p-6 mb-6">
+          <h2 className="font-semibold text-bright mb-1 flex items-center gap-2">
+            <Layers size={16} /> Memory Topology
+          </h2>
+          <p className="text-xs text-muted mb-4">
+            {graphStats.stats.total_records ?? 0} patterns stored across {Object.keys(graphStats.stats.by_task_type || {}).length} task types
+          </p>
+          {Object.keys(graphStats.stats.by_task_type || {}).length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(graphStats.stats.by_task_type).map(([type, count]) => (
+                <div key={type} className="bg-background rounded-lg border border-border p-3 text-center">
+                  <div className="text-2xl font-bold text-bright">{count}</div>
+                  <div className="text-xs text-muted mt-1 font-mono">{type}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted">No memory patterns yet — patterns are created as runs complete successfully.</p>
+          )}
+        </div>
+      )}
 
       {/* User preferences */}
       <div className="bg-panel rounded-xl border border-border p-6">
