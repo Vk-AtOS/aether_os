@@ -14,4 +14,5 @@ class SelfHealingSupervisor(PhaseBase):
         return await task_run(phase_input, memory_ctx, output_dir)
 
     async def validate_gate(self, result: TaskResult, phase_input: Any) -> GateOutcome:
-        return GateOutcome(passed=True, confidence=1.0, issues=[])  # Always passes
+        from aether_os.phases.p07b_self_healing.gate import validate
+        return validate(result)
