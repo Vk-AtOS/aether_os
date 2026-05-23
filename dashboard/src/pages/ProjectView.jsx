@@ -510,6 +510,7 @@ const ProjectView = () => {
   const [feedLines, setFeedLines]   = useState([]);
   const [feedDone, setFeedDone]     = useState(false);
   const feedEndRef                  = useRef(null);
+  const feedContainerRef            = useRef(null);
   const esRef                       = useRef(null);   // EventSource ref
   const llmLineRef                  = useRef('');     // accumulate llm_chunk tokens
   const reconnectAttempts           = useRef(0);
@@ -536,6 +537,7 @@ const ProjectView = () => {
   const [councilError, setCouncilError]         = useState(null);
 
   const logEndRef = useRef(null);
+  const logContainerRef = useRef(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -743,10 +745,10 @@ const ProjectView = () => {
     if (run?.live_url) setPreviewMode('live');
   }, [run?.live_url]);
 
-  // Auto-scroll live feed
+  // Auto-scroll live feed — use container scrollTop to avoid scrolling parent page
   useEffect(() => {
-    if (activeArtifactTab === 'live') {
-      feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (activeArtifactTab === 'live' && feedContainerRef.current) {
+      feedContainerRef.current.scrollTop = feedContainerRef.current.scrollHeight;
     }
   }, [feedLines, activeArtifactTab]);
 
@@ -933,8 +935,11 @@ const ProjectView = () => {
     return () => clearInterval(timer);
   }, [run?.started_at, run?.finished_at, run?.status]);
 
+  // Scroll agent events log — use container scrollTop to avoid scrolling the page
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
   }, [run?.events]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -1629,7 +1634,7 @@ const ProjectView = () => {
                 </div>
 
                 {/* Terminal body */}
-                <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-0.5 custom-scrollbar">
+                <div ref={feedContainerRef} className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-0.5 custom-scrollbar">
                   {feedLines.length === 0 && (
                     <div className="text-slate-600 italic">
                       {isRunning ? 'Connecting to pipeline stream…' : 'No events yet. Start a run to see live output.'}
@@ -2188,7 +2193,7 @@ const ProjectView = () => {
               </div>
               <span className="text-[10px] font-mono text-muted">{events.length} entries</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-1 custom-scrollbar bg-[#0a0c10]">
+            <div ref={logContainerRef} className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-1 custom-scrollbar bg-[#0a0c10]">
               {events.length > 0 ? (
                 events.map((ev, i) => (
                   <div key={i} className="flex space-x-3 leading-relaxed">
