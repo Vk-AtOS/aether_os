@@ -1105,7 +1105,7 @@ const ProjectView = () => {
                     }`}>
                       {pData.output.test_quality_flag === 'pass'
                         ? `${pData.output.passed_tests}/${pData.output.total_tests} passed`
-                        : pData.output.test_quality_flag === 'warn' ? 'inconclusive'
+                        : pData.output.test_quality_flag === 'warn' ? 'partial'
                         : `${pData.output.passed_tests || 0}/${pData.output.total_tests || 0} FAILED`}
                     </span>
                   )}
