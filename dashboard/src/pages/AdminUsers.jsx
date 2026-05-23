@@ -334,9 +334,9 @@ const AdminUsers = () => {
         <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Users className="w-4 h-4 text-accent" />
-            <h3 className="text-xs font-bold text-muted uppercase tracking-widest">
-              Members
-              <span className="ml-2 text-accent">{total}</span>
+            <h3 className="text-xs font-bold text-muted uppercase tracking-widest flex items-baseline gap-2">
+              <span>Members</span>
+              <span className="text-accent">{total}</span>
             </h3>
             {selectedIds.size > 0 && (
               <button

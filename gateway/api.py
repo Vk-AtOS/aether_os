@@ -1007,9 +1007,10 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Get current usage and limits for the organisation."""
+        import datetime as _dt
         from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation
-        from sqlalchemy import select
+        from aether_os.core.models import Organisation, Run
+        from sqlalchemy import select, func
 
         org_id = user.get("org_id")
         session_factory = get_session_factory()
@@ -1019,14 +1020,54 @@ def create_app() -> FastAPI:
             org = result.scalar_one_or_none()
             if not org:
                 raise HTTPException(status_code=404, detail="Organisation not found")
-            
+
+            # Count total runs and today's runs from the DB
+            now = _dt.datetime.utcnow()
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+            total_runs_result = await session.execute(
+                select(func.count()).select_from(Run).where(Run.org_id == org_id)
+            )
+            total_runs = total_runs_result.scalar() or 0
+
+            runs_today_result = await session.execute(
+                select(func.count()).select_from(Run).where(
+                    Run.org_id == org_id,
+                    Run.started_at >= today_start,
+                )
+            )
+            runs_today = runs_today_result.scalar() or 0
+
+            # Token / cost data from budget manager (best-effort)
+            tokens_today = None
+            tokens_month = None
+            cost_today_usd = None
+            cost_month_usd = None
+            try:
+                from aether_os.core.llm.budget import get_budget_manager
+                bm = get_budget_manager()
+                usage_data = await bm.get_usage(org_id)
+                tokens_today = usage_data.get("tokens_today") or usage_data.get("total_tokens")
+                tokens_month = usage_data.get("tokens_month") or usage_data.get("total_tokens")
+                cost_today_usd = usage_data.get("cost_today_usd") or usage_data.get("estimated_cost_usd")
+                cost_month_usd = usage_data.get("cost_month_usd") or usage_data.get("estimated_cost_usd")
+            except Exception:
+                pass
+
             return {
                 "org_name": org.name,
                 "org_slug": org.slug,
                 "plan": org.plan,
-                "runs_used": org.trial_runs_used,
+                "runs_used": total_runs,
                 "runs_limit": org.trial_runs_limit if org.plan == "trial" else None,
                 "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used) if org.plan == "trial" else None,
+                "total_runs": total_runs,
+                "runs_today": runs_today,
+                "tokens_today": tokens_today,
+                "tokens_month": tokens_month,
+                "cost_today_usd": cost_today_usd,
+                "cost_month_usd": cost_month_usd,
             }
 
     @app.delete("/account")
@@ -1832,16 +1873,34 @@ def create_app() -> FastAPI:
         if not _safe:
             raise HTTPException(status_code=400, detail=_reason)
 
-        # Pre-generate run_id and insert Run record immediately so the client
-        # can poll /factory/runs/{run_id} without a 30s+ 404 window.
+        # Idempotency guard: if the same org submitted the same raw_input within
+        # the last 30 seconds, return the existing run_id to prevent ghost runs
+        # caused by double-clicks or network retries.
         run_id = str(_uuid.uuid4())
         user_id = user.get("sub")
         try:
             from aether_os.core.db import get_session_factory as _gsf_pre
             from aether_os.core.models import Run as _Run_pre
+            from sqlalchemy import select as _sel_pre
             import time as _time_pre
             _sf_pre = _gsf_pre()
             async with _sf_pre() as _s_pre:
+                _dedup_window = _time_pre.time() - 30
+                _existing = await _s_pre.execute(
+                    _sel_pre(_Run_pre)
+                    .where(
+                        _Run_pre.org_id == org_id,
+                        _Run_pre.raw_input == raw_input,
+                        _Run_pre.started_at >= _dedup_window,
+                        _Run_pre.status.in_(["queued", "running"]),
+                    )
+                    .limit(1)
+                )
+                _dup = _existing.scalar_one_or_none()
+                if _dup is not None:
+                    logger.info("Duplicate factory/start suppressed — returning existing run %s", _dup.id)
+                    return {"run_id": _dup.id, "status": _dup.status, "duplicate": True}
+
                 _s_pre.add(_Run_pre(
                     id=run_id,
                     org_id=org_id,

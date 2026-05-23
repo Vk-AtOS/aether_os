@@ -88,22 +88,36 @@ async def get_project_status(project_id: str):
         requirement_text = ""
         specification_text = ""
         try:
-            intake_json = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
-            if intake_json.exists():
-                intake_data = json.loads(intake_json.read_text())
-                requirement_text = (
-                    intake_data.get("raw_text") or
-                    intake_data.get("structured_requirements") or ""
-                )
-            # Use raw_text as spec; only fall back to requirements.md if raw_text is short
-            if len(requirement_text) > 100:
-                specification_text = requirement_text
-            else:
-                req_md = project_dir / "p01_intake_requirements" / "requirements" / "requirements.md"
-                if req_md.exists():
-                    specification_text = req_md.read_text()[:3000]
-                else:
-                    specification_text = requirement_text
+            p01_dir = project_dir / "p01_intake_requirements"
+            # Try all known artifact locations written by p01
+            intake_candidates = [
+                p01_dir / "intake" / "intake.json",
+                p01_dir / "requirements.json",
+            ]
+            for intake_json in intake_candidates:
+                if intake_json.exists():
+                    intake_data = json.loads(intake_json.read_text())
+                    requirement_text = (
+                        intake_data.get("raw_text") or
+                        intake_data.get("description") or
+                        intake_data.get("requirements_text") or
+                        intake_data.get("structured_requirements") or ""
+                    )
+                    if requirement_text:
+                        break
+
+            # Fallback: read requirements.md directly
+            if not requirement_text:
+                md_candidates = [
+                    p01_dir / "requirements.md",
+                    p01_dir / "requirements" / "requirements.md",
+                ]
+                for req_md in md_candidates:
+                    if req_md.exists():
+                        requirement_text = req_md.read_text(encoding="utf-8")[:3000]
+                        break
+
+            specification_text = requirement_text
         except Exception as _re:
             logger.debug("Could not load intake data: %s", _re)
 
