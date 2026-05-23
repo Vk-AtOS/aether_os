@@ -6559,7 +6559,11 @@ if _os.path.isdir(_dist):
             # Security: stay inside dist/
             if candidate.startswith(_dist) and _os.path.isfile(candidate):
                 return _FileResponse(candidate)
-        return _FileResponse(_index)
+        # index.html must never be browser-cached so new deployments take effect immediately
+        return _FileResponse(
+            _index,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
     # StaticFiles mount kept for efficient directory listing / HEAD requests
     app.mount(
