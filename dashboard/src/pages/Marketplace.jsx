@@ -24,6 +24,8 @@ const Marketplace = () => {
   const [form, setForm] = useState(BLANK_FORM);
   const [publishing, setPublishing] = useState(false);
   const [publishSuccess, setPublishSuccess] = useState(null);
+  const [installMessage, setInstallMessage] = useState(null); // { text, type }
+  const [installingId, setInstallingId] = useState(null);
 
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
@@ -33,7 +35,7 @@ const Marketplace = () => {
       const data = res.data;
       setProfiles(Array.isArray(data) ? data : (data?.items ?? data?.profiles ?? []));
     } catch (err) {
-      console.error('Failed to load marketplace profiles', err);
+      if (import.meta.env.DEV) console.error('Failed to load marketplace profiles', err);
       setError('Failed to load marketplace. Please try again.');
     } finally {
       setLoading(false);
@@ -99,6 +101,13 @@ const Marketplace = () => {
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span><strong>{publishSuccess}</strong> published to marketplace.</span>
           <button onClick={() => setPublishSuccess(null)} className="ml-auto text-muted hover:text-bright">✕</button>
+        </div>
+      )}
+
+      {installMessage && (
+        <div className={`flex items-center gap-3 p-3 rounded-lg border text-sm ${installMessage.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'}`}>
+          <span className="flex-1">{installMessage.text}</span>
+          <button onClick={() => setInstallMessage(null)} className="ml-auto text-muted hover:text-bright">✕</button>
         </div>
       )}
 
@@ -232,17 +241,22 @@ const Marketplace = () => {
                   </div>
                 </div>
                 <button
-                  className="mt-3 w-full py-1.5 bg-accent hover:bg-accent/90 text-white text-sm font-medium rounded-lg transition-colors"
+                  disabled={installingId === p.id}
+                  className="mt-3 w-full py-1.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
                   onClick={async () => {
+                    setInstallingId(p.id);
+                    setInstallMessage(null);
                     try {
                       await api.client.post(`/marketplace/install/${p.id}`);
-                      alert(`${p.name} installed successfully`);
+                      setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
                     } catch (err) {
-                      alert('Install failed: ' + (err.response?.data?.detail || err.message));
+                      setInstallMessage({ text: 'Install failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
+                    } finally {
+                      setInstallingId(null);
                     }
                   }}
                 >
-                  Install
+                  {installingId === p.id ? 'Installing…' : 'Install'}
                 </button>
               </div>
             );

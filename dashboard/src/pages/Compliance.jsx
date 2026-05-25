@@ -225,6 +225,7 @@ const Compliance = () => {
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [downloadError, setDownloadError] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -244,7 +245,7 @@ const Compliance = () => {
         const logsData = logsRes.data;
         setAuditLogs(Array.isArray(logsData) ? logsData : (logsData?.logs ?? []));
       } catch (e) {
-        console.error('Failed to load compliance data', e);
+        if (import.meta.env.DEV) console.error('Failed to load compliance data', e);
         setError('Failed to load compliance data. Please try again.');
       } finally {
         setLoading(false);
@@ -254,6 +255,7 @@ const Compliance = () => {
   }, []);
 
   const downloadArtifacts = async (runId) => {
+    setDownloadError(null);
     try {
       const res = await api.client.get(`/compliance/artifacts/${runId}`, { responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data]));
@@ -263,7 +265,7 @@ const Compliance = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert('Artifact download failed. The run may still be in progress.');
+      setDownloadError('Artifact download failed. The run may still be in progress.');
     }
   };
 
@@ -287,6 +289,12 @@ const Compliance = () => {
   return (
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-bold">Compliance</h1>
+      {downloadError && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <span className="flex-1">{downloadError}</span>
+          <button onClick={() => setDownloadError(null)} className="text-muted hover:text-bright">✕</button>
+        </div>
+      )}
 
       <IndiaCompliancePanel />
 

@@ -501,6 +501,13 @@ def create_app() -> FastAPI:
         except Exception as _exc:
             logger.warning("Marketplace seeding skipped: %s", _exc)
 
+        # LAUNCH-036: Start stuck-run monitor
+        try:
+            from aether_os.orchestrator.factory_pipeline import start_stuck_run_monitor
+            start_stuck_run_monitor(threshold_minutes=30)
+        except Exception as _exc:
+            logger.warning("Stuck-run monitor startup failed: %s", _exc)
+
         yield
 
         # Shutdown
@@ -635,8 +642,14 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/system/metrics")
-    async def system_metrics() -> Dict[str, Any]:
+    async def system_metrics(request: Request) -> Dict[str, Any]:
         """System resource metrics — CPU, memory, disk, Redis, DB, pipeline."""
+        # LAUNCH-024: gate behind METRICS_API_KEY when set
+        _metrics_key = os.environ.get("METRICS_API_KEY", "")
+        if _metrics_key:
+            _provided = request.headers.get("X-Metrics-Key", "")
+            if _provided != _metrics_key:
+                raise HTTPException(status_code=401, detail="Invalid metrics API key")
         import time as _time
         result: Dict[str, Any] = {"timestamp": _time.time()}
 

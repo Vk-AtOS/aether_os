@@ -25,6 +25,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const [costs, setCosts] = useState({ today_usd: 0, tokens_today: '—' });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
+  const [fetchError, setFetchError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const isOnWizard = location.pathname === '/new-project';
@@ -34,10 +35,14 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
 
   useEffect(() => {
     const fetchHealth = async () => {
-      try { setHealth((await api.getHealth()).data); } catch {}
+      try { setHealth((await api.getHealth()).data); } catch (err) {
+        setFetchError(err.message || 'Health check failed');
+      }
     };
     const fetchCosts = async () => {
-      try { setCosts((await api.getCosts()).data); } catch {}
+      try { setCosts((await api.getCosts()).data); } catch (err) {
+        setFetchError(err.message || 'Cost fetch failed');
+      }
     };
     fetchHealth(); fetchCosts();
     const iv = setInterval(() => { fetchHealth(); fetchCosts(); }, 30_000);
@@ -104,6 +109,12 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
         </div>
       )}
 
+      {fetchError && (
+        <div className="bg-red-500/10 border-b border-red-500/20 px-6 py-1 flex items-center justify-between">
+          <p className="text-red-400 text-xs">{fetchError}</p>
+          <button onClick={() => setFetchError('')} className="text-muted hover:text-bright text-xs ml-4">×</button>
+        </div>
+      )}
       <header className="h-14 border-b border-border bg-panel flex items-center justify-between px-6 shrink-0 flex-1 min-w-0" role="banner">
         {/* Left: Logo + active runs */}
         <div className="flex items-center space-x-3">

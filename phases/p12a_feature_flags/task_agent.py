@@ -16,10 +16,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     (ff_dir / "__init__.py").write_text("")
 
-    # Feature flag service (standalone, JSON-file-backed persistence)
+    # Feature flag service (standalone, JSON-file-backed persistence with file locking)
     (ff_dir / "feature_flags.py").write_text(
         '''import json
 import os
+import sys
 from pathlib import Path
 
 _FLAGS_FILE = Path(os.getenv("FEATURE_FLAGS_PATH", "feature_flags.json"))
@@ -27,19 +28,41 @@ _FLAGS: dict = {}
 
 
 def _load() -> None:
-    """Load flags from JSON file into in-memory dict."""
+    """Load flags from JSON file into in-memory dict (with file locking)."""
     global _FLAGS
-    if _FLAGS_FILE.exists():
-        try:
+    if not _FLAGS_FILE.exists():
+        return
+    try:
+        if sys.platform != "win32":
+            import fcntl
+            with open(_FLAGS_FILE, "r", encoding="utf-8") as _f:
+                fcntl.flock(_f, fcntl.LOCK_SH)
+                try:
+                    _FLAGS = json.load(_f)
+                finally:
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+        else:
             _FLAGS = json.loads(_FLAGS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            _FLAGS = {}
+    except Exception:
+        _FLAGS = {}
 
 
 def _save() -> None:
-    """Persist in-memory flags to JSON file."""
+    """Persist in-memory flags to JSON file (with exclusive file locking)."""
     try:
-        _FLAGS_FILE.write_text(json.dumps(_FLAGS, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            import fcntl
+            _FLAGS_FILE.touch(exist_ok=True)
+            with open(_FLAGS_FILE, "r+", encoding="utf-8") as _f:
+                fcntl.flock(_f, fcntl.LOCK_EX)
+                try:
+                    _f.seek(0)
+                    _f.write(json.dumps(_FLAGS, indent=2))
+                    _f.truncate()
+                finally:
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+        else:
+            _FLAGS_FILE.write_text(json.dumps(_FLAGS, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -49,11 +72,13 @@ _load()
 
 
 def enable(flag: str) -> None:
+    _load()
     _FLAGS[flag] = True
     _save()
 
 
 def disable(flag: str) -> None:
+    _load()
     _FLAGS[flag] = False
     _save()
 

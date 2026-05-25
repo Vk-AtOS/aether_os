@@ -615,6 +615,359 @@ Detailed system metrics including CPU, memory, disk, and pipeline stats.
 
 ---
 
+## V2 API Routes
+
+All v2 routes are mounted under the `/v2` prefix. Authentication is Bearer JWT unless noted.
+
+---
+
+### V2 Auth Routes (`/v2/auth/*`)
+
+#### POST /v2/auth/register
+Register a new user and organisation (v2 endpoint with ToS enforcement).
+
+**Auth required**: No
+
+**Request body**:
+```json
+{
+  "email": "user@example.com",
+  "password": "minimum10chars",
+  "org_name": "Acme Corp",
+  "tos_accepted": true
+}
+```
+
+**Response 200**:
+```json
+{
+  "access_token": "eyJhbGci...",
+  "token_type": "bearer",
+  "org_slug": "acme-corp",
+  "org_id": "org_xyz789",
+  "plan": "trial"
+}
+```
+
+**Error 422**: `tos_accepted` is false — Terms of Service must be accepted.  
+**Error 429**: Rate limit exceeded.
+
+---
+
+#### POST /v2/auth/login
+Authenticate and obtain a JWT (v2 endpoint).
+
+**Auth required**: No
+
+**Request body**:
+```json
+{
+  "email": "user@example.com",
+  "password": "yourpassword"
+}
+```
+
+**Response 200**: Same schema as register response.  
+**Error 401**: Invalid credentials.  
+**Error 429**: Rate limit exceeded.
+
+---
+
+#### POST /v2/auth/refresh
+Rotate the current JWT and issue a fresh token.
+
+**Auth required**: Yes (current valid JWT)
+
+**Request body**: None
+
+**Response 200**: Same schema as login response.
+
+---
+
+#### POST /v2/auth/api-keys
+Create a new API key for the authenticated organisation.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{ "name": "ci-deploy-key" }
+```
+
+**Response 200**:
+```json
+{
+  "id": "key_abc123",
+  "key": "ak_live_...",
+  "name": "ci-deploy-key",
+  "note": "Store this key securely — it will not be shown again."
+}
+```
+
+---
+
+#### GET /v2/auth/api-keys
+List active API keys for the authenticated organisation.
+
+**Auth required**: Yes
+
+**Response 200**: Array of `{ id, name, created_at, last_used_at }`.
+
+---
+
+#### DELETE /v2/auth/api-keys/{key_id}
+Revoke an API key.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "status": "revoked" }`  
+**Error 404**: Key not found or not owned by this organisation.
+
+---
+
+### V2 Factory Routes (`/v2/factory/*`)
+
+#### POST /v2/factory/start
+Start a new pipeline run.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{
+  "requirement": "Build a CRM with contact management",
+  "project_name": "MyCRM",
+  "domain": "crm"
+}
+```
+
+**Response 200**:
+```json
+{ "run_id": "run_abc123", "status": "started" }
+```
+
+---
+
+#### GET /v2/factory/runs
+List pipeline runs for the authenticated organisation.
+
+**Auth required**: Yes
+
+**Response 200**: Array of run summary objects.
+
+---
+
+#### GET /v2/factory/runs/{run_id}
+Get full detail for a pipeline run.
+
+**Auth required**: Yes
+
+**Response 200**: Run detail including phases, events, council results, artifacts.  
+**Error 404**: Run not found.
+
+---
+
+#### POST /v2/factory/runs/{run_id}/pause
+Pause a running pipeline.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "status": "paused" }`
+
+---
+
+#### POST /v2/factory/runs/{run_id}/resume
+Resume a paused pipeline.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "status": "resumed" }`
+
+---
+
+#### POST /v2/factory/runs/{run_id}/cancel
+Cancel a running pipeline.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "status": "cancelled" }`
+
+---
+
+#### POST /v2/factory/runs/{run_id}/priority
+Set priority for a queued run.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{ "priority": "high" }
+```
+
+**Response 200**: `{ "status": "priority_updated" }`
+
+---
+
+#### POST /v2/factory/runs/{run_id}/rerun
+Re-run a completed or failed pipeline from the beginning.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "run_id": "new_run_id", "status": "started" }`
+
+---
+
+#### GET /v2/factory/runs/{run_id}/stream
+Server-Sent Events stream for live pipeline events.
+
+**Auth required**: Yes (SSE token via `/v2/factory/runs/{run_id}/sse-token`)
+
+**Accept**: `text/event-stream`
+
+**Events**: `{ type, agent, detail, ts }` — emitted per phase and per significant action.
+
+---
+
+#### POST /v2/factory/runs/{run_id}/sse-token
+Obtain a short-lived SSE token for streaming (required for browser EventSource).
+
+**Auth required**: Yes
+
+**Response 200**: `{ "token": "ssetoken_...", "expires_in": 300 }`
+
+---
+
+#### POST /v2/factory/projects/{project_id}/change-request
+Submit a change request against an already-completed project.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{
+  "requirement": "Add dark mode support",
+  "start_phase": "p05_frontend"
+}
+```
+
+**Response 200**: `{ "run_id": "run_xyz", "status": "started" }`
+
+---
+
+### V2 Plugin Routes (`/v2/plugins/*`)
+
+#### GET /v2/plugins/catalog
+List all available plugins in the catalogue.
+
+**Auth required**: Yes
+
+**Response 200**: Array of `{ id, name, description, version, category }`.
+
+---
+
+#### GET /v2/plugins/catalog/{plugin_id}
+Get details for a specific plugin.
+
+**Auth required**: Yes
+
+**Response 200**: Full plugin manifest including config schema.  
+**Error 404**: Plugin not found.
+
+---
+
+#### GET /v2/plugins/installed
+List plugins installed for the authenticated organisation.
+
+**Auth required**: Yes
+
+**Response 200**: Array of installed plugin objects with config.
+
+---
+
+#### POST /v2/plugins/install
+Install a plugin for the organisation.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{ "plugin_id": "stripe-payments", "config": {} }
+```
+
+**Response 200**: `{ "status": "installed", "plugin_id": "stripe-payments" }`
+
+---
+
+#### DELETE /v2/plugins/installed/{plugin_id}
+Uninstall a plugin.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "status": "uninstalled" }`
+
+---
+
+#### PUT /v2/plugins/installed/{plugin_id}/config
+Update a plugin's configuration.
+
+**Auth required**: Yes
+
+**Request body**: Plugin-specific config object.
+
+**Response 200**: `{ "status": "updated" }`
+
+---
+
+#### POST /v2/plugins/installed/{plugin_id}/test
+Run a connectivity or smoke test for an installed plugin.
+
+**Auth required**: Yes
+
+**Response 200**: `{ "ok": true, "detail": "Connection successful" }`
+
+---
+
+#### POST /v2/plugins/connectors/invoke
+Invoke an action on a configured connector.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{
+  "connector_id": "salesforce",
+  "action": "query",
+  "params": { "soql": "SELECT Id, Name FROM Account LIMIT 10" }
+}
+```
+
+**Response 200**: Connector-specific result object.
+
+---
+
+#### POST /v2/plugins/skills/generate
+Generate a skill implementation from a skill profile YAML.
+
+**Auth required**: Yes
+
+**Request body**:
+```json
+{ "profile_yaml": "name: JWT Auth\ndomain: auth\n..." }
+```
+
+**Response 200**: `{ "skill_id": "...", "files": [...] }`
+
+---
+
+#### GET /v2/plugins/skills
+List available skills in the marketplace.
+
+**Auth required**: Yes
+
+**Response 200**: Array of skill profile objects.
+
+---
+
 ## Error Responses
 
 All errors follow this schema:

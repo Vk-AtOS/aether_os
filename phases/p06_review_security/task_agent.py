@@ -11,6 +11,30 @@ from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_json(text: str) -> dict:
+    """PIPELINE-056: robust JSON extraction that handles nested JSON correctly."""
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Walk through each '{' and find the matching '}'
+    for match in re.finditer(r'\{', text):
+        start = match.start()
+        depth = 0
+        for i, ch in enumerate(text[start:], start):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except json.JSONDecodeError:
+                    break
+    raise ValueError("No valid JSON found in text")
+
 _SUBTASK_TIMEOUT = 150.0
 
 
@@ -52,9 +76,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 timeout=_SUBTASK_TIMEOUT,
             )
             try:
-                _start = review_raw.find("{")
-                _end = review_raw.rfind("}") + 1
-                review_json = json.loads(review_raw[_start:_end]) if _start >= 0 else {}
+                review_json = _extract_json(review_raw)
             except Exception:
                 review_json = {"summary": review_raw[:500], "findings": [], "overall_score": 75}
 

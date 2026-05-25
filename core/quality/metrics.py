@@ -188,8 +188,9 @@ def score_project(project_dir: Path) -> QualityScore:
     test_files = [f for f in test_files if "__pycache__" not in str(f)]
     details["test_files"] = len(test_files)
     if test_files:
-        test_score = 75 if len(test_files) > 1 else 50
-        # Boost to 100 if p07a reported pytest or smoke test passing
+        # PIPELINE-052: check whether pytest ran and produced actual results
+        pytest_ran = False
+        pytest_passed = False
         _result_files = list(project_dir.rglob("test_result.json"))
         _result_files = [f for f in _result_files if "__pycache__" not in str(f)]
         for _rf in _result_files[:1]:
@@ -197,11 +198,21 @@ def score_project(project_dir: Path) -> QualityScore:
                 import json as _json
                 _res = _json.loads(_rf.read_text())
                 if _res.get("pytest_passed") or _res.get("smoke_test_passed"):
-                    test_score = 100
+                    pytest_ran = True
+                    pytest_passed = True
                     details["pytest_passed"] = True
                     break
+                elif "pytest_passed" in _res or "smoke_test_passed" in _res:
+                    pytest_ran = True  # ran but did not fully pass
             except Exception:
                 pass
+        if pytest_ran and pytest_passed:
+            # pytest ran and results are good — full score
+            test_score = 100
+        elif test_files:
+            # Test files exist but pytest didn't run (or results unavailable)
+            # Cap at 60 (not 75) to reflect that runtime results are unknown
+            test_score = 60 if len(test_files) > 1 else 50
 
     # ── File presence checks ──────────────────────────────────────────────────
     has_docker = (

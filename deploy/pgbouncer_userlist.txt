@@ -15,8 +15,19 @@
 #
 # Format: "username" "SCRAM-SHA-256$..." (one per line, double-quoted)
 #
-# IMPORTANT: Never commit real passwords. Replace the placeholder below with
-# the actual SCRAM hash from your PostgreSQL instance.
+# IMPORTANT: Never commit real passwords. Replace the placeholders below with
+# hashes generated from your PostgreSQL instance.
 #
-"aetheros" "SCRAM-SHA-256$REPLACE_WITH_REAL_HASH"
-"pgbouncer_admin" "SCRAM-SHA-256$REPLACE_WITH_REAL_HASH"
+# Option 1 — get hash directly from PostgreSQL (recommended):
+#   psql -U postgres -c "SELECT rolname, rolpassword FROM pg_authid WHERE rolname='aetheros';"
+#
+# Option 2 — generate md5 hash manually:
+#   printf "md5%s" "$(printf "%s%s" "PASSWORD" "aetheros" | md5sum | awk '{print $1}')"
+#
+# Replace the value below with the full string from pg_authid.rolpassword
+# (it will start with SCRAM-SHA-256$ or md5 depending on your pg_authd settings)
+#
+# Generate hash: printf "md5%s" "$(printf "%s%s" "PASSWORD" "aetheros" | md5sum | awk '{print $1}')"
+"aetheros" "md5GENERATE_HASH_WITH_COMMAND_ABOVE"
+# Generate hash: printf "md5%s" "$(printf "%s%s" "PASSWORD" "pgbouncer_admin" | md5sum | awk '{print $1}')"
+"pgbouncer_admin" "md5GENERATE_HASH_WITH_COMMAND_ABOVE"

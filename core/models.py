@@ -196,6 +196,7 @@ class AuditLog(Base):
     log_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
 
 class SamlConfig(Base):
     __tablename__ = "saml_configs"

@@ -37,8 +37,25 @@ async def score_generated_code(
         }
 
     # Security scan via bandit
+    # PIPELINE-066: explicit check for bandit installation before running
     security_issues = 0
     high_severity = 0
+    _bandit_check = subprocess.run(
+        ["bandit", "--version"], capture_output=True, text=True
+    )
+    if _bandit_check.returncode != 0:
+        logger.warning(
+            "bandit not installed — SAST scan skipped. Install with: pip install bandit"
+        )
+        return {
+            "syntax_ok": syntax_ok,
+            "sast_skipped": True,
+            "reason": "bandit not installed",
+            "security_score": 75,
+            "security_issues": 0,
+            "high_severity_issues": 0,
+            "overall": 75,
+        }
     try:
         result = subprocess.run(
             ["bandit", "-r", "-f", "json", "-"],

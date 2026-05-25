@@ -84,9 +84,12 @@ PIPELINE_SEQUENCE: List[PipelineState] = [
 ]
 
 # Phase name → state mapping
-# Includes both legacy 26-phase names and current 12-phase consolidated names.
+# Includes both the current 20-phase pipeline names and legacy phase names.
+# PIPELINE-053: all 20 PHASE_SEQUENCE entries map to a state; extra states in
+# PipelineState (IDLE, CHANGE_REQUEST, COMPLETE, FAILED, GATED_HUMAN) are
+# terminal/special — not pipeline phases — so state count > phase count is correct.
 PHASE_TO_STATE: Dict[str, PipelineState] = {
-    # ── Current 12-phase consolidated pipeline ────────────────────────────────
+    # ── Current 20-phase factory pipeline ─────────────────────────────────────
     "p01_intake_requirements": PipelineState.REQUIREMENTS,
     "p02_architecture":        PipelineState.ARCHITECTURE,
     "p03_scaffolding":         PipelineState.SCAFFOLDING,
@@ -99,7 +102,16 @@ PHASE_TO_STATE: Dict[str, PipelineState] = {
     "p09_observability":       PipelineState.MONITORING,
     "p10_docs_delivery":       PipelineState.DOCUMENTATION,
     "p11_deployment":          PipelineState.DEPLOYMENT,
-    # ── Legacy 26-phase names (kept for partial re-runs and history) ──────────
+    # Post-deployment phases (8 of the 20)
+    "p11a_monitoring":         PipelineState.MONITORING,
+    "p11b_error_tracking":     PipelineState.ERROR_TRACKING,
+    "p11c_analytics":          PipelineState.ANALYTICS,
+    "p11d_alerting":           PipelineState.ALERTING,
+    "p12a_feature_flags":      PipelineState.FEATURE_FLAGS,
+    "p12b_ab_testing":         PipelineState.AB_TESTING,
+    "p13_app_memory":          PipelineState.APP_MEMORY,
+    "p14_client_portal":       PipelineState.CLIENT_PORTAL,
+    # ── Legacy phase names (kept for partial re-runs and history) ─────────────
     "p00_intake":               PipelineState.INTAKE,
     "p01_requirements":         PipelineState.REQUIREMENTS,
     "p04a_backend_codegen":     PipelineState.BACKEND_CODEGEN,
@@ -116,14 +128,6 @@ PHASE_TO_STATE: Dict[str, PipelineState] = {
     "p08_cicd":                 PipelineState.CICD,
     "p09_documentation":        PipelineState.DOCUMENTATION,
     "p10_deployment":           PipelineState.DEPLOYMENT,
-    "p11a_monitoring":          PipelineState.MONITORING,
-    "p11b_error_tracking":      PipelineState.ERROR_TRACKING,
-    "p11c_analytics":           PipelineState.ANALYTICS,
-    "p11d_alerting":            PipelineState.ALERTING,
-    "p12a_feature_flags":       PipelineState.FEATURE_FLAGS,
-    "p12b_ab_testing":          PipelineState.AB_TESTING,
-    "p13_app_memory":           PipelineState.APP_MEMORY,
-    "p14_client_portal":        PipelineState.CLIENT_PORTAL,
     "p15_change_requests":      PipelineState.CHANGE_REQUEST,
 }
 

@@ -570,37 +570,42 @@ class TaskAgent:
         treat Railway deployment as an optional enhancement, never a hard
         requirement.
         """
-        import os
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+
         token = os.environ.get("RAILWAY_TOKEN")
         if not token:
             return {"railway": False, "reason": "RAILWAY_TOKEN not set"}
 
         try:
-            import httpx
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
+            # Generate railway.json config
+            railway_config = {
+                "$schema": "https://railway.app/railway.schema.json",
+                "build": {"builder": "NIXPACKS"},
+                "deploy": {"startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT"},
             }
-            # Railway GraphQL endpoint
-            query = """
-            mutation serviceCreate($input: ServiceCreateInput!) {
-              serviceCreate(input: $input) { id name }
-            }
-            """
-            # Placeholder: a real deployment requires knowing the Railway project_id
-            # and environment_id which must be created first.  The recommended path
-            # for automated deployments is via the Railway GitHub integration.
-            # We log helpful guidance and return a soft-fail.
-            import logging
-            logging.getLogger(__name__).info(
-                "[p11] Railway automatic deployment requires a pre-created Railway "
-                "project.  See DEPLOY.md for instructions."
+            (project_dir / "railway.json").write_text(
+                json.dumps(railway_config, indent=2)
             )
+
+            result = subprocess.run(
+                ["railway", "up", "--detach"],
+                cwd=str(project_dir),
+                capture_output=True,
+                text=True,
+                env={**os.environ, "RAILWAY_TOKEN": token},
+            )
+            if result.returncode == 0:
+                _log.info("[p11] Railway deployment succeeded: %s", result.stdout[:200])
+                return {"railway": True, "output": result.stdout, "error": result.stderr}
+            else:
+                _log.warning("[p11] Railway CLI returned non-zero: %s", result.stderr[:200])
+                return {"railway": False, "output": result.stdout, "error": result.stderr}
+        except FileNotFoundError:
             return {
                 "railway": False,
                 "reason": (
-                    "Railway deployment requires manual setup — "
-                    "see https://railway.app/new or DEPLOY.md"
+                    "Railway CLI not installed — install with: npm install -g @railway/cli"
                 ),
             }
         except Exception as exc:

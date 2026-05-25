@@ -50,6 +50,7 @@ const FrontendBuilder = () => {
   const [preview, setPreview] = useState('desktop');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [loading, setLoading] = useState(true);
   const [newPage, setNewPage] = useState({ name: '', route: '' });
 
@@ -63,6 +64,7 @@ const FrontendBuilder = () => {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       if (runId) {
         await api.client.post(`/factory/runs/${runId}/frontend-spec`, { spec });
@@ -70,7 +72,7 @@ const FrontendBuilder = () => {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      alert('Save failed: ' + (e.response?.data?.detail || e.message));
+      setSaveError('Save failed: ' + (e.response?.data?.detail || e.message));
     } finally {
       setSaving(false);
     }
@@ -110,6 +112,13 @@ const FrontendBuilder = () => {
           {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Spec'}
         </button>
       </div>
+
+      {saveError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-danger text-sm flex items-center gap-2">
+          <span className="flex-1">{saveError}</span>
+          <button onClick={() => setSaveError('')} className="text-muted hover:text-bright">✕</button>
+        </div>
+      )}
 
       {!runId && (
         <div className="bg-yellow-900/20 border border-yellow-700/40 rounded p-3 text-yellow-400 text-sm">

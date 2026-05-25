@@ -16,11 +16,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     (ab_dir / "__init__.py").write_text("")
 
-    # A/B testing engine (standalone, JSON-file-backed persistence)
+    # A/B testing engine (standalone, JSON-file-backed persistence with file locking)
     (ab_dir / "ab_testing.py").write_text(
         '''import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 _EXPERIMENTS_FILE = Path(os.getenv("AB_EXPERIMENTS_PATH", "ab_experiments.json"))
@@ -29,16 +30,38 @@ _EXPERIMENTS: dict = {}
 
 def _load() -> None:
     global _EXPERIMENTS
-    if _EXPERIMENTS_FILE.exists():
-        try:
+    if not _EXPERIMENTS_FILE.exists():
+        return
+    try:
+        if sys.platform != "win32":
+            import fcntl
+            with open(_EXPERIMENTS_FILE, "r", encoding="utf-8") as _f:
+                fcntl.flock(_f, fcntl.LOCK_SH)
+                try:
+                    _EXPERIMENTS = json.load(_f)
+                finally:
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+        else:
             _EXPERIMENTS = json.loads(_EXPERIMENTS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            _EXPERIMENTS = {}
+    except Exception:
+        _EXPERIMENTS = {}
 
 
 def _save() -> None:
     try:
-        _EXPERIMENTS_FILE.write_text(json.dumps(_EXPERIMENTS, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            import fcntl
+            _EXPERIMENTS_FILE.touch(exist_ok=True)
+            with open(_EXPERIMENTS_FILE, "r+", encoding="utf-8") as _f:
+                fcntl.flock(_f, fcntl.LOCK_EX)
+                try:
+                    _f.seek(0)
+                    _f.write(json.dumps(_EXPERIMENTS, indent=2))
+                    _f.truncate()
+                finally:
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+        else:
+            _EXPERIMENTS_FILE.write_text(json.dumps(_EXPERIMENTS, indent=2), encoding="utf-8")
     except Exception:
         pass
 

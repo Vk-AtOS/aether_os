@@ -11,6 +11,7 @@ via a fresh event loop, avoiding event-loop-not-running errors.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -105,20 +106,49 @@ class DecisionLedger:
         except Exception as exc:
             logger.debug("async_log_event failed: %s", exc)
 
+    @staticmethod
+    def _compute_entry_hash(entry_data: dict) -> str:
+        canonical = json.dumps(entry_data, sort_keys=True, default=str)
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
     async def async_log_audit_event(self, org_id: str, user_id: str, action: str,
                                     resource_type: str, resource_id: str,
                                     metadata: Dict[str, Any], ip_address: str) -> None:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import AuditLog
+            from sqlalchemy import select
             sf = get_session_factory()
             async with sf() as session:
+                # Fetch the last audit entry for this org to compute chain hash
+                last_row = (await session.execute(
+                    select(AuditLog)
+                    .where(AuditLog.org_id == org_id)
+                    .order_by(AuditLog.created_at.desc())
+                    .limit(1)
+                )).scalars().first()
+
+                if last_row is not None:
+                    prev_entry = {
+                        "id": last_row.id,
+                        "org_id": last_row.org_id,
+                        "user_id": last_row.user_id,
+                        "action": last_row.action,
+                        "resource_type": last_row.resource_type,
+                        "resource_id": last_row.resource_id,
+                        "created_at": last_row.created_at,
+                    }
+                    prev_hash = self._compute_entry_hash(prev_entry)
+                else:
+                    prev_hash = ""
+
                 session.add(AuditLog(
                     id=str(uuid.uuid4()), org_id=org_id, user_id=user_id,
                     action=action, resource_type=resource_type,
                     resource_id=resource_id,
                     log_metadata=json.dumps(metadata),
                     ip_address=ip_address, created_at=time.time(),
+                    prev_hash=prev_hash,
                 ))
                 await session.commit()
         except Exception as exc:

@@ -9,14 +9,15 @@ const PAGE_SIZE      = 20;
 const MAX_CACHED     = 100;     // cap to prevent unbounded memory
 
 export function RunsProvider({ children }) {
-  const [runs, setRuns]       = useState([]);
-  const [total, setTotal]     = useState(0);
-  const [page, setPage]       = useState(1);
-  const [costs, setCosts]     = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
-  const [health, setHealth]   = useState(null);
-  const [loading, setLoading] = useState(true);
-  const timerRef              = useRef(null);
-  const runsRef               = useRef([]);
+  const [runs, setRuns]               = useState([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
+  const [costs, setCosts]             = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
+  const [health, setHealth]           = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [runsTruncated, setRunsTruncated] = useState(false);
+  const timerRef                      = useRef(null);
+  const runsRef                       = useRef([]);
   runsRef.current = runs;
 
   const fetchRuns = useCallback(async (pg = 1) => {
@@ -29,7 +30,7 @@ export function RunsProvider({ children }) {
         if (pg === 1) {
           const result = items.slice(0, MAX_CACHED);
           if (items.length > MAX_CACHED) {
-            console.warn(`[RunsContext] Capped at ${MAX_CACHED} runs; ${items.length - MAX_CACHED} older runs not displayed.`);
+            setRunsTruncated(true);
           }
           return result;
         }
@@ -37,7 +38,7 @@ export function RunsProvider({ children }) {
         const fresh = items.filter(r => !seen.has(r.id || r.run_id));
         const combined = [...prev, ...fresh];
         if (combined.length > MAX_CACHED) {
-          console.warn(`[RunsContext] Run cache at limit (${MAX_CACHED}); oldest runs dropped.`);
+          setRunsTruncated(true);
           return combined.slice(0, MAX_CACHED);
         }
         return combined;
@@ -84,12 +85,20 @@ export function RunsProvider({ children }) {
 
   const hasMore        = runs.length < total && total > PAGE_SIZE;
   const activeRunCount = runs.filter(r => r.status === 'running').length;
-  const latestRunId    = runs.length > 0 ? (runs[0].id || runs[0].run_id || null) : null;
+  const latestRunId    = (() => {
+    if (!runs.length) return null;
+    const newest = runs.reduce((latest, run) => {
+      const latestTime = new Date(latest.started_at || latest.created_at || 0);
+      const runTime    = new Date(run.started_at    || run.created_at    || 0);
+      return runTime > latestTime ? run : latest;
+    });
+    return newest.id || newest.run_id || null;
+  })();
 
   return (
     <RunsContext.Provider value={{
       runs, total, costs, health, loading, refresh,
-      activeRunCount, latestRunId, hasMore, loadMore,
+      activeRunCount, latestRunId, hasMore, loadMore, runsTruncated,
     }}>
       {children}
     </RunsContext.Provider>

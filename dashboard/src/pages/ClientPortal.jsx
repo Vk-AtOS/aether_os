@@ -27,7 +27,7 @@ const ClientPortal = () => {
       } catch (err) {
         // FIXED: was silently injecting mock data, hiding real errors from the client.
         // Now show the actual error so the client knows the project ID is wrong or the server is down.
-        console.error('Failed to load portal status', err);
+        if (import.meta.env.DEV) console.error('Failed to load portal status', err);
         const detail = err.response?.data?.detail || err.message || 'Unknown error';
         setStatus({ _error: true, _detail: detail });
       } finally {

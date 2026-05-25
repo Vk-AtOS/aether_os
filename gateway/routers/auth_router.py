@@ -6,6 +6,7 @@ Authentication and API key management.
 from __future__ import annotations
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -24,6 +25,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     org_name: str
+    tos_accepted: bool = False  # Must be True to register
 
 
 class LoginResponse(BaseModel):
@@ -61,6 +63,12 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
     if not rl.check_registration_attempts(client_ip):
         raise HTTPException(status_code=429, detail="Too many registration attempts.")
 
+    if not req.tos_accepted:
+        raise HTTPException(
+            status_code=422,
+            detail="You must accept the Terms of Service to register",
+        )
+
     if len(req.password) < 10:
         raise HTTPException(status_code=422, detail="Password must be at least 10 characters.")
 
@@ -79,6 +87,7 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
             email=req.email,
             password_hash=get_password_hash(req.password),
             role="owner",
+            consent_at=datetime.utcnow(),
         )
         session.add(user)
         await session.commit()
