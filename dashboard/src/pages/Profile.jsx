@@ -70,7 +70,11 @@ const Profile = () => {
         const usageRes = await api.client.get('/account/usage');
         setUserData(prev => ({ ...prev, ...(usageRes.data ?? {}) }));
         const keysRes = await api.client.get('/settings/api-keys');
-        setApiKeys(keysRes.data ? Object.entries(keysRes.data).map(([k, v]) => ({ provider: k, key: v })) : []);
+        setApiKeys(keysRes.data
+          ? Object.entries(keysRes.data)
+              .filter(([, v]) => typeof v === 'string' && v.length > 0)
+              .map(([k, v]) => ({ provider: k, key: v }))
+          : []);
         // Fetch MFA status from dedicated endpoint
         try {
           const mfaRes = await api.client.get('/auth/mfa/status');
@@ -216,7 +220,7 @@ const Profile = () => {
               <div>
                 <div className="text-xs font-bold text-muted uppercase">{provider}</div>
                 <div className="font-mono text-xs text-bright mt-1">
-                  {showPw[provider] ? key : key.slice(0, 8) + '••••••••'}
+                  {showPw[provider] ? key : (key ?? '').slice(0, 8) + '••••••••'}
                 </div>
               </div>
               <div className="flex items-center space-x-2">
