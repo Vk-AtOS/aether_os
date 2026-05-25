@@ -472,7 +472,7 @@ class DeviceSandboxBackend:
                             pass
                         break
 
-                    time.sleep(0.1)
+                    time.sleep(0.1)  # sync poll — caller must run this in asyncio.to_thread()
 
                 # Flush remaining
                 try:
@@ -561,6 +561,11 @@ class SandboxManager:
             return backend.run(req)
         else:
             raise ValueError(f"Unknown sandbox target_type: {req.target_type!r}")
+
+    async def async_run(self, req: SandboxRequest) -> SandboxResult:
+        """Async wrapper — offloads blocking SSH poll loop to a thread pool."""
+        import asyncio
+        return await asyncio.to_thread(self.run, req)
 
 
 # ---------------------------------------------------------------------------
