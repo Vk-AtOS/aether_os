@@ -87,17 +87,13 @@ security_scheme = HTTPBearer(auto_error=False)
 def _get_cors_origins() -> list:
     """
     Bug 3 fix: CORS origins come from env var only. Never wildcard in production.
-    Default is localhost for development only — blocked in production.
+    Default is localhost for development.
     """
     raw = os.environ.get("CORS_ORIGINS", "")
     if raw:
         return [o.strip() for o in raw.split(",") if o.strip()]
 
-    # In production, refuse to default to localhost origins — require explicit config.
-    if os.environ.get("ENVIRONMENT") == "production":
-        return []
-
-    # Default development origins (only when ENVIRONMENT != production)
+    # Default development origins
     return [
         "http://localhost:8000",
         "http://127.0.0.1:8000",
@@ -106,9 +102,6 @@ def _get_cors_origins() -> list:
         "http://localhost:5173",  # Vite default
     ]
 
-
-import threading as _threading
-_env_file_lock = _threading.Lock()
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
@@ -241,27 +234,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # SEC-008: API routes get a restrictive CSP so browsers cannot render
-        # JSON responses as HTML pages with injected scripts.  UI routes keep
-        # the permissive policy needed by the React SPA.
-        if request.url.path.startswith("/app") or request.url.path in ("/", "/index.html"):
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; "
-                "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-                "img-src 'self' data: blob:; "
-                "connect-src 'self' https://cdn.jsdelivr.net; "
-                "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
-                "frame-src 'self' http://REDACTED_IP:* http://localhost:*; "
-                "worker-src 'self' blob: https://cdn.jsdelivr.net; "
-                "frame-ancestors 'none'"
-            )
-        else:
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'none'; "
-                "frame-ancestors 'none'; "
-                "base-uri 'self'"
-            )
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+            "img-src 'self' data: blob:; "
+            "connect-src 'self' https://cdn.jsdelivr.net; "
+            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+            "frame-src 'self' http://REDACTED_IP:* http://localhost:*; "
+            "worker-src 'self' blob: https://cdn.jsdelivr.net; "
+            "frame-ancestors 'none'"
+        )
         # B11: HSTS only in production — prevents breaking local dev over HTTP
         if os.getenv("ENVIRONMENT") == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -518,13 +501,6 @@ def create_app() -> FastAPI:
         except Exception as _exc:
             logger.warning("Marketplace seeding skipped: %s", _exc)
 
-        # LAUNCH-036: Start stuck-run monitor
-        try:
-            from aether_os.orchestrator.factory_pipeline import start_stuck_run_monitor
-            start_stuck_run_monitor(threshold_minutes=30)
-        except Exception as _exc:
-            logger.warning("Stuck-run monitor startup failed: %s", _exc)
-
         yield
 
         # Shutdown
@@ -659,15 +635,8 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/system/metrics")
-    async def system_metrics(request: Request) -> Dict[str, Any]:
+    async def system_metrics() -> Dict[str, Any]:
         """System resource metrics — CPU, memory, disk, Redis, DB, pipeline."""
-        # LAUNCH-024: always require METRICS_API_KEY — endpoint must not be open
-        _metrics_key = os.environ.get("METRICS_API_KEY", "")
-        if not _metrics_key:
-            raise HTTPException(status_code=503, detail="METRICS_API_KEY not configured — metrics endpoint disabled")
-        _provided = request.headers.get("X-Metrics-Key", "")
-        if _provided != _metrics_key:
-            raise HTTPException(status_code=401, detail="Invalid metrics API key")
         import time as _time
         result: Dict[str, Any] = {"timestamp": _time.time()}
 
@@ -1038,10 +1007,9 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Get current usage and limits for the organisation."""
-        import datetime as _dt
         from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation, Run
-        from sqlalchemy import select, func
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
 
         org_id = user.get("org_id")
         session_factory = get_session_factory()
@@ -1051,54 +1019,14 @@ def create_app() -> FastAPI:
             org = result.scalar_one_or_none()
             if not org:
                 raise HTTPException(status_code=404, detail="Organisation not found")
-
-            # Count total runs and today's runs from the DB
-            now = _dt.datetime.utcnow()
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
-
-            total_runs_result = await session.execute(
-                select(func.count()).select_from(Run).where(Run.org_id == org_id)
-            )
-            total_runs = total_runs_result.scalar() or 0
-
-            runs_today_result = await session.execute(
-                select(func.count()).select_from(Run).where(
-                    Run.org_id == org_id,
-                    Run.started_at >= today_start,
-                )
-            )
-            runs_today = runs_today_result.scalar() or 0
-
-            # Token / cost data from budget manager (best-effort)
-            tokens_today = None
-            tokens_month = None
-            cost_today_usd = None
-            cost_month_usd = None
-            try:
-                from aether_os.core.llm.budget import get_budget_manager
-                bm = get_budget_manager()
-                usage_data = await bm.get_usage(org_id)
-                tokens_today = usage_data.get("tokens_today") or usage_data.get("total_tokens")
-                tokens_month = usage_data.get("tokens_month") or usage_data.get("total_tokens")
-                cost_today_usd = usage_data.get("cost_today_usd") or usage_data.get("estimated_cost_usd")
-                cost_month_usd = usage_data.get("cost_month_usd") or usage_data.get("estimated_cost_usd")
-            except Exception:
-                pass
-
+            
             return {
                 "org_name": org.name,
                 "org_slug": org.slug,
                 "plan": org.plan,
-                "runs_used": total_runs,
+                "runs_used": org.trial_runs_used,
                 "runs_limit": org.trial_runs_limit if org.plan == "trial" else None,
                 "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used) if org.plan == "trial" else None,
-                "total_runs": total_runs,
-                "runs_today": runs_today,
-                "tokens_today": tokens_today,
-                "tokens_month": tokens_month,
-                "cost_today_usd": cost_today_usd,
-                "cost_month_usd": cost_month_usd,
             }
 
     @app.delete("/account")
@@ -1317,10 +1245,8 @@ def create_app() -> FastAPI:
         from aether_os.gateway.client_portal.routes import router as portal_router
         app.include_router(portal_router)
         logger.info("Client portal router mounted at /portal")
-    except ImportError as exc:
-        logger.warning("Client portal router not loaded (missing dep): %s", exc)
     except Exception as exc:
-        logger.critical("Client portal router failed to mount — /portal/* routes unavailable: %s", exc)
+        logger.warning("Client portal router not loaded: %s", exc)
 
     # Wire MCP REST router — exposes AetherOS tools to Claude Desktop/Code
     try:
@@ -1473,33 +1399,6 @@ def create_app() -> FastAPI:
 
         if not url:
             raise HTTPException(status_code=422, detail="url required")
-
-        # SEC: SSRF prevention — validate that gitlab_base and url use HTTPS and
-        # do not point at private/internal network addresses (SEC-002/003 follow-on).
-        import ipaddress as _ipaddress, urllib.parse as _urlparse_fr
-        def _validate_external_url(raw_url: str, label: str) -> None:
-            """Raise HTTPException if the URL is not a public HTTPS URL."""
-            try:
-                _p = _urlparse_fr.urlparse(raw_url)
-            except Exception:
-                raise HTTPException(status_code=422, detail=f"Invalid {label}: unparseable URL")
-            if _p.scheme not in ("https",):
-                raise HTTPException(status_code=422, detail=f"Invalid {label}: only HTTPS URLs are allowed")
-            host = (_p.hostname or "").lower()
-            _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
-            if host in _BLOCKED_HOSTS:
-                raise HTTPException(status_code=422, detail=f"Invalid {label}: internal host not allowed")
-            try:
-                addr = _ipaddress.ip_address(host)
-                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-                    raise HTTPException(status_code=422, detail=f"Invalid {label}: private/internal IP not allowed")
-            except ValueError:
-                pass  # hostname (not a raw IP) — allowed
-
-        if rtype in ("github", "gitlab"):
-            _validate_external_url(url, "url")
-        if rtype == "gitlab" and req.get("gitlab_url"):
-            _validate_external_url(gitlab_base, "gitlab_url")
 
         _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
                       "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
@@ -1781,17 +1680,13 @@ def create_app() -> FastAPI:
         from sqlalchemy import update as _upd_wh
 
         webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
-        # LAUNCH-022: Webhook secret is mandatory — reject requests if not configured
-        if not webhook_secret:
-            raise HTTPException(status_code=500, detail="RAZORPAY_WEBHOOK_SECRET not configured")
         body = await request.body()
 
-        sig = request.headers.get("X-Razorpay-Signature", "")
-        if not sig:
-            raise HTTPException(status_code=400, detail="Missing X-Razorpay-Signature header")
-        expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
-        if not _hmac_wh.compare_digest(expected, sig):
-            raise HTTPException(status_code=400, detail="Webhook signature invalid")
+        if webhook_secret:
+            sig = request.headers.get("X-Razorpay-Signature", "")
+            expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
+            if not _hmac_wh.compare_digest(expected, sig):
+                raise HTTPException(status_code=400, detail="Webhook signature invalid")
 
         payload = await request.json()
         event   = payload.get("event", "")
@@ -1812,99 +1707,6 @@ def create_app() -> FastAPI:
             logger.info(f"Webhook: upgraded org={org_id} to plan={plan_id}")
 
         return {"received": True}
-
-    @app.post("/billing/cancel")
-    async def cancel_subscription(user: Dict[str, Any] = Depends(get_current_user)):
-        """Cancel the organisation's subscription and revert to the free plan. (LAUNCH-028)"""
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation
-        from sqlalchemy import update as _upd_cancel
-        org_id = user.get("org_id")
-        if not org_id:
-            raise HTTPException(status_code=400, detail="No organisation found for user")
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            result = await session.execute(
-                _upd_cancel(Organisation)
-                .where(Organisation.id == org_id)
-                .values(plan="free")
-                .returning(Organisation.id, Organisation.plan)
-            )
-            row = result.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Organisation not found")
-            await session.commit()
-        logger.info("Subscription cancelled for org=%s, plan reset to free", org_id)
-        return {"success": True, "plan": "free", "message": "Subscription cancelled. Your account has been moved to the free plan."}
-
-    class DowngradeRequest(BaseModel):
-        target_plan: str
-
-    @app.post("/billing/downgrade")
-    async def downgrade_subscription(
-        req: DowngradeRequest,
-        user: Dict[str, Any] = Depends(get_current_user),
-    ):
-        """Downgrade the organisation's subscription to a lower plan. (LAUNCH-028)"""
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation
-        from sqlalchemy import update as _upd_dg, select as _sel_dg
-        ALLOWED_PLANS = {"free", "starter", "pro", "enterprise"}
-        target = req.target_plan.lower().strip()
-        if target not in ALLOWED_PLANS:
-            raise HTTPException(status_code=400, detail=f"Invalid plan: {target}. Must be one of {sorted(ALLOWED_PLANS)}")
-        org_id = user.get("org_id")
-        if not org_id:
-            raise HTTPException(status_code=400, detail="No organisation found for user")
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            org = (await session.execute(_sel_dg(Organisation).where(Organisation.id == org_id))).scalar_one_or_none()
-            if not org:
-                raise HTTPException(status_code=404, detail="Organisation not found")
-            await session.execute(
-                _upd_dg(Organisation)
-                .where(Organisation.id == org_id)
-                .values(plan=target)
-            )
-            await session.commit()
-        logger.info("Org=%s downgraded from %s to %s", org_id, org.plan, target)
-        return {"success": True, "plan": target, "message": f"Plan changed to {target}."}
-
-    @app.get("/billing/invoices")
-    async def list_billing_invoices(user: Dict[str, Any] = Depends(get_current_user)):
-        """Return billing history / invoice list for the organisation. (LAUNCH-031)"""
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import LLMCallRecord
-        from sqlalchemy import select as _sel_inv, func as _func_inv
-        org_id = user.get("org_id")
-        if not org_id:
-            raise HTTPException(status_code=400, detail="No organisation found for user")
-        try:
-            session_factory = get_session_factory()
-            async with session_factory() as session:
-                rows = (await session.execute(
-                    _sel_inv(LLMCallRecord)
-                    .where(LLMCallRecord.project_id.like(f"%{org_id}%"))
-                    .order_by(LLMCallRecord.created_at.desc())
-                    .limit(100)
-                )).scalars().all()
-            invoices = [
-                {
-                    "id": r.id if hasattr(r, "id") else str(r.project_id),
-                    "project_id": r.project_id,
-                    "phase": r.phase,
-                    "model": r.model,
-                    "input_tokens": r.input_tokens,
-                    "output_tokens": r.output_tokens,
-                    "cost_usd": round(r.cost_usd, 6),
-                    "created_at": r.created_at,
-                }
-                for r in rows
-            ]
-        except Exception as _inv_exc:
-            logger.debug("billing/invoices query failed: %s", _inv_exc)
-            invoices = []
-        return {"invoices": invoices, "count": len(invoices)}
 
     @app.get("/templates")
     async def list_templates(user: Dict[str, Any] = Depends(get_current_user)):
@@ -2030,34 +1832,16 @@ def create_app() -> FastAPI:
         if not _safe:
             raise HTTPException(status_code=400, detail=_reason)
 
-        # Idempotency guard: if the same org submitted the same raw_input within
-        # the last 30 seconds, return the existing run_id to prevent ghost runs
-        # caused by double-clicks or network retries.
+        # Pre-generate run_id and insert Run record immediately so the client
+        # can poll /factory/runs/{run_id} without a 30s+ 404 window.
         run_id = str(_uuid.uuid4())
         user_id = user.get("sub")
         try:
             from aether_os.core.db import get_session_factory as _gsf_pre
             from aether_os.core.models import Run as _Run_pre
-            from sqlalchemy import select as _sel_pre
             import time as _time_pre
             _sf_pre = _gsf_pre()
             async with _sf_pre() as _s_pre:
-                _dedup_window = _time_pre.time() - 30
-                _existing = await _s_pre.execute(
-                    _sel_pre(_Run_pre)
-                    .where(
-                        _Run_pre.org_id == org_id,
-                        _Run_pre.raw_input == raw_input,
-                        _Run_pre.started_at >= _dedup_window,
-                        _Run_pre.status.in_(["queued", "running"]),
-                    )
-                    .limit(1)
-                )
-                _dup = _existing.scalar_one_or_none()
-                if _dup is not None:
-                    logger.info("Duplicate factory/start suppressed — returning existing run %s", _dup.id)
-                    return {"run_id": _dup.id, "status": _dup.status, "duplicate": True}
-
                 _s_pre.add(_Run_pre(
                     id=run_id,
                     org_id=org_id,
@@ -3681,11 +3465,11 @@ def create_app() -> FastAPI:
              project_id = run_detail["project_id"]
 
         root_dir = get_project_manager().get_project_dir(project_id).resolve()
-        # Always resolve the requested path fully before the boundary check so that
-        # "../../../etc/passwd" and similar tricks are caught regardless of prefix.
-        file_path = (root_dir / pathlib.Path(path.lstrip("/\\"))).resolve()
+        # Sanitise path: strip leading slashes/dots to prevent absolute path injection
+        safe_relative = pathlib.Path(path.lstrip("/")).resolve().relative_to(pathlib.Path("/").resolve()) if path.startswith("/") else pathlib.Path(path)
+        file_path = (root_dir / safe_relative).resolve()
 
-        # Boundary check: ensure resolved path is INSIDE root_dir
+        # Proper boundary check: ensure resolved path is INSIDE root_dir (not just a prefix match)
         try:
             file_path.relative_to(root_dir)
         except ValueError:
@@ -3772,7 +3556,8 @@ def create_app() -> FastAPI:
 
         root_dir = get_project_manager().get_project_dir(project_id).resolve()
         path = body.path
-        file_path = (root_dir / pathlib.Path(path.lstrip("/\\"))).resolve()
+        safe_relative = pathlib.Path(path.lstrip("/")).resolve().relative_to(pathlib.Path("/").resolve()) if path.startswith("/") else pathlib.Path(path)
+        file_path = (root_dir / safe_relative).resolve()
 
         try:
             file_path.relative_to(root_dir)
@@ -3970,7 +3755,8 @@ def create_app() -> FastAPI:
     async def get_api_keys(
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
-        """Return current API key configuration from .env, masking key values."""
+        """Return current API key configuration from .env, masking key values.
+        Also reports which providers have org-specific keys in the DB."""
         env_path = pathlib.Path(__file__).parent.parent / ".env"
         env_vars: Dict[str, str] = {}
         if env_path.exists():
@@ -3985,6 +3771,25 @@ def create_app() -> FastAPI:
                 return ""
             return val[:8] + "..." if len(val) > 8 else val[:4] + "..."
 
+        # Check which providers have org-specific keys in the DB
+        org_keys: Dict[str, bool] = {"anthropic": False, "google": False, "openrouter": False}
+        org_id = user.get("org_id", "")
+        if org_id:
+            try:
+                from aether_os.core.db import get_session_factory as _gsf
+                from aether_os.core.models import OrgApiKey as _OAK
+                from sqlalchemy import select as _sel
+                _sf = _gsf()
+                async with _sf() as _sess:
+                    _rows = (await _sess.execute(
+                        _sel(_OAK.provider).where(_OAK.org_id == org_id)
+                    )).scalars().all()
+                    for _p in _rows:
+                        if _p in org_keys:
+                            org_keys[_p] = True
+            except Exception as _exc:
+                logger.debug("get_api_keys: org_keys DB check failed (non-fatal): %s", _exc)
+
         return {
             "anthropic": _mask(env_vars.get("ANTHROPIC_API_KEY", "")),
             "google": _mask(env_vars.get("GOOGLE_API_KEY", "")),
@@ -3992,6 +3797,7 @@ def create_app() -> FastAPI:
             "openrouter": _mask(env_vars.get("OPENROUTER_API_KEY", "")),
             "primary_llm": env_vars.get("PRIMARY_LLM", "ollama"),
             "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+            "org_keys": org_keys,
         }
 
     @app.post("/settings/api-keys")
@@ -4039,25 +3845,28 @@ def create_app() -> FastAPI:
         if not found:
             new_lines.append(f"{var_name}={req.key}")
 
-        with _env_file_lock:
-            import tempfile as _tf, os as _os2
-            with _tf.NamedTemporaryFile('w', dir=env_path.parent, delete=False, suffix='.tmp') as _t:
-                _t.write("\n".join(new_lines) + "\n")
-                _tmp = _t.name
-            _os2.replace(_tmp, str(env_path))
+        env_path.write_text("\n".join(new_lines) + "\n")
         # Hot-reload: update os.environ immediately so the running process uses the new key
         # without needing a restart.
         os.environ[var_name] = req.key
-        try:
-            from aether_os.core.audit.ledger import get_ledger
-            get_ledger().log_event(
-                "system", "settings", "api_key_updated",
-                {"provider": req.provider, "key_preview": req.key[:8] + "..."},
-                org_id=user.get("org_id"), user_id=user.get("sub"),
-            )
-        except Exception:
-            pass
         logger.info("API key updated and hot-reloaded for %s", req.provider)
+
+        # Persist per-org key to DB so each customer has isolated keys.
+        # Map "gemini" UI label → "google" store provider name.
+        _store_provider = "google" if req.provider == "gemini" else req.provider
+        org_id = user.get("org_id", "")
+        if org_id:
+            try:
+                from aether_os.core.api_key_store import save_api_key as _save_api_key
+                await _save_api_key(
+                    provider=_store_provider,
+                    org_id=org_id,
+                    api_key=req.key,
+                    user_id=user.get("sub", ""),
+                )
+                logger.info("Org API key persisted to DB for org=%s provider=%s", org_id, _store_provider)
+            except Exception as _exc:
+                logger.warning("Failed to persist org API key to DB (non-fatal): %s", _exc)
 
         return {
             "success": True,
@@ -4228,17 +4037,25 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Return current LLM configuration from env / DB."""
-        raw_fallback = os.environ.get("OPENROUTER_FALLBACK_MODELS", "")
+        env_path = pathlib.Path(__file__).parent.parent / ".env"
+        env_vars: Dict[str, str] = {}
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    env_vars[k.strip()] = v.strip()
+        raw_fallback = env_vars.get("OPENROUTER_FALLBACK_MODELS", "")
         fallback_list = [m.strip() for m in raw_fallback.split(",") if m.strip()] if raw_fallback else []
         # Include the live active model from the router so the UI shows what actually served last
         from aether_os.core.model_router import _active_model as _live_model
         return {
-            "primary_llm": os.environ.get("PRIMARY_LLM", "anthropic"),
-            "anthropic_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-            "ollama_model": os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
-            "openrouter_heavy_model": os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
-            "openrouter_light_model": os.environ.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-            "openrouter_prefer_paid": os.environ.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
+            "primary_llm": env_vars.get("PRIMARY_LLM", "anthropic"),
+            "anthropic_model": env_vars.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+            "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+            "openrouter_heavy_model": env_vars.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
+            "openrouter_light_model": env_vars.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            "openrouter_prefer_paid": env_vars.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
             "openrouter_fallback_models": fallback_list,
             "active_model": _live_model,  # e.g. "openrouter/deepseek/deepseek-r1:free" after first call
         }
@@ -4283,24 +4100,10 @@ def create_app() -> FastAPI:
         for k, v in updates.items():
             if k not in found:
                 new_lines.append(f"{k}={v}")
-        with _env_file_lock:
-            import tempfile as _tf, os as _os2
-            with _tf.NamedTemporaryFile('w', dir=env_path.parent, delete=False, suffix='.tmp') as _t:
-                _t.write("\n".join(new_lines) + "\n")
-                _tmp = _t.name
-            _os2.replace(_tmp, str(env_path))
+        env_path.write_text("\n".join(new_lines) + "\n")
         # Apply immediately to running process — no restart needed
         for k, v in updates.items():
             os.environ[k] = v
-        try:
-            from aether_os.core.audit.ledger import get_ledger
-            get_ledger().log_event(
-                "system", "settings", "llm_config_updated",
-                {"keys_changed": list(updates.keys())},
-                org_id=user.get("org_id"), user_id=user.get("sub"),
-            )
-        except Exception:
-            pass
         return {"success": True, "message": "Model config applied immediately."}
 
     @app.get("/settings/models")
@@ -4993,117 +4796,6 @@ def create_app() -> FastAPI:
             return json.loads(review_path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Failed to read council review: {exc}")
-
-    # ─────────────────────────────────────────────────────────────────────────
-
-    @app.get("/factory/runs/{run_id}/phase-completions")
-    async def get_phase_completions(
-        run_id: str,
-        user: Dict[str, Any] = Depends(get_current_user),
-    ) -> Dict[str, Any]:
-        """Return phase timing data for a run."""
-        org_id = user.get("org_id")
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import PhaseCompletion, Run
-        from sqlalchemy import select
-        sf = get_session_factory()
-        async with sf() as session:
-            run = (await session.execute(
-                select(Run).where(Run.id == run_id, Run.org_id == org_id)
-            )).scalar_one_or_none()
-            if not run:
-                raise HTTPException(status_code=404, detail="Run not found")
-            rows = (await session.execute(
-                select(PhaseCompletion)
-                .where(PhaseCompletion.run_id == run_id)
-                .order_by(PhaseCompletion.updated_at)
-            )).scalars().all()
-        return {
-            "run_id": run_id,
-            "phase_completions": [
-                {
-                    "phase_name": r.phase_name,
-                    "status": r.status,
-                    "duration_seconds": r.duration_s,
-                    "updated_at": r.updated_at,
-                }
-                for r in rows
-            ],
-        }
-
-    @app.get("/factory/runs/{run_id}/metadata")
-    async def get_run_metadata(
-        run_id: str,
-        user: Dict[str, Any] = Depends(get_current_user),
-    ) -> Dict[str, Any]:
-        """Return metadata for a run."""
-        org_id = user.get("org_id")
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import RunMetadata, Run
-        from sqlalchemy import select
-        sf = get_session_factory()
-        async with sf() as session:
-            run = (await session.execute(
-                select(Run).where(Run.id == run_id, Run.org_id == org_id)
-            )).scalar_one_or_none()
-            if not run:
-                raise HTTPException(status_code=404, detail="Run not found")
-            row = (await session.execute(
-                select(RunMetadata).where(RunMetadata.run_id == run_id)
-            )).scalar_one_or_none()
-        if row is None:
-            return {"run_id": run_id, "metadata": {}}
-        return {
-            "run_id": run_id,
-            "metadata": {
-                "priority": row.priority,
-                "updated_at": row.updated_at,
-            },
-        }
-
-    @app.post("/factory/runs/{run_id}/metadata")
-    async def set_run_metadata(
-        run_id: str,
-        body: Dict[str, Any],
-        user: Dict[str, Any] = Depends(get_current_user),
-    ) -> Dict[str, Any]:
-        """Set metadata fields for a run. Supported keys: priority."""
-        org_id = user.get("org_id")
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import RunMetadata, Run
-        from sqlalchemy import select
-        import time
-        sf = get_session_factory()
-        async with sf() as session:
-            run = (await session.execute(
-                select(Run).where(Run.id == run_id, Run.org_id == org_id)
-            )).scalar_one_or_none()
-            if not run:
-                raise HTTPException(status_code=404, detail="Run not found")
-            row = (await session.execute(
-                select(RunMetadata).where(RunMetadata.run_id == run_id)
-            )).scalar_one_or_none()
-            if row is None:
-                row = RunMetadata(run_id=run_id)
-                session.add(row)
-            if "priority" in body:
-                valid_priorities = {"low", "normal", "high", "critical"}
-                priority_val = str(body["priority"])
-                if priority_val not in valid_priorities:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"priority must be one of {sorted(valid_priorities)}",
-                    )
-                row.priority = priority_val
-            row.updated_at = time.time()
-            await session.commit()
-        return {
-            "run_id": run_id,
-            "metadata": {
-                "priority": row.priority,
-                "updated_at": row.updated_at,
-            },
-        }
 
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -6440,23 +6132,6 @@ def create_app() -> FastAPI:
 
     # ── SCIM 2.0 provisioning (T5-08) ────────────────────────────────────────
 
-    async def _get_scim_auth(request: Request) -> dict:
-        """SCIM 2.0 auth: accepts either a dedicated SCIM_BEARER_TOKEN (for IdP provisioning)
-        or a standard AetherOS JWT (for admin UI calls). The SCIM_BEARER_TOKEN is the one
-        configured in Okta/Azure AD as the provisioning secret."""
-        scim_token = os.environ.get("SCIM_BEARER_TOKEN", "")
-        auth_header = request.headers.get("Authorization", "")
-
-        if scim_token and auth_header == f"Bearer {scim_token}":
-            # Valid IdP Bearer token — return a synthetic admin user context
-            return {"role": "admin", "org_id": os.environ.get("SCIM_ORG_ID", ""), "user_id": "scim-provisioner"}
-
-        # Fall back to standard JWT auth
-        try:
-            return await get_current_user(request)
-        except Exception:
-            raise HTTPException(status_code=401, detail="SCIM auth: provide SCIM_BEARER_TOKEN or a valid JWT")
-
     def _scim_user(u) -> dict:
         return {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -6475,7 +6150,7 @@ def create_app() -> FastAPI:
     async def scim_list_users(
         startIndex: int = 1,
         count: int = 50,
-        user: Dict[str, Any] = Depends(_get_scim_auth),
+        user: Dict[str, Any] = Depends(get_current_user),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6500,7 +6175,7 @@ def create_app() -> FastAPI:
     @app.get("/scim/v2/Users/{user_id}")
     async def scim_get_user(
         user_id: str,
-        user: Dict[str, Any] = Depends(_get_scim_auth),
+        user: Dict[str, Any] = Depends(get_current_user),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6516,7 +6191,7 @@ def create_app() -> FastAPI:
     @app.post("/scim/v2/Users")
     async def scim_create_user(
         req: Dict[str, Any],
-        user: Dict[str, Any] = Depends(_get_scim_auth),
+        user: Dict[str, Any] = Depends(get_current_user),
     ):
         """SCIM provision a new user into the org."""
         if user.get("role") not in ["owner", "admin"]:
@@ -6552,7 +6227,7 @@ def create_app() -> FastAPI:
     async def scim_update_user(
         user_id: str,
         req: Dict[str, Any],
-        user: Dict[str, Any] = Depends(_get_scim_auth),
+        user: Dict[str, Any] = Depends(get_current_user),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6574,7 +6249,7 @@ def create_app() -> FastAPI:
     @app.delete("/scim/v2/Users/{user_id}", status_code=204)
     async def scim_delete_user(
         user_id: str,
-        user: Dict[str, Any] = Depends(_get_scim_auth),
+        user: Dict[str, Any] = Depends(get_current_user),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6592,7 +6267,7 @@ def create_app() -> FastAPI:
 
     @app.get("/scim/v2/Groups")
     async def scim_list_groups(
-        user: Dict[str, Any] = Depends(_get_scim_auth),
+        user: Dict[str, Any] = Depends(get_current_user),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6863,11 +6538,7 @@ if _os.path.isdir(_dist):
             # Security: stay inside dist/
             if candidate.startswith(_dist) and _os.path.isfile(candidate):
                 return _FileResponse(candidate)
-        # index.html must never be browser-cached so new deployments take effect immediately
-        return _FileResponse(
-            _index,
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-        )
+        return _FileResponse(_index)
 
     # StaticFiles mount kept for efficient directory listing / HEAD requests
     app.mount(

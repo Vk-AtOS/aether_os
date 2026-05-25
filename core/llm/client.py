@@ -23,6 +23,7 @@ Features:
 """
 from __future__ import annotations
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -31,8 +32,26 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Strong references prevent GC from silently killing background tasks
-_background_tasks: set = set()
+# ── Per-request org context ───────────────────────────────────────────────────
+_current_org_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    '_current_org_id', default=None
+)
+
+
+def set_org_context(org_id: str) -> None:
+    """Call this at the start of each pipeline run to scope LLM key lookups."""
+    _current_org_id.set(org_id)
+
+
+async def init_org_llm_context(org_id: str) -> None:
+    """Pre-warm API key cache for this org. Call at the start of each pipeline run."""
+    from core.api_key_store import get_api_key
+    set_org_context(org_id)
+    for provider in ["anthropic", "google", "openrouter"]:
+        try:
+            await get_api_key(provider, org_id)  # populates cache
+        except Exception as exc:
+            logger.debug("init_org_llm_context: failed to pre-warm %s/%s: %s", org_id, provider, exc)
 
 # Task type → tier routing
 _HEAVY_TASKS = {"code_generation", "security_scan", "testing", "architecture", "review"}
@@ -54,20 +73,33 @@ def _get_anthropic_client():
     Supports OpenRouter (or any OpenAI-compatible endpoint) via:
       ANTHROPIC_API_KEY=<openrouter-key>
       ANTHROPIC_BASE_URL=https://openrouter.ai/api
+
+    When an org context is set (via set_org_context / init_org_llm_context),
+    the org-specific key from the DB cache is preferred over the system env var.
     """
     try:
         import anthropic  # type: ignore
     except ImportError as exc:
         raise ImportError("anthropic SDK not installed. Run: pip install anthropic") from exc
 
-    # Support ANTHROPIC_AUTH_TOKEN as alias (used by Claude Code's settings.local.json)
-    api_key = (
-        os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-    )
+    api_key = None
+    org_id = _current_org_id.get()
+    if org_id:
+        try:
+            from core.api_key_store import _cache_get
+            api_key = _cache_get(org_id, "anthropic")
+        except Exception:
+            pass
+
+    if not api_key:
+        # Support ANTHROPIC_AUTH_TOKEN as alias (used by Claude Code's settings.local.json)
+        api_key = (
+            os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        )
     if not api_key:
         raise RuntimeError(
-            "ANTHROPIC_API_KEY environment variable is not set."
+            "ANTHROPIC_API_KEY not configured for this org or system."
         )
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     kwargs = {"api_key": api_key}
@@ -192,9 +224,18 @@ async def _call_gemini(
             "google-genai SDK not installed. Run: pip install google-genai"
         ) from exc
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = None
+    org_id = _current_org_id.get()
+    if org_id:
+        try:
+            from core.api_key_store import _cache_get
+            api_key = _cache_get(org_id, "google")
+        except Exception:
+            pass
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY environment variable is not set.")
+        api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY not configured for this org or system.")
 
     from ..config.loader import get_config
     cfg = get_config()
@@ -255,8 +296,7 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
         from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
         run_id = ACTIVE_RUN_ID.get()
         phase  = ACTIVE_PHASE.get()
-    except Exception as exc:
-        logger.debug("Could not read ACTIVE_RUN_ID/ACTIVE_PHASE context vars: %s", exc)
+    except Exception:
         run_id = None
         phase  = None
 
@@ -393,7 +433,7 @@ async def _call_bedrock(
                 from aether_os.orchestrator.factory_pipeline import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP
                 _run_id = _ARID.get("") or os.environ.get("ACTIVE_RUN_ID", "unknown")
                 _phase  = _AP.get("") or os.environ.get("ACTIVE_PHASE", "unknown")
-                _bt = asyncio.create_task(
+                asyncio.create_task(
                     _gbt()._async_record_llm_call(
                         project_id=_run_id,
                         phase=_phase,
@@ -403,8 +443,6 @@ async def _call_bedrock(
                         cost_usd=0.0,
                     )
                 )
-                _background_tasks.add(_bt)
-                _bt.add_done_callback(_background_tasks.discard)
             except Exception:
                 pass
             return text
