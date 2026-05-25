@@ -59,7 +59,7 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     if spec.provider == "gemini":
         key = os.environ.get("GOOGLE_API_KEY", "").strip()
-        return bool(key) and key != "REPLACE_WITH_YOUR_GEMINI_KEY"
+        return bool(key) and len(key) > 10 and not key.startswith("REPLACE")
     if spec.provider == "openrouter":
         return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
     if spec.provider == "bedrock":

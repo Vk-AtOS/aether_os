@@ -12,7 +12,9 @@ const KIND_COLORS = {
   default:  'text-accent',
 };
 
-const AgentCard = ({ agent, onRun }) => {
+const AGENT_TIMEOUT_MS = 60_000;
+
+const AgentCard = ({ agent, onRun, recentRuns = [] }) => {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -27,6 +29,10 @@ const AgentCard = ({ agent, onRun }) => {
     setRunning(true);
     setError('');
     setResult(null);
+    const timeoutId = setTimeout(() => {
+      setError('Agent is taking longer than expected (60 s). It may still be running in the background.');
+      setRunning(false);
+    }, AGENT_TIMEOUT_MS);
     try {
       const res = await api.client.post(`/agents/${agent.name}/run`, {
         project_path: projectPath || '.',
@@ -34,8 +40,10 @@ const AgentCard = ({ agent, onRun }) => {
         workflow_id: workflowId || undefined,
         metadata: {},
       });
+      clearTimeout(timeoutId);
       setResult(res.data);
     } catch (e) {
+      clearTimeout(timeoutId);
       setError(e.response?.data?.detail || 'Agent run failed');
     } finally {
       setRunning(false);
@@ -80,13 +88,26 @@ const AgentCard = ({ agent, onRun }) => {
               />
             </div>
             <div>
-              <label className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1 block">Workflow ID (optional)</label>
-              <input
-                value={workflowId}
-                onChange={e => setWorkflowId(e.target.value)}
-                placeholder="wf-abc123"
-                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright focus:outline-none focus:border-accent"
-              />
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1 block">Run ID (optional)</label>
+              {recentRuns.length > 0 ? (
+                <select
+                  value={workflowId}
+                  onChange={e => setWorkflowId(e.target.value)}
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                >
+                  <option value="">— none —</option>
+                  {recentRuns.map(r => (
+                    <option key={r.id} value={r.id}>{r.id.slice(0, 8)} · {r.app_name || 'untitled'}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={workflowId}
+                  onChange={e => setWorkflowId(e.target.value)}
+                  placeholder="run-id or workflow-id"
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                />
+              )}
             </div>
           </div>
 
@@ -131,6 +152,7 @@ const AgentCard = ({ agent, onRun }) => {
 
 const Agents = () => {
   const [agents, setAgents] = useState([]);
+  const [recentRuns, setRecentRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
@@ -139,8 +161,12 @@ const Agents = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.client.get('/agents');
-      setAgents(res.data?.agents ?? []);
+      const [agentsRes, runsRes] = await Promise.all([
+        api.client.get('/agents'),
+        api.listRuns(1, 20).catch(() => ({ data: { runs: [] } })),
+      ]);
+      setAgents(agentsRes.data?.agents ?? []);
+      setRecentRuns(runsRes.data?.runs ?? []);
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load agents');
     } finally {
@@ -213,7 +239,7 @@ const Agents = () => {
       ) : (
         <div className="space-y-2">
           {filtered.map(agent => (
-            <AgentCard key={agent.name} agent={agent} />
+            <AgentCard key={agent.name} agent={agent} recentRuns={recentRuns} />
           ))}
         </div>
       )}

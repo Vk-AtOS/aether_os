@@ -23,7 +23,7 @@ const WebhookSettings = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await api.client.get('/webhooks');
+      const res = await api.getWebhooks();
       setWebhooks(res.data ?? []);
     } catch (err) {
       setLoadError(err.response?.data?.detail || 'Failed to load webhooks.');
@@ -40,7 +40,7 @@ const WebhookSettings = () => {
     setAddError(null);
     setSaving(true);
     try {
-      await api.client.post('/webhooks', { url: form.url, events: form.events });
+      await api.createWebhook({ url: form.url, events: form.events });
       setForm({ url: '', events: ['run.completed', 'run.failed'] });
       setAdding(false);
       await fetchWebhooks();
@@ -57,7 +57,7 @@ const WebhookSettings = () => {
     setDeleteError(null);
     setDeleting(prev => ({ ...prev, [id]: true }));
     try {
-      await api.client.delete(`/webhooks/${id}`);
+      await api.deleteWebhook(id);
       setWebhooks(prev => prev.filter(w => w.id !== id));
     } catch (err) {
       setDeleteError(err.response?.data?.detail || 'Failed to delete webhook.');

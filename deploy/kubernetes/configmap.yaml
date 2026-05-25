@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aetheros-config
+  namespace: aetheros
+  labels:
+    app.kubernetes.io/name: aetheros
+    app.kubernetes.io/component: config
+data:
+  ENVIRONMENT: "production"
+  REQUIRE_REDIS: "true"
+
+  # Update these to match your actual domain
+  CORS_ORIGINS: "https://yourdomain.com"
+  FRONTEND_URL: "https://yourdomain.com/dashboard"
+
+  # Postgres connection settings (non-secret portion)
+  POSTGRES_DB: "aether_os"
+  POSTGRES_USER: "aether_user"
+
+  # Uvicorn tuning
+  WEB_CONCURRENCY: "2"
+  LOG_LEVEL: "info"

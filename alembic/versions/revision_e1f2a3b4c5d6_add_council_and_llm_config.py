@@ -20,7 +20,11 @@ def upgrade() -> None:
     op.add_column('runs', sa.Column('council_preflight', sa.JSON(), nullable=True))
     op.add_column('runs', sa.Column('council_delivery',  sa.JSON(), nullable=True))
 
-    # llm_config: per-org (or global) LLM provider configuration
+    # llm_config: per-org (or global) LLM provider configuration.
+    # NOTE (DB-001): This table is intentionally unused at runtime.  The active
+    # LLM configuration is sourced from environment variables (os.environ) via
+    # core/llm/client.py.  The table is created here to keep the migration chain
+    # intact and allow future DB-backed per-org config without a new migration.
     op.create_table(
         'llm_config',
         sa.Column('id',                  sa.String(36),   primary_key=True),

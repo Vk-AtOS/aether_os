@@ -107,6 +107,9 @@ def _get_cors_origins() -> list:
     ]
 
 
+import threading as _threading
+_env_file_lock = _threading.Lock()
+
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
 class PipelineStartRequest(BaseModel):
@@ -238,17 +241,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-            "img-src 'self' data: blob:; "
-            "connect-src 'self' https://cdn.jsdelivr.net; "
-            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
-            "frame-src 'self' http://139.59.87.218:* http://localhost:*; "
-            "worker-src 'self' blob: https://cdn.jsdelivr.net; "
-            "frame-ancestors 'none'"
-        )
+        # SEC-008: API routes get a restrictive CSP so browsers cannot render
+        # JSON responses as HTML pages with injected scripts.  UI routes keep
+        # the permissive policy needed by the React SPA.
+        if request.url.path.startswith("/app") or request.url.path in ("/", "/index.html"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+                "img-src 'self' data: blob:; "
+                "connect-src 'self' https://cdn.jsdelivr.net; "
+                "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+                "frame-src 'self' http://139.59.87.218:* http://localhost:*; "
+                "worker-src 'self' blob: https://cdn.jsdelivr.net; "
+                "frame-ancestors 'none'"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'"
+            )
         # B11: HSTS only in production — prevents breaking local dev over HTTP
         if os.getenv("ENVIRONMENT") == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -1304,8 +1317,10 @@ def create_app() -> FastAPI:
         from aether_os.gateway.client_portal.routes import router as portal_router
         app.include_router(portal_router)
         logger.info("Client portal router mounted at /portal")
+    except ImportError as exc:
+        logger.warning("Client portal router not loaded (missing dep): %s", exc)
     except Exception as exc:
-        logger.warning("Client portal router not loaded: %s", exc)
+        logger.critical("Client portal router failed to mount — /portal/* routes unavailable: %s", exc)
 
     # Wire MCP REST router — exposes AetherOS tools to Claude Desktop/Code
     try:
@@ -3666,11 +3681,11 @@ def create_app() -> FastAPI:
              project_id = run_detail["project_id"]
 
         root_dir = get_project_manager().get_project_dir(project_id).resolve()
-        # Sanitise path: strip leading slashes/dots to prevent absolute path injection
-        safe_relative = pathlib.Path(path.lstrip("/")).resolve().relative_to(pathlib.Path("/").resolve()) if path.startswith("/") else pathlib.Path(path)
-        file_path = (root_dir / safe_relative).resolve()
+        # Always resolve the requested path fully before the boundary check so that
+        # "../../../etc/passwd" and similar tricks are caught regardless of prefix.
+        file_path = (root_dir / pathlib.Path(path.lstrip("/\\"))).resolve()
 
-        # Proper boundary check: ensure resolved path is INSIDE root_dir (not just a prefix match)
+        # Boundary check: ensure resolved path is INSIDE root_dir
         try:
             file_path.relative_to(root_dir)
         except ValueError:
@@ -3757,8 +3772,7 @@ def create_app() -> FastAPI:
 
         root_dir = get_project_manager().get_project_dir(project_id).resolve()
         path = body.path
-        safe_relative = pathlib.Path(path.lstrip("/")).resolve().relative_to(pathlib.Path("/").resolve()) if path.startswith("/") else pathlib.Path(path)
-        file_path = (root_dir / safe_relative).resolve()
+        file_path = (root_dir / pathlib.Path(path.lstrip("/\\"))).resolve()
 
         try:
             file_path.relative_to(root_dir)
@@ -4025,10 +4039,24 @@ def create_app() -> FastAPI:
         if not found:
             new_lines.append(f"{var_name}={req.key}")
 
-        env_path.write_text("\n".join(new_lines) + "\n")
+        with _env_file_lock:
+            import tempfile as _tf, os as _os2
+            with _tf.NamedTemporaryFile('w', dir=env_path.parent, delete=False, suffix='.tmp') as _t:
+                _t.write("\n".join(new_lines) + "\n")
+                _tmp = _t.name
+            _os2.replace(_tmp, str(env_path))
         # Hot-reload: update os.environ immediately so the running process uses the new key
         # without needing a restart.
         os.environ[var_name] = req.key
+        try:
+            from aether_os.core.audit.ledger import get_ledger
+            get_ledger().log_event(
+                "system", "settings", "api_key_updated",
+                {"provider": req.provider, "key_preview": req.key[:8] + "..."},
+                org_id=user.get("org_id"), user_id=user.get("sub"),
+            )
+        except Exception:
+            pass
         logger.info("API key updated and hot-reloaded for %s", req.provider)
 
         return {
@@ -4200,25 +4228,17 @@ def create_app() -> FastAPI:
         user: Dict[str, Any] = Depends(get_current_user),
     ) -> Dict[str, Any]:
         """Return current LLM configuration from env / DB."""
-        env_path = pathlib.Path(__file__).parent.parent / ".env"
-        env_vars: Dict[str, str] = {}
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, _, v = line.partition("=")
-                    env_vars[k.strip()] = v.strip()
-        raw_fallback = env_vars.get("OPENROUTER_FALLBACK_MODELS", "")
+        raw_fallback = os.environ.get("OPENROUTER_FALLBACK_MODELS", "")
         fallback_list = [m.strip() for m in raw_fallback.split(",") if m.strip()] if raw_fallback else []
         # Include the live active model from the router so the UI shows what actually served last
         from aether_os.core.model_router import _active_model as _live_model
         return {
-            "primary_llm": env_vars.get("PRIMARY_LLM", "anthropic"),
-            "anthropic_model": env_vars.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-            "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
-            "openrouter_heavy_model": env_vars.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
-            "openrouter_light_model": env_vars.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-            "openrouter_prefer_paid": env_vars.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
+            "primary_llm": os.environ.get("PRIMARY_LLM", "anthropic"),
+            "anthropic_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+            "ollama_model": os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+            "openrouter_heavy_model": os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
+            "openrouter_light_model": os.environ.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            "openrouter_prefer_paid": os.environ.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
             "openrouter_fallback_models": fallback_list,
             "active_model": _live_model,  # e.g. "openrouter/deepseek/deepseek-r1:free" after first call
         }
@@ -4263,10 +4283,24 @@ def create_app() -> FastAPI:
         for k, v in updates.items():
             if k not in found:
                 new_lines.append(f"{k}={v}")
-        env_path.write_text("\n".join(new_lines) + "\n")
+        with _env_file_lock:
+            import tempfile as _tf, os as _os2
+            with _tf.NamedTemporaryFile('w', dir=env_path.parent, delete=False, suffix='.tmp') as _t:
+                _t.write("\n".join(new_lines) + "\n")
+                _tmp = _t.name
+            _os2.replace(_tmp, str(env_path))
         # Apply immediately to running process — no restart needed
         for k, v in updates.items():
             os.environ[k] = v
+        try:
+            from aether_os.core.audit.ledger import get_ledger
+            get_ledger().log_event(
+                "system", "settings", "llm_config_updated",
+                {"keys_changed": list(updates.keys())},
+                org_id=user.get("org_id"), user_id=user.get("sub"),
+            )
+        except Exception:
+            pass
         return {"success": True, "message": "Model config applied immediately."}
 
     @app.get("/settings/models")
@@ -4959,6 +4993,117 @@ def create_app() -> FastAPI:
             return json.loads(review_path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Failed to read council review: {exc}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @app.get("/factory/runs/{run_id}/phase-completions")
+    async def get_phase_completions(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return phase timing data for a run."""
+        org_id = user.get("org_id")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import PhaseCompletion, Run
+        from sqlalchemy import select
+        sf = get_session_factory()
+        async with sf() as session:
+            run = (await session.execute(
+                select(Run).where(Run.id == run_id, Run.org_id == org_id)
+            )).scalar_one_or_none()
+            if not run:
+                raise HTTPException(status_code=404, detail="Run not found")
+            rows = (await session.execute(
+                select(PhaseCompletion)
+                .where(PhaseCompletion.run_id == run_id)
+                .order_by(PhaseCompletion.updated_at)
+            )).scalars().all()
+        return {
+            "run_id": run_id,
+            "phase_completions": [
+                {
+                    "phase_name": r.phase_name,
+                    "status": r.status,
+                    "duration_seconds": r.duration_s,
+                    "updated_at": r.updated_at,
+                }
+                for r in rows
+            ],
+        }
+
+    @app.get("/factory/runs/{run_id}/metadata")
+    async def get_run_metadata(
+        run_id: str,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Return metadata for a run."""
+        org_id = user.get("org_id")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import RunMetadata, Run
+        from sqlalchemy import select
+        sf = get_session_factory()
+        async with sf() as session:
+            run = (await session.execute(
+                select(Run).where(Run.id == run_id, Run.org_id == org_id)
+            )).scalar_one_or_none()
+            if not run:
+                raise HTTPException(status_code=404, detail="Run not found")
+            row = (await session.execute(
+                select(RunMetadata).where(RunMetadata.run_id == run_id)
+            )).scalar_one_or_none()
+        if row is None:
+            return {"run_id": run_id, "metadata": {}}
+        return {
+            "run_id": run_id,
+            "metadata": {
+                "priority": row.priority,
+                "updated_at": row.updated_at,
+            },
+        }
+
+    @app.post("/factory/runs/{run_id}/metadata")
+    async def set_run_metadata(
+        run_id: str,
+        body: Dict[str, Any],
+        user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Set metadata fields for a run. Supported keys: priority."""
+        org_id = user.get("org_id")
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import RunMetadata, Run
+        from sqlalchemy import select
+        import time
+        sf = get_session_factory()
+        async with sf() as session:
+            run = (await session.execute(
+                select(Run).where(Run.id == run_id, Run.org_id == org_id)
+            )).scalar_one_or_none()
+            if not run:
+                raise HTTPException(status_code=404, detail="Run not found")
+            row = (await session.execute(
+                select(RunMetadata).where(RunMetadata.run_id == run_id)
+            )).scalar_one_or_none()
+            if row is None:
+                row = RunMetadata(run_id=run_id)
+                session.add(row)
+            if "priority" in body:
+                valid_priorities = {"low", "normal", "high", "critical"}
+                priority_val = str(body["priority"])
+                if priority_val not in valid_priorities:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"priority must be one of {sorted(valid_priorities)}",
+                    )
+                row.priority = priority_val
+            row.updated_at = time.time()
+            await session.commit()
+        return {
+            "run_id": run_id,
+            "metadata": {
+                "priority": row.priority,
+                "updated_at": row.updated_at,
+            },
+        }
 
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -6295,6 +6440,23 @@ def create_app() -> FastAPI:
 
     # ── SCIM 2.0 provisioning (T5-08) ────────────────────────────────────────
 
+    async def _get_scim_auth(request: Request) -> dict:
+        """SCIM 2.0 auth: accepts either a dedicated SCIM_BEARER_TOKEN (for IdP provisioning)
+        or a standard AetherOS JWT (for admin UI calls). The SCIM_BEARER_TOKEN is the one
+        configured in Okta/Azure AD as the provisioning secret."""
+        scim_token = os.environ.get("SCIM_BEARER_TOKEN", "")
+        auth_header = request.headers.get("Authorization", "")
+
+        if scim_token and auth_header == f"Bearer {scim_token}":
+            # Valid IdP Bearer token — return a synthetic admin user context
+            return {"role": "admin", "org_id": os.environ.get("SCIM_ORG_ID", ""), "user_id": "scim-provisioner"}
+
+        # Fall back to standard JWT auth
+        try:
+            return await get_current_user(request)
+        except Exception:
+            raise HTTPException(status_code=401, detail="SCIM auth: provide SCIM_BEARER_TOKEN or a valid JWT")
+
     def _scim_user(u) -> dict:
         return {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -6313,7 +6475,7 @@ def create_app() -> FastAPI:
     async def scim_list_users(
         startIndex: int = 1,
         count: int = 50,
-        user: Dict[str, Any] = Depends(get_current_user),
+        user: Dict[str, Any] = Depends(_get_scim_auth),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6338,7 +6500,7 @@ def create_app() -> FastAPI:
     @app.get("/scim/v2/Users/{user_id}")
     async def scim_get_user(
         user_id: str,
-        user: Dict[str, Any] = Depends(get_current_user),
+        user: Dict[str, Any] = Depends(_get_scim_auth),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6354,7 +6516,7 @@ def create_app() -> FastAPI:
     @app.post("/scim/v2/Users")
     async def scim_create_user(
         req: Dict[str, Any],
-        user: Dict[str, Any] = Depends(get_current_user),
+        user: Dict[str, Any] = Depends(_get_scim_auth),
     ):
         """SCIM provision a new user into the org."""
         if user.get("role") not in ["owner", "admin"]:
@@ -6390,7 +6552,7 @@ def create_app() -> FastAPI:
     async def scim_update_user(
         user_id: str,
         req: Dict[str, Any],
-        user: Dict[str, Any] = Depends(get_current_user),
+        user: Dict[str, Any] = Depends(_get_scim_auth),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6412,7 +6574,7 @@ def create_app() -> FastAPI:
     @app.delete("/scim/v2/Users/{user_id}", status_code=204)
     async def scim_delete_user(
         user_id: str,
-        user: Dict[str, Any] = Depends(get_current_user),
+        user: Dict[str, Any] = Depends(_get_scim_auth),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)
@@ -6430,7 +6592,7 @@ def create_app() -> FastAPI:
 
     @app.get("/scim/v2/Groups")
     async def scim_list_groups(
-        user: Dict[str, Any] = Depends(get_current_user),
+        user: Dict[str, Any] = Depends(_get_scim_auth),
     ):
         if user.get("role") not in ["owner", "admin"]:
             raise HTTPException(status_code=403)

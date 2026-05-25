@@ -85,5 +85,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    os.environ.setdefault("AETHER_SECRET_KEY", "embed-script-placeholder")
+    if "AETHER_SECRET_KEY" not in os.environ:
+        raise SystemExit(
+            "ERROR: AETHER_SECRET_KEY environment variable is not set.\n"
+            "Set it to the same secret key used by your running AetherOS instance."
+        )
     asyncio.run(main())
