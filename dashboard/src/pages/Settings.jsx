@@ -20,6 +20,8 @@ import {
   Plus,
   Trash2,
   RefreshCw,
+  Copy,
+  Users,
 } from 'lucide-react';
 import StorageWidget from '../components/StorageWidget';
 import { useSettings } from '../contexts/SettingsContext';
@@ -962,6 +964,54 @@ const Settings = () => {
                     {ssoStatus === 'deleting' ? '...' : 'Remove SSO'}
                   </button>
                 )}
+              </div>
+            </div>
+          </section>
+
+          {/* SCIM 2.0 Provisioning */}
+          <section className="panel overflow-hidden">
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
+              <Users className="w-4 h-4 mr-2 text-accent" />
+              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">SCIM 2.0 Provisioning</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-muted">
+                Use SCIM 2.0 to automatically provision and deprovision users from your Identity Provider (Okta, Azure AD, Google Workspace, etc.).
+                Authenticate requests with a Bearer JWT from an admin account.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">SCIM Base URL</label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-surface border border-border rounded px-3 py-2 text-xs font-mono text-accent break-all">
+                      {window.location.origin}/api/scim/v2
+                    </code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/scim/v2`)}
+                      className="shrink-0 p-2 text-muted hover:text-bright transition-colors border border-border rounded"
+                      title="Copy endpoint URL"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Authentication</label>
+                  <p className="text-xs text-muted">
+                    Set <span className="font-mono text-bright">Authorization: Bearer &lt;token&gt;</span> on all SCIM requests.
+                    Use the JWT from an admin login, or create a dedicated service account and use its token for automation.
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-surface border border-border text-xs text-muted space-y-1">
+                  <p className="font-bold text-bright text-[10px] uppercase tracking-wider mb-2">Supported Endpoints</p>
+                  <div className="font-mono space-y-0.5">
+                    <div><span className="text-success">GET</span>    /api/scim/v2/Users</div>
+                    <div><span className="text-success">GET</span>    /api/scim/v2/Users/&#123;id&#125;</div>
+                    <div><span className="text-accent">POST</span>   /api/scim/v2/Users</div>
+                    <div><span className="text-yellow-400">PUT</span>    /api/scim/v2/Users/&#123;id&#125;</div>
+                    <div><span className="text-danger">DELETE</span> /api/scim/v2/Users/&#123;id&#125;</div>
+                  </div>
+                </div>
               </div>
             </div>
           </section>
