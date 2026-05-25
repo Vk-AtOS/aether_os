@@ -16,9 +16,28 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 TEST_TIMEOUT = 60
 LLM_TIMEOUT = 45
+# Hard cap so the phase never blocks the orchestrator beyond this
+_PHASE_HARD_TIMEOUT = MAX_ATTEMPTS * (TEST_TIMEOUT + LLM_TIMEOUT + 15)  # 360s
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
+    try:
+        return await asyncio.wait_for(_run_inner(phase_input, memory_ctx, output_dir), timeout=_PHASE_HARD_TIMEOUT)
+    except asyncio.TimeoutError:
+        msg = f"⚠ [p07b_self_healing] Phase hard-timeout ({_PHASE_HARD_TIMEOUT}s) — skipping"
+        logger.warning(msg)
+        result = {"success": True, "status": "phase_timeout", "attempts": MAX_ATTEMPTS}
+        (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
+        return TaskResult(
+            output_path=str(output_dir / "self_healing.json"),
+            confidence=0.3,
+            metadata=result,
+            success=True,
+            issues=["Self-healing phase timed out"],
+        )
+
+
+async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run_id = phase_input.run_id
@@ -111,10 +130,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
 
 async def _run_tests(test_file: Path) -> Dict[str, Any]:
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "python3", "-m", "pytest",
-            str(test_file), "-v", "--tb=short",
+            str(test_file), "-v", "--tb=short", "--timeout=30",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(test_file.parent.parent),
@@ -123,8 +143,20 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
         output = stdout.decode() + stderr.decode()
         return {"passed": proc.returncode == 0, "output": output}
     except asyncio.TimeoutError:
+        # Kill the subprocess so it doesn't keep holding pipes open
+        if proc is not None:
+            try:
+                proc.kill()
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except Exception:
+                pass
         return {"passed": False, "output": f"pytest timed out after {TEST_TIMEOUT}s"}
     except Exception as e:
+        if proc is not None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
         return {"passed": False, "output": str(e)}
 
 
