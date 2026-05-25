@@ -31,6 +31,9 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Strong references prevent GC from silently killing background tasks
+_background_tasks: set = set()
+
 # Task type → tier routing
 _HEAVY_TASKS = {"code_generation", "security_scan", "testing", "architecture", "review"}
 _LIGHT_TASKS = {"requirements", "documentation", "summarize", "classify", "intake", "portal"}
@@ -252,7 +255,8 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
         from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
         run_id = ACTIVE_RUN_ID.get()
         phase  = ACTIVE_PHASE.get()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Could not read ACTIVE_RUN_ID/ACTIVE_PHASE context vars: %s", exc)
         run_id = None
         phase  = None
 
@@ -389,7 +393,7 @@ async def _call_bedrock(
                 from aether_os.orchestrator.factory_pipeline import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP
                 _run_id = _ARID.get("") or os.environ.get("ACTIVE_RUN_ID", "unknown")
                 _phase  = _AP.get("") or os.environ.get("ACTIVE_PHASE", "unknown")
-                asyncio.create_task(
+                _bt = asyncio.create_task(
                     _gbt()._async_record_llm_call(
                         project_id=_run_id,
                         phase=_phase,
@@ -399,6 +403,8 @@ async def _call_bedrock(
                         cost_usd=0.0,
                     )
                 )
+                _background_tasks.add(_bt)
+                _bt.add_done_callback(_background_tasks.discard)
             except Exception:
                 pass
             return text

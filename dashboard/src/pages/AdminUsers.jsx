@@ -32,6 +32,8 @@ const AdminUsers = () => {
   const [bulkRole, setBulkRole] = useState('member');
   const [pruning, setPruning] = useState(false);
   const [pruneResult, setPruneResult] = useState(null);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null); // userId or 'bulk'
+  const [prunePreview, setPrunePreview] = useState(null); // { deleted_count, deleted_mb }
 
   const LIMIT = 20;
 
@@ -73,7 +75,8 @@ const AdminUsers = () => {
   };
 
   const handleDeactivate = async (userId) => {
-    if (!window.confirm('Deactivate this user? They will no longer be able to sign in.')) return;
+    if (confirmDeactivate !== userId) { setConfirmDeactivate(userId); return; }
+    setConfirmDeactivate(null);
     try {
       await api.client.post(`/admin/users/${userId}/deactivate`);
       setItems(prev => prev.map(u => u.id === userId ? { ...u, is_active: false } : u));
@@ -84,7 +87,8 @@ const AdminUsers = () => {
 
   const handleBulkDeactivate = async () => {
     if (!selectedIds.size) return;
-    if (!window.confirm(`Deactivate ${selectedIds.size} user(s)?`)) return;
+    if (confirmDeactivate !== 'bulk') { setConfirmDeactivate('bulk'); return; }
+    setConfirmDeactivate(null);
     for (const id of selectedIds) {
       try { await api.client.post(`/admin/users/${id}/deactivate`); } catch {}
     }
@@ -159,22 +163,28 @@ const AdminUsers = () => {
 
   const handlePruneArtifacts = async () => {
     setPruneResult(null);
+    // If we have preview data, proceed with actual prune
+    if (prunePreview) {
+      if (prunePreview.deleted_count === 0) { setPrunePreview(null); return; }
+      setPruning('running');
+      try {
+        const res = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: false });
+        setPruneResult({ ok: true, ...res.data });
+      } catch (e) {
+        setPruneResult({ ok: false, message: e.response?.data?.detail || 'Prune failed.' });
+      } finally {
+        setPruning(false);
+        setPrunePreview(null);
+      }
+      return;
+    }
     // Dry-run first to preview
     setPruning('dry');
     try {
       const dryRes = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: true });
-      const { deleted_count, deleted_mb } = dryRes.data;
-      const confirmed = window.confirm(
-        deleted_count === 0
-          ? 'No artifacts older than 30 days found. Nothing to prune.'
-          : `Prune ${deleted_count} artifact file(s) (${deleted_mb} MB) older than 30 days?\n\nThis cannot be undone.`
-      );
-      if (!confirmed || deleted_count === 0) { setPruning(false); return; }
-      setPruning('running');
-      const res = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: false });
-      setPruneResult({ ok: true, ...res.data });
+      setPrunePreview(dryRes.data);
     } catch (e) {
-      setPruneResult({ ok: false, message: e.response?.data?.detail || 'Prune failed.' });
+      setPruneResult({ ok: false, message: e.response?.data?.detail || 'Prune dry-run failed.' });
     } finally {
       setPruning(false);
     }
@@ -220,6 +230,25 @@ const AdminUsers = () => {
           </button>
         </div>
       </header>
+
+      {/* Prune preview confirmation */}
+      {prunePreview && (
+        <div className="flex items-center gap-4 p-4 rounded-xl border bg-yellow-500/10 border-yellow-500/30 text-sm">
+          <div className="flex-1">
+            {prunePreview.deleted_count === 0
+              ? <span className="text-muted">No artifacts older than 30 days found. Nothing to prune.</span>
+              : <span className="text-yellow-400">Prune <strong>{prunePreview.deleted_count}</strong> file(s) ({prunePreview.deleted_mb} MB older than 30 days)? This cannot be undone.</span>}
+          </div>
+          {prunePreview.deleted_count > 0 && (
+            <button onClick={handlePruneArtifacts} disabled={!!pruning} className="text-xs font-bold bg-danger/20 hover:bg-danger/40 text-danger border border-danger/30 px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors">
+              Confirm Prune
+            </button>
+          )}
+          <button onClick={() => setPrunePreview(null)} className="text-xs text-muted hover:text-bright px-2 py-1 rounded">
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* Prune result banner */}
       {pruneResult && (
@@ -339,12 +368,20 @@ const AdminUsers = () => {
               <span className="text-accent">{total}</span>
             </h3>
             {selectedIds.size > 0 && (
-              <button
-                onClick={handleBulkDeactivate}
-                className="ml-3 text-[10px] font-bold text-danger/70 hover:text-danger uppercase tracking-wider transition-colors"
-              >
-                Deactivate {selectedIds.size} selected
-              </button>
+              confirmDeactivate === 'bulk' ? (
+                <span className="ml-3 flex items-center gap-2 text-[10px]">
+                  <span className="text-danger font-bold">Deactivate {selectedIds.size} user(s)?</span>
+                  <button onClick={handleBulkDeactivate} className="text-danger font-bold underline">Yes</button>
+                  <button onClick={() => setConfirmDeactivate(null)} className="text-muted hover:text-bright">Cancel</button>
+                </span>
+              ) : (
+                <button
+                  onClick={handleBulkDeactivate}
+                  className="ml-3 text-[10px] font-bold text-danger/70 hover:text-danger uppercase tracking-wider transition-colors"
+                >
+                  Deactivate {selectedIds.size} selected
+                </button>
+              )
             )}
           </div>
           <form onSubmit={handleSearch} className="flex items-center gap-2">
@@ -445,12 +482,20 @@ const AdminUsers = () => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     {u.is_active !== false && (
-                      <button
-                        onClick={() => handleDeactivate(u.id)}
-                        className="text-[10px] font-bold text-danger/60 hover:text-danger uppercase tracking-wider transition-colors"
-                      >
-                        Deactivate
-                      </button>
+                      confirmDeactivate === u.id ? (
+                        <span className="flex items-center justify-end gap-2 text-[10px]">
+                          <span className="text-danger font-bold">Confirm?</span>
+                          <button onClick={() => handleDeactivate(u.id)} className="text-danger font-bold underline">Yes</button>
+                          <button onClick={() => setConfirmDeactivate(null)} className="text-muted hover:text-bright">No</button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleDeactivate(u.id)}
+                          className="text-[10px] font-bold text-danger/60 hover:text-danger uppercase tracking-wider transition-colors"
+                        >
+                          Deactivate
+                        </button>
+                      )
                     )}
                   </td>
                 </tr>

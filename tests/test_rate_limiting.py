@@ -1,6 +1,9 @@
 import pytest
 import asyncio
-from core.rate_limiter import RateLimiter
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from aether_os.core.rate_limiter import RateLimiter
 
 
 def _run(coro):

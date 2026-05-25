@@ -199,6 +199,7 @@ const Dashboard = () => {
   const [killing, setKilling] = useState(false);
   const [killResult, setKillResult] = useState(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [confirmKillAll, setConfirmKillAll] = useState(false);
 
   useEffect(() => {
     api.client.get('/settings/api-keys').then(res => {
@@ -230,7 +231,8 @@ const Dashboard = () => {
   const onlyOllama = health && !health.anthropic_available && !health.gemini_available && !health.openrouter_available && health.ollama_available;
 
   const handleKillAll = async () => {
-    if (!window.confirm('Emergency stop: kill ALL active pipeline runs for this organisation? This cannot be undone.')) return;
+    if (!confirmKillAll) { setConfirmKillAll(true); return; }
+    setConfirmKillAll(false);
     setKilling(true);
     setKillResult(null);
     try {
@@ -265,13 +267,32 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-          <button
-            onClick={handleKillAll}
-            disabled={killing}
-            className="bg-danger/20 hover:bg-danger/40 text-danger border border-danger/30 disabled:opacity-50 text-[10px] font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
-          >
-            {killing ? 'Stopping…' : 'Kill All Runs'}
-          </button>
+          {confirmKillAll ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-danger font-bold">Are you sure? This stops ALL runs.</span>
+              <button
+                onClick={handleKillAll}
+                disabled={killing}
+                className="bg-danger hover:bg-danger/90 text-white border border-danger/30 disabled:opacity-50 text-[10px] font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
+              >
+                {killing ? 'Stopping…' : 'Confirm Kill All'}
+              </button>
+              <button
+                onClick={() => setConfirmKillAll(false)}
+                className="text-[10px] text-muted hover:text-bright px-2 py-1 rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleKillAll}
+              disabled={killing}
+              className="bg-danger/20 hover:bg-danger/40 text-danger border border-danger/30 disabled:opacity-50 text-[10px] font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
+            >
+              {killing ? 'Stopping…' : 'Kill All Runs'}
+            </button>
+          )}
         </div>
       )}
 
@@ -319,7 +340,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat) => (
           <div key={stat.label} className="panel p-6">
             <div className="flex items-center justify-between mb-2">

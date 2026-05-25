@@ -18,7 +18,8 @@ _ALGORITHM = "HS256"
 
 
 def get_password_hash(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    # rounds=12 is explicit; bcrypt default is 12, but we pin it for auditability
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -47,7 +48,8 @@ def verify_api_key(raw_key: str, stored_hash: str) -> bool:
     if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
         try:
             return bcrypt.checkpw(raw_key.encode(), stored_hash.encode())
-        except Exception:
+        except Exception as exc:
+            logger.warning("API key bcrypt verification error: %s", exc)
             return False
     import hashlib
     return hashlib.sha256(raw_key.encode()).hexdigest() == stored_hash
@@ -95,12 +97,19 @@ def create_access_token(
 
 
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
-    """Decode and verify a JWT token. Returns None if invalid."""
+    """Decode and verify a JWT token. Returns None if invalid.
+    SEC-045: Structured logging distinguishes expired vs. invalid tokens."""
     try:
-        from jose import jwt, JWTError  # type: ignore
+        from jose import jwt, JWTError, ExpiredSignatureError  # type: ignore
         return jwt.decode(token, _get_secret_key(), algorithms=[_ALGORITHM])
+    except ExpiredSignatureError:
+        logger.warning("JWT decode: ExpiredSignatureError — token has expired")
+        return None
+    except JWTError as exc:
+        logger.warning("JWT decode: JWTError (%s) — invalid token", type(exc).__name__)
+        return None
     except Exception as exc:
-        logger.debug("Token decode failed: %s", exc)
+        logger.warning("JWT decode: unexpected error (%s): %s", type(exc).__name__, exc)
         return None
 
 

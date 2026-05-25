@@ -9,9 +9,11 @@ const PHASE_ORDER = [
   'p05_frontend',
   'p06_review_security',
   'p07_testing',
+  'p07b_self_healing',
   'p08_cicd_deployment',
   'p09_observability',
   'p10_docs_delivery',
+  'p11_deployment',
 ];
 
 const PhaseBar = ({ phases }) => {

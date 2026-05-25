@@ -12,8 +12,8 @@ const decode = (token) => {
 };
 
 export const useRole = () => {
+  const token = api.getToken();
   return useMemo(() => {
-    const token = api.getToken();
     const payload = token ? decode(token) : null;
     const role = payload?.role ?? 'viewer';
     const userId = payload?.user_id ?? payload?.sub ?? null;
@@ -23,5 +23,5 @@ export const useRole = () => {
     const isViewer = role === 'viewer';
     const canWrite = !isViewer;
     return { role, userId, isOwner, isAdmin, isMember, isViewer, canWrite };
-  }, []);
+  }, [token]);
 };

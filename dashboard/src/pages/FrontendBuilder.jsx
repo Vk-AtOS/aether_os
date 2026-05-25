@@ -103,6 +103,7 @@ const FrontendBuilder = () => {
         <button
           onClick={handleSave}
           disabled={saving || !runId}
+          title={!runId ? 'Save is disabled until you open this page from a project run' : undefined}
           className="flex items-center gap-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors"
         >
           <Save className="w-4 h-4" />

@@ -30,13 +30,25 @@ _PLAN_BUDGETS: Dict[str, int] = {
 _DOWNGRADE_THRESHOLD = 0.85   # switch to Haiku when >85% of budget used
 _BLOCK_THRESHOLD     = 1.00   # block when 100% used (trial only)
 
-_COST_PER_TOKEN: Dict[str, float] = {
-    "claude-sonnet-4-6":         0.003  / 1000,
-    "claude-haiku-4-5-20251001": 0.00025 / 1000,
-    "gemini-2.5-flash":          0.00015 / 1000,
-    "gemini-2.5-pro":            0.00125 / 1000,
-    "default":                   0.003  / 1000,
+# Input/output cost per token (USD).
+# Anthropic claude-sonnet-4-6: $3/M input, $15/M output
+# Separate dicts so record_usage() can apply correct per-direction rates.
+_COST_PER_INPUT_TOKEN: Dict[str, float] = {
+    "claude-sonnet-4-6":         3.00  / 1_000_000,
+    "claude-haiku-4-5-20251001": 0.25  / 1_000_000,
+    "gemini-2.5-flash":          0.15  / 1_000_000,
+    "gemini-2.5-pro":            1.25  / 1_000_000,
+    "default":                   3.00  / 1_000_000,
 }
+_COST_PER_OUTPUT_TOKEN: Dict[str, float] = {
+    "claude-sonnet-4-6":         15.00 / 1_000_000,
+    "claude-haiku-4-5-20251001":  1.25 / 1_000_000,
+    "gemini-2.5-flash":           0.60 / 1_000_000,
+    "gemini-2.5-pro":             5.00 / 1_000_000,
+    "default":                   15.00 / 1_000_000,
+}
+# Legacy alias used by older callers
+_COST_PER_TOKEN: Dict[str, float] = _COST_PER_INPUT_TOKEN
 
 
 async def _get_or_create_record(session, org_id: str, month: str):
@@ -101,9 +113,10 @@ class TokenBudgetManager:
         cache_hit: bool = False,
     ) -> None:
         month = time.strftime("%Y-%m")
+        # Apply separate input and output rates (Anthropic: $3/$15 per million tokens)
         cost = (
-            input_tokens  * _COST_PER_TOKEN.get(model, _COST_PER_TOKEN["default"]) +
-            output_tokens * _COST_PER_TOKEN.get(model, _COST_PER_TOKEN["default"]) * 5
+            input_tokens  * _COST_PER_INPUT_TOKEN.get(model, _COST_PER_INPUT_TOKEN["default"]) +
+            output_tokens * _COST_PER_OUTPUT_TOKEN.get(model, _COST_PER_OUTPUT_TOKEN["default"])
         )
         try:
             from aether_os.core.db import get_session_factory

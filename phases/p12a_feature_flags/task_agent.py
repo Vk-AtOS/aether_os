@@ -16,17 +16,47 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     (ff_dir / "__init__.py").write_text("")
 
-    # Feature flag service (standalone, no relative imports)
+    # Feature flag service (standalone, JSON-file-backed persistence)
     (ff_dir / "feature_flags.py").write_text(
-        '''import os
+        '''import json
+import os
+from pathlib import Path
 
+_FLAGS_FILE = Path(os.getenv("FEATURE_FLAGS_PATH", "feature_flags.json"))
 _FLAGS: dict = {}
 
-def enable(flag: str):
-    _FLAGS[flag] = True
 
-def disable(flag: str):
+def _load() -> None:
+    """Load flags from JSON file into in-memory dict."""
+    global _FLAGS
+    if _FLAGS_FILE.exists():
+        try:
+            _FLAGS = json.loads(_FLAGS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _FLAGS = {}
+
+
+def _save() -> None:
+    """Persist in-memory flags to JSON file."""
+    try:
+        _FLAGS_FILE.write_text(json.dumps(_FLAGS, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+# Load on import
+_load()
+
+
+def enable(flag: str) -> None:
+    _FLAGS[flag] = True
+    _save()
+
+
+def disable(flag: str) -> None:
     _FLAGS[flag] = False
+    _save()
+
 
 def is_enabled(flag: str) -> bool:
     """Check if a feature flag is enabled. Reads from env var FEATURE_<FLAG_UPPER> first."""
@@ -34,6 +64,7 @@ def is_enabled(flag: str) -> bool:
     env_val = os.getenv(env_key)
     if env_val is not None:
         return env_val.lower() in ("1", "true", "yes")
+    _load()  # refresh from disk in case another process updated it
     return _FLAGS.get(flag, False)
 '''
     )

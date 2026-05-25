@@ -42,6 +42,10 @@ const BackendBuilder = () => {
   const [validation, setValidation] = useState(null);
   const [activeEntity, setActiveEntity] = useState(0);
   const [newEndpoint, setNewEndpoint] = useState({ method: 'GET', path: '', auth: true, pagination: false, validate: false });
+  const [newEntityName, setNewEntityName] = useState('');
+  const [showAddEntity, setShowAddEntity] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [validateError, setValidateError] = useState(null);
 
   useEffect(() => {
     if (!runId) { setLoading(false); return; }
@@ -60,7 +64,7 @@ const BackendBuilder = () => {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      alert('Save failed: ' + (e.response?.data?.detail || e.message));
+      setSaveError('Save failed: ' + (e.response?.data?.detail || e.message));
     } finally {
       setSaving(false);
     }
@@ -68,22 +72,24 @@ const BackendBuilder = () => {
 
   const handleValidate = async () => {
     if (!runId) return;
+    setValidateError(null);
     try {
       const r = await api.client.post(`/factory/runs/${runId}/validate-spec`, { spec });
       setValidation(r.data);
     } catch (e) {
-      alert('Validation failed');
+      setValidateError('Validation failed: ' + (e.response?.data?.detail || e.message));
     }
   };
 
   const addEntity = () => {
-    const name = prompt('Entity name (PascalCase):');
-    if (!name) return;
+    if (!newEntityName.trim()) return;
     setSpec(s => ({
       ...s,
-      entities: [...s.entities, { name, fields: [{ name: 'id', type: 'uuid', primary_key: true }] }],
+      entities: [...s.entities, { name: newEntityName.trim(), fields: [{ name: 'id', type: 'uuid', primary_key: true }] }],
     }));
     setActiveEntity(spec.entities.length);
+    setNewEntityName('');
+    setShowAddEntity(false);
   };
 
   const removeEntity = (i) => {
@@ -168,6 +174,19 @@ const BackendBuilder = () => {
         </div>
       </div>
 
+      {saveError && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border bg-red-500/10 border-red-500/30 text-danger text-sm">
+          {saveError}
+          <button onClick={() => setSaveError(null)} className="ml-auto text-xs text-muted hover:text-bright">✕</button>
+        </div>
+      )}
+      {validateError && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border bg-red-500/10 border-red-500/30 text-danger text-sm">
+          {validateError}
+          <button onClick={() => setValidateError(null)} className="ml-auto text-xs text-muted hover:text-bright">✕</button>
+        </div>
+      )}
+
       {validation && (
         <div className={`flex items-start gap-3 p-3 rounded border text-sm ${validation.valid ? 'bg-green-900/20 border-green-700/40 text-green-400' : 'bg-red-900/20 border-red-700/40 text-red-400'}`}>
           {validation.valid ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />}
@@ -228,8 +247,22 @@ const BackendBuilder = () => {
         <section className="bg-panel border border-border rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-sm uppercase tracking-wider text-muted">Entities</h2>
-            <button onClick={addEntity} className="text-accent hover:text-accent/80 text-xs font-bold">+ Add</button>
+            <button onClick={() => setShowAddEntity(v => !v)} className="text-accent hover:text-accent/80 text-xs font-bold">+ Add</button>
           </div>
+          {showAddEntity && (
+            <div className="flex gap-2 mb-2">
+              <input
+                value={newEntityName}
+                onChange={e => setNewEntityName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addEntity(); if (e.key === 'Escape') setShowAddEntity(false); }}
+                placeholder="EntityName (PascalCase)"
+                autoFocus
+                className="flex-1 bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+              />
+              <button onClick={addEntity} disabled={!newEntityName.trim()} className="text-accent text-xs font-bold disabled:opacity-40">OK</button>
+              <button onClick={() => setShowAddEntity(false)} className="text-muted text-xs">✕</button>
+            </div>
+          )}
           <div className="space-y-1">
             {spec.entities.map((e, i) => (
               <div

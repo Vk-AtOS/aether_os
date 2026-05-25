@@ -1,4 +1,23 @@
 # AetherOS .gitignore
+#
+# IMPORTANT: Sensitive files (token.txt, auth_res.json, aether_os.db.bak) were
+# accidentally committed previously. They have been removed from the git index via
+# `git rm --cached`. A full history scrub with `git filter-repo` is still
+# required before any public repository or acquisition due diligence:
+#   git filter-repo --invert-paths --path token.txt --path auth_res.json --path aether_os.db.bak
+
+# Sensitive runtime / auth files — never commit
+token.txt
+auth_res.json
+*.db.bak
+*.bak
+run_res.json
+token.json
+
+# Strategy / acquisition documents — never commit
+ACQUISITION_EMAILS.md
+AETHEROS_MASTER_PLAN.md
+DEPLOYMENT_READINESS_REPORT.md
 
 # Playwright test artifacts
 .playwright-mcp/

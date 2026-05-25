@@ -16,6 +16,8 @@ const ClientPortal = () => {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [feedbackSent, setFeedbackSent] = useState(false);
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -36,32 +38,43 @@ const ClientPortal = () => {
   }, [id]);
 
   const stages = [
-    { name: 'Requirements', phases: ['p00', 'p01'] },
-    { name: 'Architecture', phases: ['p02'] },
-    { name: 'Design', phases: ['p03', 'p04b'] },
-    { name: 'Build', phases: ['p04a', 'p04c', 'p04d', 'p04e'] },
-    { name: 'Verify', phases: ['p05', 'p06', 'p07'] },
-    { name: 'Deploy', phases: ['p08', 'p10'] }
+    { name: 'Requirements', phases: ['p01_intake_requirements'] },
+    { name: 'Architecture', phases: ['p02_architecture', 'p03_scaffolding'] },
+    { name: 'Build', phases: ['p04_backend', 'p04a_backend_codegen', 'p04b_uiux_design', 'p04c', 'p04d', 'p04e'] },
+    { name: 'Frontend', phases: ['p05_frontend', 'p06_review_security'] },
+    { name: 'Testing', phases: ['p07_testing', 'p07a', 'p07b', 'p07b_self_healing', 'p07c', 'p07d'] },
+    { name: 'CI/CD', phases: ['p08_cicd', 'p08_cicd_deployment'] },
+    { name: 'Observe', phases: ['p09_observability'] },
+    { name: 'Docs', phases: ['p10_docs_delivery'] },
+    { name: 'Deploy', phases: ['p11_deployment', 'p11a_monitoring', 'p11b_error_tracking', 'p11c_analytics', 'p11d_alerting'] },
+    { name: 'Post-Launch', phases: ['p12a_feature_flags', 'p12b_ab_testing', 'p13_app_memory', 'p14_client_portal'] },
   ];
 
-  const currentStageIndex = stages.findIndex(s => s.phases.includes(status?.current_phase)) || 0;
+  const currentStageIndex = (() => {
+    if (!status?.current_phase) return 0;
+    const idx = stages.findIndex(s => s.phases.includes(status.current_phase));
+    return idx >= 0 ? idx : 0;
+  })();
 
   const handleApprove = async () => {
+    setActionError(null);
     try {
       await api.approvePortalPhase(id, true, 'Approved via portal');
       setSubmitted(true);
     } catch (err) {
-      alert('Failed to submit approval');
+      setActionError('Failed to submit approval. Please try again.');
     }
   };
 
   const handleFeedback = async () => {
+    setActionError(null);
+    setFeedbackSent(false);
     try {
       await api.sendPortalFeedback(id, feedback, status.current_phase);
       setFeedback('');
-      alert('Feedback sent successfully');
+      setFeedbackSent(true);
     } catch (err) {
-      alert('Failed to send feedback');
+      setActionError('Failed to send feedback. Please try again.');
     }
   };
 
@@ -181,8 +194,12 @@ const ClientPortal = () => {
               <p className="text-xs text-muted leading-relaxed mb-6">
                 Please review the current specifications. If they align with your vision, approve to proceed to the Architecture phase.
               </p>
-              <button 
+              {actionError && (
+                <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-danger text-xs">{actionError}</div>
+              )}
+              <button
                 onClick={handleApprove}
+                aria-label="Approve project and continue to next phase"
                 className="w-full bg-accent hover:bg-accent/90 text-white font-bold py-3 rounded-lg transition-all shadow-lg shadow-accent/20"
               >
                 APPROVE AND CONTINUE
@@ -199,10 +216,15 @@ const ClientPortal = () => {
                 rows="4"
                 className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent transition-colors custom-scrollbar mb-4"
                 placeholder="Describe any changes or additions..."
+                aria-label="Change request feedback"
               ></textarea>
-              <button 
+              {feedbackSent && (
+                <div className="mb-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs">Feedback sent successfully.</div>
+              )}
+              <button
                 onClick={handleFeedback}
                 disabled={!feedback.trim()}
+                aria-label="Submit change request feedback"
                 className="w-full bg-border/50 hover:bg-border disabled:opacity-50 text-bright text-xs font-bold py-2.5 rounded-lg transition-colors border border-border"
               >
                 SUBMIT FEEDBACK

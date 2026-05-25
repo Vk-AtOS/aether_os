@@ -89,7 +89,7 @@ pip install -r requirements.txt
 # 2. Configure environment
 cp .env.example .env
 # Set at minimum:
-#   SECRET_KEY=<random 64-char hex>
+#   AETHER_SECRET_KEY=<random 64-char hex>
 #   DATABASE_URL=postgresql+asyncpg://user:pass@localhost/aetheros
 #   REDIS_URL=redis://localhost:6379
 #   ANTHROPIC_API_KEY=sk-ant-...
@@ -98,7 +98,7 @@ cp .env.example .env
 alembic upgrade head
 
 # 4. Start the server
-uvicorn aether_os.gateway.api:create_app --factory --host 0.0.0.0 --port 8000 --reload
+uvicorn gateway.api:app --host 0.0.0.0 --port 8000 --reload
 
 # 5. (Optional) CLI
 pip install -e cli/

@@ -100,8 +100,8 @@ class RateLimiter:
             try:
                 count = int(await r.get(f"concurrent:{org_id}") or 0)
                 return count < self.max_concurrent_runs
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
         return _mem.active_runs[org_id] < self.max_concurrent_runs
 
     async def record_run_start(self, org_id: str):
@@ -112,8 +112,8 @@ class RateLimiter:
                 await r.expire(f"concurrent:{org_id}", 7200)
                 await _redis_incr_window(r, f"hourly_starts:{org_id}", 3600)
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
         _mem.active_runs[org_id] += 1
         _mem.hourly_starts[org_id].append(time.time())
 
@@ -125,8 +125,8 @@ class RateLimiter:
                 if cur > 0:
                     await r.decr(f"concurrent:{org_id}")
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
         if _mem.active_runs[org_id] > 0:
             _mem.active_runs[org_id] -= 1
 
@@ -139,17 +139,17 @@ class RateLimiter:
             try:
                 count = await _redis_get_count(r, f"factory_start_min:{org_id}", 60)
                 return count < self.max_factory_starts_per_min
-            except Exception:
-                pass
-        return True  # fallback: allow (mem fallback doesn't track per-minute here)
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+        return True  # fallback: allow on Redis failure (non-auth endpoint)
 
     async def record_factory_start(self, org_id: str):
         r = await _get_async_redis()
         if r:
             try:
                 await _redis_incr_window(r, f"factory_start_min:{org_id}", 60)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
 
     # ── hourly starts guard ───────────────────────────────────────────────────
 
@@ -159,8 +159,8 @@ class RateLimiter:
             try:
                 count = await _redis_get_count(r, f"hourly_starts:{org_id}", 3600)
                 return count < self.max_starts_per_hour
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
         now = time.time()
         _mem.hourly_starts[org_id] = [t for t in _mem.hourly_starts[org_id] if now - t < 3600]
         return len(_mem.hourly_starts[org_id]) < self.max_starts_per_hour
@@ -170,60 +170,99 @@ class RateLimiter:
     def _is_exempt_ip(self, ip: str) -> bool:
         """Localhost IPs are exempt from rate limiting in non-production mode.
         This allows load tests and automated testing from the same machine.
-        In production, all IPs including localhost are rate-limited."""
+        In production, all IPs including localhost are rate-limited.
+        SEC-037: "unknown" is never exempt — unknown IPs are rate-limited together."""
         if os.environ.get("ENVIRONMENT", "development") == "production":
             return False
-        return ip in ("127.0.0.1", "::1", "localhost", "unknown")
+        # "unknown" intentionally excluded: must be rate-limited (SEC-037)
+        return ip in ("127.0.0.1", "::1", "localhost")
 
-    async def check_login_attempts(self, ip: str) -> bool:
+    def _normalize_ip(self, ip: str) -> str:
+        """Return a rate-limiting key for this IP.
+        SEC-037: If IP is unknown/empty, use 'unknown_ip' key so all
+        unknown-IP requests share a single rate-limit bucket."""
+        if not ip or ip == "unknown":
+            logger.warning("Rate limiter: client IP could not be determined; using 'unknown_ip' bucket")
+            return "unknown_ip"
+        return ip
+
+    async def check_login_attempts(self, ip: str, strict_mode: bool = True) -> bool:
+        """True = allowed. False = rate-limited.
+        SEC-037: unknown IP uses 'unknown_ip' bucket (never exempt).
+        SEC-038: Redis failure in strict_mode (default) returns False (deny)."""
         if self._is_exempt_ip(ip):
             return True
+        effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
         if r:
             try:
-                return await _redis_get_count(r, f"login:{ip}", 900) < self.max_login_attempts
-            except Exception:
-                pass
+                return await _redis_get_count(r, f"login:{effective_ip}", 900) < self.max_login_attempts
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+                if strict_mode:
+                    logger.warning("Rate limiter: Redis failure on login check — denying (strict mode)")
+                    return False
+        # Redis unavailable (not connected) — fall through to in-memory fallback.
+        # SEC-038: in strict_mode with no Redis, log a warning and use memory store
+        # (acceptable single-worker fallback; multi-worker deployments must have Redis).
+        if strict_mode:
+            logger.warning(
+                "Rate limiter: Redis unavailable on login check — falling back to in-memory store "
+                "(per-worker only, NOT safe for multi-worker deployments)"
+            )
         now = time.time()
-        _mem.login_attempts[ip] = [t for t in _mem.login_attempts[ip] if now - t < 900]
-        return len(_mem.login_attempts[ip]) < self.max_login_attempts
+        _mem.login_attempts[effective_ip] = [
+            t for t in _mem.login_attempts[effective_ip] if now - t < 900
+        ]
+        return len(_mem.login_attempts[effective_ip]) < self.max_login_attempts
 
     async def record_login_attempt(self, ip: str):
         if self._is_exempt_ip(ip):
             return
+        effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
         if r:
             try:
-                await _redis_incr_window(r, f"login:{ip}", 900)
+                await _redis_incr_window(r, f"login:{effective_ip}", 900)
                 return
-            except Exception:
-                pass
-        _mem.login_attempts[ip].append(time.time())
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+        _mem.login_attempts[effective_ip].append(time.time())
 
-    async def check_registration_attempts(self, ip: str) -> bool:
+    async def check_registration_attempts(self, ip: str, strict_mode: bool = True) -> bool:
+        """True = allowed. False = rate-limited.
+        SEC-037: unknown IP uses 'unknown_ip' bucket.
+        SEC-038: Redis failure in strict_mode returns False (deny)."""
         if self._is_exempt_ip(ip):
             return True
+        effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
         if r:
             try:
-                return await _redis_get_count(r, f"reg:{ip}", 3600) < self.max_registrations
-            except Exception:
-                pass
+                return await _redis_get_count(r, f"reg:{effective_ip}", 3600) < self.max_registrations
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+                if strict_mode:
+                    logger.warning("Rate limiter: Redis failure on registration check — denying (strict mode)")
+                    return False
         now = time.time()
-        _mem.registrations[ip] = [t for t in _mem.registrations[ip] if now - t < 3600]
-        return len(_mem.registrations[ip]) < self.max_registrations
+        _mem.registrations[effective_ip] = [
+            t for t in _mem.registrations[effective_ip] if now - t < 3600
+        ]
+        return len(_mem.registrations[effective_ip]) < self.max_registrations
 
     async def record_registration_attempt(self, ip: str):
         if self._is_exempt_ip(ip):
             return
+        effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
         if r:
             try:
-                await _redis_incr_window(r, f"reg:{ip}", 3600)
+                await _redis_incr_window(r, f"reg:{effective_ip}", 3600)
                 return
-            except Exception:
-                pass
-        _mem.registrations[ip].append(time.time())
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+        _mem.registrations[effective_ip].append(time.time())
 
     # ── public (unauthenticated) endpoint guard ───────────────────────────────
 
@@ -231,24 +270,26 @@ class RateLimiter:
         """Count a request to a public, unauthenticated endpoint."""
         if self._is_exempt_ip(ip):
             return
+        effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
         if r:
             try:
-                await _redis_incr_window(r, f"pub:{ip}", 60)
-            except Exception:
-                pass
+                await _redis_incr_window(r, f"pub:{effective_ip}", 60)
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
 
     async def check_public_ratelimit(self, ip: str, max_per_minute: int = 100) -> bool:
         """True = request is allowed. False = 429 should be returned."""
         if self._is_exempt_ip(ip):
             return True
+        effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
         if r:
             try:
-                return await _redis_get_count(r, f"pub:{ip}", 60) < max_per_minute
-            except Exception:
-                pass
-        return True  # allow on Redis failure
+                return await _redis_get_count(r, f"pub:{effective_ip}", 60) < max_per_minute
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+        return True  # allow on Redis failure for non-auth public endpoints
 
 
 _instance: Optional[RateLimiter] = None

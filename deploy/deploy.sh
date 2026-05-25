@@ -73,20 +73,26 @@ else
     echo "→ Dashboard unchanged, skipping rebuild"
 fi
 
-# 7. Restart service
-echo "→ Restarting $SERVICE service..."
-systemctl restart "$SERVICE"
+# 7. Reload service (migrations ran first, minimising data-integrity window)
+echo "→ Reloading $SERVICE service..."
+# Use reload (SIGHUP) where uvicorn supports graceful reload; fall back to restart.
+systemctl reload "$SERVICE" 2>/dev/null || systemctl restart "$SERVICE"
 sleep 3
-systemctl is-active "$SERVICE" && echo "✅ $SERVICE restarted cleanly" || {
-    echo "❌ Restart failed — last 30 log lines:"
-    journalctl -u "$SERVICE" -n 30 --no-pager
-    exit 1
+systemctl is-active "$SERVICE" && echo "✅ $SERVICE reloaded cleanly" || {
+    echo "❌ Reload failed — attempting full restart..."
+    systemctl restart "$SERVICE"
+    sleep 3
+    systemctl is-active "$SERVICE" && echo "✅ $SERVICE restarted cleanly" || {
+        echo "❌ Restart also failed — last 30 log lines:"
+        journalctl -u "$SERVICE" -n 30 --no-pager
+        exit 1
+    }
 }
 
 # 8. Health check
 echo "→ Running health check..."
 sleep 2
-HEALTH=$(curl -sf http://127.0.0.1:9200/health 2>/dev/null || echo "FAILED")
+HEALTH=$(curl -sf http://127.0.0.1:8000/health 2>/dev/null || echo "FAILED")
 if echo "$HEALTH" | grep -q "ok\|healthy\|running"; then
     echo "✅ Health check passed"
 else

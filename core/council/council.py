@@ -88,10 +88,10 @@ _PASS_RESULT: Dict[str, Any] = {
 }
 
 _ERROR_RESULT: Dict[str, Any] = {
-    "passed": True,
-    "score": 0.8,
-    "reason": "Council evaluation failed — proceeding (non-strict mode)",
-    "suggestions": [],
+    "passed": False,
+    "score": 0.0,
+    "reason": "Council evaluation failed (LLM error) — manual review recommended",
+    "suggestions": ["Review pipeline output manually before delivery"],
 }
 
 
@@ -379,7 +379,7 @@ class DeliveryCouncil:
             project_name=project_name or run_id,
             domain=domain,
             phases_completed=len(completed),
-            phases_summary=summary[:1500],
+            phases_summary=summary[:8000],
         )
         try:
             raw = await client.call(

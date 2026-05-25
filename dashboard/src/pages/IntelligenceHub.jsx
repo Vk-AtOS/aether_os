@@ -96,6 +96,8 @@ const ConflictResolverTool = () => {
   const [resolving, setResolving] = useState(null);
   const [conflicts, setConflicts] = useState(null);
   const [error, setError] = useState('');
+  const [resolveInputId, setResolveInputId] = useState(null);
+  const [resolveText, setResolveText] = useState('');
 
   const detect = async () => {
     setDetecting(true);
@@ -113,18 +115,21 @@ const ConflictResolverTool = () => {
     }
   };
 
+  const [resolveError, setResolveError] = useState('');
+
   const resolve = async (conflict_id) => {
-    const resolution = window.prompt('Describe the resolution for this conflict:');
-    if (!resolution) return;
     setResolving(conflict_id);
+    setResolveError('');
     try {
-      await api.client.post('/intelligence/conflict-resolver/resolve', { conflict_id, resolution, run_id: '' });
+      await api.client.post('/intelligence/conflict-resolver/resolve', { conflict_id, resolution: resolveText, run_id: '' });
       setConflicts(c => {
         const items = c?.conflicts || c?.items || [];
         return { ...c, conflicts: items.map(ci => ci.id === conflict_id ? { ...ci, resolved: true } : ci) };
       });
+      setResolveInputId(null);
+      setResolveText('');
     } catch (e) {
-      alert('Resolve failed: ' + (e.response?.data?.detail || e.message));
+      setResolveError('Resolve failed: ' + (e.response?.data?.detail || e.message));
     } finally {
       setResolving(null);
     }
@@ -169,17 +174,44 @@ const ConflictResolverTool = () => {
               const id = c.id || String(i);
               const msg = typeof c === 'string' ? c : c.description || c.message || JSON.stringify(c);
               return (
-                <div key={id} className={`flex items-start gap-3 p-3 rounded-lg border text-xs ${c.resolved ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
-                  {c.resolved ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 mt-0.5 shrink-0" />}
-                  <span className="flex-1 text-bright/90">{msg}</span>
-                  {!c.resolved && (
-                    <button
-                      onClick={() => resolve(id)}
-                      disabled={resolving === id}
-                      className="shrink-0 text-[10px] font-bold text-accent hover:text-bright border border-accent/30 px-2 py-1 rounded transition-colors disabled:opacity-50"
-                    >
-                      {resolving === id ? '…' : 'Resolve'}
-                    </button>
+                <div key={id} className={`p-3 rounded-lg border text-xs space-y-2 ${c.resolved ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
+                  <div className="flex items-start gap-3">
+                    {c.resolved ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 mt-0.5 shrink-0" />}
+                    <span className="flex-1 text-bright/90">{msg}</span>
+                    {!c.resolved && resolveInputId !== id && (
+                      <button
+                        onClick={() => { setResolveInputId(id); setResolveText(''); setResolveError(''); }}
+                        className="shrink-0 text-[10px] font-bold text-accent hover:text-bright border border-accent/30 px-2 py-1 rounded transition-colors"
+                      >
+                        Resolve
+                      </button>
+                    )}
+                  </div>
+                  {!c.resolved && resolveInputId === id && (
+                    <div className="space-y-2 pl-6">
+                      <input
+                        value={resolveText}
+                        onChange={e => setResolveText(e.target.value)}
+                        placeholder="Describe the resolution…"
+                        className="w-full bg-surface border border-border rounded px-2 py-1 text-xs text-bright focus:outline-none focus:border-accent"
+                      />
+                      {resolveError && <p className="text-[10px] text-danger">{resolveError}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => resolve(id)}
+                          disabled={resolving === id || !resolveText.trim()}
+                          className="text-[10px] font-bold text-accent hover:text-bright border border-accent/30 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                        >
+                          {resolving === id ? '…' : 'Submit'}
+                        </button>
+                        <button
+                          onClick={() => setResolveInputId(null)}
+                          className="text-[10px] text-muted hover:text-bright px-2 py-1 rounded transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               );

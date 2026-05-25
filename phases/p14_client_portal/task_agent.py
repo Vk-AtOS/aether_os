@@ -88,27 +88,60 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 """
     (portal_dir / "client_portal.html").write_text(portal_html)
 
-    # Portal router — real endpoints for tickets
+    # Portal router — real endpoints for tickets with JSON file persistence
     (portal_dir / "portal_router.py").write_text(
-        '''from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-from typing import Optional, List
+        '''import hashlib
+import json
+import os
+import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, List
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/portal", tags=["Client Portal"])
+
+_TICKETS_FILE = Path(os.getenv("PORTAL_TICKETS_PATH", "portal_tickets.json"))
+_TICKETS: List[dict] = []
+_ticket_id = 0
+
+
+def _load_tickets() -> None:
+    global _TICKETS, _ticket_id
+    if _TICKETS_FILE.exists():
+        try:
+            data = json.loads(_TICKETS_FILE.read_text(encoding="utf-8"))
+            _TICKETS = data.get("tickets", [])
+            _ticket_id = max((t["id"] for t in _TICKETS), default=0)
+        except Exception:
+            _TICKETS, _ticket_id = [], 0
+
+
+def _save_tickets() -> None:
+    try:
+        _TICKETS_FILE.write_text(
+            json.dumps({"tickets": _TICKETS}, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+_load_tickets()
+
 
 class TicketCreate(BaseModel):
     title: str
     description: str
     priority: str = "medium"
 
+
 class TicketUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
 
-_TICKETS: List[dict] = []
-_ticket_id = 0
 
 @router.get("/", response_class=HTMLResponse)
 def portal_home():
@@ -117,44 +150,75 @@ def portal_home():
         return HTMLResponse(html_path.read_text())
     return HTMLResponse("<h1>Client Portal</h1>")
 
+
 @router.get("/tickets")
 def list_tickets(status: Optional[str] = None):
+    _load_tickets()
     tickets = _TICKETS if not status else [t for t in _TICKETS if t["status"] == status]
     return {"tickets": tickets, "total": len(tickets)}
+
 
 @router.post("/tickets")
 def create_ticket(ticket: TicketCreate):
     global _ticket_id
+    _load_tickets()
     _ticket_id += 1
-    from datetime import datetime
     entry = {
         "id": _ticket_id,
         "title": ticket.title,
         "description": ticket.description,
         "priority": ticket.priority,
         "status": "open",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _TICKETS.append(entry)
+    _save_tickets()
     return entry
+
 
 @router.get("/tickets/{ticket_id}")
 def get_ticket(ticket_id: int):
+    _load_tickets()
     for t in _TICKETS:
         if t["id"] == ticket_id:
             return t
     raise HTTPException(status_code=404, detail="Ticket not found")
 
+
 @router.patch("/tickets/{ticket_id}")
 def update_ticket(ticket_id: int, update: TicketUpdate):
+    _load_tickets()
     for t in _TICKETS:
         if t["id"] == ticket_id:
             if update.status:
                 t["status"] = update.status
             if update.priority:
                 t["priority"] = update.priority
+            _save_tickets()
             return t
     raise HTTPException(status_code=404, detail="Ticket not found")
+
+
+@router.get("/download")
+def download_artifacts():
+    """Download a ZIP of all portal artifacts with provenance metadata."""
+    portal_dir = Path(__file__).parent
+    zip_path = portal_dir / "portal_artifacts.zip"
+    provenance: dict = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "files": [],
+    }
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in portal_dir.rglob("*"):
+            if f.is_file() and f.name != "portal_artifacts.zip":
+                arcname = f.relative_to(portal_dir)
+                zf.write(f, arcname)
+                checksum = hashlib.sha256(f.read_bytes()).hexdigest()
+                provenance["files"].append({"path": str(arcname), "sha256": checksum})
+    # Add provenance manifest inside ZIP
+    with zipfile.ZipFile(zip_path, "a") as zf:
+        zf.writestr("provenance.json", json.dumps(provenance, indent=2))
+    return FileResponse(zip_path, media_type="application/zip", filename="portal_artifacts.zip")
 '''
     )
 

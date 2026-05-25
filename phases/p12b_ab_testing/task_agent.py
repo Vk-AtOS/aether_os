@@ -16,20 +16,44 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     (ab_dir / "__init__.py").write_text("")
 
-    # A/B testing engine (standalone)
+    # A/B testing engine (standalone, JSON-file-backed persistence)
     (ab_dir / "ab_testing.py").write_text(
         '''import hashlib
 import json
+import os
 from pathlib import Path
 
+_EXPERIMENTS_FILE = Path(os.getenv("AB_EXPERIMENTS_PATH", "ab_experiments.json"))
 _EXPERIMENTS: dict = {}
+
+
+def _load() -> None:
+    global _EXPERIMENTS
+    if _EXPERIMENTS_FILE.exists():
+        try:
+            _EXPERIMENTS = json.loads(_EXPERIMENTS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _EXPERIMENTS = {}
+
+
+def _save() -> None:
+    try:
+        _EXPERIMENTS_FILE.write_text(json.dumps(_EXPERIMENTS, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+_load()
+
 
 def register(name: str, variants: list, weights: list = None):
     """Register an experiment with variant names and optional weights (must sum to 1)."""
-    _EXPERIMENTS[name] = {"variants": variants, "weights": weights or [1/len(variants)] * len(variants)}
+    _EXPERIMENTS[name] = {"variants": variants, "weights": weights or [1 / len(variants)] * len(variants)}
+    _save()
 
-def get_variant(experiment: str, user_id: str | int) -> str:
+def get_variant(experiment: str, user_id) -> str:
     """Deterministically assign a user to a variant based on hash."""
+    _load()
     if experiment not in _EXPERIMENTS:
         return "control"
     exp = _EXPERIMENTS[experiment]
@@ -78,15 +102,31 @@ def get_user_variant(name: str, user_id: str):
     )
 
     (ab_dir / "ab_results_calculator.py").write_text(
-        '''def chi_square_significance(control_conversions: int, control_total: int,
-                               variant_conversions: int, variant_total: int) -> float:
-    """Return approximate p-value (simplified chi-square for 2-sample proportion)."""
-    if control_total == 0 or variant_total == 0:
-        return 1.0
+        '''import math
+
+def chi_square_significance(control_conversions: int, control_total: int,
+                             variant_conversions: int, variant_total: int) -> float:
+    """Return approximate two-sided p-value using a Z-test for proportions.
+
+    NOTE: This is a simplified approximation suitable for A/B testing dashboards.
+    For rigorous statistical analysis, use scipy.stats.chi2_contingency.
+    Returns 1.0 when sample sizes are insufficient for reliable inference.
+    """
+    if control_total < 30 or variant_total < 30:
+        return 1.0  # insufficient data
     p_control = control_conversions / control_total
     p_variant = variant_conversions / variant_total
-    lift = (p_variant - p_control) / max(p_control, 1e-9)
-    return round(abs(lift), 4)
+    p_pooled = (control_conversions + variant_conversions) / (control_total + variant_total)
+    if p_pooled in (0.0, 1.0):
+        return 1.0
+    se = math.sqrt(p_pooled * (1 - p_pooled) * (1 / control_total + 1 / variant_total))
+    if se == 0:
+        return 1.0
+    z = abs(p_variant - p_control) / se
+    # Two-tailed p-value approximation via complementary error function
+    # Approximation: p ≈ erfc(z / sqrt(2))
+    p_value = math.erfc(z / math.sqrt(2))
+    return round(min(1.0, max(0.0, p_value)), 4)
 '''
     )
 

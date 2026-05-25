@@ -4,8 +4,8 @@ Knowledge graph layer for DCSP using NetworkX.
 
 from __future__ import annotations
 
+import json
 import os
-import pickle
 import networkx as nx
 from typing import Any, Dict, List
 
@@ -85,19 +85,28 @@ class KnowledgeGraph:
         
         return nx.node_link_data(subgraph)
 
-    def persist(self, path: str = "data/knowledge_graph.gpickle") -> None:
-        """Saves graph using pickle."""
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'wb') as f:
-            pickle.dump(self._graph, f)
+    def persist(self, path: str = "data/knowledge_graph.json") -> None:
+        """Saves graph as JSON (node-link format) — no pickle, safe across Python versions."""
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        data = nx.node_link_data(self._graph)
+        # Make metadata values JSON-serialisable (convert any non-primitive types to str)
+        for node in data.get("nodes", []):
+            meta = node.get("metadata", {})
+            node["metadata"] = {k: (v if isinstance(v, (str, int, float, bool, type(None))) else str(v))
+                                for k, v in meta.items()}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
 
-    def load(self, path: str = "data/knowledge_graph.gpickle") -> None:
-        """Loads graph using pickle."""
+    def load(self, path: str = "data/knowledge_graph.json") -> None:
+        """Loads graph from JSON (node-link format)."""
         if not os.path.exists(path):
             self._graph = nx.DiGraph()
             return
-        with open(path, 'rb') as f:
-            self._graph = pickle.load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self._graph = nx.node_link_graph(data, directed=True, multigraph=False)
 
     def stats(self) -> dict:
         """Returns graph statistics."""

@@ -29,6 +29,43 @@ from fastapi.responses import RedirectResponse
 logger = logging.getLogger(__name__)
 oauth_router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
+# ── CSRF state store (module-level, short-lived) ──────────────────────────────
+# Maps state_token → (provider, issued_at_timestamp)
+# Cleaned up on each new login initiation.
+# SEC NOTE: This in-process dict is NOT shared across multiple uvicorn workers.
+# In a multi-worker deployment, OAuth CSRF state validation may fail if the
+# callback lands on a different worker than the login request. To fix in
+# production: migrate _pending_states to Redis using the same pattern as
+# core/rate_limiter.py (sse_token_set / sse_token_pop).
+_STATE_TTL_SECONDS = 600  # 10 minutes
+_pending_states: dict = {}  # state_token → {"provider": str, "ts": float}
+
+
+def _new_state(provider: str) -> str:
+    """Generate a cryptographically random CSRF state token and record it."""
+    import time
+    state = secrets.token_urlsafe(32)
+    # Prune expired entries on each generation (keeps dict bounded)
+    now = time.time()
+    expired = [k for k, v in _pending_states.items() if now - v["ts"] > _STATE_TTL_SECONDS]
+    for k in expired:
+        _pending_states.pop(k, None)
+    _pending_states[state] = {"provider": provider, "ts": now}
+    return state
+
+
+def _consume_state(state: str, provider: str) -> bool:
+    """Validate and consume a CSRF state token. Returns True if valid."""
+    import time
+    entry = _pending_states.pop(state, None)
+    if entry is None:
+        return False
+    if time.time() - entry["ts"] > _STATE_TTL_SECONDS:
+        return False
+    if entry["provider"] != provider:
+        return False
+    return True
+
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
@@ -123,6 +160,7 @@ async def google_login() -> RedirectResponse:
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured")
 
+    state = _new_state("google")
     callback_url = f"{_base_url()}/api/auth/oauth/google/callback"
     params = {
         "client_id": client_id,
@@ -131,14 +169,22 @@ async def google_login() -> RedirectResponse:
         "scope": "openid email profile",
         "access_type": "online",
         "prompt": "select_account",
+        "state": state,
     }
     return RedirectResponse(url=_GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params))
 
 
 @oauth_router.get("/google/callback", include_in_schema=False)
-async def google_callback(code: Optional[str] = None, error: Optional[str] = None) -> RedirectResponse:
+async def google_callback(
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    state: Optional[str] = None,
+) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "Google sign-in was cancelled")
+    if not state or not _consume_state(state, "google"):
+        logger.warning("Google OAuth callback: invalid or missing CSRF state")
+        return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
     client_id = os.environ.get("GOOGLE_CLIENT_ID")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
@@ -171,14 +217,16 @@ async def google_callback(code: Optional[str] = None, error: Optional[str] = Non
         email = info.get("email")
         if not email:
             return _redirect_with_error("Google did not return an email address")
-        if not info.get("email_verified", True):
+        # SEC: default False — block if Google omits email_verified (fail-safe)
+        if not info.get("email_verified", False):
             return _redirect_with_error("Google account email is not verified")
 
         user, org = await _upsert_oauth_user(email=email)
         return _redirect_with_token(_make_jwt(user, org))
     except Exception as exc:
+        # SEC: Do not expose internal exception details in redirect URL
         logger.exception("Google OAuth callback failed")
-        return _redirect_with_error(f"Google sign-in failed: {exc}")
+        return _redirect_with_error("Google sign-in failed. Please try again.")
 
 
 # ── GitHub ────────────────────────────────────────────────────────────────────
@@ -189,19 +237,28 @@ async def github_login() -> RedirectResponse:
     if not client_id:
         raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
 
+    state = _new_state("github")
     callback_url = f"{_base_url()}/api/auth/oauth/github/callback"
     params = {
         "client_id": client_id,
         "redirect_uri": callback_url,
         "scope": "user:email",
+        "state": state,
     }
     return RedirectResponse(url=_GITHUB_AUTH_URL + "?" + urllib.parse.urlencode(params))
 
 
 @oauth_router.get("/github/callback", include_in_schema=False)
-async def github_callback(code: Optional[str] = None, error: Optional[str] = None) -> RedirectResponse:
+async def github_callback(
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    state: Optional[str] = None,
+) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "GitHub sign-in was cancelled")
+    if not state or not _consume_state(state, "github"):
+        logger.warning("GitHub OAuth callback: invalid or missing CSRF state")
+        return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
     client_id = os.environ.get("GITHUB_CLIENT_ID")
     client_secret = os.environ.get("GITHUB_CLIENT_SECRET")
@@ -251,5 +308,6 @@ async def github_callback(code: Optional[str] = None, error: Optional[str] = Non
         user, org = await _upsert_oauth_user(email=email)
         return _redirect_with_token(_make_jwt(user, org))
     except Exception as exc:
+        # SEC: Do not expose internal exception details in redirect URL
         logger.exception("GitHub OAuth callback failed")
-        return _redirect_with_error(f"GitHub sign-in failed: {exc}")
+        return _redirect_with_error("GitHub sign-in failed. Please try again.")

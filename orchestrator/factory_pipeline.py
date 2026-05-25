@@ -8,12 +8,33 @@ The orchestrator routes messages; it never calls phase logic directly.
 from __future__ import annotations
 import asyncio
 import logging
+import socket
+import subprocess
 import time
 import uuid
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# B5: Strong references to background tasks prevent GC from silently killing them.
+_background_tasks: set = set()
+
+# BACKEND-011: Local proc registry — avoids circular import from gateway.api.
+# Gateway can import this dict if it needs to track managed app processes.
+_MANAGED_PROCS: Dict[str, subprocess.Popen] = {}
+
+def _find_free_port(start: int = 8100, end: int = 9000) -> int:
+    """PIPELINE-007: Allocate a unique free port for each pipeline run."""
+    for port in range(start, end):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError("No free port found in range 8100-9000")
+
 
 from aether_os.orchestrator.bus import get_bus, release_bus
 from aether_os.orchestrator.messages import PhaseInput, PhaseMessage, PhaseResult
@@ -274,9 +295,11 @@ class FactoryPipeline:
                 results[phase_name] = phase_result
 
                 # FIX-020: If phase escalated, wait for human approval before continuing
+                # PIPELINE-057: treat None/"" decision_mode as autonomous (no blocking)
+                _decision_mode = accumulated_context.get("decision_mode")
                 if (
                     phase_result.get("status") == "escalated"
-                    and accumulated_context.get("decision_mode") != "autonomous"
+                    and _decision_mode not in ("autonomous", None, "")
                 ):
                     await self._await_human_approval(
                         run_id=run_id,
@@ -347,8 +370,14 @@ class FactoryPipeline:
                     try:
                         if _intake_path.exists():
                             _intake = _json_p01.loads(_intake_path.read_text())
-                            _client_id = _intake.get("client_id", "")
-                            if _client_id and _client_id != "unknown":
+                            # PIPELINE-060: prefer project_name/app_name, fall back to client_id
+                            _pname_raw = (
+                                _intake.get("project_name")
+                                or _intake.get("app_name")
+                                or _intake.get("client_id", "")
+                            )
+                            if _pname_raw and _pname_raw != "unknown":
+                                _pname_display = _pname_raw.replace("-", " ").replace("_", " ").title()
                                 from aether_os.core.db import get_session_factory as _gsf_p01
                                 from aether_os.core.models import Run as _Run_p01
                                 from sqlalchemy import update as _sa_up_p01
@@ -356,11 +385,11 @@ class FactoryPipeline:
                                     await _s_p01.execute(
                                         _sa_up_p01(_Run_p01)
                                         .where(_Run_p01.id == run_id)
-                                        .values(project_name=_client_id.replace("-", " ").replace("_", " ").title())
+                                        .values(project_name=_pname_display)
                                     )
                                     await _s_p01.commit()
-                                accumulated_context["project_name"] = _client_id
-                                logger.info("[pipeline] project_name updated from p01: %s", _client_id)
+                                accumulated_context["project_name"] = _pname_raw
+                                logger.info("[pipeline] project_name updated from p01: %s", _pname_raw)
                     except Exception as _exc_p01:
                         logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
 
@@ -531,23 +560,27 @@ class FactoryPipeline:
         # Auto-start the generated app
         try:
             import sys as _sys
-            import subprocess as _sp
-            from aether_os.gateway.api import _APP_PROCS
             _proj_dir = get_project_manager().get_project_dir(run_id).resolve()
             _log = _proj_dir / "run_app.log"
-            _log_f = open(_log, "w")
-            _port = int(os.environ.get("RUN_APP_PORT", "8001"))
-            # Kill any existing process on that port
-            _sp.run(["fuser", "-k", f"{_port}/tcp"], capture_output=True)
-            import time as _time_m; _time_m.sleep(1)
-            _proc = _sp.Popen(
+            # BACKEND: open() is blocking — run in thread to avoid blocking the event loop
+            _log_f = await asyncio.to_thread(open, _log, "w")
+            # PIPELINE-007: allocate a unique port per run to avoid killing other users' apps
+            _port = _find_free_port()
+            # Kill only any previously managed process on that exact port (not global)
+            _old_proc = _MANAGED_PROCS.get(run_id)
+            if _old_proc and _old_proc.poll() is None:
+                _old_proc.terminate()
+            # PIPELINE-003/004: wrap blocking subprocess calls in asyncio.to_thread
+            _proc = await asyncio.to_thread(
+                subprocess.Popen,
                 [_sys.executable, "-m", "uvicorn", "src.main:app",
                  "--host", "127.0.0.1", "--port", str(_port)],
                 cwd=str(_proj_dir),
                 stdout=_log_f,
                 stderr=_log_f,
             )
-            _APP_PROCS[run_id] = _proc
+            _MANAGED_PROCS[run_id] = _proc
+            accumulated_context["app_port"] = _port
             logger.info("Auto-started generated app for run %s on port %d (pid %d)", run_id, _port, _proc.pid)
         except Exception as _e:
             logger.warning("Auto-start generated app failed: %s", _e)
@@ -710,24 +743,26 @@ class FactoryPipeline:
                 from aether_os.core.artifact_store import get_artifact_store
                 store = get_artifact_store()
                 _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
-                _count = 0
+                _total_count = 0
+                # PIPELINE-066: per-phase limit of 20 files so all phases get embedded proportionally
+                _PER_PHASE_LIMIT = 20
                 for _phase in results:
                     if await get_control(run_id) == "cancel":
                         break
                     _phase_dir = project_dir / _phase
+                    _phase_count = 0
                     if _phase_dir.exists():
                         for f in _phase_dir.rglob("*"):
                             if f.is_file() and f.suffix in _extensions:
                                 try:
                                     await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text())
-                                    _count += 1
-                                    if _count >= 50:
+                                    _total_count += 1
+                                    _phase_count += 1
+                                    if _phase_count >= _PER_PHASE_LIMIT:
                                         break
                                 except Exception:
                                     continue
-                    if _count >= 50:
-                        break
-                logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
+                logger.info("[pipeline] Embedded %d artifacts for run %s", _total_count, run_id)
             except Exception as e:
                 logger.warning("[pipeline] Artifact embedding skipped: %s", e)
         _t3 = asyncio.create_task(_embed_artifacts())
@@ -929,9 +964,6 @@ class FactoryPipeline:
             memory_context=json.dumps(original_context) if original_context else None,
         )
 
-
-# B5: Strong references to background tasks prevent GC from silently killing them.
-_background_tasks: set = set()
 
 _factory: Optional[FactoryPipeline] = None
 

@@ -145,13 +145,20 @@ class UsageTracker:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
+# Strong references for background tasks (prevents GC from killing in-flight coroutines)
+_background_tasks: set = set()
+
+
 def _run_async(coro):
     try:
-        asyncio.get_running_loop()
-        # Inside an event loop — fire-and-forget
-        asyncio.ensure_future(coro)
+        loop = asyncio.get_running_loop()
+        # Inside an event loop — fire-and-forget with strong reference
+        task = loop.create_task(coro)
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
         return None
     except RuntimeError:
+        # No running loop — use asyncio.run
         return asyncio.run(coro)
 
 
@@ -165,3 +172,7 @@ def get_usage_tracker() -> UsageTracker:
     if _tracker is None:
         _tracker = UsageTracker()
     return _tracker
+
+
+# Alias — used by model_router.py and llm/client.py
+get_billing_tracker = get_usage_tracker

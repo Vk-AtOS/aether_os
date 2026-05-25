@@ -11,9 +11,11 @@ const PHASES = [
   'p05_frontend',
   'p06_review_security',
   'p07_testing',
+  'p07b_self_healing',
   'p08_cicd_deployment',
   'p09_observability',
   'p10_docs_delivery',
+  'p11_deployment',
 ];
 
 const PHASE_NAMES = {
@@ -24,9 +26,11 @@ const PHASE_NAMES = {
   p05_frontend:            'Frontend Codegen',
   p06_review_security:     'Code Review & Security',
   p07_testing:             'Testing Suite',
+  p07b_self_healing:       'Self-Healing',
   p08_cicd_deployment:     'CI/CD & Deployment',
   p09_observability:       'Observability',
   p10_docs_delivery:       'Docs & Delivery',
+  p11_deployment:          'Deployment',
 };
 
 // ── Edit & Restart modal ─────────────────────────────────────────────────────

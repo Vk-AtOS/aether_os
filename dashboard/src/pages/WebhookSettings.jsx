@@ -14,6 +14,8 @@ const WebhookSettings = () => {
   const [form, setForm] = useState({ url: '', events: ['run.completed', 'run.failed'] });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState({});
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [addError, setAddError] = useState(null);
 
   const fetchWebhooks = async () => {
     setLoading(true);
@@ -32,21 +34,23 @@ const WebhookSettings = () => {
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!form.url.trim()) return;
+    setAddError(null);
     setSaving(true);
     try {
       await api.client.post('/webhooks', { url: form.url, events: form.events });
       setForm({ url: '', events: ['run.completed', 'run.failed'] });
       setAdding(false);
       await fetchWebhooks();
-    } catch {
-      // silent
+    } catch (e) {
+      setAddError('Failed to add webhook: ' + (e.response?.data?.detail || e.message));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this webhook?')) return;
+    if (confirmDelete !== id) { setConfirmDelete(id); return; }
+    setConfirmDelete(null);
     setDeleting(prev => ({ ...prev, [id]: true }));
     try {
       await api.client.delete(`/webhooks/${id}`);
@@ -120,6 +124,11 @@ const WebhookSettings = () => {
                 ))}
               </div>
             </div>
+            {addError && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-danger text-xs">
+                {addError}
+              </div>
+            )}
             <div className="flex items-center space-x-3">
               <button
                 type="submit"
@@ -171,13 +180,22 @@ const WebhookSettings = () => {
                     ))}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(wh.id)}
-                  disabled={deleting[wh.id]}
-                  className="ml-4 text-danger/50 hover:text-danger transition-colors disabled:opacity-30"
-                >
-                  {deleting[wh.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                </button>
+                {confirmDelete === wh.id ? (
+                  <span className="ml-4 flex items-center gap-2 text-[10px]">
+                    <span className="text-danger font-bold">Delete?</span>
+                    <button onClick={() => handleDelete(wh.id)} className="text-danger font-bold underline">Yes</button>
+                    <button onClick={() => setConfirmDelete(null)} className="text-muted hover:text-bright">No</button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => handleDelete(wh.id)}
+                    disabled={deleting[wh.id]}
+                    className="ml-4 text-danger/50 hover:text-danger transition-colors disabled:opacity-30"
+                    title="Delete webhook"
+                  >
+                    {deleting[wh.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
+                )}
               </div>
             ))}
           </div>
