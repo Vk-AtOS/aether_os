@@ -212,7 +212,7 @@ def score_project(project_dir: Path) -> QualityScore:
         elif test_files:
             # Test files exist but pytest didn't run (or results unavailable)
             # Cap at 60 (not 75) to reflect that runtime results are unknown
-            test_score = 60 if len(test_files) > 1 else 50
+            test_score = 60
 
     # ── File presence checks ──────────────────────────────────────────────────
     has_docker = (

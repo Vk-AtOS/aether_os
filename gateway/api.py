@@ -644,12 +644,13 @@ def create_app() -> FastAPI:
     @app.get("/system/metrics")
     async def system_metrics(request: Request) -> Dict[str, Any]:
         """System resource metrics — CPU, memory, disk, Redis, DB, pipeline."""
-        # LAUNCH-024: gate behind METRICS_API_KEY when set
+        # LAUNCH-024: always require METRICS_API_KEY — endpoint must not be open
         _metrics_key = os.environ.get("METRICS_API_KEY", "")
-        if _metrics_key:
-            _provided = request.headers.get("X-Metrics-Key", "")
-            if _provided != _metrics_key:
-                raise HTTPException(status_code=401, detail="Invalid metrics API key")
+        if not _metrics_key:
+            raise HTTPException(status_code=503, detail="METRICS_API_KEY not configured — metrics endpoint disabled")
+        _provided = request.headers.get("X-Metrics-Key", "")
+        if _provided != _metrics_key:
+            raise HTTPException(status_code=401, detail="Invalid metrics API key")
         import time as _time
         result: Dict[str, Any] = {"timestamp": _time.time()}
 
