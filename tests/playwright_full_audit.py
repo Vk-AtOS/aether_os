@@ -197,6 +197,11 @@ async def run_audit():
                     log("Settings shows SSO section", "PASS")
                 else:
                     log("Settings shows SSO section", "WARN")
+                # Check SCIM section
+                if await text_present("SCIM", 3000):
+                    log("Settings shows SCIM section", "PASS")
+                else:
+                    log("Settings shows SCIM section", "WARN")
             else:
                 log("Settings page loads", "FAIL")
 
