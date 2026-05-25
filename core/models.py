@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -184,6 +184,20 @@ class Workspace(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
 
+class OrgApiKey(Base):
+    """Per-org LLM provider API key storage (replaces shared .env approach)."""
+    __tablename__ = "org_api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)   # "anthropic", "google", "openrouter", "bedrock"
+    api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)   # user_id who saved it
+
+    __table_args__ = (UniqueConstraint("org_id", "provider", name="uq_org_provider"),)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 
@@ -196,7 +210,6 @@ class AuditLog(Base):
     log_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
-    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
 
 class SamlConfig(Base):
     __tablename__ = "saml_configs"
@@ -310,16 +323,7 @@ class InstalledPluginRecord(Base):
 
 
 class LlmConfig(Base):
-    """Per-org (or global) LLM provider configuration persisted in DB.
-
-    INTENTIONALLY UNUSED (DB-001): The active LLM configuration is read entirely
-    from environment variables (OPENROUTER_API_KEY, HEAVY_MODEL, LIGHT_MODEL, etc.)
-    via core/llm/client.py and served from os.environ at runtime.  This table and
-    its Alembic migration (revision_e1f2a3b4c5d6) are retained so the schema stays
-    forward-compatible and the migration chain is not broken.  Do NOT remove the
-    migration or the table — instead wire reads/writes here if per-org DB-backed
-    LLM config is needed in the future.
-    """
+    """Per-org (or global) LLM provider configuration persisted in DB."""
     __tablename__ = "llm_config"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

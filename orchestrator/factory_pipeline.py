@@ -8,33 +8,12 @@ The orchestrator routes messages; it never calls phase logic directly.
 from __future__ import annotations
 import asyncio
 import logging
-import socket
-import subprocess
 import time
 import uuid
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-# B5: Strong references to background tasks prevent GC from silently killing them.
-_background_tasks: set = set()
-
-# BACKEND-011: Local proc registry — avoids circular import from gateway.api.
-# Gateway can import this dict if it needs to track managed app processes.
-_MANAGED_PROCS: Dict[str, subprocess.Popen] = {}
-
-def _find_free_port(start: int = 8100, end: int = 9000) -> int:
-    """PIPELINE-007: Allocate a unique free port for each pipeline run."""
-    for port in range(start, end):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(('127.0.0.1', port))
-                return port
-            except OSError:
-                continue
-    raise RuntimeError("No free port found in range 8100-9000")
-
 
 from aether_os.orchestrator.bus import get_bus, release_bus
 from aether_os.orchestrator.messages import PhaseInput, PhaseMessage, PhaseResult
@@ -56,9 +35,6 @@ from aether_os.core.project_memory import (
 )
 
 logger = logging.getLogger(__name__)
-
-# PIPELINE-036: Phases that must succeed; failure stops the pipeline immediately.
-CRITICAL_PHASES = {"p01_intake_requirements", "p04_backend", "p05_frontend"}
 
 # Ordered 20-phase sequence (12 core + 8 post-deployment)
 PHASE_SEQUENCE = [
@@ -121,36 +97,6 @@ def _load_supervisor(phase_name: str):
     return getattr(module, class_name)()
 
 
-async def _acquire_run_lock(run_id: str, redis_client=None) -> bool:
-    """PIPELINE-069: acquire a per-run lock to prevent duplicate concurrent runs."""
-    if redis_client:
-        try:
-            result = await redis_client.set(f"run_lock:{run_id}", "1", nx=True, ex=3600)
-            return result is not None
-        except Exception as exc:
-            logger.warning("[pipeline] Redis lock failed (%s) — using file lock", exc)
-    # Local file lock fallback
-    lock_file = Path(f"/tmp/aetheros_run_{run_id}.lock")
-    if lock_file.exists():
-        return False
-    try:
-        lock_file.touch()
-    except OSError:
-        return False
-    return True
-
-
-async def _release_run_lock(run_id: str, redis_client=None) -> None:
-    """Release the per-run lock."""
-    if redis_client:
-        try:
-            await redis_client.delete(f"run_lock:{run_id}")
-        except Exception:
-            pass
-    lock_file = Path(f"/tmp/aetheros_run_{run_id}.lock")
-    lock_file.unlink(missing_ok=True)
-
-
 class FactoryPipeline:
     """
     26-phase factory pipeline.
@@ -208,42 +154,14 @@ class FactoryPipeline:
 
         run_id = run_id or str(uuid.uuid4())
 
-        # PIPELINE-069: acquire distributed run lock (prevents duplicate concurrent runs)
-        _redis_client = None
-        try:
-            from aether_os.core.cache import get_redis
-            _redis_client = await get_redis()
-        except Exception:
-            pass  # Redis unavailable — use file lock
-
-        _lock_acquired = await _acquire_run_lock(run_id, _redis_client)
-        if not _lock_acquired:
-            logger.warning("[pipeline] Run %s already has an active lock — skipping duplicate start", run_id)
-            return {"run_id": run_id, "status": "duplicate", "error": "Run already in progress"}
-
-        try:
-            return await self._execute_pipeline_locked(
-                client_id, raw_input, domain, project_name, start_phase,
-                run_id, org_id, org_slug, plan, is_change_request, memory_context,
-                council_preflight, github_url,
-            )
-        finally:
-            await _release_run_lock(run_id, _redis_client)
-
-    async def _execute_pipeline_locked(self,
-                  client_id: str,
-                  raw_input: str,
-                  domain: str = "general",
-                  project_name: Optional[str] = None,
-                  start_phase: Optional[str] = None,
-                  run_id: Optional[str] = None,
-                  org_id: Optional[str] = None,
-                  org_slug: Optional[str] = None,
-                  plan: Optional[str] = None,
-                  is_change_request: bool = False,
-                  memory_context: Optional[str] = None,
-                  council_preflight: Optional[Dict[str, Any]] = None,
-                  github_url: Optional[str] = None) -> dict:
+        # Pre-warm per-org LLM API key cache so synchronous client getters
+        # can resolve org-specific keys without an await.
+        if org_id:
+            try:
+                from aether_os.core.llm.client import init_org_llm_context
+                await init_org_llm_context(org_id)
+            except Exception as _key_exc:
+                logger.debug("init_org_llm_context non-fatal: %s", _key_exc)
 
         # Create project directory
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
@@ -365,11 +283,9 @@ class FactoryPipeline:
                 results[phase_name] = phase_result
 
                 # FIX-020: If phase escalated, wait for human approval before continuing
-                # PIPELINE-057: treat None/"" decision_mode as autonomous (no blocking)
-                _decision_mode = accumulated_context.get("decision_mode")
                 if (
                     phase_result.get("status") == "escalated"
-                    and _decision_mode not in ("autonomous", None, "")
+                    and accumulated_context.get("decision_mode") != "autonomous"
                 ):
                     await self._await_human_approval(
                         run_id=run_id,
@@ -440,14 +356,8 @@ class FactoryPipeline:
                     try:
                         if _intake_path.exists():
                             _intake = _json_p01.loads(_intake_path.read_text())
-                            # PIPELINE-060: prefer project_name/app_name, fall back to client_id
-                            _pname_raw = (
-                                _intake.get("project_name")
-                                or _intake.get("app_name")
-                                or _intake.get("client_id", "")
-                            )
-                            if _pname_raw and _pname_raw != "unknown":
-                                _pname_display = _pname_raw.replace("-", " ").replace("_", " ").title()
+                            _client_id = _intake.get("client_id", "")
+                            if _client_id and _client_id != "unknown":
                                 from aether_os.core.db import get_session_factory as _gsf_p01
                                 from aether_os.core.models import Run as _Run_p01
                                 from sqlalchemy import update as _sa_up_p01
@@ -455,11 +365,11 @@ class FactoryPipeline:
                                     await _s_p01.execute(
                                         _sa_up_p01(_Run_p01)
                                         .where(_Run_p01.id == run_id)
-                                        .values(project_name=_pname_display)
+                                        .values(project_name=_client_id.replace("-", " ").replace("_", " ").title())
                                     )
                                     await _s_p01.commit()
-                                accumulated_context["project_name"] = _pname_raw
-                                logger.info("[pipeline] project_name updated from p01: %s", _pname_raw)
+                                accumulated_context["project_name"] = _client_id
+                                logger.info("[pipeline] project_name updated from p01: %s", _client_id)
                     except Exception as _exc_p01:
                         logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
 
@@ -593,27 +503,7 @@ class FactoryPipeline:
                 results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
                             "error": str(e)}, run_id=run_id)
-                # PIPELINE-036: critical phases stop the pipeline immediately
-                if phase_name in CRITICAL_PHASES:
-                    logger.error(
-                        "[pipeline] Critical phase %s failed — aborting pipeline run %s",
-                        phase_name, run_id,
-                    )
-                    await self.ledger.async_update_run_status(run_id, "failed")
-                    await publish_event(run_id, {
-                        "type": "pipeline_complete",
-                        "status": "failed",
-                        "reason": f"Critical phase {phase_name} failed: {e}",
-                        "ts": time.time(),
-                    })
-                    return {
-                        "run_id": run_id,
-                        "status": "failed",
-                        "phases": results,
-                        "output_dir": str(project_dir),
-                        "error": f"Critical phase {phase_name} failed: {e}",
-                    }
-                # Continue to next phase for non-critical failures
+                # Continue to next phase even if this one failed
 
             finally:
                 # Reset context vars after each phase
@@ -650,27 +540,23 @@ class FactoryPipeline:
         # Auto-start the generated app
         try:
             import sys as _sys
+            import subprocess as _sp
+            from aether_os.gateway.api import _APP_PROCS
             _proj_dir = get_project_manager().get_project_dir(run_id).resolve()
             _log = _proj_dir / "run_app.log"
-            # BACKEND: open() is blocking — run in thread to avoid blocking the event loop
-            _log_f = await asyncio.to_thread(open, _log, "w")
-            # PIPELINE-007: allocate a unique port per run to avoid killing other users' apps
-            _port = _find_free_port()
-            # Kill only any previously managed process on that exact port (not global)
-            _old_proc = _MANAGED_PROCS.get(run_id)
-            if _old_proc and _old_proc.poll() is None:
-                _old_proc.terminate()
-            # PIPELINE-003/004: wrap blocking subprocess calls in asyncio.to_thread
-            _proc = await asyncio.to_thread(
-                subprocess.Popen,
+            _log_f = open(_log, "w")
+            _port = int(os.environ.get("RUN_APP_PORT", "8001"))
+            # Kill any existing process on that port
+            _sp.run(["fuser", "-k", f"{_port}/tcp"], capture_output=True)
+            import time as _time_m; _time_m.sleep(1)
+            _proc = _sp.Popen(
                 [_sys.executable, "-m", "uvicorn", "src.main:app",
                  "--host", "127.0.0.1", "--port", str(_port)],
                 cwd=str(_proj_dir),
                 stdout=_log_f,
                 stderr=_log_f,
             )
-            _MANAGED_PROCS[run_id] = _proc
-            accumulated_context["app_port"] = _port
+            _APP_PROCS[run_id] = _proc
             logger.info("Auto-started generated app for run %s on port %d (pid %d)", run_id, _port, _proc.pid)
         except Exception as _e:
             logger.warning("Auto-start generated app failed: %s", _e)
@@ -833,26 +719,24 @@ class FactoryPipeline:
                 from aether_os.core.artifact_store import get_artifact_store
                 store = get_artifact_store()
                 _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
-                _total_count = 0
-                # PIPELINE-066: per-phase limit of 20 files so all phases get embedded proportionally
-                _PER_PHASE_LIMIT = 20
+                _count = 0
                 for _phase in results:
                     if await get_control(run_id) == "cancel":
                         break
                     _phase_dir = project_dir / _phase
-                    _phase_count = 0
                     if _phase_dir.exists():
                         for f in _phase_dir.rglob("*"):
                             if f.is_file() and f.suffix in _extensions:
                                 try:
                                     await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text())
-                                    _total_count += 1
-                                    _phase_count += 1
-                                    if _phase_count >= _PER_PHASE_LIMIT:
+                                    _count += 1
+                                    if _count >= 50:
                                         break
                                 except Exception:
                                     continue
-                logger.info("[pipeline] Embedded %d artifacts for run %s", _total_count, run_id)
+                    if _count >= 50:
+                        break
+                logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
             except Exception as e:
                 logger.warning("[pipeline] Artifact embedding skipped: %s", e)
         _t3 = asyncio.create_task(_embed_artifacts())
@@ -1055,6 +939,9 @@ class FactoryPipeline:
         )
 
 
+# B5: Strong references to background tasks prevent GC from silently killing them.
+_background_tasks: set = set()
+
 _factory: Optional[FactoryPipeline] = None
 
 
@@ -1062,37 +949,4 @@ def get_factory() -> FactoryPipeline:
     global _factory
     if _factory is None:
         _factory = FactoryPipeline()
-
-
-async def _monitor_stuck_runs(threshold_minutes: int = 30) -> None:
-    """LAUNCH-036: Background task that logs a CRITICAL alert for runs stuck >threshold_minutes."""
-    while True:
-        await asyncio.sleep(300)  # check every 5 minutes
-        try:
-            from aether_os.core.db import get_session_factory as _gsf_mon
-            from aether_os.core.models import Run as _Run_mon
-            from sqlalchemy import select as _sel_mon
-            stale_ts = time.time() - (threshold_minutes * 60)
-            sf = _gsf_mon()
-            async with sf() as _s:
-                stuck_runs = (await _s.execute(
-                    _sel_mon(_Run_mon)
-                    .where(_Run_mon.status == "running")
-                    .where(_Run_mon.started_at <= stale_ts)
-                )).scalars().all()
-            for run in stuck_runs:
-                logger.critical(
-                    "STALL: run %s stuck for >%dm in phase %s",
-                    run.id, threshold_minutes, run.current_phase,
-                )
-        except Exception:
-            pass
-
-
-def start_stuck_run_monitor(threshold_minutes: int = 30) -> None:
-    """Start the stuck-run monitor as an asyncio background task."""
-    _t = asyncio.create_task(_monitor_stuck_runs(threshold_minutes))
-    _background_tasks.add(_t)
-    _t.add_done_callback(_background_tasks.discard)
-    logger.info("Stuck-run monitor started (threshold=%dm, check interval=5m)", threshold_minutes)
     return _factory

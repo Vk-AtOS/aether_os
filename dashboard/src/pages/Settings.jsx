@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
   Shield,
@@ -20,11 +20,9 @@ import {
   Plus,
   Trash2,
   RefreshCw,
-  Layers,
 } from 'lucide-react';
 import StorageWidget from '../components/StorageWidget';
 import { useSettings } from '../contexts/SettingsContext';
-import { useRole } from '../hooks/useRole';
 import hljs from 'highlight.js';
 
 import 'highlight.js/styles/github-dark.css';
@@ -84,13 +82,13 @@ const PhaseConfigPanel = ({ phase, config, onSave }) => {
 
 const Settings = () => {
   const { updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
-  const { isAdmin } = useRole();
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
   const [expandedPhase, setExpandedPhase] = useState(null);
   const [apiKeys, setApiKeys] = useState({ anthropic: '', gemini: '', openrouter: '' });
   const [keyStatus, setKeyStatus] = useState({ anthropic: null, gemini: null, openrouter: null }); // null | 'saving' | 'saved' | 'error'
   const [testStatus, setTestStatus] = useState({ anthropic: null, gemini: null, openrouter: null }); // null | 'testing' | 'ok' | 'fail'
+  const [orgKeys, setOrgKeys] = useState({ anthropic: false, google: false, openrouter: false }); // DB-stored org keys
   const [phaseConfigs, setPhaseConfigs] = useState({});
   const [runs, setRuns] = useState([]);
   const [selectedRun, setSelectedRun] = useState('');
@@ -122,11 +120,6 @@ const Settings = () => {
   const [ssoConfig, setSsoConfig] = useState(null);
   const [ssoForm, setSsoForm] = useState({ idp_entity_id: '', idp_sso_url: '', idp_cert: '' });
   const [ssoStatus, setSsoStatus] = useState(null); // null | 'saving' | 'saved' | 'error' | 'deleting'
-
-  // Workspaces (DB-003)
-  const [workspaces, setWorkspaces] = useState([]);
-  const [wsForm, setWsForm] = useState({ name: '', description: '' });
-  const [wsStatus, setWsStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
 
   // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (12 phases).
   // Previously had 10 phases — missing p07b_self_healing and p11_deployment.
@@ -189,6 +182,9 @@ const Settings = () => {
             gemini: kd.google || '',
             openrouter: kd.openrouter || '',
           });
+          if (kd.org_keys) {
+            setOrgKeys(kd.org_keys);
+          }
         }
         if (ccRes.status === 'fulfilled') {
           setCouncilConfig(ccRes.value.data || { council_enabled: true, council_strict_mode: false });
@@ -229,14 +225,8 @@ const Settings = () => {
           const compRes = await api.client.get('/compliance/org-report');
           if (compRes.data?.data_region) setDataRegion(compRes.data.data_region.toLowerCase());
         } catch (_) {}
-
-        // Workspaces — admin/owner only
-        try {
-          const wsRes = await api.getWorkspaces();
-          setWorkspaces(wsRes.data?.items ?? wsRes.data ?? []);
-        } catch (_) {}
       } catch (err) {
-        if (import.meta.env.DEV) console.error('Settings fetch error', err);
+        console.error('Settings fetch error', err);
       }
     };
     fetchData();
@@ -250,6 +240,9 @@ const Settings = () => {
       await api.saveApiKeys(provider, key);
       setKeyStatus(s => ({ ...s, [provider]: 'saved' }));
       setTimeout(() => setKeyStatus(s => ({ ...s, [provider]: null })), 3000);
+      // Mark this provider as having an org-specific key in the DB
+      const storeProvider = provider === 'gemini' ? 'google' : provider;
+      setOrgKeys(ok => ({ ...ok, [storeProvider]: true }));
       // Re-fetch LLM config so TopBar/Sidebar reflect the new active provider immediately
       ctxReload();
     } catch (err) {
@@ -273,7 +266,7 @@ const Settings = () => {
     try {
       await api.savePhaseConfig(phase, config);
     } catch (err) {
-      if (import.meta.env.DEV) console.error('Failed to save phase config', err);
+      console.error('Failed to save phase config', err);
     }
   };
 
@@ -367,31 +360,6 @@ const Settings = () => {
     }
   };
 
-  const handleCreateWorkspace = async () => {
-    if (!wsForm.name.trim()) return;
-    setWsStatus('saving');
-    try {
-      const res = await api.createWorkspace({ name: wsForm.name.trim(), description: wsForm.description.trim() });
-      setWorkspaces(prev => [...prev, res.data]);
-      setWsForm({ name: '', description: '' });
-      setWsStatus('saved');
-      setTimeout(() => setWsStatus(null), 2500);
-    } catch {
-      setWsStatus('error');
-      setTimeout(() => setWsStatus(null), 3000);
-    }
-  };
-
-  const handleDeleteWorkspace = async (id) => {
-    if (!window.confirm('Delete this workspace?')) return;
-    try {
-      await api.deleteWorkspace(id);
-      setWorkspaces(prev => prev.filter(w => w.id !== id));
-    } catch (err) {
-      if (import.meta.env.DEV) console.error('Failed to delete workspace', err);
-    }
-  };
-
   const handleRunSelect = async (runId) => {
     setSelectedRun(runId);
     setSelectedFile('');
@@ -436,10 +404,9 @@ const Settings = () => {
     }
   };
 
-  const codeContainerRef = useRef(null);
   useEffect(() => {
-    if (fileContent && codeContainerRef.current) {
-      codeContainerRef.current.querySelectorAll('pre code').forEach((block) => {
+    if (fileContent) {
+      document.querySelectorAll('pre code').forEach((block) => {
         hljs.highlightElement(block);
       });
     }
@@ -478,12 +445,17 @@ const Settings = () => {
             </div>
             <div className="p-6 space-y-6">
               {[
-                { id: 'anthropic',  label: 'Anthropic API Key' },
-                { id: 'gemini',     label: 'Google Gemini Key' },
-                { id: 'openrouter', label: 'OpenRouter Key (5 free models)' },
-              ].map(({ id, label }) => (
+                { id: 'anthropic',  label: 'Anthropic API Key',             storeKey: 'anthropic'  },
+                { id: 'gemini',     label: 'Google Gemini Key',             storeKey: 'google'     },
+                { id: 'openrouter', label: 'OpenRouter Key (5 free models)', storeKey: 'openrouter' },
+              ].map(({ id, label, storeKey }) => (
                 <div key={id} className="space-y-2">
-                  <label className="text-xs font-bold text-muted uppercase tracking-wider block">{label}</label>
+                  <label className="text-xs font-bold text-muted uppercase tracking-wider flex items-center gap-2">
+                    {label}
+                    {orgKeys?.[storeKey] && (
+                      <span className="text-[10px] text-emerald-400 font-bold normal-case tracking-normal">Org key active</span>
+                    )}
+                  </label>
                   <div className="flex space-x-2">
                     <input
                       type="password"
@@ -513,7 +485,8 @@ const Settings = () => {
               <div className="p-3 bg-indigo-600/10 border border-indigo-600/20 rounded-lg flex items-start space-x-3">
                 <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
                 <p className="text-[10px] text-indigo-200">
-                  Keys are stored in your local .env file and never leave your server. Restart the factory service to apply changes.
+                  Keys are stored per-organisation in the database and never leave your server. Active immediately — no restart needed.
+                  When an org-specific key is saved it takes priority over the system default. "Org key active" means your org has its own dedicated key.
                   OpenRouter provides free models including MiniMax M2.5, Llama 3.3 70B, Qwen3-Coder, and more.
                 </p>
               </div>
@@ -851,7 +824,7 @@ const Settings = () => {
                     <span className="text-[10px] font-mono text-muted uppercase tracking-widest">{selectedFile || 'No file selected'}</span>
                     <span className="text-[9px] font-mono text-success">READ ONLY</span>
                  </div>
-                 <div className="flex-1 overflow-auto p-4 custom-scrollbar" ref={codeContainerRef}>
+                 <div className="flex-1 overflow-auto p-4 custom-scrollbar">
                     {fileContent ? (() => {
                       const ext = selectedFile?.split('.').pop()?.toLowerCase() || '';
                       const langMap = { js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', py: 'python', json: 'json', yml: 'yaml', yaml: 'yaml', md: 'markdown', sh: 'bash', css: 'css', html: 'html', sql: 'sql' };
@@ -866,76 +839,6 @@ const Settings = () => {
               </div>
             </div>
           </section>
-
-          {/* Workspaces Section — admin/owner only (DB-003) */}
-          {isAdmin && (
-            <section className="panel overflow-hidden">
-              <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
-                <Layers className="w-4 h-4 mr-2 text-accent" />
-                <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Workspaces</h3>
-                <span className="ml-3 text-[10px] text-muted font-normal normal-case">{workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}</span>
-              </div>
-              <div className="p-6 space-y-5">
-                <p className="text-[11px] text-muted">
-                  Workspaces let you group projects and share settings across your organisation. Each workspace can have its own preferences.
-                </p>
-
-                {/* Workspace list */}
-                {workspaces.length === 0 ? (
-                  <p className="text-xs text-muted italic">No workspaces yet — create one below.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {workspaces.map(ws => (
-                      <div key={ws.id} className="flex items-center justify-between px-4 py-3 bg-surface border border-border rounded-lg">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-bright truncate">{ws.name}</p>
-                          {ws.description && <p className="text-xs text-muted truncate mt-0.5">{ws.description}</p>}
-                        </div>
-                        <button
-                          onClick={() => handleDeleteWorkspace(ws.id)}
-                          className="ml-4 shrink-0 text-danger/40 hover:text-danger p-1 rounded transition-colors"
-                          title="Delete workspace"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Add workspace form */}
-                <div className="pt-2 space-y-3 border-t border-border">
-                  <p className="text-[10px] font-bold text-muted uppercase tracking-wider">Add Workspace</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      placeholder="Workspace name"
-                      value={wsForm.name}
-                      onChange={e => setWsForm(f => ({ ...f, name: e.target.value }))}
-                      onKeyDown={e => e.key === 'Enter' && handleCreateWorkspace()}
-                      className="bg-surface border border-border rounded px-3 py-2 text-xs text-bright focus:outline-none focus:border-accent placeholder:text-muted/40"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Description (optional)"
-                      value={wsForm.description}
-                      onChange={e => setWsForm(f => ({ ...f, description: e.target.value }))}
-                      onKeyDown={e => e.key === 'Enter' && handleCreateWorkspace()}
-                      className="bg-surface border border-border rounded px-3 py-2 text-xs text-bright focus:outline-none focus:border-accent placeholder:text-muted/40"
-                    />
-                  </div>
-                  <button
-                    onClick={handleCreateWorkspace}
-                    disabled={!wsForm.name.trim() || wsStatus === 'saving'}
-                    className="flex items-center gap-2 text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-4 py-1.5 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors disabled:opacity-50"
-                  >
-                    <Plus className="w-3 h-3" />
-                    {wsStatus === 'saving' ? '...' : wsStatus === 'saved' ? '✓ Created' : wsStatus === 'error' ? '✗ Error' : 'Create Workspace'}
-                  </button>
-                </div>
-              </div>
-            </section>
-          )}
         </div>
 
         <aside className="space-y-8">
@@ -1062,50 +965,6 @@ const Settings = () => {
               </div>
             </div>
           </section>
-
-          {/* SCIM 2.0 Provisioning Section — admin/owner only */}
-          {(ssoConfig !== null) && (
-          <section className="panel overflow-hidden">
-            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
-              <Key className="w-4 h-4 mr-2 text-accent" />
-              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">SCIM 2.0 Provisioning</h3>
-              <span className="ml-3 text-[10px] font-bold bg-accent/10 text-accent border border-accent/20 px-2 py-0.5 rounded uppercase tracking-wider">Read-Only Config</span>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-muted">
-                Use SCIM to auto-provision and deprovision users from Okta, Azure AD, or any SCIM 2.0-compatible IdP.
-                Configure your IdP with the endpoint URL and bearer token below.
-              </p>
-              <div className="p-3 rounded-lg bg-surface border border-border space-y-3">
-                <div>
-                  <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">SCIM Endpoint URL</div>
-                  <div className="font-mono text-xs text-bright bg-border/20 rounded px-3 py-2 select-all">
-                    {window.location.origin}/scim/v2
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Authentication</div>
-                  <div className="text-xs text-muted space-y-1">
-                    <p>Set the following environment variables on the AetherOS server, then configure the same token as the provisioning secret in your IdP:</p>
-                    <div className="font-mono bg-border/20 rounded px-3 py-2 space-y-0.5 mt-1">
-                      <div className="text-accent">SCIM_BEARER_TOKEN=<span className="text-muted">your-secret-token</span></div>
-                      <div className="text-accent">SCIM_ORG_ID=<span className="text-muted">your-org-uuid</span></div>
-                    </div>
-                  </div>
-                </div>
-                <div className="border-t border-border pt-3">
-                  <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">IdP Setup Notes</div>
-                  <ul className="text-xs text-muted list-disc list-inside space-y-1">
-                    <li><span className="text-bright">Okta:</span> Applications → Provisioning → SCIM 2.0 → set Base URL and Bearer Token</li>
-                    <li><span className="text-bright">Azure AD:</span> Enterprise Apps → Provisioning → set Tenant URL and Secret Token</li>
-                    <li>The bearer token must match <span className="font-mono text-accent">SCIM_BEARER_TOKEN</span> exactly</li>
-                    <li>Supported operations: create, update, deactivate (soft-delete) users; list groups</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </section>
-          )}
 
           <section className="panel p-6">
             <div className="flex items-center mb-4">
