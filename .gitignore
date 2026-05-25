@@ -107,3 +107,10 @@ coverage.xml
 *.tar.gz
 *.whl
 *.zip
+
+# Development/debug scripts — not for production repo
+verify_sprint.py
+check_frontend.py
+
+# Claude Code agent worktrees
+.claude/

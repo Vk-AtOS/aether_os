@@ -14,6 +14,9 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, text, update, delete, func
 
+# Strong reference set so background notification tasks are not garbage collected
+_background_notify_tasks: set = set()
+
 
 # ── Run queries ───────────────────────────────────────────────────────────────
 
@@ -279,7 +282,9 @@ def _emit_run_notification(run, status: str) -> None:
             pass
     try:
         loop = asyncio.get_running_loop()
-        asyncio.ensure_future(_create())
+        _t = asyncio.create_task(_create())
+        _background_notify_tasks.add(_t)
+        _t.add_done_callback(_background_notify_tasks.discard)
     except RuntimeError:
         pass  # no running event loop — skip background notification
 

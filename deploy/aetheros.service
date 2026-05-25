@@ -22,9 +22,9 @@ StandardError=journal
 SyslogIdentifier=aetheros
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectHome=yes
+ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths=/home/aether_os /var/log/aetheros /var/backups/aetheros
+ReadWritePaths=/home/aether_os /home/aether_os/.aether_os /var/log/aetheros /var/backups/aetheros
 
 [Install]
 WantedBy=multi-user.target

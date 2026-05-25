@@ -225,9 +225,11 @@ The file must be importable without errors."""
     (src_dir / "Dockerfile").write_text(dockerfile)
 
     # ── .env.example ─────────────────────────────────────────────────────────
+    import secrets as _sec
+    _gen_secret = _sec.token_hex(32)
     env_example = textwrap.dedent(f"""\
         DATABASE_URL=sqlite+aiosqlite:///./app.db
-        SECRET_KEY=change-me-in-production
+        SECRET_KEY={_gen_secret}
         CORS_ORIGINS=http://localhost:3000,http://localhost:5173
         ENVIRONMENT=development
     """)
@@ -243,7 +245,7 @@ The file must be importable without errors."""
               - "8000:8000"
             environment:
               - DATABASE_URL=sqlite+aiosqlite:///./app.db
-              - SECRET_KEY=${{SECRET_KEY:-change-me}}
+              - SECRET_KEY=${{SECRET_KEY:-{_gen_secret}}}
             volumes:
               - ./data:/app/data
             restart: unless-stopped

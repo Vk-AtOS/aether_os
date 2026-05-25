@@ -87,13 +87,17 @@ security_scheme = HTTPBearer(auto_error=False)
 def _get_cors_origins() -> list:
     """
     Bug 3 fix: CORS origins come from env var only. Never wildcard in production.
-    Default is localhost for development.
+    Default is localhost for development only — blocked in production.
     """
     raw = os.environ.get("CORS_ORIGINS", "")
     if raw:
         return [o.strip() for o in raw.split(",") if o.strip()]
 
-    # Default development origins
+    # In production, refuse to default to localhost origins — require explicit config.
+    if os.environ.get("ENVIRONMENT") == "production":
+        return []
+
+    # Default development origins (only when ENVIRONMENT != production)
     return [
         "http://localhost:8000",
         "http://127.0.0.1:8000",
