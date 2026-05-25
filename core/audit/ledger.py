@@ -244,7 +244,7 @@ def _run_async(coro) -> Any:
             except Exception as exc:
                 fut.set_exception(exc)
 
-        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_wrapper(), loop=loop))
+        asyncio.run_coroutine_threadsafe(_wrapper(), loop)
         return fut.result(timeout=30)
     except RuntimeError:
         # No running loop (sync context) — use asyncio.run()

@@ -131,9 +131,11 @@ async def health():
     (project_dir / "requirements.txt").write_text("\n".join(sorted(set(reqs))))
     
     # Create .env.example
+    import secrets as _sec
+    _example_key = _sec.token_hex(32)
     (project_dir / ".env.example").write_text(
         "DATABASE_URL=postgresql://localhost/db\n"
-        "SECRET_KEY=your-secret-key\n")
+        f"SECRET_KEY={_example_key}\n")
     
     # Create README.md
     _brand = os.environ.get("DEPLOYMENT_BRAND", "AetherOS Factory")
