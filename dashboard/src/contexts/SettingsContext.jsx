@@ -22,7 +22,7 @@ export const SettingsProvider = ({ children }) => {
       const [llm, acct, pref] = await Promise.allSettled([
         api.client.get('/settings/llm-config'),
         api.client.get('/account/usage'),
-        api.client.get('/account/preferences'),
+        api.client.get('/settings/preferences'),
       ]);
       if (llm.status === 'fulfilled') setLlmConfig(llm.value.data);
       if (acct.status === 'fulfilled') setOrgSettings(acct.value.data);

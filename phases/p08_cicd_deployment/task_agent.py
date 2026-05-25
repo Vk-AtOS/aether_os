@@ -12,12 +12,9 @@ from aether_os.phases.base import TaskResult
 logger = logging.getLogger(__name__)
 
 _SUB_PHASES = [
-    ("cicd",           "aether_os.phases.p08_cicd.task_agent",        "run"),
-    ("deployment",     "aether_os.phases.p11_deployment.task_agent",   "TaskAgent"),
-    ("monitoring",     "aether_os.phases.p11a_monitoring.task_agent",  "run"),
-    ("error_tracking", "aether_os.phases.p11b_error_tracking.task_agent", "run"),
-    ("analytics",      "aether_os.phases.p11c_analytics.task_agent",   "run"),
-    ("alerting",       "aether_os.phases.p11d_alerting.task_agent",    "run"),
+    # PIPELINE-008: p11a/p11b/p11c/p11d/p11_deployment are separate phases in PHASE_SEQUENCE —
+    # running them here would cause double execution.  p08 only invokes p08_cicd.
+    ("cicd", "aether_os.phases.p08_cicd.task_agent", "run"),
 ]
 
 _SUBTASK_TIMEOUT = 150.0  # 2.5 min per sub-task

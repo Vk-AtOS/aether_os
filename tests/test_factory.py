@@ -28,7 +28,7 @@ async def test_bus_publish_and_drain():
     from aether_os.orchestrator.bus import MessageBus
     from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
 
-    bus = MessageBus()
+    bus = MessageBus(run_id="test-drain")
     result = PhaseResult(
         run_id="test-drain",
         phase="p00_intake",
@@ -59,7 +59,7 @@ async def test_bus_drain_clears_queue():
     from aether_os.orchestrator.bus import MessageBus
     from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
 
-    bus = MessageBus()
+    bus = MessageBus(run_id="test-clear")
     result = PhaseResult(
         run_id="test-clear",
         phase="p01_requirements",
@@ -84,7 +84,7 @@ async def test_bus_broadcast_status():
     """broadcast_status publishes a synthetic message."""
     from aether_os.orchestrator.bus import MessageBus
 
-    bus = MessageBus()
+    bus = MessageBus(run_id="run-1")
     await bus.broadcast_status("run-1", "p02_architecture", "passed")
     msgs = await bus.drain()
     assert len(msgs) == 1
@@ -110,7 +110,7 @@ async def test_bus_fan_out_to_subscriber():
     from aether_os.orchestrator.bus import MessageBus
     from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
 
-    bus = MessageBus()
+    bus = MessageBus(run_id="sub-run")
     # Subscribe creates the queue; then publish fan-outs to it
     # We need to prime the subscriber queue before publishing
     if "p01_requirements" not in bus._subscribers:

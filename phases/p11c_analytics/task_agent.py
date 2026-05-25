@@ -13,14 +13,44 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     analytics_dir.mkdir(parents=True, exist_ok=True)
     migrations_dir.mkdir(parents=True, exist_ok=True)
 
-    # Analytics service
+    # Analytics service with PostHog support
     (analytics_dir / "analytics_service.py").write_text(
         '''import logging
+import os
+
 logger = logging.getLogger(__name__)
 
+_POSTHOG_KEY = os.getenv("POSTHOG_API_KEY", "")
+_posthog = None
+
+
+def _get_posthog():
+    """Lazy-init PostHog client if API key is set."""
+    global _posthog
+    if _posthog is not None:
+        return _posthog
+    if _POSTHOG_KEY:
+        try:
+            import posthog as _ph
+            _ph.api_key = _POSTHOG_KEY
+            _ph.host = os.getenv("POSTHOG_HOST", "https://app.posthog.com")
+            _posthog = _ph
+        except ImportError:
+            logger.warning("posthog package not installed — events logged only")
+    return _posthog
+
+
 def track(event: str, data: dict = None, user_id: int = None):
-    """Fire-and-forget event tracking."""
-    logger.info("ANALYTICS event=%s user_id=%s data=%s", event, user_id, data or {})
+    """Fire-and-forget event tracking. Uses PostHog if POSTHOG_API_KEY is set."""
+    props = data or {}
+    ph = _get_posthog()
+    if ph:
+        try:
+            distinct_id = str(user_id) if user_id else "anonymous"
+            ph.capture(distinct_id, event=event, properties=props)
+        except Exception as exc:
+            logger.warning("PostHog capture failed: %s", exc)
+    logger.info("ANALYTICS event=%s user_id=%s data=%s", event, user_id, props)
 '''
     )
 

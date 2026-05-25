@@ -87,10 +87,22 @@ async def error_middleware(request: Request, call_next):
                     "except ImportError:\n"
                     "    pass\n"
                 )
-                _insert_pos = content.find("app = FastAPI(")
-                if _insert_pos >= 0:
-                    content = content[:_insert_pos] + _sentry_snippet + content[_insert_pos:]
-                    _main_py.write_text(content)
+                # Insert AFTER app = FastAPI(...) closing paren — not before it
+                _start = content.find("app = FastAPI(")
+                if _start >= 0:
+                    _depth, _end_pos = 0, _start
+                    for _i, _ch in enumerate(content[_start:], _start):
+                        if _ch == "(":
+                            _depth += 1
+                        elif _ch == ")":
+                            _depth -= 1
+                            if _depth == 0:
+                                _end_pos = _i
+                                break
+                    _end_nl = content.find("\n", _end_pos)
+                    if _end_nl >= 0:
+                        content = content[:_end_nl + 1] + _sentry_snippet + content[_end_nl + 1:]
+                        _main_py.write_text(content)
         except Exception as exc:
             issues.append(f"Sentry injection skipped: {exc}")
 

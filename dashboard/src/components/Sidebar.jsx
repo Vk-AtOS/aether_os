@@ -5,7 +5,7 @@ import {
   Plug, Wrench, Brain, DollarSign, ChevronDown, ChevronRight,
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
-  Activity, Sparkles, Zap,
+  Activity, Sparkles, Zap, Bot,
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
@@ -42,7 +42,7 @@ const Sidebar = () => {
     if (['/connectors', '/skills', '/memory', '/costs', '/frontend-builder', '/backend-builder', '/prompt', '/learning', '/settings/webhooks'].some(p => location.pathname.startsWith(p))) {
       setToolsOpen(true);
     }
-  }, []);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try { await api.client.post('/auth/logout'); } catch { /* ignore */ }
@@ -62,7 +62,7 @@ const Sidebar = () => {
     { name: 'Marketplace', path: '/marketplace',   icon: Store },
     { name: 'Intelligence',path: '/intelligence',  icon: Sparkles },
     { name: 'System Health',path: '/health',       icon: Activity },
-    { name: 'Pricing',      path: '/pricing',      icon: Zap },
+    { name: 'Agents',       path: '/agents',       icon: Bot },
     { name: 'Settings',    path: '/settings',      icon: Settings },
     { name: 'Compliance',  path: '/compliance',    icon: Shield },
     { name: 'Profile',     path: '/profile',       icon: UserCircle },

@@ -220,17 +220,35 @@ class IdentityStore:
 
     def _save(self) -> None:
         """
-        Persist identity store to disk atomically.
+        Persist identity store to disk atomically with owner-only permissions (0o600).
+        SEC-044: Ensures the JSON file is readable only by the process owner.
         """
+        import io
         data = {
             "version": self.VERSION,
             "principals": {uid: asdict(p) for uid, p in self._principals.items()},
             "tokens": {tid: asdict(t) for tid, t in self._tokens.items()},
         }
         tmp_path = self.path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
+        # Write with O_CREAT | O_WRONLY | O_TRUNC and mode 0o600 so the file
+        # is never readable by group/other even briefly.
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd_owned = True
+        try:
+            # io.open takes ownership of fd (closefd=True), so track ownership to avoid double-close
+            f = io.open(fd, "w", encoding="utf-8", closefd=True)
+            fd_owned = False  # io.open now owns fd; do not close it separately
+            try:
+                json.dump(data, f, indent=2, sort_keys=True)
+            finally:
+                f.close()
+        except Exception:
+            if fd_owned:
+                os.close(fd)
+            raise
         os.replace(tmp_path, self.path)
+        # Apply 0o600 to final path as well (os.replace may preserve old permissions)
+        os.chmod(self.path, 0o600)
         logger.debug("Identity store saved to %s", self.path)
 
     def _now(self) -> datetime:

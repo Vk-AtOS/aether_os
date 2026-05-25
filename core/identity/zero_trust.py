@@ -37,6 +37,8 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 
+_TICKET_TTL_SECONDS = 300  # 5 minutes
+
 
 # Env var for secret key (can be rotated by ops)
 _ZT_SECRET_ENV = "AETHER_ONE_ZT_SECRET"
@@ -160,6 +162,42 @@ def verify_ticket(ticket: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "ok": False,
             "reason": "signature mismatch",
+            "project_path": project_path,
+            "file_path": file_path,
+            "action": action,
+            "issued_at": issued_at,
+        }
+
+    # SEC-025: Validate TTL — reject tickets older than 5 minutes
+    try:
+        issued_dt = datetime.fromisoformat(issued_at)
+        now_dt = datetime.now(timezone.utc)
+        # Ensure issued_dt is timezone-aware for comparison
+        if issued_dt.tzinfo is None:
+            issued_dt = issued_dt.replace(tzinfo=timezone.utc)
+        age_seconds = (now_dt - issued_dt).total_seconds()
+        if age_seconds > _TICKET_TTL_SECONDS:
+            return {
+                "ok": False,
+                "reason": f"ticket expired (age {int(age_seconds)}s > {_TICKET_TTL_SECONDS}s TTL)",
+                "project_path": project_path,
+                "file_path": file_path,
+                "action": action,
+                "issued_at": issued_at,
+            }
+        if age_seconds < 0:
+            return {
+                "ok": False,
+                "reason": "ticket issued_at is in the future",
+                "project_path": project_path,
+                "file_path": file_path,
+                "action": action,
+                "issued_at": issued_at,
+            }
+    except (ValueError, OverflowError) as exc:
+        return {
+            "ok": False,
+            "reason": f"invalid issued_at timestamp: {exc}",
             "project_path": project_path,
             "file_path": file_path,
             "action": action,

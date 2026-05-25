@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import List
-from aether.core.errors import SandboxViolation
+from aether_os.core.errors import SandboxViolation
 
 FORBIDDEN_EXEC_PATTERNS = [
     (r"os\.kill\s*\(", "os.kill"),

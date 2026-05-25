@@ -25,6 +25,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Strong references prevent GC from silently killing background tasks
+_background_tasks: set = set()
+
 # ── Module-level stats (reset on process restart) ─────────────────────────────
 _active_model: Optional[str] = None        # e.g. "anthropic/claude-sonnet-4-6"
 _fallback_count_today: int = 0
@@ -329,9 +332,11 @@ class ModelRouter:
                     if not enforce_local:
                         try:
                             from aether_os.core.llm.cache import get_llm_cache
-                            asyncio.create_task(
+                            _ct = asyncio.create_task(
                                 get_llm_cache().set(prompt, task_type, result, system, org_id=org_id)
                             )
+                            _background_tasks.add(_ct)
+                            _ct.add_done_callback(_background_tasks.discard)
                         except Exception:
                             pass
                     # Record token usage for budget tracking (approximate)
@@ -340,7 +345,7 @@ class ModelRouter:
                     if org_id:
                         try:
                             from aether_os.core.llm.budget import get_budget_manager
-                            asyncio.create_task(
+                            _ct2 = asyncio.create_task(
                                 get_budget_manager().record_usage(
                                     org_id=org_id,
                                     input_tokens=_est_input,
@@ -349,6 +354,8 @@ class ModelRouter:
                                     cache_hit=False,
                                 )
                             )
+                            _background_tasks.add(_ct2)
+                            _ct2.add_done_callback(_background_tasks.discard)
                         except Exception:
                             pass
                     # Record cost to billing ledger using active run context vars
@@ -367,7 +374,7 @@ class ModelRouter:
                             _cost_usd = (_est_input * _in_rate + _est_output * _out_rate) / 1_000_000
                             # Write to LLMCallRecord (per-run billing detail)
                             from aether_os.core.billing import get_billing_tracker
-                            asyncio.create_task(
+                            _ct3 = asyncio.create_task(
                                 get_billing_tracker()._async_record_llm_call(
                                     project_id=_run_id,
                                     phase=_phase,
@@ -377,6 +384,8 @@ class ModelRouter:
                                     cost_usd=_cost_usd,
                                 )
                             )
+                            _background_tasks.add(_ct3)
+                            _ct3.add_done_callback(_background_tasks.discard)
                             # Also write to TokenBudgetRecord (org-level dashboard stats)
                             if not org_id:
                                 # Resolve org_id from run record
@@ -395,7 +404,7 @@ class ModelRouter:
                                 _resolved_org = org_id
                             if _resolved_org:
                                 from aether_os.core.llm.budget import get_budget_manager
-                                asyncio.create_task(
+                                _ct4 = asyncio.create_task(
                                     get_budget_manager().record_usage(
                                         org_id=_resolved_org,
                                         input_tokens=_est_input,
@@ -404,6 +413,8 @@ class ModelRouter:
                                         cache_hit=False,
                                     )
                                 )
+                                _background_tasks.add(_ct4)
+                                _ct4.add_done_callback(_background_tasks.discard)
                     except Exception:
                         pass
                     # ── Placeholder guard ────────────────────────────────────

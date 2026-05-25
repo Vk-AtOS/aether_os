@@ -437,11 +437,14 @@ class Pipeline:
         )
         result = await self.llm.call_json(prompt, task_type="code_generation")
         ctx.review_findings = result.get("findings", [])
+        quality_score = float(result.get("overall_quality", 7))
+        # Review is non-blocking but accurately reflects quality (passed=True when score>=5)
+        review_passed = quality_score >= 5.0
         ctx.record_phase(PhaseOutput(
             phase_id="p05_frontend",
             phase_name="review",
-            passed=True,
-            confidence=float(result.get("overall_quality", 7)) / 10.0,
+            passed=review_passed,
+            confidence=quality_score / 10.0,
             issues=ctx.review_findings or [],
             artifacts=result,
             duration_seconds=time.time() - t0,
@@ -520,9 +523,9 @@ class Pipeline:
             if not passed and result.issues:
                 ctx.test_failures = "; ".join(result.issues[:10])
         except Exception as exc:
-            logger.warning("p07_testing runner failed (%s) — marking as passed non-blocking", exc)
-            ctx.test_results = {"passed": True, "note": f"runner_error:{exc}"}
-            passed = True
+            logger.warning("p07_testing runner failed (%s) — marking as failed", exc)
+            ctx.test_results = {"passed": False, "note": f"runner_error:{exc}"}
+            passed = False
 
         ctx.record_phase(PhaseOutput(
             phase_id="p07_testing",
@@ -687,13 +690,41 @@ class Pipeline:
         ))
 
     async def _phase_packaging(self, ctx: ExecutionContext, sm: PipelineStateMachine) -> None:
+        import tarfile
         t0 = time.time()
-        ctx.packaging_artifact = f"{ctx.project_name}-{ctx.run_id[:8]}.tar.gz"
+        artifact_name = f"{ctx.project_name}-{ctx.run_id[:8]}.tar.gz"
+        ctx.packaging_artifact = artifact_name
+        artifact_path: Optional[str] = None
+        issues: list = []
+
+        try:
+            from aether_os.core.config.loader import get_config
+            cfg = get_config()
+            base_dir = ctx.output_dir or cfg.get(
+                "pipeline.output_dir",
+                str(Path.home() / ".aether_os" / "outputs"),
+            )
+            project_dir = Path(base_dir) / ctx.project_name / ctx.run_id[:8]
+            if project_dir.exists():
+                tar_path = project_dir.parent / artifact_name
+                with tarfile.open(tar_path, "w:gz") as tar:
+                    tar.add(project_dir, arcname=ctx.project_name)
+                artifact_path = str(tar_path)
+                logger.info("Packaging: created artifact %s (%d bytes)", tar_path, tar_path.stat().st_size)
+            else:
+                issues.append(f"Project dir not found: {project_dir}")
+                logger.warning("Packaging: project dir not found — skipping tar.gz creation")
+        except Exception as exc:
+            issues.append(f"Packaging failed: {exc}")
+            logger.warning("Packaging: tar.gz creation failed: %s", exc)
+
         ctx.record_phase(PhaseOutput(
             phase_id="p11_deployment",
             phase_name="packaging",
-            passed=True,
-            confidence=1.0,
+            passed=artifact_path is not None,
+            confidence=1.0 if artifact_path else 0.5,
+            issues=issues,
+            artifacts={"artifact_path": artifact_path} if artifact_path else {},
             duration_seconds=time.time() - t0,
         ))
 

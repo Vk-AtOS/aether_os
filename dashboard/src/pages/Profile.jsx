@@ -69,13 +69,14 @@ const Profile = () => {
         setUserData(prev => ({ ...prev, ...(usageRes.data ?? {}) }));
         const keysRes = await api.client.get('/settings/api-keys');
         setApiKeys(keysRes.data ? Object.entries(keysRes.data).map(([k, v]) => ({ provider: k, key: v })) : []);
-        // Check MFA status from JWT claims
-        const tok = api.getToken();
-        if (tok) {
-          try {
-            const p = JSON.parse(atob(tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-            // mfa_enabled not in JWT — check via profile endpoint if available
-          } catch (_) {}
+        // Fetch MFA status from dedicated endpoint
+        try {
+          const mfaRes = await api.client.get('/auth/mfa/status');
+          if (mfaRes.data?.enabled !== undefined) {
+            setMfaEnabled(!!mfaRes.data.enabled);
+          }
+        } catch {
+          // MFA status endpoint may not exist — keep default false
         }
       } catch {
         // non-fatal

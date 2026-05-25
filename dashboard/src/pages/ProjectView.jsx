@@ -41,9 +41,11 @@ const PHASES = [
   'p05_frontend',
   'p06_review_security',
   'p07_testing',
+  'p07b_self_healing',
   'p08_cicd_deployment',
   'p09_observability',
   'p10_docs_delivery',
+  'p11_deployment',
 ];
 
 const PHASE_NAMES = {
@@ -54,9 +56,11 @@ const PHASE_NAMES = {
   p05_frontend:            'Frontend',
   p06_review_security:     'Review',
   p07_testing:             'Testing',
+  p07b_self_healing:       'Self-Healing',
   p08_cicd_deployment:     'CI/CD',
   p09_observability:       'Observability',
   p10_docs_delivery:       'Delivery',
+  p11_deployment:          'Deployment',
 };
 
 const PHASE_LABELS = {
@@ -67,9 +71,11 @@ const PHASE_LABELS = {
   p05_frontend:            'Frontend Codegen',
   p06_review_security:     'Code Review & Security',
   p07_testing:             'Testing Suite',
+  p07b_self_healing:       'Self-Healing',
   p08_cicd_deployment:     'CI/CD & Deployment',
   p09_observability:       'Observability',
   p10_docs_delivery:       'Docs & Delivery',
+  p11_deployment:          'Deployment',
 };
 
 const PRIORITY_CONFIG = {
@@ -878,6 +884,7 @@ const ProjectView = () => {
   const [gitHubPushing, setGitHubPushing] = useState(false);
   const [addFeatureText, setAddFeatureText] = useState('');
   const [addingFeature, setAddingFeature] = useState(false);
+  const [branchPhaseState, setBranchPhaseState] = useState('p04_backend');
 
   const handlePushGitHub = async () => {
     if (!gitHubToken || !gitHubRepoName) return showToast('GitHub token and repo name required');
@@ -896,8 +903,7 @@ const ProjectView = () => {
   const handleAddFeature = async () => {
     if (!addFeatureText.trim()) return showToast('Describe the feature to add');
     setAddingFeature(true);
-    const branchPhase = window._branchPhase || 'p04_backend';
-    delete window._branchPhase;
+    const branchPhase = branchPhaseState || 'p04_backend';
     try {
       const res = await api.branchRun(id, branchPhase, addFeatureText.trim());
       showToast('🚀 Branch run started');
@@ -1031,7 +1037,7 @@ const ProjectView = () => {
     return { grade: 'F', color: 'text-red-400 bg-red-900/40 border-red-700' };
   })();
 
-  const curlCmd = `curl -s http://localhost:8000/health`;
+  const curlCmd = `curl -s ${window.location.origin}/api/health`;
   const copyCurl = () => {
     navigator.clipboard.writeText(curlCmd);
     setCurlCopied(true);
@@ -1116,8 +1122,7 @@ const ProjectView = () => {
                     onClick={() => {
                       setShowAddFeatureModal(true);
                       setAddFeatureText('');
-                      // Store branch phase for the modal
-                      window._branchPhase = p;
+                      setBranchPhaseState(p);
                     }}
                     className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/phase:opacity-100 p-1 rounded hover:bg-accent/20 text-muted hover:text-accent transition-all"
                     title={`Branch from ${PHASE_NAMES[p]}`}
@@ -1259,9 +1264,9 @@ const ProjectView = () => {
 
         {/* GitHub Push Modal */}
         {showGitHubModal && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="github-modal-title">
             <div className="bg-panel border border-border rounded-xl p-6 w-96 space-y-4">
-              <h3 className="text-base font-bold text-bright">Push to GitHub</h3>
+              <h3 id="github-modal-title" className="text-base font-bold text-bright">Push to GitHub</h3>
               <div>
                 <label className="block text-xs text-muted mb-1">GitHub Personal Access Token</label>
                 <input type="password" value={gitHubToken} onChange={e => setGitHubToken(e.target.value)}
@@ -1284,9 +1289,9 @@ const ProjectView = () => {
 
         {/* Add Feature Modal */}
         {showAddFeatureModal && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="add-feature-modal-title">
             <div className="bg-panel border border-border rounded-xl p-6 w-[480px] space-y-4">
-              <h3 className="text-base font-bold text-bright">Add a Feature</h3>
+              <h3 id="add-feature-modal-title" className="text-base font-bold text-bright">Add a Feature</h3>
               <p className="text-xs text-muted">Describe the feature to add. A new run will branch from p04_backend with your existing architecture.</p>
               <textarea
                 value={addFeatureText} onChange={e => setAddFeatureText(e.target.value)}

@@ -11,11 +11,10 @@ from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
 
-_SUB_PHASES = [
-    # monitoring handled by p08_cicd_deployment — removed to avoid duplicate artifacts
-    ("feature_flags", "aether_os.phases.p12a_feature_flags.task_agent", "run"),
-    ("ab_testing",    "aether_os.phases.p12b_ab_testing.task_agent",    "run"),
-    ("app_memory",    "aether_os.phases.p13_app_memory.task_agent",     "run"),
+_SUB_PHASES: list = [
+    # PIPELINE-009: p12a_feature_flags, p12b_ab_testing, and p13_app_memory are
+    # separate phases in PHASE_SEQUENCE.  Running them here would cause double
+    # execution and doubled LLM cost.  p09 only runs its own observability logic.
 ]
 
 _SUBTASK_TIMEOUT = 120.0

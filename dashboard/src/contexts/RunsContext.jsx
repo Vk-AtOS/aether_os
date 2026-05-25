@@ -26,10 +26,21 @@ export function RunsProvider({ children }) {
       const items = Array.isArray(data) ? data : (data?.items ?? []);
       const count = data?.total ?? items.length;
       setRuns(prev => {
-        if (pg === 1) return items.slice(0, MAX_CACHED);
+        if (pg === 1) {
+          const result = items.slice(0, MAX_CACHED);
+          if (items.length > MAX_CACHED) {
+            console.warn(`[RunsContext] Capped at ${MAX_CACHED} runs; ${items.length - MAX_CACHED} older runs not displayed.`);
+          }
+          return result;
+        }
         const seen = new Set(prev.map(r => r.id || r.run_id));
         const fresh = items.filter(r => !seen.has(r.id || r.run_id));
-        return [...prev, ...fresh].slice(0, MAX_CACHED);
+        const combined = [...prev, ...fresh];
+        if (combined.length > MAX_CACHED) {
+          console.warn(`[RunsContext] Run cache at limit (${MAX_CACHED}); oldest runs dropped.`);
+          return combined.slice(0, MAX_CACHED);
+        }
+        return combined;
       });
       setTotal(count);
     } catch {

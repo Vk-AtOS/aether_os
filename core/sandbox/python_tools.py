@@ -1,7 +1,24 @@
 import subprocess
 import sys
 import os
+from pathlib import Path
 from typing import Tuple
+
+# Allowed root for sandboxed project files
+_SANDBOX_ROOT = Path.home() / ".aether_os" / "projects"
+
+
+def _validate_sandbox_path(file_path: str) -> str:
+    """Resolve path and ensure it is within the sandbox root. Returns abs path or raises ValueError."""
+    abs_path = Path(file_path).resolve()
+    sandbox_root = _SANDBOX_ROOT.resolve()
+    try:
+        abs_path.relative_to(sandbox_root)
+    except ValueError:
+        raise ValueError(
+            f"Path '{abs_path}' is outside the allowed sandbox directory '{sandbox_root}'"
+        )
+    return str(abs_path)
 
 
 def check_syntax(file_path: str) -> Tuple[bool, str]:
@@ -13,7 +30,10 @@ def check_syntax(file_path: str) -> Tuple[bool, str]:
           ok = True if syntax is valid
           ok = False if syntax error found or command failed
     """
-    abs_path = os.path.abspath(os.path.expanduser(file_path))
+    try:
+        abs_path = _validate_sandbox_path(file_path)
+    except ValueError as e:
+        return False, str(e)
 
     if not os.path.isfile(abs_path):
         return False, f"File does not exist: {abs_path}"
@@ -46,7 +66,10 @@ def run_python_file(file_path: str) -> Tuple[bool, str]:
     Returns:
         (ok, message)
     """
-    abs_path = os.path.abspath(os.path.expanduser(file_path))
+    try:
+        abs_path = _validate_sandbox_path(file_path)
+    except ValueError as e:
+        return False, str(e)
 
     if not os.path.isfile(abs_path):
         return False, f"File does not exist: {abs_path}"

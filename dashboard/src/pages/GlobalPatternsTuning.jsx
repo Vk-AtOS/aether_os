@@ -137,6 +137,7 @@ export default function GlobalPatternsTuning() {
   const [modal,    setModal]    = useState(null); // null | "create" | { pattern }
   const [saving,   setSaving]   = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [filter,   setFilter]   = useState("");
 
   const showToast = (msg, type = "success") => {
@@ -189,7 +190,8 @@ export default function GlobalPatternsTuning() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this pattern? This cannot be undone.")) return;
+    if (confirmDeleteId !== id) { setConfirmDeleteId(id); return; }
+    setConfirmDeleteId(null);
     setDeleting(id);
     try {
       await api.client.delete(`/intelligence/global-patterns/${id}`);
@@ -331,15 +333,22 @@ export default function GlobalPatternsTuning() {
                           className="p-1.5 rounded-lg text-muted hover:text-bright hover:bg-surface transition-colors">
                           <Pencil size={13} />
                         </button>
-                        <button
-                          onClick={() => handleDelete(p.id)}
-                          disabled={deleting === p.id}
-                          title="Delete"
-                          className="p-1.5 rounded-lg text-muted hover:text-red-400 hover:bg-red-950/30 transition-colors disabled:opacity-50">
-                          {deleting === p.id
-                            ? <Loader2 size={13} className="animate-spin" />
-                            : <Trash2 size={13} />}
-                        </button>
+                        {confirmDeleteId === p.id ? (
+                          <span className="flex items-center gap-1 text-[10px]">
+                            <button onClick={() => handleDelete(p.id)} className="text-red-400 font-bold underline">Confirm</button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="text-muted hover:text-bright">Cancel</button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleDelete(p.id)}
+                            disabled={deleting === p.id}
+                            title="Delete"
+                            className="p-1.5 rounded-lg text-muted hover:text-red-400 hover:bg-red-950/30 transition-colors disabled:opacity-50">
+                            {deleting === p.id
+                              ? <Loader2 size={13} className="animate-spin" />
+                              : <Trash2 size={13} />}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

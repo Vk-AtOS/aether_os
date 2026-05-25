@@ -10,6 +10,11 @@ const AuditLogs = () => {
   const [search, setSearch] = useState('');
   const [purging, setPurging] = useState(false);
   const [purgeResult, setPurgeResult] = useState(null);
+  const [exportError, setExportError] = useState(null);
+  // Purge dialog state
+  const [showPurgeDialog, setShowPurgeDialog] = useState(false);
+  const [purgeDays, setPurgeDays] = useState('90');
+  const [purgeConfirmed, setPurgeConfirmed] = useState(false);
   const LIMIT = 50;
 
   const fetchLogs = useCallback(async () => {
@@ -36,6 +41,7 @@ const AuditLogs = () => {
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
   const handleExport = async () => {
+    setExportError(null);
     try {
       const res = await api.client.get('/audit/logs/export', { params: { format: 'csv' }, responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data]));
@@ -45,16 +51,19 @@ const AuditLogs = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert('Export failed. Check your connection and try again.');
+      setExportError('Export failed. Check your connection and try again.');
     }
   };
 
-  const handlePurge = async () => {
-    const daysInput = window.prompt('Delete logs older than how many days? (minimum 30)', '90');
-    if (daysInput === null) return;
-    const days = parseInt(daysInput, 10);
-    if (isNaN(days) || days < 30) { alert('Minimum retention is 30 days.'); return; }
-    if (!window.confirm(`Permanently delete audit logs older than ${days} days?\n\nThis cannot be undone.`)) return;
+  const handlePurgeConfirm = async () => {
+    const days = parseInt(purgeDays, 10);
+    if (isNaN(days) || days < 30) {
+      setPurgeResult({ ok: false, message: 'Minimum retention is 30 days.' });
+      setShowPurgeDialog(false);
+      return;
+    }
+    setShowPurgeDialog(false);
+    setPurgeConfirmed(false);
     setPurging(true);
     setPurgeResult(null);
     try {
@@ -99,7 +108,7 @@ const AuditLogs = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={handlePurge}
+            onClick={() => { setShowPurgeDialog(true); setPurgeConfirmed(false); }}
             disabled={purging}
             className="flex items-center gap-1.5 px-3 py-2 text-sm bg-panel border border-danger/40 rounded-lg text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
           >
@@ -119,6 +128,56 @@ const AuditLogs = () => {
           </button>
         </div>
       </header>
+
+      {/* Purge dialog */}
+      {showPurgeDialog && (
+        <div className="bg-panel border border-danger/40 rounded-xl p-5 space-y-4">
+          <h3 className="text-sm font-bold text-danger">Purge Audit Logs</h3>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-muted">Delete logs older than</label>
+            <input
+              type="number"
+              min={30}
+              value={purgeDays}
+              onChange={e => setPurgeDays(e.target.value)}
+              className="w-20 bg-surface border border-border rounded px-2 py-1 text-sm text-bright focus:outline-none focus:border-accent"
+            />
+            <span className="text-xs text-muted">days (minimum 30)</span>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+            <input
+              type="checkbox"
+              checked={purgeConfirmed}
+              onChange={e => setPurgeConfirmed(e.target.checked)}
+              className="accent-danger"
+            />
+            I understand this permanently deletes logs and cannot be undone
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={handlePurgeConfirm}
+              disabled={!purgeConfirmed}
+              className="px-4 py-2 text-sm bg-danger/20 hover:bg-danger/40 text-danger border border-danger/30 rounded-lg disabled:opacity-40 transition-colors"
+            >
+              Confirm Purge
+            </button>
+            <button
+              onClick={() => setShowPurgeDialog(false)}
+              className="px-4 py-2 text-sm bg-panel border border-border rounded-lg text-muted hover:text-bright transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Export error */}
+      {exportError && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border bg-red-500/10 border-red-500/30 text-danger text-sm">
+          {exportError}
+          <button onClick={() => setExportError(null)} className="ml-auto text-xs text-muted hover:text-bright">✕</button>
+        </div>
+      )}
 
       {/* Purge result */}
       {purgeResult && (

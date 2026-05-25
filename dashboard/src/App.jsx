@@ -47,8 +47,8 @@ const ProtectedRoute = ({ children }) => {
 
 const AdminRoute = ({ children }) => {
   const token = api.getToken();
-  if (!token) return <Navigate to="/login" replace />;
   const { isAdmin } = useRole();
+  if (!token) return <Navigate to="/login" replace />;
   if (!isAdmin) return <Navigate to="/" replace />;
   return children;
 };
@@ -116,7 +116,7 @@ function App() {
         <Route path="prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
         <Route path="dashboard/tools/prompt" element={<Navigate to="/prompt" replace />} />
         <Route path="project/:id/prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
-        <Route path="audit" element={<ErrorBoundary><AuditLogs /></ErrorBoundary>} />
+        <Route path="audit" element={<AdminRoute><ErrorBoundary><AuditLogs /></ErrorBoundary></AdminRoute>} />
         <Route path="learning" element={<ErrorBoundary><Learning /></ErrorBoundary>} />
         <Route path="dashboard/tools/learning" element={<Navigate to="/learning" replace />} />
         <Route path="intelligence" element={<ErrorBoundary><IntelligenceHub /></ErrorBoundary>} />

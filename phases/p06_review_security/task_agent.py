@@ -20,7 +20,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # Sub-task 1: LLM code review — reads generated backend code, checks OWASP issues
     try:
-        from aether_os.core.llm.client import call_llm
+        from aether_os.core.llm.client import get_llm_client
+        _llm_client = get_llm_client()
         data = phase_input.input_data
         project_dir = data.get("project_dir", "")
         backend_path = data.get("backend_output_path", "")
@@ -47,7 +48,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 "Code to review:\n```python\n" + code_to_review + "\n```"
             )
             review_raw = await asyncio.wait_for(
-                call_llm(review_prompt, task="code_review", timeout=_SUBTASK_TIMEOUT),
+                _llm_client.call(review_prompt, task_type="code_review"),
                 timeout=_SUBTASK_TIMEOUT,
             )
             try:

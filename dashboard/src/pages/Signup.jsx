@@ -64,7 +64,7 @@ const Signup = () => {
       });
       api.setToken(res.data.access_token);
       if (res.data.refresh_token) {
-        localStorage.setItem('refresh_token', res.data.refresh_token);
+        localStorage.setItem('aether_refresh_token', res.data.refresh_token);
       }
       navigate('/', { replace: true });
     } catch (err) {

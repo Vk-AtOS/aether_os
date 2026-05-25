@@ -1441,6 +1441,33 @@ def create_app() -> FastAPI:
         if not url:
             raise HTTPException(status_code=422, detail="url required")
 
+        # SEC: SSRF prevention — validate that gitlab_base and url use HTTPS and
+        # do not point at private/internal network addresses (SEC-002/003 follow-on).
+        import ipaddress as _ipaddress, urllib.parse as _urlparse_fr
+        def _validate_external_url(raw_url: str, label: str) -> None:
+            """Raise HTTPException if the URL is not a public HTTPS URL."""
+            try:
+                _p = _urlparse_fr.urlparse(raw_url)
+            except Exception:
+                raise HTTPException(status_code=422, detail=f"Invalid {label}: unparseable URL")
+            if _p.scheme not in ("https",):
+                raise HTTPException(status_code=422, detail=f"Invalid {label}: only HTTPS URLs are allowed")
+            host = (_p.hostname or "").lower()
+            _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+            if host in _BLOCKED_HOSTS:
+                raise HTTPException(status_code=422, detail=f"Invalid {label}: internal host not allowed")
+            try:
+                addr = _ipaddress.ip_address(host)
+                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                    raise HTTPException(status_code=422, detail=f"Invalid {label}: private/internal IP not allowed")
+            except ValueError:
+                pass  # hostname (not a raw IP) — allowed
+
+        if rtype in ("github", "gitlab"):
+            _validate_external_url(url, "url")
+        if rtype == "gitlab" and req.get("gitlab_url"):
+            _validate_external_url(gitlab_base, "gitlab_url")
+
         _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
                       "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
                       "pyproject.toml", "schema.sql", "docker-compose.yml", "dockerfile",
@@ -1721,13 +1748,17 @@ def create_app() -> FastAPI:
         from sqlalchemy import update as _upd_wh
 
         webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+        # LAUNCH-022: Webhook secret is mandatory — reject requests if not configured
+        if not webhook_secret:
+            raise HTTPException(status_code=500, detail="RAZORPAY_WEBHOOK_SECRET not configured")
         body = await request.body()
 
-        if webhook_secret:
-            sig = request.headers.get("X-Razorpay-Signature", "")
-            expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
-            if not _hmac_wh.compare_digest(expected, sig):
-                raise HTTPException(status_code=400, detail="Webhook signature invalid")
+        sig = request.headers.get("X-Razorpay-Signature", "")
+        if not sig:
+            raise HTTPException(status_code=400, detail="Missing X-Razorpay-Signature header")
+        expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
+        if not _hmac_wh.compare_digest(expected, sig):
+            raise HTTPException(status_code=400, detail="Webhook signature invalid")
 
         payload = await request.json()
         event   = payload.get("event", "")
@@ -1748,6 +1779,99 @@ def create_app() -> FastAPI:
             logger.info(f"Webhook: upgraded org={org_id} to plan={plan_id}")
 
         return {"received": True}
+
+    @app.post("/billing/cancel")
+    async def cancel_subscription(user: Dict[str, Any] = Depends(get_current_user)):
+        """Cancel the organisation's subscription and revert to the free plan. (LAUNCH-028)"""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import update as _upd_cancel
+        org_id = user.get("org_id")
+        if not org_id:
+            raise HTTPException(status_code=400, detail="No organisation found for user")
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                _upd_cancel(Organisation)
+                .where(Organisation.id == org_id)
+                .values(plan="free")
+                .returning(Organisation.id, Organisation.plan)
+            )
+            row = result.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            await session.commit()
+        logger.info("Subscription cancelled for org=%s, plan reset to free", org_id)
+        return {"success": True, "plan": "free", "message": "Subscription cancelled. Your account has been moved to the free plan."}
+
+    class DowngradeRequest(BaseModel):
+        target_plan: str
+
+    @app.post("/billing/downgrade")
+    async def downgrade_subscription(
+        req: DowngradeRequest,
+        user: Dict[str, Any] = Depends(get_current_user),
+    ):
+        """Downgrade the organisation's subscription to a lower plan. (LAUNCH-028)"""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import update as _upd_dg, select as _sel_dg
+        ALLOWED_PLANS = {"free", "starter", "pro", "enterprise"}
+        target = req.target_plan.lower().strip()
+        if target not in ALLOWED_PLANS:
+            raise HTTPException(status_code=400, detail=f"Invalid plan: {target}. Must be one of {sorted(ALLOWED_PLANS)}")
+        org_id = user.get("org_id")
+        if not org_id:
+            raise HTTPException(status_code=400, detail="No organisation found for user")
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            org = (await session.execute(_sel_dg(Organisation).where(Organisation.id == org_id))).scalar_one_or_none()
+            if not org:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            await session.execute(
+                _upd_dg(Organisation)
+                .where(Organisation.id == org_id)
+                .values(plan=target)
+            )
+            await session.commit()
+        logger.info("Org=%s downgraded from %s to %s", org_id, org.plan, target)
+        return {"success": True, "plan": target, "message": f"Plan changed to {target}."}
+
+    @app.get("/billing/invoices")
+    async def list_billing_invoices(user: Dict[str, Any] = Depends(get_current_user)):
+        """Return billing history / invoice list for the organisation. (LAUNCH-031)"""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import LLMCallRecord
+        from sqlalchemy import select as _sel_inv, func as _func_inv
+        org_id = user.get("org_id")
+        if not org_id:
+            raise HTTPException(status_code=400, detail="No organisation found for user")
+        try:
+            session_factory = get_session_factory()
+            async with session_factory() as session:
+                rows = (await session.execute(
+                    _sel_inv(LLMCallRecord)
+                    .where(LLMCallRecord.project_id.like(f"%{org_id}%"))
+                    .order_by(LLMCallRecord.created_at.desc())
+                    .limit(100)
+                )).scalars().all()
+            invoices = [
+                {
+                    "id": r.id if hasattr(r, "id") else str(r.project_id),
+                    "project_id": r.project_id,
+                    "phase": r.phase,
+                    "model": r.model,
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                    "cost_usd": round(r.cost_usd, 6),
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+        except Exception as _inv_exc:
+            logger.debug("billing/invoices query failed: %s", _inv_exc)
+            invoices = []
+        return {"invoices": invoices, "count": len(invoices)}
 
     @app.get("/templates")
     async def list_templates(user: Dict[str, Any] = Depends(get_current_user)):

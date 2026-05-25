@@ -19,7 +19,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # Sub-task 1: Documentation (primary)
     try:
-        from aether_os.phases.p09_documentation.task_agent import run as docs_run
+        from aether_os.phases.p09_observability.task_agent import run as docs_run
         sub_dir = output_dir / "docs"
         r = await asyncio.wait_for(docs_run(phase_input, memory_ctx, sub_dir), timeout=_SUBTASK_TIMEOUT)
         results["documentation"] = r
@@ -43,17 +43,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("client_portal failed (non-critical): %s", e)
 
-    # Sub-task 3: Change Requests
+    # Sub-task 3: Change Requests (p15_change_requests module is optional)
     try:
-        from aether_os.phases.p15_change_requests.task_agent import run as cr_run
-        sub_dir = output_dir / "change_requests"
-        r = await asyncio.wait_for(cr_run(phase_input, memory_ctx, sub_dir), timeout=_SUBTASK_TIMEOUT)
-        results["change_requests"] = r
-        logger.info("change_requests completed: %s", r.output_path)
-    except asyncio.TimeoutError:
-        logger.warning("change_requests timed out after %.0fs", _SUBTASK_TIMEOUT)
-    except Exception as e:
-        logger.warning("change_requests failed (non-critical): %s", e)
+        from aether_os.phases.p15_change_requests.task_agent import run as cr_run  # type: ignore[import]
+    except ImportError:
+        cr_run = None
+    if cr_run is not None:
+        try:
+            sub_dir = output_dir / "change_requests"
+            r = await asyncio.wait_for(cr_run(phase_input, memory_ctx, sub_dir), timeout=_SUBTASK_TIMEOUT)
+            results["change_requests"] = r
+            logger.info("change_requests completed: %s", r.output_path)
+        except asyncio.TimeoutError:
+            logger.warning("change_requests timed out after %.0fs", _SUBTASK_TIMEOUT)
+        except Exception as e:
+            logger.warning("change_requests failed (non-critical): %s", e)
 
     summary = {
         "phases": {

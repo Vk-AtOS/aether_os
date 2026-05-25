@@ -15,6 +15,9 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Strong references prevent GC from silently killing background tasks
+_background_tasks: set = set()
+
 
 class PipelineService:
     """
@@ -42,9 +45,9 @@ class PipelineService:
         from aether_os.core.policy.engine import get_policy_engine
 
         rl = get_rate_limiter()
-        if not rl.check_concurrent_runs(org_id):
+        if not await rl.check_concurrent_runs(org_id):
             raise ValueError(f"Organisation has reached the concurrent run limit.")
-        if not rl.check_hourly_starts(org_id):
+        if not await rl.check_hourly_starts(org_id):
             raise ValueError(f"Organisation has exceeded the hourly run limit.")
 
         # Enforce policy
@@ -68,7 +71,7 @@ class PipelineService:
             client_id=client_id,
             raw_input=raw_input,
         )
-        rl.record_run_start(org_id)
+        await rl.record_run_start(org_id)
 
         # Inject cross-run memory context if memory system is available
         mem_ctx = memory_context
@@ -81,7 +84,7 @@ class PipelineService:
                 logger.debug("Memory service unavailable: %s", exc)
 
         factory = get_factory()
-        asyncio.create_task(
+        _t = asyncio.create_task(
             factory.run(
                 run_id=run_id,
                 raw_input=raw_input,
@@ -94,6 +97,8 @@ class PipelineService:
                 memory_context=mem_ctx or "",
             )
         )
+        _background_tasks.add(_t)
+        _t.add_done_callback(_background_tasks.discard)
 
         return {"run_id": run_id, "status": "started"}
 

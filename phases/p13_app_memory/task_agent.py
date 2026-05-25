@@ -17,26 +17,54 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (mem_dir / "__init__.py").write_text("")
 
     (mem_dir / "memory_service.py").write_text(
-        '''import logging
+        '''import json
+import logging
+import os
+from pathlib import Path
 from typing import Optional, List as _List
 
 logger = logging.getLogger(__name__)
 
+_STORE_FILE = Path(os.getenv("MEMORY_STORE_PATH", "memory_store.json"))
 _store: _List[dict] = []
 
+
+def _load() -> None:
+    global _store
+    if _STORE_FILE.exists():
+        try:
+            _store = json.loads(_STORE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _store = []
+
+
+def _save() -> None:
+    try:
+        _STORE_FILE.write_text(json.dumps(_store, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+_load()
+
+
 def add_memory(user_id: int, content: str, category: str = "general") -> dict:
+    _load()
     entry = {"user_id": user_id, "content": content, "category": category}
     _store.append(entry)
+    _save()
     logger.info("Memory stored for user %s: %s", user_id, content[:50])
     return entry
 
 def get_memories(user_id: int, category: Optional[str] = None) -> _List[dict]:
+    _load()
     return [
         m for m in _store
         if m["user_id"] == user_id and (category is None or m["category"] == category)
     ]
 
 def search_memories(user_id: int, query: str) -> _List[dict]:
+    _load()
     return [
         m for m in _store
         if m["user_id"] == user_id and query.lower() in m["content"].lower()

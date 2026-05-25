@@ -111,7 +111,7 @@ def _build_saml_settings(idp: Dict[str, str]) -> Dict[str, Any]:
             "x509cert": idp["idp_cert"],
         },
         "strict": True,
-        "debug": os.environ.get("ENVIRONMENT") != "production",
+        "debug": False,  # SEC-051: Never expose SAML XML debug errors
     }
 
 
@@ -147,7 +147,9 @@ async def saml_metadata() -> Response:
     except ImportError:
         raise HTTPException(status_code=503, detail="python3-saml not installed")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"SAML metadata error: {exc}")
+        # SEC-051: Do not expose internal SAML error details in HTTP response
+        logger.error("SAML metadata generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail="SAML metadata generation failed")
 
 
 @saml_router.get("/login")
@@ -170,8 +172,9 @@ async def saml_login(
     except ImportError:
         raise HTTPException(status_code=503, detail="python3-saml not installed")
     except Exception as exc:
+        # SEC-051: Do not expose internal SAML error details in HTTP response
         logger.exception("SAML login initiation failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="SAML login initiation failed")
 
 
 @saml_router.post("/callback")
@@ -198,24 +201,18 @@ async def saml_callback(request: Request) -> RedirectResponse:
 
     idp = await _get_idp_config_for_org(org_slug)
     if not idp:
-        # Last chance: try all orgs' SamlConfigs to find a matching IdP
-        try:
-            from aether_os.core.db import get_session_factory
-            from aether_os.core.models import SamlConfig
-            from sqlalchemy import select
-            sf = get_session_factory()
-            async with sf() as session:
-                cfg = (await session.execute(select(SamlConfig).limit(1))).scalar_one_or_none()
-                if cfg:
-                    idp = {
-                        "idp_entity_id": cfg.idp_entity_id,
-                        "idp_sso_url": cfg.idp_sso_url,
-                        "idp_cert": cfg.idp_cert,
-                    }
-        except Exception:
-            pass
-    if not idp:
-        raise HTTPException(status_code=503, detail="No SAML IdP configured")
+        # SEC-024: Do NOT silently pick an arbitrary org config — this is a security risk.
+        # If RelayState didn't identify the org and no global fallback is configured, reject.
+        logger.warning(
+            "SAML callback: cannot determine organization from RelayState=%r (org_slug=%r)",
+            relay_state,
+            org_slug,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot determine organization from SAML response. "
+                   "Ensure the RelayState includes the org parameter.",
+        )
 
     req = _build_request_dict(request)
     req["post_data"] = dict(form_data)
