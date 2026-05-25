@@ -67,8 +67,8 @@ const AdminUsers = () => {
     try {
       await api.client.post(`/admin/users/${userId}/role`, { role: newRole });
       setItems(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to change role.');
     } finally {
       setChangingRole(prev => { const n = { ...prev }; delete n[userId]; return n; });
     }
@@ -80,8 +80,8 @@ const AdminUsers = () => {
     try {
       await api.client.post(`/admin/users/${userId}/deactivate`);
       setItems(prev => prev.map(u => u.id === userId ? { ...u, is_active: false } : u));
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to deactivate user.');
     }
   };
 
@@ -89,9 +89,13 @@ const AdminUsers = () => {
     if (!selectedIds.size) return;
     if (confirmDeactivate !== 'bulk') { setConfirmDeactivate('bulk'); return; }
     setConfirmDeactivate(null);
+    const failures = [];
     for (const id of selectedIds) {
-      try { await api.client.post(`/admin/users/${id}/deactivate`); } catch {}
+      try { await api.client.post(`/admin/users/${id}/deactivate`); } catch (err) {
+        failures.push(id);
+      }
     }
+    if (failures.length) setError(`Failed to deactivate ${failures.length} user(s).`);
     setItems(prev => prev.map(u => selectedIds.has(u.id) ? { ...u, is_active: false } : u));
     setSelectedIds(new Set());
   };

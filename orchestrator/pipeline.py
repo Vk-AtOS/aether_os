@@ -534,7 +534,7 @@ class Pipeline:
             confidence=ctx.test_results.get("confidence", 0.75),
             duration_seconds=time.time() - t0,
         ))
-        return True
+        return passed
 
     async def _phase_cicd(self, ctx: ExecutionContext, sm: PipelineStateMachine) -> None:
         t0 = time.time()

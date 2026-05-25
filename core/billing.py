@@ -7,18 +7,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Anthropic pricing (USD per 1M tokens, as of 2025)
+# Anthropic pricing (USD per 1M tokens, as of 2025).
+# Each price can be overridden via environment variables:
+#   PRICE_CLAUDE_SONNET_4_6_INPUT, PRICE_CLAUDE_SONNET_4_6_OUTPUT
+#   PRICE_CLAUDE_HAIKU_4_5_INPUT,  PRICE_CLAUDE_HAIKU_4_5_OUTPUT
+#   PRICE_CLAUDE_OPUS_4_6_INPUT,   PRICE_CLAUDE_OPUS_4_6_OUTPUT
+#   PRICE_DEFAULT_INPUT,           PRICE_DEFAULT_OUTPUT
 _TOKEN_PRICES: Dict[str, Dict[str, float]] = {
-    "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00},
-    "claude-haiku-4-5":  {"input": 0.25,  "output": 1.25},
-    "claude-opus-4-6":   {"input": 15.00, "output": 75.00},
-    "default":           {"input": 3.00,  "output": 15.00},
+    model: {
+        "input": float(os.environ.get(
+            f"PRICE_{model.upper().replace('-', '_')}_INPUT",
+            str(prices["input"])
+        )),
+        "output": float(os.environ.get(
+            f"PRICE_{model.upper().replace('-', '_')}_OUTPUT",
+            str(prices["output"])
+        )),
+    }
+    for model, prices in {
+        "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00},
+        "claude-haiku-4-5":  {"input": 0.25,  "output": 1.25},
+        "claude-opus-4-6":   {"input": 15.00, "output": 75.00},
+        "default":           {"input": 3.00,  "output": 15.00},
+    }.items()
 }
 
 

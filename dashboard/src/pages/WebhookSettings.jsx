@@ -16,14 +16,17 @@ const WebhookSettings = () => {
   const [deleting, setDeleting] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [addError, setAddError] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   const fetchWebhooks = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.client.get('/webhooks');
       setWebhooks(res.data ?? []);
-    } catch {
-      // silent
+    } catch (err) {
+      setLoadError(err.response?.data?.detail || 'Failed to load webhooks.');
     } finally {
       setLoading(false);
     }
@@ -51,12 +54,13 @@ const WebhookSettings = () => {
   const handleDelete = async (id) => {
     if (confirmDelete !== id) { setConfirmDelete(id); return; }
     setConfirmDelete(null);
+    setDeleteError(null);
     setDeleting(prev => ({ ...prev, [id]: true }));
     try {
       await api.client.delete(`/webhooks/${id}`);
       setWebhooks(prev => prev.filter(w => w.id !== id));
-    } catch {
-      // silent
+    } catch (err) {
+      setDeleteError(err.response?.data?.detail || 'Failed to delete webhook.');
     } finally {
       setDeleting(prev => ({ ...prev, [id]: false }));
     }
@@ -73,6 +77,18 @@ const WebhookSettings = () => {
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
+      {loadError && (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-danger text-xs flex items-center gap-2">
+          <span className="flex-1">{loadError}</span>
+          <button onClick={() => setLoadError(null)} className="text-muted hover:text-bright">✕</button>
+        </div>
+      )}
+      {deleteError && (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-danger text-xs flex items-center gap-2">
+          <span className="flex-1">{deleteError}</span>
+          <button onClick={() => setDeleteError(null)} className="text-muted hover:text-bright">✕</button>
+        </div>
+      )}
       <header className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-bright">Webhooks</h1>

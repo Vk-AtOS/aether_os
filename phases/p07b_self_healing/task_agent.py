@@ -145,6 +145,14 @@ TEST FAILURE:
 Return ONLY the fixed Python code for main.py.
 No explanation. No markdown. No code fences. Just valid Python."""
 
+    def _strip_fences(code: str) -> str:
+        code = code.strip()
+        if code.startswith("```"):
+            lines = code.splitlines()
+            code = "\n".join(l for l in lines if not l.startswith("```"))
+        return code
+
+    # PIPELINE-046: try primary LLM first, fall back to Anthropic if primary fails
     try:
         llm = get_llm_client()
         response = await asyncio.wait_for(
@@ -152,18 +160,28 @@ No explanation. No markdown. No code fences. Just valid Python."""
             timeout=LLM_TIMEOUT,
         )
         if response and len(response.strip()) > 50:
-            # Strip any accidental markdown fences
-            code = response.strip()
-            if code.startswith("```"):
-                lines = code.splitlines()
-                # Drop first and last fence lines
-                code = "\n".join(
-                    l for l in lines
-                    if not l.startswith("```")
-                )
-            return code
-    except Exception as e:
-        logger.warning("[p07b_self_healing] LLM call failed: %s", e)
+            return _strip_fences(response)
+        raise ValueError("Empty or trivial response from primary LLM")
+    except Exception as primary_exc:
+        logger.warning("[p07b_self_healing] Primary LLM call failed: %s", primary_exc)
+
+    # Fallback: direct Anthropic client if ANTHROPIC_API_KEY is set
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic as _anthropic
+            _client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+            _msg = _client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            fallback_response = _msg.content[0].text if _msg.content else ""
+            if fallback_response and len(fallback_response.strip()) > 50:
+                logger.info("[p07b_self_healing] Anthropic fallback succeeded")
+                return _strip_fences(fallback_response)
+        except Exception as fallback_exc:
+            logger.warning("[p07b_self_healing] Anthropic fallback also failed: %s", fallback_exc)
+
     return None
 
 

@@ -362,10 +362,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _e:
             issues.append(f"Prometheus injection skipped: {_e}")
 
+    # PIPELINE-039: count files actually written instead of hardcoding
+    files_written = len([f for f in output_dir.rglob("*") if f.is_file()])
     return TaskResult(
         output_path=str(monitoring_dir),
         confidence=0.9,
-        metadata={"domain": domain, "files_written": 13, "grafana_dashboards": 3, "project": project_name},
+        metadata={"domain": domain, "files_written": files_written, "grafana_dashboards": 3, "project": project_name},
         issues=issues,
         success=True,
     )

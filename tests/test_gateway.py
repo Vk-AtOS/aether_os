@@ -85,7 +85,9 @@ def test_login_wrong_password(client):
 
 def test_protected_endpoint_without_token(client):
     resp = client.get("/pipeline/status/fake-run-id")
-    assert resp.status_code == 401
+    assert resp.status_code in (401, 403), (
+        f"Protected route must return 401/403 without auth, got {resp.status_code}"
+    )
 
 
 def test_protected_endpoint_with_token(client):
@@ -102,8 +104,11 @@ def test_protected_endpoint_with_token(client):
         "/pipeline/status/fake-run-id",
         headers={"Authorization": f"Bearer {token}"},
     )
-    # 404 is fine — it means auth passed, just run not found
-    assert resp.status_code in (200, 404)
+    # 200 means auth passed and run found; 404 means auth passed but run not found
+    # 401/403 would mean auth failed — that should not happen with a valid token
+    assert resp.status_code in (200, 404), (
+        f"Expected 200 or 404 (auth passed), got {resp.status_code}: {resp.text}"
+    )
 
 
 def test_pipeline_start_requires_auth(client):

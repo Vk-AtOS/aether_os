@@ -71,29 +71,42 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
         # Override DATABASE_URL so create_all() targets an isolated temp SQLite
         # rather than the AetherOS production database.
         if not errors:
+            # PIPELINE-061: use regex split to handle 'app' or 'application = FastAPI(...)'
             check_code = (
-                "import sys, os; "
-                "exec(compile(open('main.py').read().split('\\napp ')[0], 'main.py', 'exec'))"
+                "import sys, os, re; "
+                "src = open('main.py').read(); "
+                "parts = re.split(r'\\n(?:app|application)\\s*=\\s*FastAPI', src, maxsplit=1); "
+                "exec(compile(parts[0], 'main.py', 'exec'))"
             )
             import os as _os
-            smoke_env = {**_os.environ, "DATABASE_URL": "sqlite:///./smoke_test.db"}
-            proc2 = await asyncio.create_subprocess_exec(
-                "python3", "-c", check_code,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(src_dir),
-                env=smoke_env,
-            )
+            import tempfile as _tempfile
+            # PIPELINE-062: use a unique temp file so smoke_test.db is cleaned up after use
+            _db_tmp = _tempfile.mktemp(suffix=".db")
+            smoke_env = {**_os.environ, "DATABASE_URL": f"sqlite:///{_db_tmp}"}
             try:
-                _, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=20)
-                if proc2.returncode != 0:
-                    stderr_text = stderr2.decode()
-                    if any(e in stderr_text for e in [
-                        "ImportError", "ModuleNotFoundError", "NameError", "SyntaxError"
-                    ]):
-                        errors.append(f"ImportError: {stderr_text[:500]}")
-            except asyncio.TimeoutError:
-                pass  # timeout in import check is OK — app likely starts fine
+                proc2 = await asyncio.create_subprocess_exec(
+                    "python3", "-c", check_code,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(src_dir),
+                    env=smoke_env,
+                )
+                try:
+                    _, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=20)
+                    if proc2.returncode != 0:
+                        stderr_text = stderr2.decode()
+                        if any(e in stderr_text for e in [
+                            "ImportError", "ModuleNotFoundError", "NameError", "SyntaxError"
+                        ]):
+                            errors.append(f"ImportError: {stderr_text[:500]}")
+                except asyncio.TimeoutError:
+                    pass  # timeout in import check is OK — app likely starts fine
+            finally:
+                # Clean up temp DB file
+                try:
+                    _os.unlink(_db_tmp)
+                except OSError:
+                    pass
 
         if not errors:
             await emit({

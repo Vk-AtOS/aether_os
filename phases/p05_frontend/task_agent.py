@@ -676,9 +676,13 @@ def _generate_index_html(project_name: str) -> str:
 """
 
 
-def _generate_nginx_conf() -> str:
-    return """\
-server {
+def _generate_nginx_conf(config: Optional[dict] = None) -> str:
+    # PIPELINE-044: use configurable container name and port instead of hardcoding
+    _cfg = config or {}
+    container_name = _cfg.get("container_name", "app")
+    app_port = _cfg.get("app_port", 8000)
+    return f"""\
+server {{
   listen 80;
   root /usr/share/nginx/html;
   index index.html;
@@ -688,28 +692,28 @@ server {
   gzip_min_length 1024;
 
   # Proxy /api/* to the backend (strips /api prefix)
-  # Backend service is named 'app' in docker-compose.yml
-  location /api/ {
-    proxy_pass http://app:8000/;
+  # Backend service is named '{container_name}' in docker-compose.yml
+  location /api/ {{
+    proxy_pass http://{container_name}:{app_port}/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_read_timeout 60s;
     proxy_connect_timeout 10s;
-  }
+  }}
 
   # Static assets — long cache
-  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {
+  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {{
     expires 1y;
     add_header Cache-Control "public, immutable";
     try_files $uri =404;
-  }
+  }}
 
   # SPA fallback — React Router handles client-side routes
-  location / {
+  location / {{
     try_files $uri $uri/ /index.html;
-  }
-}
+  }}
+}}
 """
 
 
@@ -1694,7 +1698,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (frontend_dir / "tailwind.config.js").write_text(_generate_tailwind_config())
     (frontend_dir / "postcss.config.js").write_text(_generate_postcss_config())
     (frontend_dir / "index.html").write_text(_generate_index_html(project_name))
-    (frontend_dir / "nginx.conf").write_text(_generate_nginx_conf())
+    (frontend_dir / "nginx.conf").write_text(_generate_nginx_conf(data))
     (frontend_dir / "Dockerfile").write_text(_generate_dockerfile())
     (frontend_dir / ".env.example").write_text(_generate_env_example())
     (frontend_dir / ".eslintrc.cjs").write_text(_generate_eslint_config())

@@ -326,7 +326,7 @@ def test_phase_base_importable():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# P05 Frontend — CDN React / vanilla-JS generator
+# P05 Frontend — React/Vite/TanStack generator (PIPELINE-055: updated from CDN)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _FAKE_ENDPOINTS = [
@@ -361,156 +361,66 @@ def test_p05f_architecture_reader_default():
     assert result["api_endpoints"]  # must return non-empty default
 
 
-def test_p05f_validator_accepts_good_component():
-    from aether_os.phases.p05_frontend.task_agent import _validate_component
-    good = 'function App() { const [x,sX]=React.useState(null); return (<div><h1>Hi</h1></div>); }'
-    assert _validate_component(good)
-
-
-def test_p05f_validator_rejects_bad_output():
-    from aether_os.phases.p05_frontend.task_agent import _validate_component
-    assert not _validate_component("")
-    assert not _validate_component("Here is some text about React")
-    assert not _validate_component("function helper() { return 42; }")  # no JSX
-
-
-def test_p05f_vanilla_html_structure():
-    from aether_os.phases.p05_frontend.task_agent import _build_vanilla_html
-    html = _build_vanilla_html("My Project", _FAKE_ENDPOINTS)
-    assert "<!DOCTYPE html>" in html
-    assert "<html" in html
-    assert "<script" in html
-    assert "fetch(" in html
-    assert "/health" in html
-    assert "/items" in html
-    assert "DOMContentLoaded" in html
-    assert "```" not in html  # no markdown leakage
-
-
-def test_p05f_react_html_structure():
-    from aether_os.phases.p05_frontend.task_agent import _build_react_html
-    component = 'function App() { return (<div><h1>Test</h1></div>); }'
-    html = _build_react_html("Test", _FAKE_ENDPOINTS, component)
-    assert "<!DOCTYPE html>" in html
-    assert "react.development.js" in html
-    assert "babel.min.js" in html
-    assert 'type="text/babel"' in html
-    assert "function App" in html
-    assert "ReactDOM.createRoot" in html
-    assert "```" not in html
-
-
 @pytest.mark.asyncio
-async def test_p05f_full_run_fallback(tmp_path):
-    """Full run with LLM mocked to return junk → uses vanilla-JS fallback."""
+async def test_p05f_full_run_writes_vite_project(tmp_path):
+    """Full run generates a React/Vite frontend project directory."""
     import json
     from unittest.mock import AsyncMock, patch
     from aether_os.phases.p05_frontend.task_agent import run
     from aether_os.phases.p05_frontend.gate import validate
 
     arch_file = tmp_path / "architecture.json"
-    arch_file.write_text(json.dumps({"api_endpoints": _FAKE_ENDPOINTS}))
+    arch_file.write_text(json.dumps({
+        "api_endpoints": _FAKE_ENDPOINTS,
+        "tech_stack": {"backend": "FastAPI", "frontend": "React", "database": "SQLite"},
+    }))
 
     class PhaseInput:
         input_data = {
             "project_name": "Test Dashboard",
             "p02_architecture_path": str(arch_file),
+            "project_dir": str(tmp_path),
         }
+        domain = "saas"
 
-    # LLM returns garbage → fallback path is taken
     mock_client = AsyncMock()
-    mock_client.call = AsyncMock(return_value="This is not valid JSX at all")
+    mock_client.call = AsyncMock(return_value="")  # LLM returns empty → skip optional domain component
     with patch("aether_os.phases.p05_frontend.task_agent.get_llm_client",
                return_value=mock_client):
         out_dir = tmp_path / "output"
         result = await run(PhaseInput(), [], out_dir)
 
-    index = out_dir / "index.html"
-    assert index.exists(), "index.html not created"
-    content = index.read_text()
-    assert len(content) > 500
-    assert "<html" in content.lower()
-    assert "<script" in content.lower()
-    assert "fetch(" in content
-    assert "```" not in content
-    assert result.metadata["renderer"] == "vanilla-js"
+    assert result.success is True
+    # Should have written a frontend directory with package.json
+    frontend_dir = out_dir / "frontend"
+    assert frontend_dir.exists() or (out_dir / "package.json").exists(), \
+        "No frontend dir or package.json written"
 
     gate = validate(result)
     assert gate.passed, f"Gate failed: {gate.issues}"
-    assert gate.confidence >= 0.8
-
-
-@pytest.mark.asyncio
-async def test_p05f_full_run_react(tmp_path):
-    """Full run with LLM mocked to return good JSX → react-babel path."""
-    import json
-    from unittest.mock import AsyncMock, patch
-    from aether_os.phases.p05_frontend.task_agent import run
-    from aether_os.phases.p05_frontend.gate import validate
-
-    arch_file = tmp_path / "architecture.json"
-    arch_file.write_text(json.dumps({"api_endpoints": _FAKE_ENDPOINTS}))
-
-    class PhaseInput:
-        input_data = {
-            "project_name": "Test Dashboard",
-            "p02_architecture_path": str(arch_file),
-        }
-
-    good_component = (
-        'function App() {\n'
-        '  const [data, setData] = React.useState(null);\n'
-        '  React.useEffect(() => { fetch("/health").then(r=>r.json()).then(setData); }, []);\n'
-        '  return (<div><h1>Test Dashboard</h1><pre>{JSON.stringify(data)}</pre></div>);\n'
-        '}'
-    )
-    mock_client = AsyncMock()
-    mock_client.call = AsyncMock(return_value=good_component)
-    with patch("aether_os.phases.p05_frontend.task_agent.get_llm_client",
-               return_value=mock_client):
-        out_dir = tmp_path / "output"
-        result = await run(PhaseInput(), [], out_dir)
-
-    index = out_dir / "index.html"
-    assert index.exists()
-    content = index.read_text()
-    assert "react.development.js" in content
-    assert "babel.min.js" in content
-    assert "function App" in content
-    assert result.metadata["renderer"] == "react-babel"
-    assert result.metadata["used_llm"] is True
-
-    gate = validate(result)
-    assert gate.passed
 
 
 def test_p05f_gate_fails_missing_file(tmp_path):
     from aether_os.phases.p05_frontend.gate import validate
     from aether_os.phases.base import TaskResult
-    result = TaskResult(output_path=str(tmp_path / "nonexistent.html"),
+    result = TaskResult(output_path=str(tmp_path / "nonexistent"),
                         confidence=0.5, success=True)
     assert not validate(result).passed
 
 
-def test_p05f_gate_fails_tiny_file(tmp_path):
-    from aether_os.phases.p05_frontend.gate import validate
-    from aether_os.phases.base import TaskResult
-    tiny = tmp_path / "index.html"
-    tiny.write_text("<html></html>")
-    result = TaskResult(output_path=str(tiny), confidence=0.5, success=True)
-    assert not validate(result).passed
+def test_p05f_nginx_conf_uses_configurable_backend(tmp_path):
+    """_generate_nginx_conf uses config dict for container_name and app_port."""
+    from aether_os.phases.p05_frontend.task_agent import _generate_nginx_conf
+    conf = _generate_nginx_conf({"container_name": "backend", "app_port": 9000})
+    assert "backend:9000" in conf
+    assert "app:8000" not in conf
 
 
-def test_p05f_gate_passes_full_html(tmp_path):
-    from aether_os.phases.p05_frontend.task_agent import _build_vanilla_html
-    from aether_os.phases.p05_frontend.gate import validate
-    from aether_os.phases.base import TaskResult
-    index = tmp_path / "index.html"
-    index.write_text(_build_vanilla_html("Test", _FAKE_ENDPOINTS))
-    result = TaskResult(output_path=str(index), confidence=0.9, success=True)
-    outcome = validate(result)
-    assert outcome.passed
-    assert outcome.confidence >= 0.9
+def test_p05f_nginx_conf_default_values(tmp_path):
+    """_generate_nginx_conf uses 'app' and 8000 when no config given."""
+    from aether_os.phases.p05_frontend.task_agent import _generate_nginx_conf
+    conf = _generate_nginx_conf()
+    assert "app:8000" in conf
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

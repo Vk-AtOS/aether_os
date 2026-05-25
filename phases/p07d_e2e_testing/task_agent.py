@@ -33,9 +33,9 @@ def _build_fallback_e2e(project_name: str, frontend_url: str, entities: list) ->
           expect(body.status).toBe('ok');
         }});
 
-        test('API {table} list returns 200', async ({{ request }}) => {{
+        test('API {table} list returns 2xx', async ({{ request }}) => {{
           const resp = await request.get('http://localhost:8000/api/{table}');
-          expect([200, 401, 403]).toContain(resp.status());
+          expect(resp.status()).toBeLessThan(400);
         }});
     """)
 

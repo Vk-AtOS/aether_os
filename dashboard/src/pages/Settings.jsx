@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import {
   Shield,
@@ -222,7 +222,7 @@ const Settings = () => {
           if (compRes.data?.data_region) setDataRegion(compRes.data.data_region.toLowerCase());
         } catch (_) {}
       } catch (err) {
-        console.error('Settings fetch error', err);
+        if (import.meta.env.DEV) console.error('Settings fetch error', err);
       }
     };
     fetchData();
@@ -259,7 +259,7 @@ const Settings = () => {
     try {
       await api.savePhaseConfig(phase, config);
     } catch (err) {
-      console.error('Failed to save phase config', err);
+      if (import.meta.env.DEV) console.error('Failed to save phase config', err);
     }
   };
 
@@ -397,9 +397,10 @@ const Settings = () => {
     }
   };
 
+  const codeContainerRef = useRef(null);
   useEffect(() => {
-    if (fileContent) {
-      document.querySelectorAll('pre code').forEach((block) => {
+    if (fileContent && codeContainerRef.current) {
+      codeContainerRef.current.querySelectorAll('pre code').forEach((block) => {
         hljs.highlightElement(block);
       });
     }
@@ -811,7 +812,7 @@ const Settings = () => {
                     <span className="text-[10px] font-mono text-muted uppercase tracking-widest">{selectedFile || 'No file selected'}</span>
                     <span className="text-[9px] font-mono text-success">READ ONLY</span>
                  </div>
-                 <div className="flex-1 overflow-auto p-4 custom-scrollbar">
+                 <div className="flex-1 overflow-auto p-4 custom-scrollbar" ref={codeContainerRef}>
                     {fileContent ? (() => {
                       const ext = selectedFile?.split('.').pop()?.toLowerCase() || '';
                       const langMap = { js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', py: 'python', json: 'json', yml: 'yaml', yaml: 'yaml', md: 'markdown', sh: 'bash', css: 'css', html: 'html', sql: 'sql' };

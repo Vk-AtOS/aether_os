@@ -53,3 +53,10 @@ echo "$(date -Iseconds) INFO: Backup complete ($(du -sh "$BACKUP_FILE" | cut -f1
 find "$BACKUP_DIR" -name "aetheros_*.dump" -mtime +"$BACKUP_RETAIN" -delete
 REMAINING=$(find "$BACKUP_DIR" -name "aetheros_*.dump" | wc -l)
 echo "$(date -Iseconds) INFO: Retention cleanup done — $REMAINING backup(s) retained"
+
+# ── Offsite backup (requires rclone configured with remote named 'backup') ─────
+if command -v rclone &>/dev/null && rclone listremotes 2>/dev/null | grep -q 'backup:'; then
+    rclone copy "$BACKUP_DIR" backup:aetheros-backups/ --max-age 30d 2>>/var/log/aetheros/backup.log \
+        && echo "Offsite backup complete" >> /var/log/aetheros/backup.log \
+        || echo "Offsite backup failed (non-fatal)" >> /var/log/aetheros/backup.log
+fi

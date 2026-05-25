@@ -57,6 +57,9 @@ from aether_os.core.project_memory import (
 
 logger = logging.getLogger(__name__)
 
+# PIPELINE-036: Phases that must succeed; failure stops the pipeline immediately.
+CRITICAL_PHASES = {"p01_intake_requirements", "p04_backend", "p05_frontend"}
+
 # Ordered 20-phase sequence (12 core + 8 post-deployment)
 PHASE_SEQUENCE = [
     "p01_intake_requirements",
@@ -118,6 +121,36 @@ def _load_supervisor(phase_name: str):
     return getattr(module, class_name)()
 
 
+async def _acquire_run_lock(run_id: str, redis_client=None) -> bool:
+    """PIPELINE-069: acquire a per-run lock to prevent duplicate concurrent runs."""
+    if redis_client:
+        try:
+            result = await redis_client.set(f"run_lock:{run_id}", "1", nx=True, ex=3600)
+            return result is not None
+        except Exception as exc:
+            logger.warning("[pipeline] Redis lock failed (%s) — using file lock", exc)
+    # Local file lock fallback
+    lock_file = Path(f"/tmp/aetheros_run_{run_id}.lock")
+    if lock_file.exists():
+        return False
+    try:
+        lock_file.touch()
+    except OSError:
+        return False
+    return True
+
+
+async def _release_run_lock(run_id: str, redis_client=None) -> None:
+    """Release the per-run lock."""
+    if redis_client:
+        try:
+            await redis_client.delete(f"run_lock:{run_id}")
+        except Exception:
+            pass
+    lock_file = Path(f"/tmp/aetheros_run_{run_id}.lock")
+    lock_file.unlink(missing_ok=True)
+
+
 class FactoryPipeline:
     """
     26-phase factory pipeline.
@@ -174,6 +207,43 @@ class FactoryPipeline:
                   github_url: Optional[str] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
+
+        # PIPELINE-069: acquire distributed run lock (prevents duplicate concurrent runs)
+        _redis_client = None
+        try:
+            from aether_os.core.cache import get_redis
+            _redis_client = await get_redis()
+        except Exception:
+            pass  # Redis unavailable — use file lock
+
+        _lock_acquired = await _acquire_run_lock(run_id, _redis_client)
+        if not _lock_acquired:
+            logger.warning("[pipeline] Run %s already has an active lock — skipping duplicate start", run_id)
+            return {"run_id": run_id, "status": "duplicate", "error": "Run already in progress"}
+
+        try:
+            return await self._execute_pipeline_locked(
+                client_id, raw_input, domain, project_name, start_phase,
+                run_id, org_id, org_slug, plan, is_change_request, memory_context,
+                council_preflight, github_url,
+            )
+        finally:
+            await _release_run_lock(run_id, _redis_client)
+
+    async def _execute_pipeline_locked(self,
+                  client_id: str,
+                  raw_input: str,
+                  domain: str = "general",
+                  project_name: Optional[str] = None,
+                  start_phase: Optional[str] = None,
+                  run_id: Optional[str] = None,
+                  org_id: Optional[str] = None,
+                  org_slug: Optional[str] = None,
+                  plan: Optional[str] = None,
+                  is_change_request: bool = False,
+                  memory_context: Optional[str] = None,
+                  council_preflight: Optional[Dict[str, Any]] = None,
+                  github_url: Optional[str] = None) -> dict:
 
         # Create project directory
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
@@ -523,7 +593,27 @@ class FactoryPipeline:
                 results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
                             "error": str(e)}, run_id=run_id)
-                # Continue to next phase even if this one failed
+                # PIPELINE-036: critical phases stop the pipeline immediately
+                if phase_name in CRITICAL_PHASES:
+                    logger.error(
+                        "[pipeline] Critical phase %s failed — aborting pipeline run %s",
+                        phase_name, run_id,
+                    )
+                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await publish_event(run_id, {
+                        "type": "pipeline_complete",
+                        "status": "failed",
+                        "reason": f"Critical phase {phase_name} failed: {e}",
+                        "ts": time.time(),
+                    })
+                    return {
+                        "run_id": run_id,
+                        "status": "failed",
+                        "phases": results,
+                        "output_dir": str(project_dir),
+                        "error": f"Critical phase {phase_name} failed: {e}",
+                    }
+                # Continue to next phase for non-critical failures
 
             finally:
                 # Reset context vars after each phase
@@ -972,4 +1062,37 @@ def get_factory() -> FactoryPipeline:
     global _factory
     if _factory is None:
         _factory = FactoryPipeline()
+
+
+async def _monitor_stuck_runs(threshold_minutes: int = 30) -> None:
+    """LAUNCH-036: Background task that logs a CRITICAL alert for runs stuck >threshold_minutes."""
+    while True:
+        await asyncio.sleep(300)  # check every 5 minutes
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_mon
+            from aether_os.core.models import Run as _Run_mon
+            from sqlalchemy import select as _sel_mon
+            stale_ts = time.time() - (threshold_minutes * 60)
+            sf = _gsf_mon()
+            async with sf() as _s:
+                stuck_runs = (await _s.execute(
+                    _sel_mon(_Run_mon)
+                    .where(_Run_mon.status == "running")
+                    .where(_Run_mon.started_at <= stale_ts)
+                )).scalars().all()
+            for run in stuck_runs:
+                logger.critical(
+                    "STALL: run %s stuck for >%dm in phase %s",
+                    run.id, threshold_minutes, run.current_phase,
+                )
+        except Exception:
+            pass
+
+
+def start_stuck_run_monitor(threshold_minutes: int = 30) -> None:
+    """Start the stuck-run monitor as an asyncio background task."""
+    _t = asyncio.create_task(_monitor_stuck_runs(threshold_minutes))
+    _background_tasks.add(_t)
+    _t.add_done_callback(_background_tasks.discard)
+    logger.info("Stuck-run monitor started (threshold=%dm, check interval=5m)", threshold_minutes)
     return _factory

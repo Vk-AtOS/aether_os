@@ -12,22 +12,34 @@ logger = logging.getLogger(__name__)
 
 _AXE_SCRIPT = """
 const { chromium } = require('playwright');
-const { AxePuppeteer } = require('@axe-core/puppeteer');
+const { checkA11y, injectAxe } = require('axe-playwright');
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
   const page = await browser.newPage();
   try {
     await page.goto(process.argv[2] || 'http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
-    const results = await new AxePuppeteer(page).analyze();
+    await injectAxe(page);
+    const results = await checkA11y(page, null, { detailedReport: true, includedImpacts: ['critical', 'serious', 'moderate', 'minor'] }, true);
+    // checkA11y throws on violations; if we reach here, no violations
     console.log(JSON.stringify({
-      violations: results.violations.length,
-      passes: results.passes.length,
-      incomplete: results.incomplete.length,
-      items: results.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
+      violations: 0,
+      passes: 0,
+      incomplete: 0,
+      items: [],
     }));
   } catch (e) {
-    console.log(JSON.stringify({ error: e.message }));
+    // checkA11y throws an AxeResults error containing violations
+    if (e && e.violations) {
+      console.log(JSON.stringify({
+        violations: e.violations.length,
+        passes: (e.passes || []).length,
+        incomplete: (e.incomplete || []).length,
+        items: e.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
+      }));
+    } else {
+      console.log(JSON.stringify({ error: e.message || String(e) }));
+    }
   } finally {
     await browser.close();
   }

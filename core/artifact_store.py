@@ -76,8 +76,12 @@ class ArtifactStore:
         try:
             client = get_llm_client()
             embedding = await client.embed(content)
-            # Skip storage when Ollama is unavailable (embed() returns all-zero vector)
+            # PIPELINE-033: warn explicitly when zero-vector received (Ollama may be down)
             if not embedding or all(v == 0.0 for v in embedding):
+                logger.warning(
+                    "Skipping embedding for artifact '%s': zero-vector received (Ollama may be down)",
+                    file_path,
+                )
                 return
             await asyncio.to_thread(self._store_artifact_sync, run_id, file_path, content_hash, embedding)
         except Exception as exc:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import math
 import json
-import sqlite3
+import os
 from typing import Dict, Any, Tuple, List
 import logging
 logger = logging.getLogger(__name__)
@@ -19,14 +19,18 @@ class PipelinePredictor:
 
     def get_stage_baseline(self, stage: str) -> Tuple[float, float]:
         """Returns (average, std_dev) for the given stage."""
-        # Query raw SQLite for efficiency
+        # PIPELINE-049: use SQLAlchemy so PostgreSQL and SQLite both work
         query = "SELECT detail FROM events WHERE agent = 'predictor' AND action = 'stage_timing' ORDER BY timestamp DESC LIMIT 100"
-        
-        conn = sqlite3.connect(self.ledger.db_path)
-        cursor = conn.cursor()
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        conn.close()
+        rows = []
+        try:
+            from sqlalchemy import create_engine, text as _sa_text
+            _db_url = os.environ.get("DATABASE_URL", f"sqlite:///{self.ledger.db_path}")
+            _engine = create_engine(_db_url)
+            with _engine.connect() as conn:
+                rows = conn.execute(_sa_text(query)).fetchall()
+        except Exception as exc:
+            logger.warning("[predictor] DB query failed: %s", exc)
+            return (0.0, 0.0)
 
         durations = []
         for row in rows:

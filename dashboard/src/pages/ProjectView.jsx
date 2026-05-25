@@ -722,7 +722,7 @@ const ProjectView = () => {
           scheduleReconnect();
         };
       } catch (err) {
-        console.error('SSE connect failed:', err);
+        if (import.meta.env.DEV) console.error('SSE connect failed:', err);
         scheduleReconnect();
       }
     };

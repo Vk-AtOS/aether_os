@@ -103,6 +103,13 @@ chmod 640 "$INSTALL_DIR/.env"
 mkdir -p /var/log/aetheros
 chown "$SERVICE_USER:$SERVICE_USER" /var/log/aetheros
 
+# ── 10a. Log rotation ─────────────────────────────────────────────────────────
+if [[ -f "$REPO_DIR/deploy/logrotate.d/aetheros" ]]; then
+    cp "$REPO_DIR/deploy/logrotate.d/aetheros" /etc/logrotate.d/aetheros
+    chmod 644 /etc/logrotate.d/aetheros
+    echo "→ Log rotation configured at /etc/logrotate.d/aetheros"
+fi
+
 # ── 11a. PgBouncer — connection pooler (C6) ───────────────────────────────────
 if [[ -f "$REPO_DIR/deploy/pgbouncer.ini" ]]; then
     cp "$REPO_DIR/deploy/pgbouncer.ini" /etc/pgbouncer/pgbouncer.ini
@@ -125,7 +132,7 @@ systemctl enable aetheros
 
 # ── 12. nginx ─────────────────────────────────────────────────────────────────
 NGINX_CONF=/etc/nginx/sites-available/aetheros
-sed "s/YOUR_DOMAIN_HERE/$DOMAIN/g" "$REPO_DIR/deploy/nginx.conf" > "$NGINX_CONF"
+sed "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" "$REPO_DIR/deploy/nginx.conf" > "$NGINX_CONF"
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
 rm -f /etc/nginx/sites-enabled/default
 nginx -t

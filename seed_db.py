@@ -45,7 +45,11 @@ async def seed():
 
         # 2. Create/Update admin user
         admin_email = os.environ.get("AETHER_ADMIN_EMAIL", "admin@aetheros.ai")
-        admin_pass = os.environ.get("AETHER_ADMIN_PASSWORD", "password123")
+        admin_pass = os.environ.get("AETHER_ADMIN_PASSWORD")
+        if not admin_pass:
+            raise RuntimeError(
+                "AETHER_ADMIN_PASSWORD environment variable must be set before seeding the database"
+            )
         
         stmt = select(User).where(User.email == admin_email)
         result = await session.execute(stmt)

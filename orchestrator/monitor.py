@@ -77,15 +77,20 @@ class DCSPBridge:
 
                 if elapsed > limit * 2:
                     # Critical
-                    self.ledger.log_event(run_id, "DCSP", "stall_critical", 
+                    self.ledger.log_event(run_id, "DCSP", "stall_critical",
                                           {"stage": stage, "elapsed": elapsed, "limit": limit})
-                    print(f"\n[DCSP] CRITICAL: Pipeline stalled at {stage} for {elapsed:.1f}s (Limit: {limit}s)")
-                    # In a real system, we might attempt restart here
+                    logger.critical(
+                        "[DCSP] Pipeline stalled at %s for %.1fs (Limit: %ds)",
+                        stage, elapsed, limit,
+                    )
                 elif elapsed > limit:
                     # Warning
-                    self.ledger.log_event(run_id, "DCSP", "stall_warning", 
+                    self.ledger.log_event(run_id, "DCSP", "stall_warning",
                                           {"stage": stage, "elapsed": elapsed, "limit": limit})
-                    print(f"\n[DCSP] WARNING: {stage} is taking longer than expected ({elapsed:.1f}s > {limit}s)")
+                    logger.warning(
+                        "[DCSP] %s is taking longer than expected (%.1fs > %ds)",
+                        stage, elapsed, limit,
+                    )
 
             time.sleep(5)
 

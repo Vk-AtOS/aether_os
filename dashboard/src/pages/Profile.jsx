@@ -9,6 +9,7 @@ const Profile = () => {
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const [pwStatus, setPwStatus] = useState(null); // null | 'saving' | 'ok' | 'error'
   const [pwError, setPwError] = useState('');
+  const [exportError, setExportError] = useState('');
   const [copied, setCopied] = useState({});
   const [showPw, setShowPw] = useState({});
   // MFA state
@@ -24,6 +25,7 @@ const Profile = () => {
 
   const handleExportData = async () => {
     setExporting(true);
+    setExportError('');
     try {
       const res = await api.client.get('/account/data-export', { responseType: 'blob' });
       const url = URL.createObjectURL(res.data);
@@ -33,7 +35,7 @@ const Profile = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Export failed: ' + (e.response?.data?.detail || e.message));
+      setExportError('Export failed: ' + (e.response?.data?.detail || e.message));
     } finally {
       setExporting(false);
     }
@@ -366,6 +368,7 @@ const Profile = () => {
             <div className="flex-1">
               <p className="text-sm font-semibold text-bright">Download your data</p>
               <p className="text-xs text-muted mt-0.5">Export all your account data as a machine-readable JSON file (GDPR Art. 20 — right to portability).</p>
+              {exportError && <p className="text-red-400 text-xs mt-1">{exportError}</p>}
             </div>
             <button
               onClick={handleExportData}

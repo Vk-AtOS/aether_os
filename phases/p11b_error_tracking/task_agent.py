@@ -106,10 +106,12 @@ async def error_middleware(request: Request, call_next):
         except Exception as exc:
             issues.append(f"Sentry injection skipped: {exc}")
 
+    # PIPELINE-040: count files actually written instead of hardcoding
+    files_written = len([f for f in output_dir.rglob("*") if f.is_file()])
     return TaskResult(
         output_path=str(error_dir),
         confidence=0.95,
-        metadata={"files_written": 5},
+        metadata={"files_written": files_written},
         issues=issues,
         success=True
     )

@@ -105,7 +105,7 @@ const PhaseDetail = () => {
         // Filter files to those under this phase's directory
         setPhaseFiles(flattenTree(tree, name + '/'));
       } catch (err) {
-        console.error('PhaseDetail load failed', err);
+        if (import.meta.env.DEV) console.error('PhaseDetail load failed', err);
         setPhaseData({});
       }
     };

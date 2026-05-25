@@ -241,6 +241,8 @@ function ForceGraph({ nodes, edges, width = 800, height = 520 }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+const GRAPH_LIMIT = 50;
+
 export default function MemoryInspector() {
   const [prefs,        setPrefs]        = useState({});
   const [loading,      setLoading]      = useState(true);
@@ -251,6 +253,7 @@ export default function MemoryInspector() {
   const [cacheStats,   setCacheStats]   = useState(null);
   const [graphData,    setGraphData]    = useState({ nodes: [], edges: [], stats: {} });
   const [graphLoading, setGraphLoading] = useState(false);
+  const [graphPage,    setGraphPage]    = useState(0);
   const containerRef = useRef(null);
   const [graphWidth,   setGraphWidth]   = useState(800);
 
@@ -262,10 +265,10 @@ export default function MemoryInspector() {
     return () => obs.disconnect();
   }, []);
 
-  const fetchGraph = useCallback(async () => {
+  const fetchGraph = useCallback(async (page = 0) => {
     setGraphLoading(true);
     try {
-      const res = await api.client.get("/memory/graph?limit=80")
+      const res = await api.client.get(`/memory/graph?limit=${GRAPH_LIMIT}&offset=${page * GRAPH_LIMIT}`)
         .catch(() => ({ data: { nodes: [], edges: [], stats: {} } }));
       setGraphData(res.data || { nodes: [], edges: [], stats: {} });
     } finally {
@@ -289,8 +292,8 @@ export default function MemoryInspector() {
         setLoading(false);
       }
     })();
-    fetchGraph();
-  }, [fetchGraph]);
+    fetchGraph(graphPage);
+  }, [fetchGraph, graphPage]);
 
   const handleSearch = async () => {
     if (!testInput.trim()) return;
@@ -321,7 +324,7 @@ export default function MemoryInspector() {
           <h1 className="text-2xl font-bold text-bright">Memory Inspector</h1>
           <p className="text-sm text-muted mt-1">Cross-run learning · Session preferences · Knowledge graph</p>
         </div>
-        <button onClick={fetchGraph} disabled={graphLoading}
+        <button onClick={() => fetchGraph(graphPage)} disabled={graphLoading}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border text-muted hover:text-bright hover:border-blue-500/50 text-xs transition-colors disabled:opacity-50">
           <RefreshCw size={13} className={graphLoading ? "animate-spin" : ""} />
           Refresh graph
@@ -396,6 +399,27 @@ export default function MemoryInspector() {
         ) : (
           <ForceGraph nodes={graphData.nodes} edges={graphData.edges} width={graphWidth} height={520} />
         )}
+        <div className="flex items-center justify-between mt-3">
+          <span className="text-xs text-muted">
+            Showing up to {GRAPH_LIMIT} nodes · Page {graphPage + 1}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { const p = Math.max(0, graphPage - 1); setGraphPage(p); fetchGraph(p); }}
+              disabled={graphPage === 0 || graphLoading}
+              className="px-3 py-1 text-xs rounded border border-border text-muted hover:text-bright disabled:opacity-40 transition-colors"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => { const p = graphPage + 1; setGraphPage(p); fetchGraph(p); }}
+              disabled={graphData.nodes.length < GRAPH_LIMIT || graphLoading}
+              className="px-3 py-1 text-xs rounded border border-border text-muted hover:text-bright disabled:opacity-40 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ── Similarity search ──────────────────────────────────────────────── */}

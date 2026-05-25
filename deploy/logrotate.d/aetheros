@@ -1,0 +1,13 @@
+/var/log/aetheros/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 aetheros aetheros
+    sharedscripts
+    postrotate
+        systemctl reload aetheros > /dev/null 2>&1 || true
+    endscript
+}

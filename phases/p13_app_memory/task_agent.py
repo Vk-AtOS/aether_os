@@ -20,6 +20,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         '''import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Optional, List as _List
 
@@ -31,16 +32,38 @@ _store: _List[dict] = []
 
 def _load() -> None:
     global _store
-    if _STORE_FILE.exists():
-        try:
+    if not _STORE_FILE.exists():
+        return
+    try:
+        if sys.platform != "win32":
+            import fcntl
+            with open(_STORE_FILE, "r", encoding="utf-8") as _f:
+                fcntl.flock(_f, fcntl.LOCK_SH)
+                try:
+                    _store = json.load(_f)
+                finally:
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+        else:
             _store = json.loads(_STORE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            _store = []
+    except Exception:
+        _store = []
 
 
 def _save() -> None:
     try:
-        _STORE_FILE.write_text(json.dumps(_store, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            import fcntl
+            _STORE_FILE.touch(exist_ok=True)
+            with open(_STORE_FILE, "r+", encoding="utf-8") as _f:
+                fcntl.flock(_f, fcntl.LOCK_EX)
+                try:
+                    _f.seek(0)
+                    _f.write(json.dumps(_store, indent=2))
+                    _f.truncate()
+                finally:
+                    fcntl.flock(_f, fcntl.LOCK_UN)
+        else:
+            _STORE_FILE.write_text(json.dumps(_store, indent=2), encoding="utf-8")
     except Exception:
         pass
 
