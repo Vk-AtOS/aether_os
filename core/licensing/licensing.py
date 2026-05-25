@@ -22,7 +22,7 @@ Token format
 Where payload is a JSON object with at minimum:
 
     {
-      "license_id": "LIC-XXXX",
+      "license_id": "LIC-DEMO-00001",
       "license_name": "Aether-One Pro",
       "license_type": "trial|team|enterprise|node-locked",
       "customer": "Acme Corp",

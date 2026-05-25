@@ -54,6 +54,7 @@ class MaintenanceEngine:
             result = await llm.call_json(prompt, task_type="documentation")
             return {**result, "engine": "maintenance_engine"}
         except Exception as exc:
+            logger.warning("MaintenanceEngine.tech_debt_analysis failed: %s", exc)
             return {"debt_items": [], "total_debt_score": 0, "engine": "maintenance_engine", "error": str(exc)}
 
     async def schedule_maintenance(
@@ -71,8 +72,8 @@ class MaintenanceEngine:
                 {"task_type": task_type, "scheduled_at": scheduled_at},
                 org_id=org_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("MaintenanceEngine.schedule_maintenance audit log failed: %s", exc)
         return {"scheduled": True, "run_id": run_id, "task_type": task_type, "scheduled_at": scheduled_at}
 
     async def health_check_project(self, run_id: str) -> Dict[str, Any]:

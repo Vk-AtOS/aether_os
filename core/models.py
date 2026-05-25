@@ -310,7 +310,16 @@ class InstalledPluginRecord(Base):
 
 
 class LlmConfig(Base):
-    """Per-org (or global) LLM provider configuration persisted in DB."""
+    """Per-org (or global) LLM provider configuration persisted in DB.
+
+    INTENTIONALLY UNUSED (DB-001): The active LLM configuration is read entirely
+    from environment variables (OPENROUTER_API_KEY, HEAVY_MODEL, LIGHT_MODEL, etc.)
+    via core/llm/client.py and served from os.environ at runtime.  This table and
+    its Alembic migration (revision_e1f2a3b4c5d6) are retained so the schema stays
+    forward-compatible and the migration chain is not broken.  Do NOT remove the
+    migration or the table — instead wire reads/writes here if per-org DB-backed
+    LLM config is needed in the future.
+    """
     __tablename__ = "llm_config"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

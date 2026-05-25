@@ -58,8 +58,8 @@ class ConflictResolver:
                 {"conflict_id": conflict_id, "resolution": resolution},
                 org_id=org_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("ConflictResolver.resolve audit log failed: %s", exc)
         return {"resolved": True, "conflict_id": conflict_id, "resolution": resolution}
 
 

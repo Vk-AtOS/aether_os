@@ -9,7 +9,7 @@ python-multipart>=0.0.6
 
 # ── Database ──────────────────────────────────────────────────────────────────
 sqlalchemy[asyncio]>=2.0.0
-aiosqlite>=0.20.0
+aiosqlite>=0.20.0  # SQLite fallback driver for local dev; prod uses asyncpg + PostgreSQL
 alembic>=1.13.0
 
 # ── Auth ──────────────────────────────────────────────────────────────────────

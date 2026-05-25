@@ -10,6 +10,7 @@
 7. [Rollback Procedure](#7-rollback-procedure)
 8. [Backup & Restore](#8-backup--restore)
 9. [SQLite → PostgreSQL Migration](#9-sqlite--postgresql-migration)
+10. [High Availability Architecture](#10-high-availability-architecture)
 
 ---
 
@@ -240,3 +241,211 @@ systemctl start aetheros
 4. Verify row counts match
 5. Update `DATABASE_URL` in `.env` to point to PostgreSQL
 6. Zero-downtime: use a maintenance window of ~5 minutes, run migrations first, then switch `DATABASE_URL`, then restart the service
+
+---
+
+## 10. High Availability Architecture
+
+This section describes the reference HA topology for running AetherOS in a production environment where the 99.9% SLA (see SECURITY.md) must be met.
+
+### 10.1 PostgreSQL: Primary + Streaming Replica
+
+**Topology**
+- One primary PostgreSQL node (writes + reads)
+- One or more hot-standby streaming replicas (read-only; automatic failover via Patroni or repmgr)
+- pgBouncer runs on every app server as a local connection pooler (transaction-mode, pool_size=20 per AetherOS worker)
+
+**Key configuration snippets**
+```ini
+# postgresql.conf (primary)
+wal_level = replica
+max_wal_senders = 5
+wal_keep_size = 1GB
+synchronous_commit = on   # or 'remote_apply' for zero-data-loss
+
+# pgbouncer.ini (on each app server)
+[databases]
+aether_os = host=127.0.0.1 port=5432 dbname=aether_os
+[pgbouncer]
+pool_mode = transaction
+max_client_conn = 200
+default_pool_size = 20
+server_idle_timeout = 60
+```
+
+**Failover**
+1. Patroni (or repmgr) detects primary failure (heartbeat timeout, default 30 s)
+2. Replica is promoted: `patronictl failover aether_os --master <old-primary> --candidate <replica>`
+3. pgBouncer reconnects automatically; in-flight transactions are retried by SQLAlchemy (pool_pre_ping=True)
+4. Update `DATABASE_URL` in `.env` if the IP changes, then reload AetherOS without restart: `kill -HUP <uvicorn-pid>`
+
+**Health check**
+```bash
+psql $DATABASE_URL -c "SELECT pg_is_in_recovery(), now();"
+# Primary returns f | <timestamp>; replica returns t | <timestamp>
+```
+
+---
+
+### 10.2 Redis: Sentinel or Cluster
+
+AetherOS uses Redis for SSE event fan-out, pipeline pause/cancel signals, and sliding-window rate limiting.
+
+**Redis Sentinel (recommended for 1-3 node setups)**
+```
+Sentinel 1 ─┐
+Sentinel 2 ─┼─ monitors ──► Redis Primary ──► Redis Replica
+Sentinel 3 ─┘
+```
+
+- Minimum quorum: 2 of 3 sentinels must agree before failover
+- AetherOS connects via sentinel URL: `redis+sentinel://sentinel1:26379,sentinel2:26379/mymaster/0`
+- Set `REDIS_URL` in `.env` to the sentinel URL; the `redis-py` client handles discovery automatically
+
+**Redis Cluster (for horizontal scale)**
+- 6 nodes minimum: 3 primary shards + 3 replicas
+- AetherOS's pub/sub keys are prefixed by `org_id`; cluster hash-tags ensure related keys land on the same shard: `{org:<org_id>}:sse:<run_id>`
+
+**Failover timeline**
+- Sentinel detects primary failure after `down-after-milliseconds` (default 5 000 ms)
+- Promotion completes within ~10 s; SSE clients reconnect automatically (EventSource retry)
+- Rate-limit counters reset to zero on failover — this is acceptable (brief over-allowance)
+
+---
+
+### 10.3 AetherOS API Servers Behind nginx Upstream
+
+Run two or more AetherOS processes (separate VMs or containers) behind an nginx upstream.
+
+```nginx
+upstream aetheros {
+    least_conn;
+    server 10.0.0.1:8000 max_fails=3 fail_timeout=10s;
+    server 10.0.0.2:8000 max_fails=3 fail_timeout=10s;
+    keepalive 64;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name aetheros.ai;
+
+    location / {
+        proxy_pass         http://aetheros;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host $host;
+        proxy_read_timeout 3600s;   # keep SSE connections alive
+    }
+
+    location /health {
+        proxy_pass http://aetheros/health;
+        access_log off;             # suppress noisy health-check logs
+    }
+}
+```
+
+**Session affinity** — AetherOS is stateless (JWT auth, no server-side sessions); `least_conn` load balancing is sufficient. SSE streams are handled by the server that accepted the initial HTTP connection; nginx upstream keepalive ensures the same backend is reused for the stream lifetime.
+
+---
+
+### 10.4 Load Balancer Health Check
+
+The nginx (or any external load balancer / cloud health check) should poll:
+
+```
+GET /health
+```
+
+**Expected response (HTTP 200)**
+```json
+{
+  "status": "ok",
+  "db": "ok",
+  "redis": "ok",
+  "version": "0.1.x"
+}
+```
+
+- If `db` or `redis` is `"error"`, nginx `max_fails` will remove the node from the upstream pool.
+- If the HTTP status is non-200, the node is immediately marked down.
+
+Configure the load-balancer interval to **10 s**, failure threshold **3**, success threshold **2**.
+
+---
+
+### 10.5 Zero-Downtime Rolling Deployment
+
+Use this procedure whenever deploying a new AetherOS build to a multi-node cluster.
+
+**Prerequisites**
+- All pending Alembic migrations are backward-compatible (additive only — no column drops or renames that would break the old code)
+- New build artifact is available on all nodes (e.g. `git pull` or pre-pulled Docker image)
+
+**Step-by-step**
+
+1. **Run database migrations once** (from any node, before touching the app):
+   ```bash
+   cd /home/aether_os && alembic upgrade head
+   ```
+
+2. **Rolling restart — one node at a time:**
+   ```bash
+   # On node 1:
+   systemctl restart aetheros
+   # Wait for health check to pass (nginx re-adds node):
+   until curl -sf http://node1:8000/health | grep -q '"status":"ok"'; do sleep 2; done
+   echo "Node 1 healthy"
+
+   # Repeat for node 2, 3, …
+   ```
+
+3. **Verify all nodes are healthy:**
+   ```bash
+   for node in node1 node2; do
+     curl -sf http://${node}:8000/health | python3 -m json.tool
+   done
+   ```
+
+4. **Rollback** (if a node fails to come up): follow Section 7. Alembic migrations that have not yet been applied to other nodes can be reversed with `alembic downgrade -1` before restarting the old binary.
+
+---
+
+### 10.6 Reference Architecture (Text Description)
+
+```
+Internet
+    │
+    ▼
+[Cloudflare / CDN]  ← TLS termination, DDoS mitigation
+    │
+    ▼
+[nginx (2 VMs, active-active)]
+    │  least_conn, health-check /health
+    ├──► AetherOS API Server 1  (uvicorn, 4 workers)
+    └──► AetherOS API Server 2  (uvicorn, 4 workers)
+              │                           │
+              └──────────┬────────────────┘
+                         │
+              ┌──────────▼──────────┐
+              │   pgBouncer (local) │  (on each app server)
+              └──────────┬──────────┘
+                         │
+              ┌──────────▼──────────┐
+              │  PostgreSQL Primary │ ──streaming replication──► PostgreSQL Replica
+              └─────────────────────┘
+                         │
+              ┌──────────▼──────────┐
+              │  Redis Primary      │ ──replication──► Redis Replica
+              │  (Sentinel cluster) │
+              └─────────────────────┘
+```
+
+**Component sizing for 99.9% uptime target**
+
+| Component | Minimum for HA | Recommended |
+|---|---|---|
+| AetherOS API servers | 2 | 3 |
+| PostgreSQL nodes | 2 (1 primary + 1 replica) | 3 (Patroni) |
+| Redis nodes | 3 (Sentinel quorum) | 6 (Cluster) |
+| nginx load balancers | 2 (active-active) | 2 + Keepalived VIP |

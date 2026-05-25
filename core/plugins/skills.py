@@ -87,8 +87,12 @@ Return a JSON object with this structure:
   "env_vars": ["JWT_SECRET_KEY", "JWT_ALGORITHM"]
 }}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation", system=self._SYSTEM)
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation", system=self._SYSTEM)
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -137,8 +141,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation", system=self._SYSTEM)
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation", system=self._SYSTEM)
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -177,8 +185,12 @@ Include:
 Currency: {currency}
 Return JSON: {{"files": {{}}, "dependencies": ["stripe"], "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -215,8 +227,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -251,8 +267,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -291,8 +311,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -328,8 +352,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -366,8 +394,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -402,8 +434,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re
@@ -442,8 +478,12 @@ Include:
 
 Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
 
-        raw = await self._llm_call(prompt, task_type="code_generation")
-        return self._parse_output(raw)
+        try:
+            raw = await self._llm_call(prompt, task_type="code_generation")
+            return self._parse_output(raw)
+        except Exception as exc:
+            logger.warning("Skill %s LLM generation failed: %s", self.skill_id, exc)
+            return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
         import json, re

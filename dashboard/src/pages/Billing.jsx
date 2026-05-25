@@ -30,10 +30,12 @@ const Billing = () => {
     try {
       const [usageRes, plansRes] = await Promise.all([
         api.client.get('/account/usage').catch(() => ({ data: null })),
-        api.client.get('/billing/plans').catch(() => ({ data: { plans: [] } })),
+        api.client.get('/billing/plans').catch(() => ({ data: null })),
       ]);
       setUsage(usageRes.data);
-      setPlans(plansRes.data?.plans ?? []);
+      const plans = plansRes.data?.plans ?? [];
+      setPlans(plans);
+      if (!plansRes.data) setError('Billing plans could not be loaded. Please check your connection or contact support.');
     } catch (e) {
       setError('Failed to load billing data.');
     } finally {

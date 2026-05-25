@@ -105,6 +105,9 @@ export const api = {
   stopRunApp: (runId) => client.delete(`/factory/runs/${runId}/run-app`),
   approveAction: (ticketId, decision, reason) =>
     client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
+  listDecisions: (runId, status) => client.get(`/factory/runs/${runId}/decisions`, { params: status ? { status } : {} }),
+  approveDecision: (runId, decisionId, approved, reason) =>
+    client.post(`/factory/runs/${runId}/decisions/${decisionId}/decide`, { approved, reason }),
 
   // Run controls
   pauseRun: (runId) => client.post(`/factory/runs/${runId}/pause`),
@@ -185,6 +188,16 @@ export const api = {
   getRunQuality: (runId) => client.get(`/factory/runs/${runId}/quality`),
   getRunCompliance: (runId) => client.get(`/factory/runs/${runId}/compliance`),
   getQualityTrend: (limit = 50) => client.get('/factory/analytics/quality-trend', { params: { limit } }),
+
+  // Webhooks
+  getWebhooks: () => client.get('/webhooks'),
+  createWebhook: (data) => client.post('/webhooks', data),
+  deleteWebhook: (id) => client.delete(`/webhooks/${id}`),
+
+  // Workspaces
+  getWorkspaces: () => client.get('/workspaces'),
+  createWorkspace: (data) => client.post('/workspaces', data),
+  deleteWorkspace: (id) => client.delete(`/workspaces/${id}`),
 };
 
 // Default export so pages can do: import api from '../api'

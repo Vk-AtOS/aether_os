@@ -99,6 +99,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if "AETHER_SECRET_KEY" not in os.environ:
-        os.environ["AETHER_SECRET_KEY"] = "management-script-key-placeholder"
+        raise SystemExit(
+            "ERROR: AETHER_SECRET_KEY environment variable is not set.\n"
+            "Set it to the same secret key used by your running AetherOS instance:\n"
+            "  export AETHER_SECRET_KEY=<your-secret>\n"
+            "  python scripts/create_org.py ..."
+        )
 
     asyncio.run(create_org(args.email, args.password, args.org_name, args.plan, force=args.force))

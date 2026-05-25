@@ -263,7 +263,7 @@ async def _call_claude(code: str, domain: str) -> Optional[CouncilReview]:
 async def _call_gemini(code: str, domain: str) -> Optional[CouncilReview]:
     """Call Google Gemini for an architecture-focused review. Falls back to Bedrock Haiku."""
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
-    if api_key and api_key not in ("REPLACE_WITH_YOUR_GEMINI_KEY", "your_google_api_key"):
+    if api_key and len(api_key) > 10 and not api_key.startswith("REPLACE"):
         try:
             from google import genai  # type: ignore
             spec = _PROMPTS["gemini"]
