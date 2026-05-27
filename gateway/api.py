@@ -234,12 +234,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # Build frame-src dynamically from CORS_ORIGINS so the app preview iframe
-        # works in any deployment without hardcoding IPs.
+        # Build frame-src dynamically from CORS_ORIGINS so app preview iframes
+        # work in any deployment without hardcoding IPs.
+        from urllib.parse import urlparse as _urlparse
         _cors_hosts = " ".join(
-            o.rsplit(":", 1)[0] + ":*"
+            f"{_urlparse(o.strip()).scheme}://{_urlparse(o.strip()).hostname}:*"
             for o in os.getenv("CORS_ORIGINS", "").split(",")
             if o.strip() and not o.strip().startswith("http://localhost")
+            and _urlparse(o.strip()).hostname
         )
         _frame_src = f"'self' {_cors_hosts} http://localhost:*".strip()
         response.headers["Content-Security-Policy"] = (
