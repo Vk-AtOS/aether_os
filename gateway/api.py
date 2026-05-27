@@ -952,6 +952,57 @@ def create_app() -> FastAPI:
             await session.commit()
         return {"message": "Password changed"}
 
+    # ── Mount all routers ─────────────────────────────────────────────────────
+    app.include_router(api_router)
+
+    # Routers with individual try/except (may be absent in some deployments)
+    for _imp, _attr, _kw in [
+        ("aether_os.gateway.routers.factory",          "router",      {"prefix": "/v2"}),
+        ("aether_os.gateway.routers.auth_router",      "router",      {"prefix": "/v2"}),
+        ("aether_os.gateway.routers.plugins_router",   "router",      {"prefix": "/v2"}),
+        ("aether_os.phases.p08_cicd.webhook",          "router",      {"tags": ["CI/CD"]}),
+        ("aether_os.gateway.client_portal.routes",     "router",      {}),
+        ("aether_os.gateway.mcp_router",               "router",      {}),
+        ("aether_os.gateway.auth_saml",                "saml_router", {}),
+        ("aether_os.gateway.auth_oauth",               "oauth_router",{}),
+        ("aether_os.gateway.auth_mfa",                 "mfa_router",  {}),
+    ]:
+        try:
+            import importlib as _il
+            _m = _il.import_module(_imp)
+            app.include_router(getattr(_m, _attr), **_kw)
+        except Exception as _exc:
+            logger.warning("Router %s not loaded: %s", _imp, _exc)
+
+    # Domain routers — extracted from api.py (QUAL-002)
+    for _rname, _rmod, _prefix in [
+        ("legal",         "gateway.routers.legal_router",         ""),
+        ("notifications", "gateway.routers.notifications_router", ""),
+        ("learning",      "gateway.routers.learning_router",      ""),
+        ("memory",        "gateway.routers.memory_router",        ""),
+        ("webhooks",      "gateway.routers.webhooks_router",      ""),
+        ("workspaces",    "gateway.routers.workspaces_router",    ""),
+        ("marketplace",   "gateway.routers.marketplace_router",   ""),
+        ("billing",       "gateway.routers.billing_router",       ""),
+        ("account",       "gateway.routers.account_router",       ""),
+        ("admin",         "gateway.routers.admin_router",         ""),
+        ("settings",      "gateway.routers.settings_router",      ""),
+        ("system",        "gateway.routers.system_router",        ""),
+        ("intelligence",  "gateway.routers.intelligence_router",  ""),
+        ("compliance",    "gateway.routers.compliance_router",    ""),
+        ("scim",          "gateway.routers.scim_router",          ""),
+        ("agents",        "gateway.routers.agents_router",        ""),
+        ("factory_ops",   "gateway.routers.factory_ops_router",   ""),
+        ("factory_runs",  "gateway.routers.factory_runs_router",  ""),
+    ]:
+        try:
+            import importlib as _il2
+            _m2 = _il2.import_module(_rmod)
+            app.include_router(_m2.router, prefix=_prefix)
+            logger.info("Mounted router: %s", _rname)
+        except Exception as _exc2:
+            logger.critical("Failed to mount %s router: %s", _rname, _exc2)
+
     # ── Legal documents (GDPR D-001) — public, no auth required ──────────────
     return app
 
