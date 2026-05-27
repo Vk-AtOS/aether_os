@@ -42,6 +42,26 @@ def _current_user():
     return Depends(get_current_user)
 
 
+def _atomic_env_write(env_path: pathlib.Path, updates: Dict[str, str]) -> None:
+    """Atomically update .env key=value pairs using tmpfile + os.replace (SEC-002 fix)."""
+    lines = env_path.read_text().splitlines() if env_path.exists() else []
+    found: set = set()
+    new_lines = []
+    for line in lines:
+        key = line.split("=")[0].strip() if "=" in line else ""
+        if key and key in updates:
+            new_lines.append(f"{key}={updates[key]}")
+            found.add(key)
+        else:
+            new_lines.append(line)
+    for k, v in updates.items():
+        if k not in found:
+            new_lines.append(f"{k}={v}")
+    tmp = env_path.with_suffix(".env.tmp")
+    tmp.write_text("\n".join(new_lines) + "\n")
+    os.replace(tmp, env_path)  # atomic on POSIX — prevents partial writes
+
+
 # ── Request models ────────────────────────────────────────────────────────────
 
 class ApiKeyRequest(BaseModel):
@@ -121,13 +141,11 @@ async def update_api_keys(
     req: ApiKeyRequest,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Update .env file with new API keys. Requires owner or admin role."""
-    # SECURITY: only org owners/admins may overwrite provider API keys.
-    # Any authenticated user could previously change ANTHROPIC_API_KEY for the whole server.
+    """Persist per-org API key to DB. No longer writes to shared .env file."""
     if user.get("role") not in ("owner", "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only organisation owners and admins may update API keys."
+            detail="Only organisation owners and admins may update API keys.",
         )
 
     if req.provider not in ["anthropic", "gemini", "openai", "openrouter"]:
@@ -136,58 +154,38 @@ async def update_api_keys(
     if not req.key or len(req.key) <= 10:
         raise HTTPException(status_code=400, detail="Key too short or empty")
 
-    env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
     _provider_to_var = {
         "anthropic": "ANTHROPIC_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
+        "gemini":    "GOOGLE_API_KEY",
+        "openai":    "OPENAI_API_KEY",
+        "openrouter":"OPENROUTER_API_KEY",
     }
     var_name = _provider_to_var[req.provider]
-
-    lines = []
-    if env_path.exists():
-        lines = env_path.read_text().splitlines()
-
-    found = False
-    new_lines = []
-    for line in lines:
-        if line.startswith(f"{var_name}="):
-            new_lines.append(f"{var_name}={req.key}")
-            found = True
-        else:
-            new_lines.append(line)
-
-    if not found:
-        new_lines.append(f"{var_name}={req.key}")
-
-    env_path.write_text("\n".join(new_lines) + "\n")
-    # Hot-reload: update os.environ immediately so the running process uses the new key
-    # without needing a restart.
+    # Hot-reload for the current process — lets live factory runs pick up the new key.
     os.environ[var_name] = req.key
-    logger.info("API key updated and hot-reloaded for %s", req.provider)
 
-    # Persist per-org key to DB so each customer has isolated keys.
-    # Map "gemini" UI label → "google" store provider name.
+    # Per-org DB storage — each organisation has isolated keys (not shared .env).
     _store_provider = "google" if req.provider == "gemini" else req.provider
     org_id = user.get("org_id", "")
-    if org_id:
-        try:
-            from aether_os.core.api_key_store import save_api_key as _save_api_key
-            await _save_api_key(
-                provider=_store_provider,
-                org_id=org_id,
-                api_key=req.key,
-                user_id=user.get("sub", ""),
-            )
-            logger.info("Org API key persisted to DB for org=%s provider=%s", org_id, _store_provider)
-        except Exception as _exc:
-            logger.warning("Failed to persist org API key to DB (non-fatal): %s", _exc)
+    if not org_id:
+        raise HTTPException(status_code=400, detail="Cannot save key: org_id missing from token")
+    try:
+        from aether_os.core.api_key_store import save_api_key as _save_api_key
+        await _save_api_key(
+            provider=_store_provider,
+            org_id=org_id,
+            api_key=req.key,
+            user_id=user.get("sub", ""),
+        )
+        logger.info("Org API key persisted to DB: org=%s provider=%s", org_id, _store_provider)
+    except Exception as _exc:
+        logger.error("Failed to persist org API key to DB: %s", _exc)
+        raise HTTPException(status_code=500, detail="Failed to save API key — database error")
 
     return {
         "success": True,
         "provider": req.provider,
-        "message": "Key saved and active immediately.",
+        "message": "Key saved to database and active immediately.",
     }
 
 
@@ -230,10 +228,6 @@ async def update_langsmith_settings(
         )
 
     env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
-    lines: list[str] = []
-    if env_path.exists():
-        lines = env_path.read_text().splitlines()
-
     updates: Dict[str, str] = {}
     if "opt_in" in req:
         updates["LANGSMITH_OPT_IN"] = "true" if req["opt_in"] else "false"
@@ -242,20 +236,7 @@ async def update_langsmith_settings(
     if "project" in req and req["project"]:
         updates["LANGCHAIN_PROJECT"] = req["project"]
 
-    for var_name, var_val in updates.items():
-        found = False
-        new_lines = []
-        for line in lines:
-            if line.startswith(f"{var_name}="):
-                new_lines.append(f"{var_name}={var_val}")
-                found = True
-            else:
-                new_lines.append(line)
-        if not found:
-            new_lines.append(f"{var_name}={var_val}")
-        lines = new_lines
-
-    env_path.write_text("\n".join(lines) + "\n")
+    _atomic_env_write(env_path, updates)
 
     # Hot-reload env vars and re-init LangSmith immediately
     for var_name, var_val in updates.items():
@@ -362,28 +343,48 @@ async def test_provider(
 async def get_llm_config(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return current LLM configuration from env / DB."""
-    env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
-    env_vars: Dict[str, str] = {}
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                env_vars[k.strip()] = v.strip()
-    raw_fallback = env_vars.get("OPENROUTER_FALLBACK_MODELS", "")
-    fallback_list = [m.strip() for m in raw_fallback.split(",") if m.strip()] if raw_fallback else []
-    # Include the live active model from the router so the UI shows what actually served last
+    """Return LLM config — DB record for this org takes priority over env defaults."""
     from aether_os.core.model_router import _active_model as _live_model
+    org_id = user.get("org_id", "")
+
+    # Attempt to read org-specific DB record
+    db_cfg = None
+    if org_id:
+        try:
+            from aether_os.core.db import get_session_factory as _gsf
+            from aether_os.core.models import LlmConfig as _LC
+            from sqlalchemy import select as _sel
+            async with _gsf()() as _s:
+                db_cfg = (await _s.execute(
+                    _sel(_LC).where(_LC.org_id == org_id)
+                )).scalar_one_or_none()
+        except Exception as _exc:
+            logger.debug("llm-config DB read failed (non-fatal): %s", _exc)
+
+    raw_fallback = os.environ.get("OPENROUTER_FALLBACK_MODELS", "")
+    fallback_list = [m.strip() for m in raw_fallback.split(",") if m.strip()] if raw_fallback else []
+
+    if db_cfg:
+        return {
+            "primary_llm":             db_cfg.provider or os.environ.get("PRIMARY_LLM", "anthropic"),
+            "anthropic_model":         db_cfg.heavy_model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+            "ollama_model":            db_cfg.light_model or os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+            "openrouter_heavy_model":  db_cfg.heavy_model or os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
+            "openrouter_light_model":  db_cfg.light_model or os.environ.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            "openrouter_prefer_paid":  db_cfg.prefer_paid,
+            "openrouter_fallback_models": fallback_list,
+            "active_model": _live_model,
+        }
+
     return {
-        "primary_llm": env_vars.get("PRIMARY_LLM", "anthropic"),
-        "anthropic_model": env_vars.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-        "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
-        "openrouter_heavy_model": env_vars.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
-        "openrouter_light_model": env_vars.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-        "openrouter_prefer_paid": env_vars.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
+        "primary_llm":             os.environ.get("PRIMARY_LLM", "anthropic"),
+        "anthropic_model":         os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        "ollama_model":            os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+        "openrouter_heavy_model":  os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"),
+        "openrouter_light_model":  os.environ.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+        "openrouter_prefer_paid":  os.environ.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
         "openrouter_fallback_models": fallback_list,
-        "active_model": _live_model,  # e.g. "openrouter/deepseek/deepseek-r1:free" after first call
+        "active_model": _live_model,
     }
 
 
@@ -392,46 +393,70 @@ async def update_llm_config(
     req: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Update LLM configuration in .env. Requires owner or admin role."""
+    """Persist LLM config to DB (per-org) and hot-reload os.environ. No .env write."""
     if user.get("role") not in ("owner", "admin"):
         raise HTTPException(status_code=403, detail="Only org owners/admins may update LLM config.")
-    env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
-    allowed_keys = {
-        "primary_llm":              "PRIMARY_LLM",
-        "anthropic_model":          "ANTHROPIC_MODEL",
-        "ollama_model":             "OLLAMA_MODEL",
-        "openrouter_heavy_model":   "OPENROUTER_HEAVY_MODEL",
-        "openrouter_light_model":   "OPENROUTER_LIGHT_MODEL",
-        "openrouter_prefer_paid":   "OPENROUTER_PREFER_PAID",
+
+    org_id = user.get("org_id", "")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="org_id missing from token")
+
+    # Determine which model fields apply based on provider
+    provider = req.get("primary_llm", os.environ.get("PRIMARY_LLM", "anthropic"))
+    if provider == "anthropic":
+        heavy = req.get("anthropic_model", os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"))
+        light = req.get("ollama_model", os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"))
+    else:
+        heavy = req.get("openrouter_heavy_model", os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free"))
+        light = req.get("openrouter_light_model", os.environ.get("OPENROUTER_LIGHT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"))
+    prefer_paid = bool(req.get("openrouter_prefer_paid", False))
+
+    # Upsert into llm_config DB table
+    try:
+        from aether_os.core.db import get_session_factory as _gsf
+        from aether_os.core.models import LlmConfig as _LC
+        from sqlalchemy import select as _sel
+        import time as _t
+        async with _gsf()() as _s:
+            existing = (await _s.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+            if existing:
+                existing.provider = provider
+                existing.heavy_model = heavy
+                existing.light_model = light
+                existing.prefer_paid = prefer_paid
+                existing.updated_at = _t.time()
+            else:
+                _s.add(_LC(
+                    org_id=org_id,
+                    provider=provider,
+                    heavy_model=heavy,
+                    light_model=light,
+                    prefer_paid=prefer_paid,
+                ))
+            await _s.commit()
+        logger.info("LLM config persisted to DB: org=%s provider=%s", org_id, provider)
+    except Exception as _exc:
+        logger.error("Failed to persist LLM config to DB: %s", _exc)
+        raise HTTPException(status_code=500, detail="Database error saving LLM config")
+
+    # Hot-reload: env vars available immediately for in-process factory runs
+    env_updates = {
+        "PRIMARY_LLM": provider,
+        "ANTHROPIC_MODEL": req.get("anthropic_model", os.environ.get("ANTHROPIC_MODEL", "")),
+        "OLLAMA_MODEL": req.get("ollama_model", os.environ.get("OLLAMA_MODEL", "")),
+        "OPENROUTER_HEAVY_MODEL": heavy,
+        "OPENROUTER_LIGHT_MODEL": light,
+        "OPENROUTER_PREFER_PAID": "true" if prefer_paid else "false",
     }
-    lines = env_path.read_text().splitlines() if env_path.exists() else []
-    updates: Dict[str, str] = {}
-    for field, env_var in allowed_keys.items():
-        if field in req:
-            updates[env_var] = str(req[field]).lower() if isinstance(req[field], bool) else str(req[field])
-    # fallback list comes in as a JSON array — store as comma-separated string
     if "openrouter_fallback_models" in req:
         models = req["openrouter_fallback_models"]
         if isinstance(models, list):
-            updates["OPENROUTER_FALLBACK_MODELS"] = ",".join(str(m).strip() for m in models if str(m).strip())
-        elif isinstance(models, str):
-            updates["OPENROUTER_FALLBACK_MODELS"] = models
-    new_lines, found = [], set()
-    for line in lines:
-        key = line.split("=")[0].strip()
-        if key in updates:
-            new_lines.append(f"{key}={updates[key]}")
-            found.add(key)
-        else:
-            new_lines.append(line)
-    for k, v in updates.items():
-        if k not in found:
-            new_lines.append(f"{k}={v}")
-    env_path.write_text("\n".join(new_lines) + "\n")
-    # Apply immediately to running process — no restart needed
-    for k, v in updates.items():
-        os.environ[k] = v
-    return {"success": True, "message": "Model config applied immediately."}
+            env_updates["OPENROUTER_FALLBACK_MODELS"] = ",".join(str(m).strip() for m in models if str(m).strip())
+    for k, v in env_updates.items():
+        if v:
+            os.environ[k] = v
+
+    return {"success": True, "message": "LLM config saved to database and applied immediately."}
 
 
 # ── Model catalogue routes ────────────────────────────────────────────────────
@@ -484,7 +509,23 @@ async def test_model(
 async def get_council_config(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return current LLM Council configuration."""
+    """Return council config — DB record for this org takes priority over env defaults."""
+    org_id = user.get("org_id", "")
+    if org_id:
+        try:
+            from aether_os.core.db import get_session_factory as _gsf
+            from aether_os.core.models import LlmConfig as _LC
+            from sqlalchemy import select as _sel
+            async with _gsf()() as _s:
+                db_cfg = (await _s.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+            if db_cfg:
+                return {
+                    "council_enabled":     db_cfg.council_enabled,
+                    "council_strict_mode": db_cfg.council_strict_mode,
+                }
+        except Exception as _exc:
+            logger.debug("council-config DB read failed (non-fatal): %s", _exc)
+
     return {
         "council_enabled":     os.environ.get("COUNCIL_ENABLED",     "true").lower() != "false",
         "council_strict_mode": os.environ.get("COUNCIL_STRICT_MODE", "false").lower() == "true",
@@ -496,32 +537,46 @@ async def update_council_config(
     req: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Update LLM Council configuration in .env. Requires owner or admin."""
+    """Persist council config to DB (per-org) and hot-reload os.environ. No .env write."""
     if user.get("role") not in ("owner", "admin"):
         raise HTTPException(status_code=403, detail="Only org owners/admins may update council config.")
-    env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
-    lines = env_path.read_text().splitlines() if env_path.exists() else []
-    updates: Dict[str, str] = {}
-    if "council_enabled" in req:
-        updates["COUNCIL_ENABLED"] = "true" if req["council_enabled"] else "false"
-    if "council_strict_mode" in req:
-        updates["COUNCIL_STRICT_MODE"] = "true" if req["council_strict_mode"] else "false"
-    new_lines, found = [], set()
-    for line in lines:
-        key = line.split("=")[0].strip()
-        if key in updates:
-            new_lines.append(f"{key}={updates[key]}")
-            found.add(key)
-        else:
-            new_lines.append(line)
-    for k, v in updates.items():
-        if k not in found:
-            new_lines.append(f"{k}={v}")
-    env_path.write_text("\n".join(new_lines) + "\n")
-    # Apply immediately to running process
-    for k, v in updates.items():
-        os.environ[k] = v
-    return {"success": True, "council_enabled": updates.get("COUNCIL_ENABLED"), "council_strict_mode": updates.get("COUNCIL_STRICT_MODE")}
+
+    org_id = user.get("org_id", "")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="org_id missing from token")
+
+    enabled = bool(req.get("council_enabled", True))
+    strict = bool(req.get("council_strict_mode", False))
+
+    try:
+        from aether_os.core.db import get_session_factory as _gsf
+        from aether_os.core.models import LlmConfig as _LC
+        from sqlalchemy import select as _sel
+        import time as _t
+        async with _gsf()() as _s:
+            existing = (await _s.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+            if existing:
+                existing.council_enabled = enabled
+                existing.council_strict_mode = strict
+                existing.updated_at = _t.time()
+            else:
+                _s.add(_LC(
+                    org_id=org_id,
+                    provider=os.environ.get("PRIMARY_LLM", "anthropic"),
+                    council_enabled=enabled,
+                    council_strict_mode=strict,
+                ))
+            await _s.commit()
+        logger.info("Council config persisted to DB: org=%s enabled=%s strict=%s", org_id, enabled, strict)
+    except Exception as _exc:
+        logger.error("Failed to persist council config to DB: %s", _exc)
+        raise HTTPException(status_code=500, detail="Database error saving council config")
+
+    # Hot-reload for in-process factory runs
+    os.environ["COUNCIL_ENABLED"] = "true" if enabled else "false"
+    os.environ["COUNCIL_STRICT_MODE"] = "true" if strict else "false"
+
+    return {"success": True, "council_enabled": enabled, "council_strict_mode": strict}
 
 
 # ── Phase config routes ───────────────────────────────────────────────────────
