@@ -213,6 +213,28 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
       max_files:  max files to include (default 15)
     """
     import httpx, base64, asyncio, tempfile, subprocess, shutil
+    import ipaddress
+    from urllib.parse import urlparse as _urlparse
+
+    def _assert_not_ssrf(raw_url: str, label: str = "url") -> None:
+        """Block requests to private/loopback/link-local IP ranges (SSRF prevention)."""
+        try:
+            parsed = _urlparse(raw_url)
+            host = parsed.hostname or ""
+            if not host:
+                raise HTTPException(status_code=422, detail=f"Invalid {label}: no hostname")
+            try:
+                ip = ipaddress.ip_address(host)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+                    raise HTTPException(status_code=422, detail=f"{label} must not point to internal networks")
+            except ValueError:
+                pass  # hostname string (not a raw IP) — DNS resolves at request time; block known patterns
+            if host in ("metadata.google.internal", "169.254.169.254"):
+                raise HTTPException(status_code=422, detail=f"{label} is a blocked cloud metadata endpoint")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"Invalid {label}")
 
     rtype = req.get("type", "github").lower()
     url   = (req.get("url") or req.get("repo_url") or "").strip().rstrip("/")
@@ -223,6 +245,16 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
 
     if not url:
         raise HTTPException(status_code=422, detail="url required")
+
+    # SSRF: validate gitlab_url before making server-side requests to it
+    if rtype == "gitlab":
+        _assert_not_ssrf(gitlab_base, "gitlab_url")
+
+    # SSRF/injection: SSH URLs must be actual git remotes, not file:// or local paths
+    if rtype == "ssh":
+        _lower = url.lower()
+        if _lower.startswith("file://") or _lower.startswith("/") or _lower.startswith("../"):
+            raise HTTPException(status_code=422, detail="SSH url must be a remote git address, not a local path")
 
     _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
                   "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
