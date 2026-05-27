@@ -36,6 +36,15 @@ from aether_os.core.project_memory import (
 
 logger = logging.getLogger(__name__)
 
+# Phases whose failure must abort the pipeline — downstream phases depend on their output.
+# Self-healing (p07b) and observational phases (p08+) are deliberately excluded so
+# they don't block delivery on non-critical failures.
+CRITICAL_PHASES = frozenset({
+    "p01_intake_requirements",  # no requirements → nothing to build
+    "p02_architecture",         # no architecture → codegen produces garbage
+    "p04_backend",              # no backend → p05 integration fails completely
+})
+
 # Ordered 20-phase sequence (12 core + 8 post-deployment)
 PHASE_SEQUENCE = [
     "p01_intake_requirements",
@@ -496,6 +505,12 @@ class FactoryPipeline:
                 await self._update_state(run_id, phase_name, "timeout")
                 results[phase_name] = {"status": "timeout", "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "timeout"}, run_id=run_id)
+                if phase_name in CRITICAL_PHASES:
+                    logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
+                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
+                                                  "error": f"Critical phase {phase_name} timed out", "ts": time.time()})
+                    return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} timed out"}
 
             except Exception as e:
                 logger.error(f"{phase_name} failed: {e}")
@@ -503,7 +518,12 @@ class FactoryPipeline:
                 results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
                             "error": str(e)}, run_id=run_id)
-                # Continue to next phase even if this one failed
+                if phase_name in CRITICAL_PHASES:
+                    logger.error("Critical phase %s failed — aborting pipeline %s", phase_name, run_id)
+                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
+                                                  "error": f"Critical phase {phase_name} failed: {e}", "ts": time.time()})
+                    return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} failed: {e}"}
 
             finally:
                 # Reset context vars after each phase

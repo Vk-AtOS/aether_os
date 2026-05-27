@@ -390,9 +390,16 @@ async def get_run_quality(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Get quality score for a completed run's generated output."""
+    from aether_os.core.audit.ledger import get_ledger
     from aether_os.core.projects import get_project_manager
     from aether_os.core.quality.metrics import score_project
     from dataclasses import asdict
+
+    # B2: verify run belongs to this org before touching the filesystem (IDOR fix)
+    org_id = user.get("org_id")
+    run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+    if not run_detail:
+        raise HTTPException(status_code=404, detail="Run not found")
 
     project_dir = get_project_manager().get_project_dir(run_id)
     if not project_dir.exists():
