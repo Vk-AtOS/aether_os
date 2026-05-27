@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aetheros.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aetheros.labels" . | nindent 4 }}
+  annotations:
+    # This ConfigMap contains non-sensitive configuration only.
+    # Sensitive values (API keys, passwords, tokens) live in the Secret.
+    app.kubernetes.io/component: config
+data:
+  # ── Runtime ────────────────────────────────────────────────────────────────
+  ENVIRONMENT: {{ .Values.config.ENVIRONMENT | quote }}
+  REQUIRE_REDIS: {{ .Values.config.REQUIRE_REDIS | quote }}
+  DB_ECHO: {{ .Values.config.DB_ECHO | quote }}
+
+  # ── LLM / Model routing ────────────────────────────────────────────────────
+  PRIMARY_LLM: {{ .Values.config.PRIMARY_LLM | quote }}
+  BEDROCK_MODEL_HEAVY: {{ .Values.config.BEDROCK_MODEL_HEAVY | quote }}
+  BEDROCK_MODEL_LIGHT: {{ .Values.config.BEDROCK_MODEL_LIGHT | quote }}
+  AWS_REGION: {{ .Values.config.AWS_REGION | quote }}
+  OLLAMA_MODEL: {{ .Values.config.OLLAMA_MODEL | quote }}
+  OLLAMA_TIMEOUT: {{ .Values.config.OLLAMA_TIMEOUT | quote }}
+
+  # ── API server ─────────────────────────────────────────────────────────────
+  AETHER_API_HOST: {{ .Values.config.AETHER_API_HOST | quote }}
+  AETHER_API_PORT: {{ .Values.config.AETHER_API_PORT | quote }}
+
+  # ── CORS / Frontend ────────────────────────────────────────────────────────
+  CORS_ORIGINS: {{ .Values.config.CORS_ORIGINS | quote }}
+  FRONTEND_URL: {{ .Values.config.FRONTEND_URL | quote }}
+
+  # ── Admin ─────────────────────────────────────────────────────────────────
+  AETHER_ADMIN_USER: {{ .Values.config.AETHER_ADMIN_USER | quote }}
+
+  # ── Pipeline tuning ────────────────────────────────────────────────────────
+  PHASE_TIMEOUT_SECONDS: {{ .Values.config.PHASE_TIMEOUT_SECONDS | quote }}
+  RUN_APP_PORT: {{ .Values.config.RUN_APP_PORT | quote }}
+
+  # ── SAML SP ────────────────────────────────────────────────────────────────
+  SAML_SP_ENTITY_ID: {{ .Values.config.SAML_SP_ENTITY_ID | quote }}
+  SAML_SP_ACS_URL: {{ .Values.config.SAML_SP_ACS_URL | quote }}
+
+  # ── Branding ───────────────────────────────────────────────────────────────
+  DEPLOYMENT_BRAND: {{ .Values.config.DEPLOYMENT_BRAND | quote }}
+
+  # ── Notifications ──────────────────────────────────────────────────────────
+  SMTP_HOST: {{ .Values.config.SMTP_HOST | quote }}
+  SMTP_PORT: {{ .Values.config.SMTP_PORT | quote }}
+  SMTP_USER: {{ .Values.config.SMTP_USER | quote }}
+
+  # ── GitHub App ─────────────────────────────────────────────────────────────
+  GITHUB_APP_ID: {{ .Values.config.GITHUB_APP_ID | quote }}
+
+  # ── LLM Token Pricing overrides (empty = use built-in defaults) ────────────
+  PRICE_CLAUDE_SONNET_4_6_INPUT: {{ .Values.config.PRICE_CLAUDE_SONNET_4_6_INPUT | quote }}
+  PRICE_CLAUDE_SONNET_4_6_OUTPUT: {{ .Values.config.PRICE_CLAUDE_SONNET_4_6_OUTPUT | quote }}
+  PRICE_CLAUDE_HAIKU_4_5_INPUT: {{ .Values.config.PRICE_CLAUDE_HAIKU_4_5_INPUT | quote }}
+  PRICE_CLAUDE_HAIKU_4_5_OUTPUT: {{ .Values.config.PRICE_CLAUDE_HAIKU_4_5_OUTPUT | quote }}
+
+  # ── Metrics ────────────────────────────────────────────────────────────────
+  METRICS_API_KEY: {{ .Values.config.METRICS_API_KEY | quote }}

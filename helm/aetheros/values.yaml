@@ -1,0 +1,400 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AetherOS Helm Chart — Default Values
+# Override any of these in a values override file:
+#   helm install aetheros ./helm/aetheros -f my-overrides.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# -- Number of API replicas. Set ≥ 2 for production HA.
+replicaCount: 2
+
+image:
+  # -- OCI image repository for the AetherOS API/frontend container.
+  repository: aetheros/api
+  # -- Image pull policy. Use Always in CI; IfNotPresent in production.
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag. Defaults to the chart appVersion when empty.
+  tag: ""
+
+# -- List of image pull secret names if pulling from a private registry.
+imagePullSecrets: []
+
+# -- Override the chart name component used in resource names.
+nameOverride: ""
+# -- Override the fully-qualified resource name prefix.
+fullnameOverride: ""
+
+# ── Service Account ───────────────────────────────────────────────────────────
+serviceAccount:
+  # -- Create a dedicated ServiceAccount for the pod.
+  create: true
+  # -- Annotations to add to the ServiceAccount (e.g. for IRSA on EKS).
+  annotations: {}
+  # -- Override the ServiceAccount name. Defaults to the release fullname.
+  name: ""
+  # -- Automount the ServiceAccount token into pods.
+  automountServiceAccountToken: false
+
+# ── Pod-level settings ────────────────────────────────────────────────────────
+# -- Annotations applied to every pod (e.g. Prometheus scrape hints).
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/api/metrics"
+
+# -- Labels applied to every pod (supplements the standard selector labels).
+podLabels: {}
+
+# -- Pod-level security context (applied to all containers in the pod).
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false   # app writes to /tmp/aether_runs
+  capabilities:
+    drop:
+      - ALL
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  # -- Kubernetes service type. Use LoadBalancer if not using an Ingress.
+  type: ClusterIP
+  # -- Exposed port on the Service (cluster-internal).
+  port: 80
+  # -- Target port on the container.
+  targetPort: 8000
+  # -- Optional: NodePort value when type=NodePort.
+  nodePort: ""
+  # -- Annotations to add to the Service.
+  annotations: {}
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  # -- Enable Ingress resource creation.
+  enabled: false
+  # -- Ingress class name (e.g. nginx, traefik, alb).
+  className: "nginx"
+  # -- Ingress annotations. Common nginx and cert-manager defaults shown.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Ingress hostname. Override with your actual domain.
+  host: aetheros.example.com
+  # -- TLS configuration for the Ingress.
+  tls:
+    enabled: false
+    # -- TLS secret name (cert-manager will populate this automatically).
+    secretName: aetheros-tls
+
+# ── Resource requests & limits ────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+
+# ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+autoscaling:
+  # -- Enable HPA.
+  enabled: true
+  # -- Minimum replica count.
+  minReplicas: 2
+  # -- Maximum replica count.
+  maxReplicas: 10
+  # -- CPU utilisation target (percentage).
+  targetCPUUtilizationPercentage: 70
+  # -- Memory utilisation target (percentage). Requires metrics-server.
+  targetMemoryUtilizationPercentage: 80
+
+# ── Pod Disruption Budget ─────────────────────────────────────────────────────
+podDisruptionBudget:
+  # -- Enable PDB to maintain availability during node drain / rolling updates.
+  enabled: true
+  # -- Minimum pods that must remain available.
+  minAvailable: 1
+
+# ── Liveness / Readiness / Startup Probes ────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 8000
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 24  # 24 × 5s = 2 min for startup
+  successThreshold: 1
+
+# ── Persistence (run artifacts) ───────────────────────────────────────────────
+persistence:
+  # -- Mount a PVC at /tmp/aether_runs for generated app artifacts.
+  enabled: true
+  # -- Storage class. Use "" for default, or name a provisioner (e.g. gp3).
+  storageClass: ""
+  # -- Access modes for the PVC.
+  accessModes:
+    - ReadWriteOnce
+  # -- PVC size. Tune based on expected artifact throughput.
+  size: 10Gi
+  # -- Optional: existing PVC name. If set, the chart will not create a new PVC.
+  existingClaim: ""
+  # -- Mount path inside the container.
+  mountPath: /tmp/aether_runs
+  # -- Annotations for the PVC.
+  annotations: {}
+
+# ── Node / scheduling ─────────────────────────────────────────────────────────
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  # Default: spread pods across nodes for HA
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - aetheros
+          topologyKey: kubernetes.io/hostname
+
+# ── Update strategy ───────────────────────────────────────────────────────────
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# ── Extra volumes / volume mounts ─────────────────────────────────────────────
+extraVolumes: []
+extraVolumeMounts: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Application Environment Variables
+# Non-secret values go into a ConfigMap; secrets go into a Secret.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Non-secret config (ConfigMap) ────────────────────────────────────────────
+config:
+  # -- Runtime environment name.
+  ENVIRONMENT: production
+  # -- Whether to require Redis (SSE / task queue). Keep true in production.
+  REQUIRE_REDIS: "true"
+
+  # LLM / Model routing
+  # -- Primary LLM provider. Options: anthropic, bedrock, gemini, ollama, openrouter.
+  PRIMARY_LLM: bedrock
+  # -- Heavy-task model (codegen, review, security).
+  BEDROCK_MODEL_HEAVY: "us.anthropic.claude-sonnet-4-6"
+  # -- Light-task model (summarisation, classification).
+  BEDROCK_MODEL_LIGHT: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  # -- AWS region for Bedrock.
+  AWS_REGION: us-east-1
+
+  # Ollama fallback
+  OLLAMA_MODEL: "qwen2.5-coder:3b"
+  OLLAMA_TIMEOUT: "120"
+
+  # API server
+  AETHER_API_HOST: "0.0.0.0"
+  AETHER_API_PORT: "8000"
+
+  # CORS — override with your actual frontend origin(s)
+  CORS_ORIGINS: "https://aetheros.example.com"
+  # Frontend URL used in email links and SAML ACS callbacks
+  FRONTEND_URL: "https://aetheros.example.com/dashboard"
+
+  # Admin user (username only — password is in the Secret)
+  AETHER_ADMIN_USER: admin
+
+  # Pipeline tuning
+  PHASE_TIMEOUT_SECONDS: "600"
+
+  # SAML SP — leave blank unless you have an IdP configured
+  SAML_SP_ENTITY_ID: ""
+  SAML_SP_ACS_URL: ""
+
+  # White-label branding (empty = default "AetherOS Factory")
+  DEPLOYMENT_BRAND: ""
+
+  # Notifications
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USER: ""
+
+  # GitHub App integration
+  GITHUB_APP_ID: ""
+
+  # Pricing overrides (USD / 1M tokens) — leave empty to use built-in defaults
+  PRICE_CLAUDE_SONNET_4_6_INPUT: ""
+  PRICE_CLAUDE_SONNET_4_6_OUTPUT: ""
+  PRICE_CLAUDE_HAIKU_4_5_INPUT: ""
+  PRICE_CLAUDE_HAIKU_4_5_OUTPUT: ""
+
+  # Metrics endpoint auth — leave empty to allow unauthenticated scraping
+  METRICS_API_KEY: ""
+
+  # FDE run-app port
+  RUN_APP_PORT: "8001"
+
+  # DB diagnostic echo — always false in production
+  DB_ECHO: "false"
+
+# ── Secrets (base64-encoded in Secret resource) ───────────────────────────────
+# IMPORTANT: In production, use an external secret store (Vault, AWS SSM,
+# Sealed Secrets, etc.) rather than storing plaintext here.
+# All values below are PLACEHOLDERS — override them before deploying.
+secrets:
+  # -- JWT signing secret (min 32 hex chars). Generate:
+  #    python -c "import secrets; print(secrets.token_hex(32))"
+  AETHER_SECRET_KEY: "REPLACE_WITH_STRONG_RANDOM_SECRET_MIN_32_CHARS"
+
+  # -- Zero-trust execution secret.
+  AETHER_ONE_ZT_SECRET: "REPLACE_WITH_ZERO_TRUST_SECRET"
+
+  # -- Admin password.
+  AETHER_ADMIN_PASSWORD: "REPLACE_WITH_STRONG_ADMIN_PASSWORD"
+
+  # -- Anthropic API key (required if PRIMARY_LLM=anthropic).
+  ANTHROPIC_API_KEY: ""
+
+  # -- Google AI Studio API key (required if PRIMARY_LLM=gemini).
+  GOOGLE_API_KEY: ""
+
+  # -- AWS credentials for Bedrock (required if PRIMARY_LLM=bedrock).
+  AWS_ACCESS_KEY_ID: "REPLACE_WITH_AWS_ACCESS_KEY_ID"
+  AWS_SECRET_ACCESS_KEY: "REPLACE_WITH_AWS_SECRET_ACCESS_KEY"
+
+  # -- OpenRouter API key.
+  OPENROUTER_API_KEY: ""
+
+  # -- PostgreSQL connection URL (asyncpg dialect).
+  #    Constructed automatically from postgresql sub-chart values when
+  #    postgresql.enabled=true. Override here for an external DB.
+  DATABASE_URL: ""
+
+  # -- Redis connection URL.
+  #    Constructed automatically from redis sub-chart values when
+  #    redis.enabled=true. Override here for an external Redis.
+  REDIS_URL: ""
+
+  # -- SMTP password for email notifications.
+  SMTP_PASSWORD: ""
+
+  # -- GitHub App private key (PEM, newlines as \n).
+  GITHUB_APP_PRIVATE_KEY: ""
+  # -- GitHub webhook secret.
+  GITHUB_WEBHOOK_SECRET: ""
+
+  # -- GitLab personal access token.
+  GITLAB_TOKEN: ""
+
+  # -- Razorpay payment gateway credentials.
+  RAZORPAY_KEY_ID: ""
+  RAZORPAY_KEY_SECRET: ""
+  RAZORPAY_WEBHOOK_SECRET: ""
+
+  # -- Slack incoming webhook URL.
+  SLACK_WEBHOOK_URL: ""
+
+  # -- SCIM 2.0 IdP provisioning bearer token (Okta / Azure AD).
+  SCIM_BEARER_TOKEN: ""
+  SCIM_ORG_ID: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bitnami PostgreSQL sub-chart
+# https://artifacthub.io/packages/helm/bitnami/postgresql
+# ─────────────────────────────────────────────────────────────────────────────
+postgresql:
+  # -- Deploy PostgreSQL as a sub-chart. Set false to use an external DB.
+  enabled: true
+  auth:
+    # -- PostgreSQL database name.
+    database: aether_os
+    # -- PostgreSQL username.
+    username: aether_user
+    # -- PostgreSQL password. Override with a strong value.
+    password: "REPLACE_WITH_POSTGRES_PASSWORD"
+    # -- Use an existing Secret for the password instead of this value.
+    existingSecret: ""
+  primary:
+    persistence:
+      # -- Persist PostgreSQL data.
+      enabled: true
+      # -- PostgreSQL PVC size.
+      size: 20Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bitnami Redis sub-chart
+# https://artifacthub.io/packages/helm/bitnami/redis
+# ─────────────────────────────────────────────────────────────────────────────
+redis:
+  # -- Deploy Redis as a sub-chart. Set false to use an external Redis.
+  enabled: true
+  # -- Use standalone mode (single replica). Set to replication for HA.
+  architecture: standalone
+  auth:
+    # -- Require Redis password (strongly recommended in production).
+    enabled: true
+    # -- Redis password. Override with a strong value.
+    password: "REPLACE_WITH_REDIS_PASSWORD"
+    # -- Use an existing Secret for the password instead of this value.
+    existingSecret: ""
+  master:
+    persistence:
+      enabled: true
+      size: 4Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    configuration: |
+      maxmemory 256mb
+      maxmemory-policy allkeys-lru

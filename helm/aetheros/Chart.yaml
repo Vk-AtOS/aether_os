@@ -1,0 +1,33 @@
+apiVersion: v2
+name: aetheros
+description: >
+  AetherOS — Multi-tenant AI App Factory SaaS. Generates full-stack
+  applications from a single prompt using a multi-agent pipeline.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+home: https://aetheros.ai
+sources:
+  - https://github.com/aetheros/aether_os
+maintainers:
+  - name: AetherOS Platform Team
+    email: platform@aetheros.ai
+keywords:
+  - ai
+  - saas
+  - app-factory
+  - multi-tenant
+  - llm
+annotations:
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: Proprietary
+
+dependencies:
+  - name: postgresql
+    version: "15.5.38"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "20.6.3"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
