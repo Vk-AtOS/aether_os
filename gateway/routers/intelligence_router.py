@@ -89,6 +89,33 @@ async def get_global_insights(user: Dict[str, Any] = _current_user()) -> Dict[st
         return {"stats": [], "top_tech_stacks": [], "global_patterns": [], "total_patterns_learned": 0}
 
 
+@router.get("/intelligence/global-patterns")
+async def list_global_patterns(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return all learned GlobalPattern entries for the platform."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import GlobalPattern
+    from sqlalchemy import select
+    sf = get_session_factory()
+    async with sf() as sess:
+        rows = (await sess.execute(select(GlobalPattern).order_by(GlobalPattern.usage_count.desc()))).scalars().all()
+    patterns = [
+        {
+            "id": p.id,
+            "domain": p.domain,
+            "pattern_name": p.pattern_name,
+            "pattern_type": p.pattern_type,
+            "success_rate": round(p.success_rate, 3),
+            "avg_quality_score": round(p.avg_quality_score, 1),
+            "usage_count": p.usage_count,
+            "last_updated": p.last_updated.isoformat() if p.last_updated else None,
+        }
+        for p in rows
+    ]
+    return {"patterns": patterns, "total": len(patterns)}
+
+
 @router.post("/intelligence/global-patterns", status_code=201)
 async def create_global_pattern(
     body: Dict[str, Any],
