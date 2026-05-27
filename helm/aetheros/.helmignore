@@ -1,0 +1,59 @@
+# Patterns to ignore when building packages.
+# This supports shell glob matching, relative path matching, and
+# negation (prefixed with !). Only one pattern per line.
+
+# ── Version control ───────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── OS and editor files ───────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ── Secrets and credentials ───────────────────────────────────────────────────
+# Never package real secrets
+*.env
+.env
+.env.*
+secrets.yaml
+secrets.yml
+*-secrets.yaml
+*-secrets.yml
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ── CI/CD ─────────────────────────────────────────────────────────────────────
+.github/
+.gitlab-ci.yml
+.circleci/
+Jenkinsfile
+
+# ── Test and development artefacts ────────────────────────────────────────────
+tests/
+test/
+*_test.yaml
+*_test.yml
+*.test.yaml
+*.test.yml
+
+# ── Documentation (packaged separately) ──────────────────────────────────────
+# Uncomment if you distribute docs separately from the chart package
+# docs/
+# README.md
+
+# ── Build artefacts ───────────────────────────────────────────────────────────
+*.tgz
+charts/*.tgz
