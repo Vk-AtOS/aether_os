@@ -766,22 +766,25 @@ async def list_deployments(
     except Exception as _dep_exc:
         logger.debug("Deployments DB query failed: %s", _dep_exc)
 
-    # 2. List running Docker containers
-    def _list():
-        return _sp.run(
-            ["docker", "ps", "--filter", "name=aetheros-app",
-             "--format", "{{.Names}}\t{{.Ports}}\t{{.Status}}"],
-            capture_output=True, text=True,
-        )
-
-    result = await _aio.to_thread(_list)
+    # 2. List running Docker containers (best-effort — docker may not be in PATH inside container)
     containers = []
-    for line in result.stdout.strip().split("\n"):
-        if line:
-            parts = line.split("\t")
-            containers.append({
-                "name":   parts[0] if len(parts) > 0 else "",
-                "ports":  parts[1] if len(parts) > 1 else "",
-                "status": parts[2] if len(parts) > 2 else "",
-            })
+    try:
+        def _list():
+            return _sp.run(
+                ["docker", "ps", "--filter", "name=aetheros-app",
+                 "--format", "{{.Names}}\t{{.Ports}}\t{{.Status}}"],
+                capture_output=True, text=True,
+            )
+
+        result = await _aio.to_thread(_list)
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                parts = line.split("\t")
+                containers.append({
+                    "name":   parts[0] if len(parts) > 0 else "",
+                    "ports":  parts[1] if len(parts) > 1 else "",
+                    "status": parts[2] if len(parts) > 2 else "",
+                })
+    except Exception:
+        pass
     return {"deployments": db_deployments, "containers": containers}

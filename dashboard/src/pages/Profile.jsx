@@ -70,10 +70,11 @@ const Profile = () => {
         const usageRes = await api.client.get('/account/usage');
         setUserData(prev => ({ ...prev, ...(usageRes.data ?? {}) }));
         const keysRes = await api.client.get('/settings/api-keys');
+        const _nonKeyFields = new Set(['primary_llm', 'ollama_model', 'org_keys', 'ollama_timeout', 'openrouter_timeout']);
         setApiKeys(keysRes.data
           ? Object.entries(keysRes.data)
-              .filter(([, v]) => typeof v === 'string' && v.length > 0)
-              .map(([k, v]) => ({ provider: k, key: v }))
+              .filter(([k, v]) => !_nonKeyFields.has(k) && typeof v === 'string' && v.length > 0)
+              .map(([k, v]) => ({ provider: k, key: String(v) }))
           : []);
         // Fetch MFA status from dedicated endpoint
         try {
@@ -220,7 +221,7 @@ const Profile = () => {
               <div>
                 <div className="text-xs font-bold text-muted uppercase">{provider}</div>
                 <div className="font-mono text-xs text-bright mt-1">
-                  {showPw[provider] ? key : (key ?? '').slice(0, 8) + '••••••••'}
+                  {showPw[provider] ? key : String(key ?? '').slice(0, 8) + '••••••••'}
                 </div>
               </div>
               <div className="flex items-center space-x-2">
