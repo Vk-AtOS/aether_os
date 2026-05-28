@@ -1216,10 +1216,30 @@ async def start_run_app(
             with open(log_path, "a") as _lf:
                 _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
 
-    # ── Patch main.py: SQLite swap + frontend serving ─────────────────────────
+    # ── Patch main.py: fix common generation bugs + SQLite swap + frontend ───
     main_py = backend_dir / "src" / "main.py"
     if main_py.exists():
+        import re as _re
         content = main_py.read_text()
+
+        # Fix: typing.AsyncSession → AsyncSession (sqlalchemy bug in codegen)
+        content = content.replace("class_=typing.AsyncSession", "class_=AsyncSession")
+
+        # Fix: add missing SQLAlchemy column type imports (Float, JSON, ARRAY, etc.)
+        _sa_import_line = _re.search(
+            r'^from sqlalchemy import ([^\n]+)', content, _re.MULTILINE
+        )
+        if _sa_import_line:
+            _existing = _sa_import_line.group(1)
+            _needed = ["Float", "JSON", "BigInteger", "Numeric", "LargeBinary", "UniqueConstraint"]
+            _missing = [t for t in _needed if t not in _existing]
+            if _missing:
+                content = content.replace(
+                    _sa_import_line.group(0),
+                    _sa_import_line.group(0) + ", " + ", ".join(_missing)
+                )
+
+        main_py.write_text(content)
 
         # Swap postgres DATABASE_URL to SQLite so the preview works without a DB server.
         sqlite_db_path = str(root_dir / "preview.db").replace("\\", "/")
@@ -1255,30 +1275,97 @@ async def start_run_app(
         if patches:
             main_py.write_text(content + patches)
 
-    # ── Start uvicorn ─────────────────────────────────────────────────────────
-    try:
+    # ── Start uvicorn (with crash-detect fallback to frontend-only server) ──────
+    _env = {**os.environ}
+    _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
+
+    def _try_start_backend() -> Optional[_sp.Popen]:
+        """Attempt to start the generated backend. Returns process or None on immediate crash."""
         log_file = open(log_path, "a")
-        log_file.write(f"[AetherOS] Starting uvicorn on port {port} from {backend_dir}\n")
+        log_file.write(f"[AetherOS] Starting generated backend on port {port} from {backend_dir}\n")
         log_file.flush()
-        _env = {**os.environ}
-        # Force SQLite for the preview — no external DB required
-        _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
         proc = _sp.Popen(
             [_sys.executable, "-m", "uvicorn", "src.main:app",
-             "--host", "127.0.0.1", "--port", str(port), "--reload"],
+             "--host", "127.0.0.1", "--port", str(port)],
             cwd=str(backend_dir),
             stdout=log_file,
             stderr=log_file,
             shell=False,
             env=_env,
         )
+        import time as _t
+        _t.sleep(2)
+        if proc.poll() is not None:
+            log_file.write("[AetherOS] Backend crashed — falling back to frontend-only server\n")
+            log_file.flush()
+            return None
+        return proc
+
+    def _start_frontend_server() -> _sp.Popen:
+        """Serve the built frontend with a tiny FastAPI stub when backend fails."""
+        _stub_dir = root_dir / "_preview_stub"
+        _stub_dir.mkdir(exist_ok=True)
+        _stub_main = _stub_dir / "main.py"
+        _dist_path = str(frontend_dist).replace("\\", "/") if frontend_dist and frontend_dist.is_dir() else None
+        _stub_main.write_text(
+            f"""from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+import pathlib, os
+
+app = FastAPI()
+
+# Mock API endpoints so the frontend's fetch calls don't 404
+@app.get("/api/{{path:path}}")
+async def mock_api(path: str):
+    return JSONResponse({{"data": [], "message": "Preview mode — connect a real backend to enable data"}})
+
+@app.post("/api/{{path:path}}")
+async def mock_api_post(path: str):
+    return JSONResponse({{"success": True, "message": "Preview mode"}})
+
+{"" if not _dist_path else f'''
+_DIST = pathlib.Path(r"{_dist_path}")
+if _DIST.is_dir():
+    @app.get("/{{path:path}}", include_in_schema=False)
+    def spa(path: str = ""):
+        f = _DIST / path
+        return FileResponse(str(f) if f.is_file() else str(_DIST / "index.html"))
+'''}
+"""
+        )
+        log_file = open(log_path, "a")
+        log_file.write(f"[AetherOS] Starting frontend-only preview server on port {port}\n")
+        log_file.flush()
+        return _sp.Popen(
+            [_sys.executable, "-m", "uvicorn", "main:app",
+             "--host", "127.0.0.1", "--port", str(port)],
+            cwd=str(_stub_dir),
+            stdout=log_file,
+            stderr=log_file,
+            shell=False,
+        )
+
+    try:
+        proc = _try_start_backend()
+        mode = "backend"
+        if proc is None:
+            if frontend_dist and frontend_dist.is_dir():
+                proc = _start_frontend_server()
+                mode = "frontend_only"
+            else:
+                raise HTTPException(status_code=500, detail="Generated backend crashed and no frontend build available. Check the run log.")
+
         _run_procs[run_id] = proc
         _APP_DIRS[run_id] = str(root_dir)
         _APP_DIRS["__current__"] = str(root_dir)
         return {"status": "started", "port": port, "pid": proc.pid,
                 "backend_dir": str(backend_dir),
+                "mode": mode,
                 "frontend_built": bool(frontend_dist and frontend_dist.is_dir()),
                 "log": str(log_path)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start app: {e}")
 
