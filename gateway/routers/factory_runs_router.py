@@ -1151,8 +1151,10 @@ async def start_run_app(
     # Prefer the merged/scaffolded version (p03 wrote the full app); fall back to p04 codegen.
     backend_dir: Optional[_P] = None
     candidates = [
-        root_dir / "p03_scaffolding",   # may contain "ProjectName/" subdir
+        # p04_backend/backend_codegen is preferred — self-contained generated code with no relative imports
+        # p03_scaffolding comes second — may reference routers that don't exist in scaffold
         root_dir / "p04_backend" / "backend_codegen",
+        root_dir / "p03_scaffolding",   # may contain "ProjectName/" subdir
     ]
     for cand in candidates:
         if cand.is_dir():
@@ -1206,21 +1208,27 @@ async def start_run_app(
     node_bin = _sh.which("node")
     npm_bin = _sh.which("npm")
     if node_bin and npm_bin and frontend_dir and frontend_dir.is_dir():
-        with open(log_path, "a") as _lf:
-            _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
-        _sp.run([npm_bin, "install", "--silent", "--prefer-offline"], cwd=str(frontend_dir),
-                capture_output=True, timeout=300)
-        # Use npx vite build directly — skips tsc type checking which fails on generated code
-        _npx_bin = _sh.which("npx") or "npx"
-        _vite_result = _sp.run([_npx_bin, "vite", "build"], cwd=str(frontend_dir),
-                               capture_output=True, timeout=300)
-        if _vite_result.returncode != 0:
-            # Fallback: tsc --no-emit then vite build separately
-            _sp.run([npm_bin, "run", "build"], cwd=str(frontend_dir),
-                    capture_output=True, timeout=300)
-        if frontend_dist and frontend_dist.is_dir():
+        # Skip rebuild if dist already exists — avoids 30-60s rebuild on restart
+        _dist_already_built = frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir())
+        if not _dist_already_built:
             with open(log_path, "a") as _lf:
-                _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
+                _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
+            _sp.run([npm_bin, "install", "--silent", "--prefer-offline"], cwd=str(frontend_dir),
+                    capture_output=True, timeout=300)
+            # Use npx vite build directly — skips tsc type checking which fails on generated code
+            _npx_bin = _sh.which("npx") or "npx"
+            _vite_result = _sp.run([_npx_bin, "vite", "build"], cwd=str(frontend_dir),
+                                   capture_output=True, timeout=300)
+            if _vite_result.returncode != 0:
+                # Fallback: tsc --no-emit then vite build separately
+                _sp.run([npm_bin, "run", "build"], cwd=str(frontend_dir),
+                        capture_output=True, timeout=300)
+            if frontend_dist and frontend_dist.is_dir():
+                with open(log_path, "a") as _lf:
+                    _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
+        else:
+            with open(log_path, "a") as _lf:
+                _lf.write(f"[AetherOS] Skipping frontend rebuild — dist already exists\n")
 
     # ── Patch main.py: fix common generation bugs + SQLite swap + frontend ───
     main_py = backend_dir / "src" / "main.py"
@@ -1313,22 +1321,78 @@ async def start_run_app(
         _stub_dir.mkdir(exist_ok=True)
         _stub_main = _stub_dir / "main.py"
         _dist_path = str(frontend_dist).replace("\\", "/") if frontend_dist and frontend_dist.is_dir() else None
+        # Only write the stub if it's missing or still contains the old empty-data template
+        _stub_needs_write = (
+            not _stub_main.exists()
+            or '"data": []' in _stub_main.read_text()
+            or "_MOCK_ROWS" not in _stub_main.read_text()
+        )
+        if not _stub_needs_write:
+            # Custom stub already on disk — just launch it
+            log_file = open(log_path, "a")
+            log_file.write(f"[AetherOS] Reusing existing custom preview stub\n")
+            log_file.flush()
+            return _sp.Popen(
+                [_sys.executable, "-m", "uvicorn", "main:app",
+                 "--host", "127.0.0.1", "--port", str(port)],
+                cwd=str(_stub_dir),
+                stdout=log_file,
+                stderr=log_file,
+                shell=False,
+            )
         _stub_main.write_text(
-            f"""from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+            f"""from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
-import pathlib, os
+import pathlib, os, random
 
 app = FastAPI()
 
-# Mock API endpoints so the frontend's fetch calls don't 404
+_PREVIEW_TOKEN = "preview-token-demo"
+_MOCK_USER = {{"id": 1, "email": "admin@example.com", "name": "Admin User", "role": "admin"}}
+
+# Sample rows returned for every list endpoint
+_SAMPLE_NAMES = [
+    "Acme Corp", "TechStart Inc", "Global Solutions", "Innovate Ltd", "Peak Ventures",
+    "Bright Future Co", "DataDriven LLC", "Cloud Systems", "NextGen AI", "Apex Group",
+]
+_MOCK_ROWS = [
+    {{"id": i, "name": _SAMPLE_NAMES[i - 1], "status": random.choice(["active", "pending", "closed"]),
+      "amount": round(random.uniform(5000, 80000), 2), "slug": _SAMPLE_NAMES[i - 1].lower().replace(" ", "-"),
+      "plan": random.choice(["starter", "pro", "enterprise"]), "email": f"contact{{i}}@example.com",
+      "phone": f"+1-555-{1000+i:04d}", "stage": random.choice(["new", "contacted", "proposal", "closed"]),
+      "priority": random.choice(["low", "medium", "high"]), "created_at": f"2026-0{{(i % 4)+1:02d}}-{{(i % 28)+1:02d}}"}}
+    for i in range(1, 11)
+]
+
+@app.post("/api/auth/login")
+@app.post("/api/v1/auth/login")
+async def mock_login(request: Request):
+    return JSONResponse({{"access_token": _PREVIEW_TOKEN, "token_type": "bearer", "user": _MOCK_USER}})
+
+@app.get("/api/auth/me")
+@app.get("/api/v1/auth/me")
+async def mock_me():
+    return JSONResponse(_MOCK_USER)
+
+@app.post("/api/auth/logout")
+async def mock_logout():
+    return JSONResponse({{"success": True}})
+
 @app.get("/api/{{path:path}}")
-async def mock_api(path: str):
-    return JSONResponse({{"data": [], "message": "Preview mode — connect a real backend to enable data"}})
+async def mock_api_get(path: str):
+    return JSONResponse(_MOCK_ROWS)
 
 @app.post("/api/{{path:path}}")
-async def mock_api_post(path: str):
-    return JSONResponse({{"success": True, "message": "Preview mode"}})
+async def mock_api_post(path: str, request: Request):
+    return JSONResponse({{"id": 99, "success": True, "message": "Created in preview mode"}})
+
+@app.put("/api/{{path:path}}")
+async def mock_api_put(path: str, request: Request):
+    return JSONResponse({{"id": 99, "success": True, "message": "Updated in preview mode"}})
+
+@app.delete("/api/{{path:path}}")
+async def mock_api_delete(path: str):
+    return JSONResponse({{"success": True, "message": "Deleted in preview mode"}})
 
 {"" if not _dist_path else f'''
 _DIST = pathlib.Path(r"{_dist_path}")
