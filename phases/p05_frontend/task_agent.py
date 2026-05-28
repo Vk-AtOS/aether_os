@@ -561,7 +561,9 @@ def _generate_package_json(project_slug: str) -> str:
             "axios": "^1.7.9",
             "lucide-react": "^0.469.0",
             "recharts": "^2.14.1",
-            "react-hook-form": "^7.53.0"
+            "react-hook-form": "^7.53.0",
+            "@hookform/resolvers": "^3.9.0",
+            "zod": "^3.23.8"
         },
         "devDependencies": {
             "@types/react": "^18.3.5",
@@ -785,17 +787,23 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
+import { ToastProvider } from './components/Toaster'
 import { router } from './App'
 import './index.css'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+  defaultOptions: {
+    queries: { staleTime: 30_000, retry: 1 },
+    mutations: { retry: 0 },
+  },
 })
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 )
@@ -1537,6 +1545,7 @@ import {{ DataTable }} from '../components/DataTable'
 import {{ CrudModal, type FieldDef }} from '../components/CrudModal'
 import {{ {camel}Api }} from '../lib/api'
 import {{ type {type_name} }} from '../types'
+import {{ useToast }} from '../components/Toaster'
 import {{ Plus, Pencil, Trash2 }} from 'lucide-react'
 
 const FIELDS: FieldDef[] = [
@@ -1547,6 +1556,7 @@ export function {pascal}Page() {{
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<{type_name} | null>(null)
   const qc = useQueryClient()
+  const {{ toast }} = useToast()
 
   const {{ data = [], isLoading }} = useQuery({{
     queryKey: ['{table}'],
@@ -1558,6 +1568,11 @@ export function {pascal}Page() {{
     onSuccess: () => {{
       qc.invalidateQueries({{ queryKey: ['{table}'] }})
       setModalOpen(false)
+      toast('{singular} created', 'success')
+    }},
+    onError: (err: unknown) => {{
+      const msg = (err as {{ response?: {{ data?: {{ detail?: string }} }} }})?.response?.data?.detail ?? 'Failed to create {singular}'
+      toast(msg, 'error')
     }},
   }})
 
@@ -1568,12 +1583,21 @@ export function {pascal}Page() {{
       qc.invalidateQueries({{ queryKey: ['{table}'] }})
       setModalOpen(false)
       setEditing(null)
+      toast('{singular} updated', 'success')
+    }},
+    onError: (err: unknown) => {{
+      const msg = (err as {{ response?: {{ data?: {{ detail?: string }} }} }})?.response?.data?.detail ?? 'Failed to update {singular}'
+      toast(msg, 'error')
     }},
   }})
 
   const remove = useMutation({{
     mutationFn: {camel}Api.remove,
-    onSuccess: () => qc.invalidateQueries({{ queryKey: ['{table}'] }}),
+    onSuccess: () => {{
+      qc.invalidateQueries({{ queryKey: ['{table}'] }})
+      toast('{singular} deleted', 'success')
+    }},
+    onError: () => toast('Failed to delete {singular}', 'error'),
   }})
 
   const columns: ColumnDef<{type_name}>[] = [

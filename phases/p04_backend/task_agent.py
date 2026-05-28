@@ -145,60 +145,70 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if r.success and r.metadata:
             phase_input.input_data["backend_output_path"] = r.output_path
             phase_input.input_data.update({k: v for k, v in r.metadata.items() if k not in phase_input.input_data})
-            # Extract API routes from generated main.py so p05 can wire to real endpoints
+            # Extract API routes from generated code so p05 can wire to real endpoints
             _backend_out = Path(r.output_path)
-            for _main_candidate in [
+            _seen_entities: set = set()
+            _routes = []
+
+            def _extract_routes_from_code(code: str) -> None:
+                # Strategy 1: direct @app.METHOD or @router.METHOD decorators
+                for _m in re.finditer(
+                    r'@(?:app|router)\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']',
+                    code, re.IGNORECASE
+                ):
+                    _routes.append({"method": _m.group(1).upper(), "path": _m.group(2)})
+
+                # Strategy 2: APIRouter(prefix="/entity") → infer CRUD routes
+                for _pm in re.finditer(
+                    r'APIRouter\([^)]*prefix=["\']([^"\']+)["\']',
+                    code, re.IGNORECASE
+                ):
+                    _prefix = _pm.group(1).strip("/")
+                    if _prefix and _prefix not in _seen_entities and _prefix not in ("auth", "system"):
+                        _seen_entities.add(_prefix)
+                        _routes.extend([
+                            {"method": "GET",    "path": f"/{_prefix}"},
+                            {"method": "POST",   "path": f"/{_prefix}"},
+                            {"method": "GET",    "path": f"/{_prefix}/{{id}}"},
+                            {"method": "PUT",    "path": f"/{_prefix}/{{id}}"},
+                            {"method": "DELETE", "path": f"/{_prefix}/{{id}}"},
+                        ])
+
+                # Strategy 3: include_router patterns
+                for _im in re.finditer(
+                    r'include_router\([^,)]+,\s*["\']([^"\']+)["\']|'
+                    r'generate_crud_router\([^,]+,[^,]+,[^,]+,[^,]+,\s*["\']([^"\']+)["\']',
+                    code, re.IGNORECASE
+                ):
+                    _entity = (_im.group(1) or _im.group(2) or "").strip()
+                    if _entity and _entity not in _seen_entities:
+                        _seen_entities.add(_entity)
+                        _routes.extend([
+                            {"method": "GET",    "path": f"/{_entity}"},
+                            {"method": "POST",   "path": f"/{_entity}"},
+                            {"method": "GET",    "path": f"/{_entity}/{{id}}"},
+                            {"method": "PUT",    "path": f"/{_entity}/{{id}}"},
+                            {"method": "DELETE", "path": f"/{_entity}/{{id}}"},
+                        ])
+
+            # Search: main.py, routers/crud.py (new multi-file layout), fallback paths
+            _candidates = [
                 _backend_out / "src" / "main.py",
+                _backend_out / "src" / "routers" / "crud.py",
                 _backend_out.parent / "src" / "main.py",
-            ]:
-                if _main_candidate.exists():
-                    _code = _main_candidate.read_text()
-                    _routes = []
-                    # Strategy 1: direct @app.METHOD decorators
-                    for _m in re.finditer(
-                        r'@app\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']',
-                        _code, re.IGNORECASE
-                    ):
-                        _routes.append({"method": _m.group(1).upper(), "path": _m.group(2)})
+                _backend_out.parent / "src" / "routers" / "crud.py",
+            ]
+            _found_any = False
+            for _candidate in _candidates:
+                if _candidate.exists():
+                    _extract_routes_from_code(_candidate.read_text())
+                    _found_any = True
 
-                    # Strategy 2: include_router("entity_name") → infer CRUD routes
-                    # Covers generate_crud_router(Model, ..., "cameras", ...) pattern
-                    _seen_entities: set = set()
-                    for _im in re.finditer(
-                        r'include_router\([^,)]+,\s*["\']([^"\']+)["\']|'
-                        r'generate_crud_router\([^,]+,[^,]+,[^,]+,[^,]+,\s*["\']([^"\']+)["\']|'
-                        r'include_router\(generate_crud_router\([^,]+,[^,]+,[^,]+,\s*["\']([^"\']+)["\']',
-                        _code, re.IGNORECASE
-                    ):
-                        _entity = (_im.group(1) or _im.group(2) or _im.group(3) or "").strip()
-                        if _entity and _entity not in _seen_entities:
-                            _seen_entities.add(_entity)
-                            _routes.extend([
-                                {"method": "GET",    "path": f"/{_entity}"},
-                                {"method": "POST",   "path": f"/{_entity}"},
-                                {"method": "GET",    "path": f"/{_entity}/{{id}}"},
-                                {"method": "PUT",    "path": f"/{_entity}/{{id}}"},
-                                {"method": "DELETE", "path": f"/{_entity}/{{id}}"},
-                            ])
-
-                    # Strategy 3: APIRouter(prefix="/entity") patterns
-                    for _pm in re.finditer(
-                        r'APIRouter\([^)]*prefix=["\']([^"\']+)["\']',
-                        _code, re.IGNORECASE
-                    ):
-                        _prefix = _pm.group(1).strip("/")
-                        if _prefix and _prefix not in _seen_entities and _prefix not in ("auth",):
-                            _seen_entities.add(_prefix)
-                            _routes.extend([
-                                {"method": "GET",  "path": f"/{_prefix}"},
-                                {"method": "POST", "path": f"/{_prefix}"},
-                            ])
-
-                    _routes_file = _backend_out / "api_routes.json"
-                    _routes_file.write_text(json.dumps(_routes, indent=2))
-                    phase_input.input_data["api_routes_path"] = str(_routes_file)
-                    logger.info("p04: extracted %d routes → %s", len(_routes), _routes_file)
-                    break
+            if _found_any:
+                _routes_file = _backend_out / "api_routes.json"
+                _routes_file.write_text(json.dumps(_routes, indent=2))
+                phase_input.input_data["api_routes_path"] = str(_routes_file)
+                logger.info("p04: extracted %d routes → %s", len(_routes), _routes_file)
         # Startup smoke test — catch import/syntax errors before frontend is built
         if r.success and r.metadata:
             src_dir_candidates = [
