@@ -1110,18 +1110,27 @@ async def patch_envvars(
     return {"run_id": run_id, "written": len(body.vars)}
 
 
+# Maps run_id → project root dir (for proxy to find static frontend build)
+_APP_DIRS: Dict[str, str] = {}
+
+def get_active_preview_dir() -> Optional[str]:
+    """Return the project dir of the most recently started app preview."""
+    return _APP_DIRS.get("__current__")
+
+
 @router.post("/factory/runs/{run_id}/run-app")
 async def start_run_app(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Start the generated app with uvicorn in the background."""
+    """Start the generated app with uvicorn. Installs deps and builds frontend."""
     import subprocess as _sp
+    import shutil as _sh
     from aether_os.core.projects import get_project_manager
     from aether_os.core.audit.ledger import get_ledger
+    from pathlib import Path as _P
 
     _run_procs = _get_app_procs()
-
     existing = _run_procs.get(run_id)
     if existing is not None and existing.poll() is None:
         return {"status": "already_running", "pid": existing.pid, "port": 8001}
@@ -1136,22 +1145,139 @@ async def start_run_app(
         project_id = run_detail["project_id"]
 
     root_dir = get_project_manager().get_project_dir(project_id).resolve()
-
     port = int(os.environ.get("RUN_APP_PORT", "8001"))
+
+    # ── Locate backend entry point ────────────────────────────────────────────
+    # Prefer the merged/scaffolded version (p03 wrote the full app); fall back to p04 codegen.
+    backend_dir: Optional[_P] = None
+    candidates = [
+        root_dir / "p03_scaffolding",   # may contain "ProjectName/" subdir
+        root_dir / "p04_backend" / "backend_codegen",
+    ]
+    for cand in candidates:
+        if cand.is_dir():
+            # p03 may have a single subdirectory (the project name)
+            subdirs = [d for d in cand.iterdir() if d.is_dir() and (d / "src" / "main.py").exists()]
+            if subdirs:
+                backend_dir = subdirs[0]
+                break
+            if (cand / "src" / "main.py").exists():
+                backend_dir = cand
+                break
+
+    if not backend_dir:
+        raise HTTPException(status_code=422, detail="Could not locate backend src/main.py in generated project.")
+
+    import sys as _sys
+    log_path = root_dir / "run_app.log"
+
+    # ── Install Python dependencies ───────────────────────────────────────────
+    # Always install aiosqlite so the SQLite preview swap works without pg deps.
+    _sp.run(
+        [_sys.executable, "-m", "pip", "install", "aiosqlite", "httpx", "-q", "--no-warn-script-location"],
+        capture_output=True, timeout=60
+    )
+    req_file = backend_dir / "requirements.txt"
+    if req_file.exists():
+        # Strip PostgreSQL drivers from requirements — the preview runs on SQLite.
+        _req_lines = req_file.read_text().splitlines()
+        _lite_reqs = [
+            ln for ln in _req_lines
+            if not any(pkg in ln.lower() for pkg in ("psycopg2", "asyncpg", "pg8000"))
+        ]
+        _lite_req_path = root_dir / "_preview_requirements.txt"
+        _lite_req_path.write_text("\n".join(_lite_reqs))
+        with open(log_path, "w") as _lf:
+            _lf.write(f"[AetherOS] Installing backend deps (SQLite preview mode)\n")
+        _sp.run(
+            [_sys.executable, "-m", "pip", "install", "-r", str(_lite_req_path), "-q", "--no-warn-script-location"],
+            capture_output=True, timeout=120
+        )
+
+    # ── Locate frontend (p05 writes to p05_frontend/frontend/) ───────────────
+    _frontend_candidates = [
+        root_dir / "p05_frontend" / "frontend",
+        root_dir / "frontend",
+    ]
+    frontend_dir = next((d for d in _frontend_candidates if (d / "package.json").exists()), None)
+    frontend_dist = (frontend_dir / "dist") if frontend_dir else None
+
+    # ── Build React frontend (if Node.js is available) ────────────────────────
+    node_bin = _sh.which("node")
+    npm_bin = _sh.which("npm")
+    if node_bin and npm_bin and frontend_dir and frontend_dir.is_dir():
+        with open(log_path, "a") as _lf:
+            _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
+        _sp.run([npm_bin, "install", "--silent", "--prefer-offline"], cwd=str(frontend_dir),
+                capture_output=True, timeout=300)
+        _sp.run([npm_bin, "run", "build"], cwd=str(frontend_dir),
+                capture_output=True, timeout=300)
+        if frontend_dist and frontend_dist.is_dir():
+            with open(log_path, "a") as _lf:
+                _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
+
+    # ── Patch main.py: SQLite swap + frontend serving ─────────────────────────
+    main_py = backend_dir / "src" / "main.py"
+    if main_py.exists():
+        content = main_py.read_text()
+
+        # Swap postgres DATABASE_URL to SQLite so the preview works without a DB server.
+        sqlite_db_path = str(root_dir / "preview.db").replace("\\", "/")
+        sqlite_patch = (
+            f"\n# AetherOS: swap database to SQLite for preview\n"
+            f"import os as _os\n"
+            f"_db_url = _os.environ.get('DATABASE_URL', '')\n"
+            f"if 'postgresql' in _db_url or 'postgres' in _db_url or not _db_url:\n"
+            f"    _os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///{sqlite_db_path}'\n"
+            f"    DATABASE_URL = _os.environ['DATABASE_URL']\n"
+        )
+        # Serve built frontend
+        _dist_str = str(frontend_dist).replace("\\", "/") if frontend_dist and frontend_dist.is_dir() else ""
+        frontend_patch = ""
+        if _dist_str:
+            frontend_patch = (
+                f"\n# AetherOS: serve built frontend\n"
+                f"from fastapi.staticfiles import StaticFiles as _SF\n"
+                f"from fastapi.responses import FileResponse as _FR\n"
+                f"import pathlib as _pl\n"
+                f"_DIST = _pl.Path(r'{_dist_str}')\n"
+                f"if _DIST.is_dir():\n"
+                f"    @app.get('/{{path:path}}', include_in_schema=False)\n"
+                f"    def _spa(path: str = ''):\n"
+                f"        f = _DIST / path\n"
+                f"        return _FR(str(f) if f.is_file() else str(_DIST / 'index.html'))\n"
+            )
+        patches = ""
+        if "AetherOS: swap database" not in content:
+            patches += sqlite_patch
+        if _dist_str and "AetherOS: serve built frontend" not in content:
+            patches += frontend_patch
+        if patches:
+            main_py.write_text(content + patches)
+
+    # ── Start uvicorn ─────────────────────────────────────────────────────────
     try:
-        import sys as _sys
-        log_path = root_dir / "run_app.log"
-        log_file = open(log_path, "w")
+        log_file = open(log_path, "a")
+        log_file.write(f"[AetherOS] Starting uvicorn on port {port} from {backend_dir}\n")
+        log_file.flush()
+        _env = {**os.environ}
+        # Force SQLite for the preview — no external DB required
+        _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
         proc = _sp.Popen(
             [_sys.executable, "-m", "uvicorn", "src.main:app",
-             "--host", "127.0.0.1", "--port", str(port)],
-            cwd=str(root_dir),
+             "--host", "127.0.0.1", "--port", str(port), "--reload"],
+            cwd=str(backend_dir),
             stdout=log_file,
             stderr=log_file,
             shell=False,
+            env=_env,
         )
         _run_procs[run_id] = proc
+        _APP_DIRS[run_id] = str(root_dir)
+        _APP_DIRS["__current__"] = str(root_dir)
         return {"status": "started", "port": port, "pid": proc.pid,
+                "backend_dir": str(backend_dir),
+                "frontend_built": bool(frontend_dist and frontend_dist.is_dir()),
                 "log": str(log_path)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start app: {e}")
