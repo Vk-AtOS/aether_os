@@ -217,6 +217,20 @@ class FactoryPipeline:
             except Exception as _exc:
                 logger.warning("Failed to persist council_preflight: %s", _exc)
 
+        # Load org settings (autonomous_mode, decision_mode) so pipeline behaves correctly
+        _org_autonomous = False
+        if org_id:
+            try:
+                from aether_os.core.db import get_session_factory
+                from aether_os.core.models import Organisation
+                from sqlalchemy import select as _sel
+                async with get_session_factory()() as _os:
+                    _org = (await _os.execute(_sel(Organisation).where(Organisation.id == org_id))).scalar_one_or_none()
+                    if _org:
+                        _org_autonomous = bool(getattr(_org, "autonomous_mode", False))
+            except Exception as _oe:
+                logger.debug("Could not load org autonomous_mode: %s", _oe)
+
         # Accumulated context passed between phases
         accumulated_context = {
             "run_id": run_id,
@@ -233,6 +247,8 @@ class FactoryPipeline:
             "memory_context": memory_context or "",
             # Optional GitHub repo to fork/clone instead of generating from scratch
             "github_url": github_url or "",
+            # Pipeline flow control: "autonomous" skips human approval gates
+            "decision_mode": "autonomous" if _org_autonomous else "approval_required",
         }
 
         # Inject per-user learning patterns so every phase can tailor its prompts

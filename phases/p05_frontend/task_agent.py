@@ -43,6 +43,13 @@ def _detect_domain(phase_input: Any) -> str:
     all_text = description + " " + " ".join(entities)
 
     domain_keywords = {
+        "security":            ["camera", "cctv", "surveillance", "motion", "detection",
+                                "guard", "alert", "incident", "zone", "monitor", "feed",
+                                "security", "intrusion", "access control", "footage", "nvr",
+                                "dvr", "ptz", "analytics", "ai detection", "facial"],
+        "iot":                 ["sensor", "device", "telemetry", "mqtt", "firmware",
+                                "gateway", "edge", "iot", "embedded", "actuator",
+                                "temperature", "humidity", "smart", "arduino", "raspberry"],
         "healthcare":          ["patient", "appointment", "doctor", "clinic", "medical",
                                 "prescription", "diagnosis", "health", "vitals", "nurse"],
         "crm":                 ["lead", "deal", "pipeline", "contact", "opportunity",
@@ -70,6 +77,8 @@ def _detect_domain(phase_input: Any) -> str:
 # ── Domain-specific stat-card labels ─────────────────────────────────────────
 
 _DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
+    "security":           ["Cameras Online", "Active Alerts", "Zones Monitored", "Incidents Today"],
+    "iot":                ["Devices Online", "Active Sensors", "Alerts Today", "Avg Uptime %"],
     "healthcare":         ["Patients Today", "Appointments", "Avg Wait Time", "Staff On Duty"],
     "crm":                ["New Leads", "Open Deals", "Revenue This Month", "Conversion Rate"],
     "ecommerce":          ["Orders Today", "Revenue", "Items in Stock", "Cart Abandonment"],
@@ -84,6 +93,17 @@ _DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
 # ── LLM-powered domain component generation ──────────────────────────────────
 
 _DOMAIN_COMPONENT_DESC: Dict[str, str] = {
+    "security": (
+        "a CameraGrid showing a 2×3 grid of camera feed placeholders, each with a camera name, "
+        "zone badge (e.g. 'Zone A', 'Entrance'), status dot (Online=green, Offline=red, Alert=amber), "
+        "and a mock timestamp. Include a top bar showing total cameras online (e.g. 94/100) and "
+        "active alerts count with a red badge."
+    ),
+    "iot": (
+        "a DeviceStatusPanel showing a list of 5 mock IoT devices with name, type badge "
+        "(Sensor/Gateway/Actuator), last-seen timestamp, and a status pill (Online/Offline/Warning). "
+        "Include a summary row at top with total online count and a blinking active indicator."
+    ),
     "healthcare": (
         "a PatientVitals card showing mock vitals (Heart Rate: 72 bpm, BP: 120/80, SpO2: 98%) "
         "with coloured status badges and a compact appointment list for today"

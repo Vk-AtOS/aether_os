@@ -39,7 +39,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-load_dotenv(pathlib.Path(__file__).parent.parent / ".env", override=True)
+load_dotenv(pathlib.Path(__file__).parent.parent / ".env", override=False)
 
 DASHBOARD_DIST = pathlib.Path(__file__).parent.parent / "dashboard" / "dist"
 
@@ -986,24 +986,24 @@ def create_app() -> FastAPI:
 
     # Domain routers — extracted from api.py (QUAL-002)
     for _rname, _rmod, _prefix in [
-        ("legal",         "gateway.routers.legal_router",         ""),
-        ("notifications", "gateway.routers.notifications_router", ""),
-        ("learning",      "gateway.routers.learning_router",      ""),
-        ("memory",        "gateway.routers.memory_router",        ""),
-        ("webhooks",      "gateway.routers.webhooks_router",      ""),
-        ("workspaces",    "gateway.routers.workspaces_router",    ""),
-        ("marketplace",   "gateway.routers.marketplace_router",   ""),
-        ("billing",       "gateway.routers.billing_router",       ""),
-        ("account",       "gateway.routers.account_router",       ""),
-        ("admin",         "gateway.routers.admin_router",         ""),
-        ("settings",      "gateway.routers.settings_router",      ""),
-        ("system",        "gateway.routers.system_router",        ""),
-        ("intelligence",  "gateway.routers.intelligence_router",  ""),
-        ("compliance",    "gateway.routers.compliance_router",    ""),
-        ("scim",          "gateway.routers.scim_router",          ""),
-        ("agents",        "gateway.routers.agents_router",        ""),
-        ("factory_ops",   "gateway.routers.factory_ops_router",   ""),
-        ("factory_runs",  "gateway.routers.factory_runs_router",  ""),
+        ("legal",         "aether_os.gateway.routers.legal_router",         ""),
+        ("notifications", "aether_os.gateway.routers.notifications_router", ""),
+        ("learning",      "aether_os.gateway.routers.learning_router",      ""),
+        ("memory",        "aether_os.gateway.routers.memory_router",        ""),
+        ("webhooks",      "aether_os.gateway.routers.webhooks_router",      ""),
+        ("workspaces",    "aether_os.gateway.routers.workspaces_router",    ""),
+        ("marketplace",   "aether_os.gateway.routers.marketplace_router",   ""),
+        ("billing",       "aether_os.gateway.routers.billing_router",       ""),
+        ("account",       "aether_os.gateway.routers.account_router",       ""),
+        ("admin",         "aether_os.gateway.routers.admin_router",         ""),
+        ("settings",      "aether_os.gateway.routers.settings_router",      ""),
+        ("system",        "aether_os.gateway.routers.system_router",        ""),
+        ("intelligence",  "aether_os.gateway.routers.intelligence_router",  ""),
+        ("compliance",    "aether_os.gateway.routers.compliance_router",    ""),
+        ("scim",          "aether_os.gateway.routers.scim_router",          ""),
+        ("agents",        "aether_os.gateway.routers.agents_router",        ""),
+        ("factory_ops",   "aether_os.gateway.routers.factory_ops_router",   ""),
+        ("factory_runs",  "aether_os.gateway.routers.factory_runs_router",  ""),
     ]:
         try:
             import importlib as _il2
@@ -1014,41 +1014,56 @@ def create_app() -> FastAPI:
             logger.critical("Failed to mount %s router: %s", _rname, _exc2)
 
     # ── Legal documents (GDPR D-001) — public, no auth required ──────────────
+
+    # ── App Preview proxy — /app-preview/* → http://127.0.0.1:RUN_APP_PORT/* ─
+    _RUN_APP_PORT = int(os.environ.get("RUN_APP_PORT", "8001"))
+
+    @app.api_route("/app-preview", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/app-preview/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
+    async def _app_preview_proxy(request: Request, path: str = ""):
+        import httpx as _httpx
+        from fastapi.responses import Response as _Resp
+        _port = int(os.environ.get("RUN_APP_PORT", "8001"))
+        _qs = f"?{request.url.query}" if request.url.query else ""
+        _target = f"http://127.0.0.1:{_port}/{path}{_qs}"
+        try:
+            async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True) as _c:
+                _r = await _c.request(
+                    method=request.method,
+                    url=_target,
+                    headers={k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")},
+                    content=await request.body(),
+                )
+            _skip = {"transfer-encoding", "content-encoding"}
+            _headers = {k: v for k, v in _r.headers.items() if k.lower() not in _skip}
+            return _Resp(content=_r.content, status_code=_r.status_code,
+                         headers=_headers, media_type=_r.headers.get("content-type"))
+        except _httpx.ConnectError:
+            return _Resp(content="Generated app is not running. Click 'Run App' in the project view first.",
+                         status_code=503, media_type="text/plain")
+        except Exception as _pe:
+            return _Resp(content=f"Preview proxy error: {_pe}", status_code=502, media_type="text/plain")
+
+    # ── Dashboard static files — MUST be last, after all API routes ──────────
+    _dist = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../dashboard/dist")
+    )
+    if os.path.isdir(_dist):
+        logger.info("Mounting dashboard SPA from %s", _dist)
+
+        @app.get("/dashboard", include_in_schema=False)
+        @app.get("/dashboard/{path:path}", include_in_schema=False)
+        async def _dashboard_spa(path: str = ""):
+            _index = os.path.join(_dist, "index.html")
+            if path:
+                candidate = os.path.normpath(os.path.join(_dist, path))
+                if candidate.startswith(_dist) and os.path.isfile(candidate):
+                    return FileResponse(candidate)
+            return FileResponse(_index)
+
+        app.mount("/dashboard", StaticFiles(directory=_dist, html=True), name="dashboard")
+
     return app
 
-# Module-level app instance for uvicorn
+# Module-level app instance (used when NOT in --factory mode)
 app = create_app()
-
-# ── Dashboard static files — MUST be last, after all routes ──────────────────
-import os as _os
-from fastapi.responses import FileResponse as _FileResponse
-
-_dist = _os.path.abspath(
-    _os.path.join(_os.path.dirname(__file__), "../dashboard/dist")
-)
-
-if _os.path.isdir(_dist):
-    logger.info("Mounting dashboard SPA from %s", _dist)
-
-    # SPA catch-all: serves static files by exact path, falls back to
-    # index.html for any unknown sub-path (e.g. /dashboard/projects).
-    # This route is registered BEFORE the StaticFiles mount so it takes
-    # priority and always returns HTTP 200 (browsers need 200 for script
-    # module loading to work correctly in all environments).
-    @app.get("/dashboard", include_in_schema=False)
-    @app.get("/dashboard/{path:path}", include_in_schema=False)
-    async def _dashboard_spa(path: str = ""):
-        _index = _os.path.join(_dist, "index.html")
-        if path:
-            candidate = _os.path.normpath(_os.path.join(_dist, path))
-            # Security: stay inside dist/
-            if candidate.startswith(_dist) and _os.path.isfile(candidate):
-                return _FileResponse(candidate)
-        return _FileResponse(_index)
-
-    # StaticFiles mount kept for efficient directory listing / HEAD requests
-    app.mount(
-        "/dashboard",
-        StaticFiles(directory=_dist, html=True),
-        name="dashboard"
-    )
