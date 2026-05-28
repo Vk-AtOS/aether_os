@@ -429,7 +429,7 @@ class ModelRouter:
                         "# TODO", "# todo",
                     }
                     _is_placeholder = (
-                        len(_stripped) < 50
+                        len(_stripped) < 10  # truly empty / near-empty
                         or _stripped.lower() in _PLACEHOLDER_PATTERNS
                         or _stripped in {"...", "…"}
                         or (_stripped.endswith("...") and len(_stripped) < 120)
