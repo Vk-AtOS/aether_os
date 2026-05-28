@@ -1,16 +1,18 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /srv
 
-# Install system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client \
+    postgresql-client curl git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy source into a directory named `aether_os` so `import aether_os` resolves
+COPY . ./aether_os/
+
+ENV PYTHONPATH=/srv
 
 EXPOSE 8000
 
