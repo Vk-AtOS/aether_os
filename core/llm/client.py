@@ -388,12 +388,15 @@ async def _call_bedrock(
     _per_call_usage: dict = {}
 
     def _invoke() -> str:
-        client = boto3.client(
-            "bedrock-runtime",
-            region_name=region,
-            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-        )
+        _bdr_kwargs: dict = {"region_name": region}
+        _key_id = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+        _secret  = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        if _key_id and _secret:
+            _bdr_kwargs["aws_access_key_id"] = _key_id
+            _bdr_kwargs["aws_secret_access_key"] = _secret
+        # When no explicit keys, boto3 discovers credentials automatically:
+        # EC2 instance profile, ECS task role, ~/.aws/credentials, etc.
+        client = boto3.client("bedrock-runtime", **_bdr_kwargs)
         # Converse API: unified across providers, no anthropic_version header needed
         resp = client.converse(
             modelId=model_id,

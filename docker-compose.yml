@@ -53,6 +53,13 @@ services:
       AETHER_ONE_ZT_SECRET: ${AETHER_ONE_ZT_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      PRIMARY_LLM: ${PRIMARY_LLM:-anthropic}
+      BEDROCK_ENABLED: ${BEDROCK_ENABLED:-false}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      BEDROCK_MODEL_HEAVY: ${BEDROCK_MODEL_HEAVY:-au.anthropic.claude-sonnet-4-6}
+      BEDROCK_MODEL_LIGHT: ${BEDROCK_MODEL_LIGHT:-amazon.nova-lite-v1:0}
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required - set to https://yourdomain.com}
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required - set to https://yourdomain.com/dashboard}
       SAML_SP_ENTITY_ID: ${SAML_SP_ENTITY_ID:-}
@@ -63,7 +70,7 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - output_data:/app/output
+      - aether_os_data:/root/.aether_os
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -74,4 +81,4 @@ services:
 volumes:
   pg_data:
   redis_data:
-  output_data:
+  aether_os_data:
