@@ -607,15 +607,17 @@ def _fallback_schemas(entities: list) -> str:
                 continue
             field_lines.append(f"    {fn}: Optional[str] = None")
 
+        base_fields = field_lines if field_lines else ["    name: Optional[str] = None"]
+        update_fields = [f"    {ln.strip().split(':')[0]}: Optional[str] = None" for ln in field_lines] if field_lines else ["    name: Optional[str] = None"]
         blocks += [
             f"class {name}Base(BaseModel):",
-            *field_lines or ["    name: Optional[str] = None"],
+        ] + base_fields + [
             "",
             f"class {name}Create({name}Base):",
             "    pass",
             "",
             f"class {name}Update(BaseModel):",
-            *[f"    {l.strip().split(':')[0]}: Optional[str] = None" for l in field_lines] or ["    name: Optional[str] = None"],
+        ] + update_fields + [
             "",
             f"class {name}Response({name}Base):",
             "    model_config = ConfigDict(from_attributes=True)",
