@@ -178,14 +178,36 @@ REQUIREMENTS FOR THE CODE:
 8. Include realistic field validation with Pydantic
 9. Include pagination (skip/limit) on list endpoints
 10. Role-based access control: admin vs regular user where appropriate
+11. IMPORTANT: Include a seed_database() async function called on startup (via @app.on_event("startup"))
+    that inserts realistic sample data if the database is empty. The seed must create:
+    - At least one admin user (email: admin@example.com, password: admin123)
+    - At least 10-20 realistic records for EACH main entity (e.g. 20 cameras, 15 alerts, 10 zones)
+    - Data should be domain-appropriate and have realistic field values (not "test1", "item1")
+    - For {project_name}: generate realistic {domain}-specific names and values
+    Use asyncio to run create_all and seed before serving requests.
 
 Return ONLY the complete Python file content. No explanation, no markdown fences.
 The file must be importable without errors."""
 
-        result = await llm.call(prompt, task_type="code_generation", max_tokens=6000)
+        result = await llm.call(prompt, task_type="code_generation", max_tokens=8000)
         if result and len(result.strip()) > 200:
             code = _extract_code_block(result)
             if len(code) > 100:
+                # ── Auto-fix common codegen issues ───────────────────────────
+                import re as _re
+                # Fix: typing.AsyncSession → AsyncSession
+                code = code.replace("class_=typing.AsyncSession", "class_=AsyncSession")
+                # Fix: ensure common SQLAlchemy column types are imported
+                _sa_match = _re.search(r'^from sqlalchemy import ([^\n]+)', code, _re.MULTILINE)
+                if _sa_match:
+                    _existing = _sa_match.group(1)
+                    _needed = ["Float", "JSON", "BigInteger", "Numeric", "LargeBinary"]
+                    _missing = [t for t in _needed if t not in _existing]
+                    if _missing:
+                        code = code.replace(
+                            _sa_match.group(0),
+                            _sa_match.group(0) + ", " + ", ".join(_missing)
+                        )
                 main_py_path.write_text(code)
                 logger.info("[p04a] LLM generated main.py (%d chars)", len(code))
             else:
