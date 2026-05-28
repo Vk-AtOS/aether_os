@@ -262,6 +262,14 @@ async def system_health(
     except Exception:
         pass
 
+    # Workloop monitor status
+    _workloop_status: dict = {}
+    try:
+        from aether_os.core.workloop_monitor import get_workloop_monitor as _gwm
+        _workloop_status = _gwm().get_status()
+    except Exception:
+        pass
+
     return {
         "status": status,
         "message": message,
@@ -298,7 +306,27 @@ async def system_health(
         # Disk
         "disk_free_pct": round(_free_pct, 1) if _free_pct is not None else None,
         "disk_status": disk_status,
+        # Self-healing workloop
+        "workloop_monitor": {
+            "running": _workloop_status.get("running", False),
+            "check_count": _workloop_status.get("check_count", 0),
+            "error_count": _workloop_status.get("error_count", 0),
+            "last_findings": len(_workloop_status.get("last_findings", [])),
+            "auto_fixes_applied": len(_workloop_status.get("fix_log", [])),
+        },
     }
+
+
+@router.get("/system/workloop")
+async def workloop_status(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Detailed workloop monitor status — failure patterns, findings, auto-fixes applied."""
+    try:
+        from aether_os.core.workloop_monitor import get_workloop_monitor
+        return get_workloop_monitor().get_status()
+    except Exception as exc:
+        return {"error": str(exc), "running": False}
 
 
 @router.get("/health/observability")
