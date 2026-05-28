@@ -612,6 +612,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: '/app-preview/',
   plugins: [react()],
   server: {
     port: 3000,
@@ -866,9 +867,9 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
     lines.append("")
     lines.append("// When VITE_API_URL is set: direct calls to backend URL (prod/Docker)")
-    lines.append("// When unset: proxy via Vite /api → backend (dev) or nginx /api → backend (prod)")
+    lines.append("// When unset: served under /app-preview/ so API calls must use that sub-path prefix")
     lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
-    lines.append("const API_PREFIX = BASE ? '' : '/api'")
+    lines.append("const API_PREFIX = BASE ? '' : '/app-preview/api'")
     lines.append("")
     lines.append("export const apiClient = axios.create({ baseURL: BASE + API_PREFIX })")
     lines.append("")
@@ -881,7 +882,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("apiClient.interceptors.response.use(")
     lines.append("  r => r,")
     lines.append("  err => {")
-    lines.append("    if (err.response?.status === 401) { clearToken(); window.location.href = '/login' }")
+    lines.append("    if (err.response?.status === 401) { clearToken(); window.location.href = '/app-preview/login' }")
     lines.append("    return Promise.reject(err)")
     lines.append("  },")
     lines.append(")")
@@ -979,7 +980,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree }})
+export const router = createRouter({{ routeTree, basepath: '/app-preview' }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
