@@ -23,9 +23,10 @@ logger = logging.getLogger(__name__)
 
 def _detect_domain(phase_input: Any) -> str:
     """Detect application domain from project description and entity names."""
-    # If the pipeline already resolved a domain, use it directly.
-    if hasattr(phase_input, "domain") and phase_input.domain and phase_input.domain not in ("", "unknown"):
-        return phase_input.domain
+    # Only trust the pre-resolved domain if it's a specific domain, not the generic fallbacks.
+    _pre = getattr(phase_input, "domain", None) or ""
+    if _pre and _pre not in ("", "unknown", "general", "saas"):
+        return _pre
 
     data = (
         phase_input.input_data
