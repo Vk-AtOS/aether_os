@@ -511,10 +511,24 @@ def create_app() -> FastAPI:
         except Exception as _exc:
             logger.warning("Marketplace seeding skipped: %s", _exc)
 
-        yield
+        # ── Workloop Monitor ─────────────────────────────────────────────────
+        # Background self-healing: scans recent run failures every 5 minutes,
+        # runs LLM diagnosis, and auto-applies safe platform fixes.
+        try:
+            from aether_os.core.workloop_monitor import get_workloop_monitor
+            get_workloop_monitor().start()
+        except Exception as _wl_exc:
+            logger.warning("WorkloopMonitor failed to start: %s", _wl_exc)
+
+        yield  # ── Application runs here ──────────────────────────────────
 
         # Shutdown
         logger.info("AetherOS API shutting down...")
+        try:
+            from aether_os.core.workloop_monitor import get_workloop_monitor
+            get_workloop_monitor().stop()
+        except Exception:
+            pass
         try:
             from aether_os.core.db import close_db
             await close_db()
