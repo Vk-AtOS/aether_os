@@ -67,10 +67,10 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         # for cross-region inference profiles. Credentials alone are not sufficient.
         if os.environ.get("BEDROCK_ENABLED", "false").lower() != "true":
             return False
-        return bool(
-            os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
-            and os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
-        )
+        # With BEDROCK_ENABLED=true, trust boto3 to find credentials automatically:
+        # explicit env vars → ~/.aws/credentials → EC2 instance profile → ECS task role.
+        # Do NOT require explicit AWS_ACCESS_KEY_ID here — that breaks IAM role auth.
+        return True
     # Ollama: always attempt — will fail at call time if not running
     return True
 
