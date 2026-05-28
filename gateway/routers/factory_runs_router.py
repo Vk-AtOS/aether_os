@@ -1208,6 +1208,40 @@ async def start_run_app(
     node_bin = _sh.which("node")
     npm_bin = _sh.which("npm")
     if node_bin and npm_bin and frontend_dir and frontend_dir.is_dir():
+        # Patch vite.config + env + router BEFORE building so asset URLs and API calls
+        # work correctly when the app is served at /app-preview/ via the gateway proxy.
+        import re as _re_cfg
+        for _cfg_name in ("vite.config.ts", "vite.config.js"):
+            _cfg_path = frontend_dir / _cfg_name
+            if _cfg_path.exists():
+                _cfg = _cfg_path.read_text()
+                if "base:" not in _cfg and "basePath" not in _cfg:
+                    _cfg = _cfg.replace(
+                        "export default defineConfig({",
+                        "export default defineConfig({\n  base: '/app-preview/',"
+                    )
+                    _cfg_path.write_text(_cfg)
+                break
+        # Write .env.production so VITE_API_URL points to the gateway proxy path
+        _env_prod = frontend_dir / ".env.production"
+        if not _env_prod.exists() or "VITE_API_URL" not in _env_prod.read_text():
+            _env_prod.write_text("VITE_API_URL=/app-preview\n")
+        # Patch TanStack Router / React Router basename so routes resolve under /app-preview/
+        for _src_name in ("src/App.tsx", "src/App.jsx", "src/main.tsx", "src/main.jsx"):
+            _src_path = frontend_dir / _src_name
+            if _src_path.exists():
+                _src = _src_path.read_text()
+                if "createRouter" in _src and "basepath" not in _src and "basePath" not in _src:
+                    _src = _src.replace(
+                        "createRouter({ routeTree })",
+                        "createRouter({ routeTree, basepath: '/app-preview' })"
+                    )
+                    _src_path.write_text(_src)
+                elif "BrowserRouter" in _src and "basename" not in _src:
+                    _src = _src.replace("BrowserRouter>", "BrowserRouter basename='/app-preview'>")
+                    _src = _src.replace("BrowserRouter />", "BrowserRouter basename='/app-preview' />")
+                    _src_path.write_text(_src)
+
         # Skip rebuild if dist already exists — avoids 30-60s rebuild on restart
         _dist_already_built = frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir())
         if not _dist_already_built:
@@ -1252,6 +1286,14 @@ async def start_run_app(
                     _sa_import_line.group(0),
                     _sa_import_line.group(0) + ", " + ", ".join(_missing)
                 )
+
+        # Fix: remove explicit GET "/" root route — the SPA catch-all (/{path:path}) will handle it
+        # Leaving it would shadow the catch-all since FastAPI matches explicit routes first.
+        content = _re.sub(
+            r'\n@app\.get\(["\']\/["\'][^)]*\)\n(?:async )?def [^\n]+\n(?:    [^\n]+\n)*',
+            '\n',
+            content,
+        )
 
         main_py.write_text(content)
 
@@ -1359,7 +1401,7 @@ _MOCK_ROWS = [
     {{"id": i, "name": _SAMPLE_NAMES[i - 1], "status": random.choice(["active", "pending", "closed"]),
       "amount": round(random.uniform(5000, 80000), 2), "slug": _SAMPLE_NAMES[i - 1].lower().replace(" ", "-"),
       "plan": random.choice(["starter", "pro", "enterprise"]), "email": f"contact{{i}}@example.com",
-      "phone": f"+1-555-{1000+i:04d}", "stage": random.choice(["new", "contacted", "proposal", "closed"]),
+      "phone": f"+1-555-{{1000+i:04d}}", "stage": random.choice(["new", "contacted", "proposal", "closed"]),
       "priority": random.choice(["low", "medium", "high"]), "created_at": f"2026-0{{(i % 4)+1:02d}}-{{(i % 28)+1:02d}}"}}
     for i in range(1, 11)
 ]
