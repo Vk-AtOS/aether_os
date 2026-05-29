@@ -31,6 +31,7 @@ import IntelligenceHub from './pages/IntelligenceHub';
 import SearchPage from './pages/SearchPage';
 import Deployments from './pages/Deployments';
 import SystemHealth from './pages/SystemHealth';
+import Guardian from './pages/Guardian';
 import Signup from './pages/Signup';
 import Pricing from './pages/Pricing';
 import Agents from './pages/Agents';
@@ -123,6 +124,7 @@ function App() {
         <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
         <Route path="deployments" element={<ErrorBoundary><Deployments /></ErrorBoundary>} />
         <Route path="health" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
+        <Route path="guardian" element={<ErrorBoundary><Guardian /></ErrorBoundary>} />
         <Route path="agents" element={<ErrorBoundary><Agents /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>

@@ -524,6 +524,17 @@ def create_app() -> FastAPI:
         except Exception as _wl_exc:
             logger.warning("WorkloopMonitor failed to start: %s", _wl_exc)
 
+        # ── Guardian Watchdog ─────────────────────────────────────────────────
+        # Autonomous self-monitoring: threat detection, snapshots, auto-recovery.
+        try:
+            from aether_os.core.guardian.watchdog import get_watchdog as _get_guardian
+            _guardian_task = asyncio.create_task(_get_guardian().start())
+            _background_tasks.add(_guardian_task)
+            _guardian_task.add_done_callback(_background_tasks.discard)
+            logger.info("Guardian watchdog started")
+        except Exception as _gw_exc:
+            logger.warning("Guardian watchdog failed to start: %s", _gw_exc)
+
         yield  # ── Application runs here ──────────────────────────────────
 
         # Shutdown
@@ -531,6 +542,11 @@ def create_app() -> FastAPI:
         try:
             from aether_os.core.workloop_monitor import get_workloop_monitor
             get_workloop_monitor().stop()
+        except Exception:
+            pass
+        try:
+            from aether_os.core.guardian.watchdog import get_watchdog as _get_guardian_stop
+            _get_guardian_stop().stop()
         except Exception:
             pass
         try:
@@ -1022,6 +1038,7 @@ def create_app() -> FastAPI:
         ("agents",        "aether_os.gateway.routers.agents_router",        ""),
         ("factory_ops",   "aether_os.gateway.routers.factory_ops_router",   ""),
         ("factory_runs",  "aether_os.gateway.routers.factory_runs_router",  ""),
+        ("guardian",      "aether_os.gateway.routers.guardian_router",      ""),
     ]:
         try:
             import importlib as _il2
