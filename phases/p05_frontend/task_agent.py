@@ -271,41 +271,84 @@ def _read_architecture(data: dict) -> dict:
 
 
 def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, List[str]]:
-    """Parse CREATE TABLE statements in the generated main.py to get real column names."""
+    """Extract real column names from the generated backend.
+
+    Strategy 1 (preferred): parse SQLAlchemy Column() definitions from models.py —
+    the p04a multi-file generator writes ORM models here, not raw SQL.
+    Strategy 2 (fallback): original CREATE TABLE regex scan of main.py.
+    """
     cols_by_table: Dict[str, List[str]] = {}
+    backend_out = data.get("backend_output_path", "") or data.get("p04_backend_path", "")
+
+    # ── Strategy 1: SQLAlchemy ORM in models.py ──────────────────────────────
+    if backend_out:
+        p = Path(backend_out)
+        models_candidates = [
+            p / "src" / "models.py",
+            p.parent / "src" / "models.py",
+            p.parent / "backend_codegen" / "src" / "models.py",
+        ]
+        for models_path in models_candidates:
+            if not models_path.exists():
+                continue
+            try:
+                code = models_path.read_text()
+                current_table: str = ""
+                current_cols: List[str] = []
+                for line in code.splitlines():
+                    # Detect table declaration: __tablename__ = "table_name"
+                    tm = re.search(r'__tablename__\s*=\s*["\'](\w+)["\']', line)
+                    if tm:
+                        if current_table and current_cols:
+                            cols_by_table[current_table] = current_cols
+                        current_table = tm.group(1).lower()
+                        current_cols = []
+                        continue
+                    # Detect Column definition: col_name = Column(...)
+                    cm = re.match(r'\s{4}(\w+)\s*=\s*Column\(', line)
+                    if cm and current_table:
+                        col_name = cm.group(1)
+                        if col_name not in ("id",) and not col_name.startswith("_"):
+                            current_cols.append(col_name)
+                if current_table and current_cols:
+                    cols_by_table[current_table] = current_cols
+                if cols_by_table:
+                    logger.info("p05: extracted %d tables from models.py", len(cols_by_table))
+                    return cols_by_table
+            except Exception as exc:
+                logger.warning("p05: models.py parse failed: %s", exc)
+
+    # ── Strategy 2: legacy CREATE TABLE scan of main.py ──────────────────────
     main_py_path = data.get("backend_main_py", "")
-    if not main_py_path:
-        backend_out = data.get("backend_output_path", "") or data.get("p04_backend_path", "")
-        if backend_out:
-            p = Path(backend_out)
-            for candidate in [p / "src" / "main.py", p.parent / "src" / "main.py",
-                               p.parent / "backend_codegen" / "src" / "main.py"]:
-                if candidate.exists():
-                    main_py_path = str(candidate)
-                    break
-    if not main_py_path or not Path(main_py_path).exists():
-        return cols_by_table
-    try:
-        code = Path(main_py_path).read_text()
-        for m in re.finditer(
-            r"CREATE TABLE IF NOT EXISTS (\w+)\s*\(([^)]+)\)",
-            code, re.IGNORECASE
-        ):
-            table_name = m.group(1).lower()
-            if table_name in tables:
-                col_defs = m.group(2)
-                cols = []
-                for col_def in col_defs.split(","):
-                    col_def = col_def.strip()
-                    col_name = col_def.split()[0] if col_def.split() else ""
-                    if col_name and col_name.upper() not in (
-                        "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT"
-                    ):
-                        cols.append(col_name)
-                if cols:
-                    cols_by_table[table_name] = cols
-    except Exception as exc:
-        logger.warning("p05: _extract_columns_from_main_py failed: %s", exc)
+    if not main_py_path and backend_out:
+        p = Path(backend_out)
+        for candidate in [p / "src" / "main.py", p.parent / "src" / "main.py",
+                           p.parent / "backend_codegen" / "src" / "main.py"]:
+            if candidate.exists():
+                main_py_path = str(candidate)
+                break
+    if main_py_path and Path(main_py_path).exists():
+        try:
+            code = Path(main_py_path).read_text()
+            for m in re.finditer(
+                r"CREATE TABLE IF NOT EXISTS (\w+)\s*\(([^)]+)\)",
+                code, re.IGNORECASE
+            ):
+                table_name = m.group(1).lower()
+                if table_name in tables:
+                    col_defs = m.group(2)
+                    cols = []
+                    for col_def in col_defs.split(","):
+                        col_def = col_def.strip()
+                        col_name = col_def.split()[0] if col_def.split() else ""
+                        if col_name and col_name.upper() not in (
+                            "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT"
+                        ):
+                            cols.append(col_name)
+                    if cols:
+                        cols_by_table[table_name] = cols
+        except Exception as exc:
+            logger.warning("p05: _extract_columns_from_main_py failed: %s", exc)
     return cols_by_table
 
 
