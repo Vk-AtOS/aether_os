@@ -334,7 +334,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-app.include_router(auth_router)
+app.include_router(auth_router, prefix="/api")
 {ROUTER_INCLUDES}
 
 
@@ -726,7 +726,7 @@ def _fix_common_issues(code: str) -> str:
 def _build_main_py(project_name: str, routers_have_all_routers: bool) -> str:
     if routers_have_all_routers:
         router_imports = "from .routers.crud import all_routers"
-        router_includes = "for _router in all_routers:\n    app.include_router(_router)"
+        router_includes = "for _router in all_routers:\n    app.include_router(_router, prefix='/api')"
     else:
         router_imports = "# No CRUD routers"
         router_includes = ""

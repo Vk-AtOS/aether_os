@@ -1222,10 +1222,11 @@ async def start_run_app(
                     )
                     _cfg_path.write_text(_cfg)
                 break
-        # Write .env.production so VITE_API_URL points to the gateway proxy path
+        # Write .env.production: VITE_API_URL points to the gateway proxy path + /api prefix
+        # Gateway strips /app-preview/, so /app-preview/api → port 8001 /api → matches backend routes
         _env_prod = frontend_dir / ".env.production"
         if not _env_prod.exists() or "VITE_API_URL" not in _env_prod.read_text():
-            _env_prod.write_text("VITE_API_URL=/app-preview\n")
+            _env_prod.write_text("VITE_API_URL=/app-preview/api\n")
         # Patch TanStack Router / React Router basename so routes resolve under /app-preview/
         for _src_name in ("src/App.tsx", "src/App.jsx", "src/main.tsx", "src/main.jsx"):
             _src_path = frontend_dir / _src_name
