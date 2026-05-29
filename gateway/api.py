@@ -1039,10 +1039,23 @@ def create_app() -> FastAPI:
     async def _app_preview_proxy(request: Request, path: str = ""):
         import httpx as _httpx
         from fastapi.responses import Response as _Resp
-        # Resolve port: prefer the most-recently-started run's ephemeral port
+        # Resolve port: in-process cache first, then Redis (multi-worker safe)
         _port = int(os.environ.get("RUN_APP_PORT", "8001"))
         if _APP_CURRENT_RUN:
             _port = _APP_PORTS.get(_APP_CURRENT_RUN[0], _port)
+        else:
+            try:
+                from aether_os.core.rate_limiter import run_app_port_get as _rapg
+                _rid, _rport = await _rapg()
+                if _rport:
+                    _port = _rport
+                    _APP_PORTS[_rid] = _rport
+                    if not _APP_CURRENT_RUN:
+                        _APP_CURRENT_RUN.append(_rid)
+                    else:
+                        _APP_CURRENT_RUN[0] = _rid
+            except Exception:
+                pass
         _qs = f"?{request.url.query}" if request.url.query else ""
         _target = f"http://127.0.0.1:{_port}/{path}{_qs}"
         try:
