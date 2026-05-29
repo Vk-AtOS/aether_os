@@ -1410,27 +1410,28 @@ async def start_run_app(
             )
         _stub_main.write_text(
             f"""from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
-import pathlib, os, random
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+import pathlib, re
 
 app = FastAPI()
 
 _PREVIEW_TOKEN = "preview-token-demo"
 _MOCK_USER = {{"id": 1, "email": "admin@example.com", "name": "Admin User", "role": "admin"}}
 
-# Sample rows returned for every list endpoint
-_SAMPLE_NAMES = [
-    "Acme Corp", "TechStart Inc", "Global Solutions", "Innovate Ltd", "Peak Ventures",
-    "Bright Future Co", "DataDriven LLC", "Cloud Systems", "NextGen AI", "Apex Group",
-]
-_MOCK_ROWS = [
-    {{"id": i, "name": _SAMPLE_NAMES[i - 1], "status": random.choice(["active", "pending", "closed"]),
-      "amount": round(random.uniform(5000, 80000), 2), "slug": _SAMPLE_NAMES[i - 1].lower().replace(" ", "-"),
-      "plan": random.choice(["starter", "pro", "enterprise"]), "email": f"contact{{i}}@example.com",
-      "phone": f"+1-555-{{1000+i:04d}}", "stage": random.choice(["new", "contacted", "proposal", "closed"]),
-      "priority": random.choice(["low", "medium", "high"]), "created_at": f"2026-0{{(i % 4)+1:02d}}-{{(i % 28)+1:02d}}"}}
-    for i in range(1, 11)
-]
+_BANNER_SCRIPT = \"\"\"
+<style>
+  #__aether_crash_banner {{
+    position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
+    background: #dc2626; color: #fff; font-family: monospace; font-size: 13px;
+    padding: 8px 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }}
+  #__aether_crash_banner a {{ color: #fef08a; text-decoration: underline; }}
+</style>
+<div id="__aether_crash_banner">
+  ⚠ Backend failed to start — showing <strong>frontend skeleton only</strong>.
+  All API calls return empty data. Check run logs for the root cause.
+</div>
+\"\"\"
 
 @app.post("/api/auth/login")
 @app.post("/api/v1/auth/login")
@@ -1448,19 +1449,23 @@ async def mock_logout():
 
 @app.get("/api/{{path:path}}")
 async def mock_api_get(path: str):
-    return JSONResponse(_MOCK_ROWS)
+    return JSONResponse({{"items": [], "total": 0, "_preview_mode": True,
+                          "_error": "Backend crashed — data unavailable"}})
 
 @app.post("/api/{{path:path}}")
 async def mock_api_post(path: str, request: Request):
-    return JSONResponse({{"id": 99, "success": True, "message": "Created in preview mode"}})
+    return JSONResponse({{"success": False, "_preview_mode": True,
+                          "_error": "Backend crashed — write operations disabled"}}, status_code=503)
 
 @app.put("/api/{{path:path}}")
 async def mock_api_put(path: str, request: Request):
-    return JSONResponse({{"id": 99, "success": True, "message": "Updated in preview mode"}})
+    return JSONResponse({{"success": False, "_preview_mode": True,
+                          "_error": "Backend crashed — write operations disabled"}}, status_code=503)
 
 @app.delete("/api/{{path:path}}")
 async def mock_api_delete(path: str):
-    return JSONResponse({{"success": True, "message": "Deleted in preview mode"}})
+    return JSONResponse({{"success": False, "_preview_mode": True,
+                          "_error": "Backend crashed — delete operations disabled"}}, status_code=503)
 
 {"" if not _dist_path else f'''
 _DIST = pathlib.Path(r"{_dist_path}")
@@ -1468,7 +1473,14 @@ if _DIST.is_dir():
     @app.get("/{{path:path}}", include_in_schema=False)
     def spa(path: str = ""):
         f = _DIST / path
-        return FileResponse(str(f) if f.is_file() else str(_DIST / "index.html"))
+        if f.is_file() and not f.name.endswith(".html"):
+            return FileResponse(str(f))
+        html_path = f if (f.is_file() and f.name.endswith(".html")) else _DIST / "index.html"
+        html = html_path.read_text(encoding="utf-8")
+        # Inject crash banner into <body>
+        if "<body" in html and "_aether_crash_banner" not in html:
+            html = html.replace("<body", _BANNER_SCRIPT + "<body", 1)
+        return HTMLResponse(html)
 '''}
 """
         )
