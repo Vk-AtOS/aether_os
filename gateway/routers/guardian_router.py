@@ -254,20 +254,21 @@ async def resolve_event(
     user: Dict[str, Any] = _get_current_user(),
 ) -> Dict[str, Any]:
     _require_admin(user)
-    from aether_os.core.guardian.models import GuardianEvent
     from aether_os.core.db import get_session_factory
-    from sqlalchemy import select
+    from sqlalchemy import text
     from datetime import datetime
 
     sf = get_session_factory()
     async with sf() as sess:
-        row = (await sess.execute(
-            select(GuardianEvent).where(GuardianEvent.id == event_id)
-        )).scalars().first()
-        if not row:
+        result = await sess.execute(
+            text(
+                "UPDATE guardian_events SET resolved = true, resolved_at = :ts "
+                "WHERE id = :eid"
+            ),
+            {"ts": datetime.utcnow(), "eid": event_id},
+        )
+        if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Event not found")
-        row.resolved = True
-        row.resolved_at = datetime.utcnow()
         await sess.commit()
 
     return {"ok": True, "event_id": event_id}
