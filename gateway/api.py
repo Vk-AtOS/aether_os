@@ -343,8 +343,12 @@ async def get_current_user(
     )
 
 
-# ── Module-level dict for generated-app processes (shared with pipeline) ───────
+# ── Module-level dicts for generated-app processes (shared with pipeline) ──────
+# _APP_PROCS: run_id → subprocess.Popen
+# _APP_PORTS: run_id → int  (ephemeral port the process listens on)
 _APP_PROCS: Dict[str, Any] = {}
+_APP_PORTS: Dict[str, int] = {}
+_APP_CURRENT_RUN: list = []  # single-element list; [run_id] of most-recent run-app start
 
 # ── App factory ────────────────────────────────────────────────────────────────
 
@@ -1029,15 +1033,16 @@ def create_app() -> FastAPI:
 
     # ── Legal documents (GDPR D-001) — public, no auth required ──────────────
 
-    # ── App Preview proxy — /app-preview/* → http://127.0.0.1:RUN_APP_PORT/* ─
-    _RUN_APP_PORT = int(os.environ.get("RUN_APP_PORT", "8001"))
-
+    # ── App Preview proxy — /app-preview/* → http://127.0.0.1:<ephemeral>/* ──
     @app.api_route("/app-preview", methods=["GET", "HEAD"], include_in_schema=False)
     @app.api_route("/app-preview/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
     async def _app_preview_proxy(request: Request, path: str = ""):
         import httpx as _httpx
         from fastapi.responses import Response as _Resp
+        # Resolve port: prefer the most-recently-started run's ephemeral port
         _port = int(os.environ.get("RUN_APP_PORT", "8001"))
+        if _APP_CURRENT_RUN:
+            _port = _APP_PORTS.get(_APP_CURRENT_RUN[0], _port)
         _qs = f"?{request.url.query}" if request.url.query else ""
         _target = f"http://127.0.0.1:{_port}/{path}{_qs}"
         try:

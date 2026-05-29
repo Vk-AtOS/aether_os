@@ -144,7 +144,9 @@ _DOMAIN_COMPONENT_DESC: Dict[str, str] = {
 }
 
 
-async def _generate_domain_component(domain: str, entities: List[dict], project_name: str) -> Optional[str]:
+async def _generate_domain_component(
+    domain: str, entities: List[dict], project_name: str, mem_hint: str = ""
+) -> Optional[str]:
     """Generate a domain-specific React component via one LLM call.
 
     Returns JSX source (str) on success, or None when the call fails or the
@@ -159,6 +161,7 @@ async def _generate_domain_component(domain: str, entities: List[dict], project_
     prompt = (
         f'Generate a React functional component for a {domain} application called "{project_name}".\n\n'
         f"The component should render: {component_desc}\n\n"
+        f"{mem_hint}"
         "Hard requirements:\n"
         "- Tailwind CSS only (dark theme: bg-gray-900, bg-gray-800, text-white, etc.)\n"
         "- Use lucide-react icons (import at top: import {{ ... }} from 'lucide-react')\n"
@@ -1772,6 +1775,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     domain = _detect_domain(phase_input)
     logger.info("p05_frontend: detected domain=%s for project=%s", domain, project_name)
 
+    from aether_os.phases.utils import memory_hint
+    mem = memory_hint(memory_ctx)
+
     # 3. Build frontend/ directory
     frontend_dir = output_dir / "frontend"
     src_dir = frontend_dir / "src"
@@ -1820,7 +1826,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Domain-specific LLM component (non-fatal bonus step) ─────────────────
     domain_widget_generated = False
     try:
-        domain_component = await _generate_domain_component(domain, entities, project_name)
+        domain_component = await _generate_domain_component(domain, entities, project_name, mem)
         if domain_component:
             domain_file = src_dir / "components" / "DomainWidget.jsx"
             domain_file.write_text(domain_component)

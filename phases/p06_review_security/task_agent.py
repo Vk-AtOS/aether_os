@@ -43,6 +43,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     results: Dict[str, TaskResult] = {}
 
     # Sub-task 1: LLM code review — reads generated backend code, checks OWASP issues
+    from aether_os.phases.utils import memory_hint
+    mem = memory_hint(memory_ctx)
+
     try:
         from aether_os.core.llm.client import get_llm_client
         _llm_client = get_llm_client()
@@ -69,6 +72,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 "{\"findings\": [{\"issue\": str, \"severity\": \"high\"|\"medium\"|\"low\", "
                 "\"line_hint\": str, \"recommendation\": str}], \"overall_score\": 0-100, "
                 "\"summary\": str}. If no issues, return findings=[]. "
+                + mem +
                 "Code to review:\n```python\n" + code_to_review + "\n```"
             )
             review_raw = await asyncio.wait_for(

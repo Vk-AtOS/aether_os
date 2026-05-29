@@ -569,22 +569,23 @@ class FactoryPipeline:
                     }
                 await self.ledger.async_update_run_status(run_id, "running")
 
-        # Mark run as complete
+        # Mark run as complete — use "council_review" so the DeliveryCouncil background
+        # task (below) writes the real final status ("completed" or "needs_review").
         await self._update_state(run_id, "pipeline", "complete")
-        await self.ledger.async_update_run_status(run_id, "completed")
+        await self.ledger.async_update_run_status(run_id, "council_review")
 
         # Auto-start the generated app
         try:
             import sys as _sys
             import subprocess as _sp
-            from aether_os.gateway.api import _APP_PROCS
+            import socket as _sock
+            from aether_os.gateway.api import _APP_PROCS, _APP_PORTS, _APP_CURRENT_RUN
             _proj_dir = get_project_manager().get_project_dir(run_id).resolve()
             _log = _proj_dir / "run_app.log"
             _log_f = open(_log, "w")
-            _port = int(os.environ.get("RUN_APP_PORT", "8001"))
-            # Kill any existing process on that port
-            _sp.run(["fuser", "-k", f"{_port}/tcp"], capture_output=True)
-            import time as _time_m; _time_m.sleep(1)
+            with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as _s:
+                _s.bind(("127.0.0.1", 0))
+                _port = _s.getsockname()[1]
             _proc = _sp.Popen(
                 [_sys.executable, "-m", "uvicorn", "src.main:app",
                  "--host", "127.0.0.1", "--port", str(_port)],
@@ -593,6 +594,11 @@ class FactoryPipeline:
                 stderr=_log_f,
             )
             _APP_PROCS[run_id] = _proc
+            _APP_PORTS[run_id] = _port
+            if _APP_CURRENT_RUN:
+                _APP_CURRENT_RUN[0] = run_id
+            else:
+                _APP_CURRENT_RUN.append(run_id)
             logger.info("Auto-started generated app for run %s on port %d (pid %d)", run_id, _port, _proc.pid)
         except Exception as _e:
             logger.warning("Auto-start generated app failed: %s", _e)
@@ -655,15 +661,29 @@ class FactoryPipeline:
                     )
             except Exception as _exc:
                 logger.warning("DeliveryCouncil check failed: %s", _exc)
+                # Council unavailable — promote to completed so run is not stuck in council_review
+                try:
+                    from aether_os.core.db import get_session_factory as _gsf2
+                    from aether_os.core.models import Run as _Run2
+                    from sqlalchemy import update as _sa_update2
+                    _sf2 = _gsf2()
+                    async with _sf2() as _s2:
+                        await _s2.execute(
+                            _sa_update2(_Run2).where(_Run2.id == run_id).values(status="completed")
+                        )
+                        await _s2.commit()
+                except Exception:
+                    pass
 
         _dc_task = asyncio.create_task(_delivery_council_check())
         _background_tasks.add(_dc_task)
         _dc_task.add_done_callback(_background_tasks.discard)
 
-        # Emit pipeline_complete immediately so SSE clients are not blocked
+        # Emit pipeline_complete immediately so SSE clients are not blocked.
+        # Status is "council_review" until the DeliveryCouncil background task completes.
         _complete_event = {
             "type": "pipeline_complete",
-            "status": "completed",
+            "status": "council_review",
             "duration": round(duration, 1),
             "ts": time.time(),
         }
@@ -756,6 +776,8 @@ class FactoryPipeline:
                 store = get_artifact_store()
                 _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
                 _count = 0
+                _errors = 0
+                _MAX_ARTIFACTS = int(os.environ.get("ARTIFACT_EMBED_LIMIT", "500"))
                 for _phase in results:
                     if await get_control(run_id) == "cancel":
                         break
@@ -766,13 +788,18 @@ class FactoryPipeline:
                                 try:
                                     await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text())
                                     _count += 1
-                                    if _count >= 50:
+                                    if _count >= _MAX_ARTIFACTS:
                                         break
-                                except Exception:
+                                except Exception as _ef:
+                                    _errors += 1
+                                    logger.debug("[pipeline] artifact embed failed %s: %s", f.name, _ef)
                                     continue
-                    if _count >= 50:
+                    if _count >= _MAX_ARTIFACTS:
                         break
-                logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
+                if _errors:
+                    logger.warning("[pipeline] Embedded %d artifacts (%d failed) for run %s", _count, _errors, run_id)
+                else:
+                    logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
             except Exception as e:
                 logger.warning("[pipeline] Artifact embedding skipped: %s", e)
         _t3 = asyncio.create_task(_embed_artifacts())

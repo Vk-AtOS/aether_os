@@ -60,18 +60,70 @@ class PhaseBase:
 
     async def memory_after(self, phase: str, input_hash: str, output_path: str,
                            confidence: float, domain: str = "general",
-                           tags: Optional[List[str]] = None) -> None:
-        """Store successful outcome in memory."""
+                           tags: Optional[List[str]] = None,
+                           result_metadata: Optional[Dict] = None) -> None:
+        """Store successful outcome with rich metadata for future cross-run injection."""
         try:
             from aether_os.core.memory.store import get_memory_store
-            summary = f"Phase {phase} output at {output_path} (confidence={confidence:.2f})"
-            await get_memory_store().store(
+
+            # Build a meaningful summary that downstream phases can actually use
+            meta = result_metadata or {}
+            project = meta.get("project_name", "")
+            entities = meta.get("entities_count", meta.get("entities", ""))
+            stack = meta.get("tech_stack", "")
+            generated_via = meta.get("generated_via", "")
+            files_written = meta.get("files_written", "")
+
+            parts = [f"[{phase}]"]
+            if project:
+                parts.append(f"project={project}")
+            if domain and domain != "general":
+                parts.append(f"domain={domain}")
+            if entities:
+                parts.append(f"entities={entities}")
+            if stack:
+                parts.append(f"stack={stack}")
+            if generated_via:
+                parts.append(f"via={generated_via}")
+            if files_written:
+                parts.append(f"files={files_written}")
+            parts.append(f"confidence={confidence:.2f}")
+
+            summary = " | ".join(parts)
+
+            # Also store the first 800 chars of meaningful metadata as JSON
+            if meta:
+                meta_str = json.dumps({k: v for k, v in meta.items()
+                                        if isinstance(v, (str, int, float, bool, list))
+                                        and k not in ("files", "files_written")}, ensure_ascii=False)
+                summary += f"\nMeta: {meta_str[:600]}"
+
+            from aether_os.core.memory.store import MemoryRecord
+            await get_memory_store().store(MemoryRecord(
                 input_hash=input_hash,
-                phase=phase,
+                input_text=f"[{phase}] {domain}",
                 output_text=summary,
-                confidence=confidence,
-                domain=domain,
-            )
+                task_type=phase,
+                metadata={"domain": domain, "confidence": confidence},
+                success_count=1,
+            ))
+            # Also populate ChromaDB for semantic search across runs
+            try:
+                from aether_os.core.memory.vector_store import ChromaProjectMemory
+                chroma = ChromaProjectMemory.get_instance()
+                if chroma.available:
+                    project_name_val = (result_metadata or {}).get("project_name", "")
+                    run_id_val = (result_metadata or {}).get("run_id", input_hash[:8])
+                    chroma.store(
+                        run_id=run_id_val,
+                        org_id=domain,  # use domain as org context for phase-level storage
+                        raw_input=summary,
+                        domain=domain,
+                        project_name=project_name_val,
+                        winning_approach=summary[:500],
+                    )
+            except Exception:
+                pass
         except Exception as e:
             self.logger.debug("Memory store skipped: %s", e)
 
@@ -153,6 +205,7 @@ class PhaseBase:
                     await self.memory_after(
                         self.phase_name, input_hash, result.output_path,
                         result.confidence, getattr(phase_input, "domain", "general"),
+                        result_metadata=result.metadata,
                     )
                     await self.communicate(
                         run_id=phase_input.run_id,
