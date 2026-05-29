@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 # Paths relative to the aether_os package root.
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
 _CRITICAL_FILES: List[Path] = [
-    _PACKAGE_ROOT / "aether_os" / "gateway" / "api.py",
-    _PACKAGE_ROOT / "aether_os" / "gateway" / "auth.py",
-    _PACKAGE_ROOT / "aether_os" / "core" / "models.py",
-    _PACKAGE_ROOT / "aether_os" / "core" / "db.py",
-    _PACKAGE_ROOT / "aether_os" / "alembic" / "env.py",
+    _PACKAGE_ROOT / "gateway" / "api.py",
+    _PACKAGE_ROOT / "gateway" / "auth.py",
+    _PACKAGE_ROOT / "core" / "models.py",
+    _PACKAGE_ROOT / "core" / "db.py",
+    _PACKAGE_ROOT.parent / "alembic" / "env.py",
 ]
 
 # Redis key prefix for baseline file hashes
