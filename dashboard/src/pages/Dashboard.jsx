@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import PhaseBar from '../components/PhaseBar';
 import PhaseBadge from '../components/PhaseBadge';
 import CostPill from '../components/CostPill';
-import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket, TrendingUp } from 'lucide-react';
+import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket, TrendingUp, Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { useRole } from '../hooks/useRole';
 import { useSettings } from '../contexts/SettingsContext';
@@ -159,6 +159,58 @@ const QualityTrendChart = () => {
         </div>
       </div>
     </div>
+  );
+};
+
+// ── Guardian mini-widget — live threat level badge ────────────────────────────
+const THREAT_ICONS = { safe: ShieldCheck, low: Shield, medium: ShieldAlert, high: ShieldAlert, critical: ShieldOff };
+const THREAT_STYLES = {
+  safe:     'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  low:      'text-sky-400     bg-sky-500/10     border-sky-500/30',
+  medium:   'text-yellow-400  bg-yellow-500/10  border-yellow-500/30',
+  high:     'text-orange-400  bg-orange-500/10  border-orange-500/30',
+  critical: 'text-red-400     bg-red-500/10     border-red-500/30',
+};
+
+const GuardianWidget = () => {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    const load = () => {
+      Promise.all([
+        api.client.get('/guardian/status').catch(() => null),
+        api.client.get('/guardian/stats').catch(() => null),
+      ]).then(([s, st]) => {
+        if (s || st) setData({ status: s?.data, stats: st?.data });
+      });
+    };
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!data) return null;
+  const level = data.status?.threat_level || 'unknown';
+  const Icon = THREAT_ICONS[level] || Shield;
+  const style = THREAT_STYLES[level] || 'text-muted bg-border/20 border-border';
+  const today = data.stats?.threats_blocked_today ?? 0;
+  const total = data.stats?.threats_blocked_total ?? 0;
+
+  return (
+    <Link to="/guardian" className={`flex items-center gap-3 p-4 rounded-xl border transition-all hover:opacity-90 ${style}`}>
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${style}`}>
+        <Icon className={`w-4 h-4 ${level === 'critical' || level === 'high' ? 'animate-pulse' : ''}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black uppercase tracking-widest">Guardian</span>
+          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${style}`}>{level}</span>
+        </div>
+        <p className="text-[11px] mt-0.5 opacity-80">
+          {today > 0 ? `${today} threat${today !== 1 ? 's' : ''} blocked today` : 'No threats today'}
+          {total > 0 && <span className="ml-1 opacity-60">· {total} total</span>}
+        </p>
+      </div>
+    </Link>
   );
 };
 
@@ -339,6 +391,9 @@ const Dashboard = () => {
           )}
         </div>
       )}
+
+      {/* Guardian live threat badge */}
+      <GuardianWidget />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat) => (
