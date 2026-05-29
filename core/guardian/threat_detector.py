@@ -28,7 +28,7 @@ _CRITICAL_FILES: List[Path] = [
     _PACKAGE_ROOT / "gateway" / "auth.py",
     _PACKAGE_ROOT / "core" / "models.py",
     _PACKAGE_ROOT / "core" / "db.py",
-    _PACKAGE_ROOT.parent / "alembic" / "env.py",
+    _PACKAGE_ROOT / "alembic" / "env.py",
 ]
 
 # Redis key prefix for baseline file hashes
