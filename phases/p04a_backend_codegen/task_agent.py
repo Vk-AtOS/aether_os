@@ -380,7 +380,8 @@ CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # ── LLM generation functions ───────────────────────────────────────────────────
 
 async def _llm_models_and_schemas(
-    llm, project_name: str, domain: str, entities: list, raw_input: str, arch_doc: dict
+    llm, project_name: str, domain: str, entities: list, raw_input: str, arch_doc: dict,
+    mem_hint: str = "",
 ) -> Tuple[str, str]:
     """One LLM call → (models.py, schemas.py)."""
     entities_json = json.dumps(entities[:12], indent=2)
@@ -391,7 +392,7 @@ for a {domain} application called "{project_name}".
 
 Project requirements:
 {raw_input[:1500]}
-
+{mem_hint}
 Entities to model:
 {entities_json}
 
@@ -451,7 +452,8 @@ Return VALID JSON only (no markdown):
 
 
 async def _llm_crud_routers(
-    llm, project_name: str, entities: list, models_code: str, schemas_code: str
+    llm, project_name: str, entities: list, models_code: str, schemas_code: str,
+    mem_hint: str = "",
 ) -> str:
     """One LLM call → routers/crud.py with all entity CRUD routers."""
     entity_names = [e.get("name", e.get("table", "")) for e in entities[:12]]
@@ -459,6 +461,7 @@ async def _llm_crud_routers(
 
     prompt = f"""\
 Generate FastAPI CRUD routers for "{project_name}".
+{mem_hint}
 
 Entities: {entity_list}
 
@@ -844,6 +847,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     entities: list = data.get("entities", [])
     api_endpoints: list = data.get("api_endpoints", [])
 
+    from aether_os.phases.utils import memory_hint
+    mem = memory_hint(memory_ctx)
+
     # Load architecture doc
     arch_doc: dict = {}
     arch_path = data.get("architecture_path", "") or data.get("json_path", "")
@@ -878,7 +884,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
         await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating models + schemas…"})
         models_code, schemas_code = await _llm_models_and_schemas(
-            llm, project_name, domain, entities, raw_input, arch_doc
+            llm, project_name, domain, entities, raw_input, arch_doc, mem
         )
         models_code = _fix_common_issues(models_code)
         schemas_code = _fix_common_issues(schemas_code)
@@ -896,7 +902,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Step 3: LLM call 2 — CRUD routers ────────────────────────────────────
     try:
         await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating CRUD routers…"})
-        crud_code = await _llm_crud_routers(llm, project_name, entities, models_code, schemas_code)
+        crud_code = await _llm_crud_routers(llm, project_name, entities, models_code, schemas_code, mem)
         crud_code = _fix_common_issues(crud_code)
         # Ensure all_routers exists
         if "all_routers" not in crud_code:

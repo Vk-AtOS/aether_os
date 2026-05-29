@@ -1,8 +1,11 @@
 """
-AetherOS — Factory Router
+AetherOS — Factory V2 Router  (mounted at /v2/factory/...)
 
-All pipeline run management routes. Extracted from the 2030-line api.py god file.
-Uses PipelineService for all business logic — no raw DB calls here.
+Clean service-layer API: all business logic goes through PipelineService.
+No raw DB calls here. Preferred for external integrations and SDK clients.
+
+V1 counterpart: gateway/routers/factory_runs_router.py  (mounted at /factory/...)
+V1 is used by the AetherOS dashboard. V2 is the API-consumer surface.
 """
 from __future__ import annotations
 import logging
@@ -234,8 +237,6 @@ async def submit_change_request(
 
 # ── SSE streaming ──────────────────────────────────────────────────────────────
 
-_sse_token_store: Dict[str, Dict] = {}  # {sse_token: {org_id, run_id, exp}}
-
 
 @router.post("/runs/{run_id}/sse-token")
 async def get_sse_token(
@@ -244,12 +245,9 @@ async def get_sse_token(
 ) -> Dict[str, str]:
     """Exchange bearer JWT for a 30-second SSE-only token (keeps JWT out of URL/logs)."""
     import secrets
+    from aether_os.core.rate_limiter import sse_token_set
     tok = secrets.token_urlsafe(32)
-    _sse_token_store[tok] = {
-        "org_id": user["org_id"],
-        "run_id": run_id,
-        "exp": time.time() + 30,
-    }
+    await sse_token_set(tok, org_id=user["org_id"], run_id=run_id)
     return {"sse_token": tok}
 
 
@@ -265,8 +263,9 @@ async def stream_run_events(
 
     org_id = None
     if sse_token:
-        entry = _sse_token_store.pop(sse_token, None)
-        if entry and entry["exp"] > time.time() and entry["run_id"] == run_id:
+        from aether_os.core.rate_limiter import sse_token_pop
+        entry = await sse_token_pop(sse_token)
+        if entry and entry.get("run_id") == run_id:
             org_id = entry["org_id"]
         else:
             return Response(status_code=401, content="SSE token invalid or expired")

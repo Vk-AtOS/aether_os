@@ -80,8 +80,8 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
             )
             import os as _os
             import tempfile as _tempfile
-            # PIPELINE-062: use a unique temp file so smoke_test.db is cleaned up after use
-            _db_tmp = _tempfile.mktemp(suffix=".db")
+            _db_fd, _db_tmp = _tempfile.mkstemp(suffix=".db")
+            _os.close(_db_fd)
             smoke_env = {**_os.environ, "DATABASE_URL": f"sqlite:///{_db_tmp}"}
             try:
                 proc2 = await asyncio.create_subprocess_exec(

@@ -100,7 +100,10 @@ def _is_enabled() -> bool:
 
 
 def _is_strict() -> bool:
-    return os.environ.get("COUNCIL_STRICT_MODE", "false").lower() == "true"
+    # Default to strict in production, permissive in dev/staging
+    _env = os.environ.get("ENVIRONMENT", "development").lower()
+    _default = "true" if _env == "production" else "false"
+    return os.environ.get("COUNCIL_STRICT_MODE", _default).lower() == "true"
 
 
 def _parse_council_response(raw: str) -> Dict[str, Any]:

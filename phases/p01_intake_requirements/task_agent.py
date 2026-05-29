@@ -17,6 +17,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     raw_input: str = data.get("raw_input", "") or data.get("requirements", "") or ""
     domain: str = data.get("domain", "general")
 
+    from aether_os.phases.utils import memory_hint
+    mem = memory_hint(memory_ctx)
+
     # ── Step 1: Extract structured intake record ──────────────────────────────
     intake_record: dict = {}
     try:
@@ -26,6 +29,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "You are a requirements analyst. Given the following raw project description, "
             "extract a structured intake record.\n\n"
             f"Raw Input:\n{raw_input[:3000]}\n\n"
+            + mem +
             "Return JSON with these fields:\n"
             '{"project_name": "short CamelCase name", '
             '"domain": "one of: saas, ecommerce, healthcare, fintech, logistics, education, general", '

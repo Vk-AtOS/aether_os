@@ -491,11 +491,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         )
 
     # ── Attempt LLM-generated architecture ───────────────────────────────────
+    from aether_os.phases.utils import memory_hint
+    mem = memory_hint(memory_ctx)
+
     doc: dict = {}
     try:
         llm    = get_llm_client()
-        
-        # ── PART 3: Semantic learning (search for similar past architectures) ──
+
+        # ── Semantic learning: search for similar past architectures ──────────
         similar_context = ""
         try:
             from aether_os.core.artifact_store import get_artifact_store
@@ -504,8 +507,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             if org_id:
                 matches = await store.search(f"architecture for: {requirements}", org_id, limit=2)
                 for i, match in enumerate(matches):
-                    # Usually architecture is at 'p02_architecture/architecture.json'
-                    # but it might have been stored with a relative path
                     arch_text = await store.get_artifact(match['run_id'], match['file_path'])
                     if arch_text:
                         similar_context += f"\n--- Reference Architecture {i+1} ---\n{arch_text}\n"
@@ -521,8 +522,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             f"Mandatory Patterns: {', '.join(profile.required_patterns)}\n"
             f"Security: {', '.join(profile.security_requirements)}\n"
             f"Example Entities to consider: {', '.join(profile.example_entities)}\n"
-            f"{similar_context}\n\n"
-            f"Focus on: tech stack choices, database schema, API endpoints, security."
+            f"{similar_context}"
+            f"{mem}"
+            f"\nFocus on: tech stack choices, database schema, API endpoints, security."
         )
         # Seed the schema example with domain defaults
         schema_example = dict(ARCHITECTURE_SCHEMA)

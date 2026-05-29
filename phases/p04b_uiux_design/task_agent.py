@@ -18,6 +18,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     domain: str = data.get("domain", "general")
     entities: list = data.get("entities", [])
 
+    from aether_os.phases.utils import memory_hint
+    mem = memory_hint(memory_ctx)
+
     design_spec: dict = {}
     try:
         from aether_os.core.llm.client import get_llm_client
@@ -26,6 +29,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             f"You are a UI/UX designer. Generate a concise component design specification "
             f"for a {domain} SaaS app called '{project_name}'.\n\n"
             f"Entities: {json.dumps([e.get('name') for e in entities[:8]])}\n\n"
+            + mem +
             "Return JSON:\n"
             '{"color_scheme": {"primary": "#hex", "secondary": "#hex", "accent": "#hex", "background": "#hex"}, '
             '"typography": {"heading": "font-name", "body": "font-name"}, '

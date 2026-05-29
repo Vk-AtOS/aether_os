@@ -7,7 +7,7 @@ import logging
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 
@@ -23,6 +23,54 @@ class FeedbackBody(BaseModel):
 class ApproveBody(BaseModel):
     approved: bool
     comment: Optional[str] = None
+
+
+def _get_portal_token(project_id: str) -> str:
+    """Return (or generate) a persistent portal access token for a run, stored next to the project."""
+    import secrets
+    from aether_os.core.projects import get_project_manager
+    try:
+        project_dir = get_project_manager().get_project_dir(project_id)
+        token_file = project_dir / ".portal_token"
+        if token_file.exists():
+            return token_file.read_text().strip()
+        token = secrets.token_urlsafe(32)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token)
+        return token
+    except Exception:
+        return ""
+
+
+async def _portal_auth(request: Request, portal_token: Optional[str] = None) -> None:
+    """
+    Lightweight portal auth for write endpoints (approve / feedback).
+    Accepts either:
+      - A valid AetherOS JWT in the Authorization: Bearer header (dashboard users)
+      - A ?portal_token=<uuid> query param matching the run's stored portal token file
+    """
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        jwt_val = auth_header[7:]
+        try:
+            from aether_os.gateway.auth import decode_access_token
+            payload = decode_access_token(jwt_val)
+            if payload and payload.get("org_id"):
+                return  # Valid JWT
+        except Exception:
+            pass
+
+    if portal_token:
+        # Extract project_id from request path to validate the token
+        path = request.url.path
+        parts = path.strip("/").split("/")
+        # Path is /portal/{project_id}/approve or /portal/{project_id}/feedback
+        if len(parts) >= 2 and parts[0] == "portal":
+            stored = _get_portal_token(parts[1])
+            if stored and stored == portal_token:
+                return  # Valid portal token
+
+    raise HTTPException(status_code=401, detail="Portal authentication required")
 
 
 async def _resolve_run(project_id: str) -> dict:
@@ -182,7 +230,11 @@ async def get_phase_output(project_id: str, phase_name: str):
 
 
 @router.post("/{project_id}/approve")
-async def approve_phase(project_id: str, body: ApproveBody):
+async def approve_phase(
+    project_id: str,
+    body: ApproveBody,
+    _auth: None = Depends(_portal_auth),
+):
     try:
         from aether_os.core.approval.store import get_approvals_store
         store = get_approvals_store()
@@ -198,7 +250,11 @@ async def approve_phase(project_id: str, body: ApproveBody):
 
 
 @router.post("/{project_id}/feedback")
-async def submit_feedback(project_id: str, body: FeedbackBody):
+async def submit_feedback(
+    project_id: str,
+    body: FeedbackBody,
+    _auth: None = Depends(_portal_auth),
+):
     try:
         import time
         rec = await _resolve_run(project_id)
