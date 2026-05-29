@@ -1135,6 +1135,31 @@ async def start_run_app(
     if existing is not None and existing.poll() is None:
         return {"status": "already_running", "pid": existing.pid, "port": 8001}
 
+    # Kill any stale process from a different run that still holds the port
+    import signal as _sig
+    _port_check = int(os.environ.get("RUN_APP_PORT", "8001"))
+    try:
+        import subprocess as _sp_pre
+        _hex_port = format(_port_check, '04X')
+        _tcp = open("/proc/net/tcp").read()
+        for _line in _tcp.splitlines()[1:]:
+            _parts = _line.split()
+            if len(_parts) >= 10 and _parts[1].endswith(f":{_hex_port}"):
+                _inode = _parts[9]
+                for _pid_dir in __import__('pathlib').Path("/proc").iterdir():
+                    if not _pid_dir.name.isdigit():
+                        continue
+                    try:
+                        _fd_dir = _pid_dir / "fd"
+                        if any(_inode in str(__import__('os').readlink(str(f))) for f in _fd_dir.iterdir()):
+                            __import__('os').kill(int(_pid_dir.name), _sig.SIGTERM)
+                            __import__('time').sleep(1)
+                            break
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
     org_id = user.get("org_id")
     run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
     if not run_detail:
