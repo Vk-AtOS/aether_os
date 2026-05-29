@@ -1319,6 +1319,22 @@ async def start_run_app(
             content,
         )
 
+        # Fix: LLM sometimes generates routes before `app = FastAPI()` — prepend boilerplate
+        if _re.search(r'^@app\.', content, _re.MULTILINE) and not _re.search(
+            r'^(?:app|application)\s*=\s*FastAPI\s*\(', content, _re.MULTILINE
+        ):
+            _boilerplate = (
+                "from fastapi import FastAPI, HTTPException, Depends\n"
+                "from fastapi.middleware.cors import CORSMiddleware\n"
+                "import os as _os, uuid as _uuid, sqlite3 as _sqlite3\n"
+                "from datetime import datetime as _dt\n"
+                "app = FastAPI(title='Generated App', version='1.0.0')\n"
+                "app.add_middleware(CORSMiddleware, allow_origins=['*'], "
+                "allow_credentials=True, allow_methods=['*'], allow_headers=['*'])\n"
+                "db = {}\n\n"
+            )
+            content = _boilerplate + content
+
         main_py.write_text(content)
 
         # Swap postgres DATABASE_URL to SQLite so the preview works without a DB server.
