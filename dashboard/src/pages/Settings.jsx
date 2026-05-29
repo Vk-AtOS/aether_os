@@ -118,6 +118,23 @@ const Settings = () => {
   const [langsmithConfig, setLangsmithConfig] = useState({ opt_in: false, api_key: '', project: 'aetheros-factory', api_key_set: false });
   const [langsmithSaveStatus, setLangsmithSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
 
+  // AWS Bedrock configuration
+  const [bedrockConfig, setBedrockConfig] = useState({
+    bedrock_enabled: false,
+    aws_access_key_id: '',
+    aws_secret_access_key: '',
+    aws_region: 'us-east-1',
+    bedrock_model_heavy: 'us.anthropic.claude-sonnet-4-6',
+    bedrock_model_light: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    aws_key_configured: false,
+    aws_secret_configured: false,
+    aws_key_id_masked: '',
+    primary_llm: 'openrouter',
+  });
+  const [bedrockSaveStatus, setBedrockSaveStatus] = useState(null); // null|'saving'|'saved'|'error'
+  const [bedrockTestStatus, setBedrockTestStatus] = useState(null); // null|'testing'|'ok'|'fail'
+  const [bedrockTestResult, setBedrockTestResult] = useState(null);
+
   // SSO / SAML config (T6-04)
   const [ssoConfig, setSsoConfig] = useState(null);
   const [ssoForm, setSsoForm] = useState({ idp_entity_id: '', idp_sso_url: '', idp_cert: '' });
@@ -198,6 +215,18 @@ const Settings = () => {
             openrouter_light_model: d.openrouter_light_model || 'mistralai/mistral-7b-instruct:free',
             openrouter_fallback_models: d.openrouter_fallback_models || [],
           });
+          // Populate Bedrock config from same llm-config response
+          setBedrockConfig(prev => ({
+            ...prev,
+            bedrock_enabled:       d.bedrock_enabled ?? prev.bedrock_enabled,
+            aws_region:            d.aws_region || prev.aws_region,
+            bedrock_model_heavy:   d.bedrock_model_heavy || prev.bedrock_model_heavy,
+            bedrock_model_light:   d.bedrock_model_light || prev.bedrock_model_light,
+            aws_key_configured:    d.aws_key_configured ?? prev.aws_key_configured,
+            aws_secret_configured: d.aws_secret_configured ?? prev.aws_secret_configured,
+            aws_key_id_masked:     d.aws_key_id_masked || prev.aws_key_id_masked,
+            primary_llm:           d.primary_llm || prev.primary_llm,
+          }));
         }
         if (modelsRes.status === 'fulfilled') {
           setAvailableModels(modelsRes.value.data?.openrouter || {});
@@ -294,6 +323,60 @@ const Settings = () => {
     } catch {
       setLlmSaveStatus('error');
       setTimeout(() => setLlmSaveStatus(null), 3000);
+    }
+  };
+
+  const handleSaveBedrockConfig = async () => {
+    setBedrockSaveStatus('saving');
+    try {
+      const payload = {
+        primary_llm: bedrockConfig.bedrock_enabled ? 'bedrock' : 'openrouter',
+        bedrock_enabled: bedrockConfig.bedrock_enabled,
+        aws_region: bedrockConfig.aws_region,
+        bedrock_model_heavy: bedrockConfig.bedrock_model_heavy,
+        bedrock_model_light: bedrockConfig.bedrock_model_light,
+      };
+      if (bedrockConfig.aws_access_key_id.trim()) payload.aws_access_key_id = bedrockConfig.aws_access_key_id.trim();
+      if (bedrockConfig.aws_secret_access_key.trim()) payload.aws_secret_access_key = bedrockConfig.aws_secret_access_key.trim();
+      await api.updateLlmConfig(payload);
+      ctxUpdateLlmConfig(payload);
+      // Mask the keys after save
+      setBedrockConfig(prev => ({
+        ...prev,
+        aws_access_key_id: '',
+        aws_secret_access_key: '',
+        aws_key_configured: prev.aws_key_configured || !!payload.aws_access_key_id,
+        aws_secret_configured: prev.aws_secret_configured || !!payload.aws_secret_access_key,
+        primary_llm: payload.primary_llm,
+      }));
+      setBedrockSaveStatus('saved');
+      setTimeout(() => setBedrockSaveStatus(null), 3000);
+      ctxReload();
+    } catch {
+      setBedrockSaveStatus('error');
+      setTimeout(() => setBedrockSaveStatus(null), 3000);
+    }
+  };
+
+  const handleTestBedrock = async () => {
+    setBedrockTestStatus('testing');
+    setBedrockTestResult(null);
+    try {
+      const payload = {
+        aws_region: bedrockConfig.aws_region,
+        model_id: bedrockConfig.bedrock_model_heavy,
+      };
+      if (bedrockConfig.aws_access_key_id.trim()) payload.aws_access_key_id = bedrockConfig.aws_access_key_id.trim();
+      if (bedrockConfig.aws_secret_access_key.trim()) payload.aws_secret_access_key = bedrockConfig.aws_secret_access_key.trim();
+      const res = await api.client.post('/api/settings/bedrock/test', payload);
+      const ok = res.data?.success;
+      setBedrockTestResult(res.data);
+      setBedrockTestStatus(ok ? 'ok' : 'fail');
+      setTimeout(() => setBedrockTestStatus(null), 8000);
+    } catch (err) {
+      setBedrockTestResult({ success: false, error: err.response?.data?.detail || err.message });
+      setBedrockTestStatus('fail');
+      setTimeout(() => setBedrockTestStatus(null), 8000);
     }
   };
 
@@ -626,6 +709,180 @@ const Settings = () => {
             </div>
           </section>
 
+          {/* AWS Bedrock Section */}
+          <section className="panel overflow-hidden">
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center justify-between">
+              <div className="flex items-center">
+                <Server className="w-4 h-4 mr-2 text-accent" />
+                <h3 className="text-xs font-bold text-muted uppercase tracking-widest">AWS Bedrock — Native Cloud LLMs</h3>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${bedrockConfig.bedrock_enabled && bedrockConfig.primary_llm === 'bedrock' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-surface text-muted border border-border'}`}>
+                {bedrockConfig.bedrock_enabled && bedrockConfig.primary_llm === 'bedrock' ? '● Active Primary' : '○ Not Active'}
+              </span>
+            </div>
+            <div className="p-6 space-y-6">
+              <p className="text-[11px] text-muted">
+                Use AWS Bedrock to run Claude, Nova, Llama, and other models directly billed to your AWS account credits.
+                Requires a valid AWS IAM user with <span className="font-mono text-bright">bedrock:InvokeModel</span> permission.
+                Enable model access in the{' '}
+                <span className="font-mono text-accent">AWS Console → Bedrock → Model access</span> page first.
+              </p>
+
+              {/* Enable toggle + primary provider */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Bedrock Enabled</label>
+                  <select
+                    value={bedrockConfig.bedrock_enabled ? 'Enabled' : 'Disabled'}
+                    onChange={(e) => setBedrockConfig(c => ({ ...c, bedrock_enabled: e.target.value === 'Enabled' }))}
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+                  >
+                    <option>Enabled</option>
+                    <option>Disabled</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Use as Primary Provider</label>
+                  <div className="flex items-center gap-2 h-[34px]">
+                    <input
+                      type="checkbox"
+                      id="bedrock-primary"
+                      checked={bedrockConfig.bedrock_enabled && bedrockConfig.primary_llm === 'bedrock'}
+                      onChange={(e) => setBedrockConfig(c => ({
+                        ...c,
+                        bedrock_enabled: e.target.checked ? true : c.bedrock_enabled,
+                        primary_llm: e.target.checked ? 'bedrock' : 'openrouter',
+                      }))}
+                      className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+                    />
+                    <label htmlFor="bedrock-primary" className="text-xs text-bright cursor-pointer">
+                      Set Bedrock as primary LLM
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* AWS Credentials */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">AWS Credentials</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted">Access Key ID {bedrockConfig.aws_key_configured && <span className="text-green-400">✓ configured</span>}</label>
+                    <input
+                      type="text"
+                      placeholder={bedrockConfig.aws_key_id_masked || 'AKIA…'}
+                      value={bedrockConfig.aws_access_key_id}
+                      onChange={(e) => setBedrockConfig(c => ({ ...c, aws_access_key_id: e.target.value }))}
+                      className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent placeholder:text-muted/40"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted">Secret Access Key {bedrockConfig.aws_secret_configured && <span className="text-green-400">✓ configured</span>}</label>
+                    <input
+                      type="password"
+                      placeholder={bedrockConfig.aws_secret_configured ? '••••••••••••••••' : 'Enter secret key…'}
+                      value={bedrockConfig.aws_secret_access_key}
+                      onChange={(e) => setBedrockConfig(c => ({ ...c, aws_secret_access_key: e.target.value }))}
+                      className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent placeholder:text-muted/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Region + Models */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">AWS Region</label>
+                  <select
+                    value={bedrockConfig.aws_region}
+                    onChange={(e) => setBedrockConfig(c => ({ ...c, aws_region: e.target.value }))}
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+                  >
+                    <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                    <option value="us-west-2">us-west-2 (Oregon)</option>
+                    <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                    <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                    <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                    <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Heavy Model</label>
+                  <select
+                    value={bedrockConfig.bedrock_model_heavy}
+                    onChange={(e) => setBedrockConfig(c => ({ ...c, bedrock_model_heavy: e.target.value }))}
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                  >
+                    <option value="us.anthropic.claude-sonnet-4-6">Claude Sonnet 4.6 (us)</option>
+                    <option value="us.anthropic.claude-opus-4-7">Claude Opus 4.7 (us)</option>
+                    <option value="us.anthropic.claude-3-5-sonnet-20241022-v2:0">Claude 3.5 Sonnet v2 (us)</option>
+                    <option value="us.amazon.nova-pro-v1:0">Amazon Nova Pro (us)</option>
+                    <option value="us.meta.llama3-3-70b-instruct-v1:0">Llama 3.3 70B (us)</option>
+                    <option value="anthropic.claude-sonnet-4-6-20250514-v1:0">Claude Sonnet 4.6 (direct)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Light Model</label>
+                  <select
+                    value={bedrockConfig.bedrock_model_light}
+                    onChange={(e) => setBedrockConfig(c => ({ ...c, bedrock_model_light: e.target.value }))}
+                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent"
+                  >
+                    <option value="us.anthropic.claude-haiku-4-5-20251001-v1:0">Claude Haiku 4.5 (us)</option>
+                    <option value="us.anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku (us)</option>
+                    <option value="us.amazon.nova-lite-v1:0">Amazon Nova Lite (us)</option>
+                    <option value="us.meta.llama3-1-8b-instruct-v1:0">Llama 3.1 8B (us)</option>
+                    <option value="amazon.nova-lite-v1:0">Amazon Nova Lite (direct)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Test result banner */}
+              {bedrockTestResult && (
+                <div className={`rounded border px-4 py-3 text-xs space-y-1 ${bedrockTestResult.success ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`}>
+                  {bedrockTestResult.success ? (
+                    <>
+                      <p className="font-bold">✓ Bedrock Connected — {bedrockTestResult.model}</p>
+                      <p>Response: <span className="font-mono">{bedrockTestResult.response}</span></p>
+                      <p className="text-muted">Tokens: {bedrockTestResult.tokens?.input} in / {bedrockTestResult.tokens?.output} out · Region: {bedrockTestResult.region}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold">✗ Bedrock Test Failed</p>
+                      <p className="font-mono text-[10px] break-all">{bedrockTestResult.error}</p>
+                      {bedrockTestResult.hint && <p className="text-yellow-300">{bedrockTestResult.hint}</p>}
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleTestBedrock}
+                  disabled={bedrockTestStatus === 'testing'}
+                  className="text-[10px] font-bold px-4 py-1.5 rounded border transition-colors disabled:opacity-50
+                    border-border text-muted hover:text-bright hover:border-bright flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  {bedrockTestStatus === 'testing' ? 'Testing…'
+                    : bedrockTestStatus === 'ok' ? '✓ Connected'
+                    : bedrockTestStatus === 'fail' ? '✗ Failed'
+                    : 'Test Bedrock'}
+                </button>
+                <button
+                  onClick={handleSaveBedrockConfig}
+                  disabled={bedrockSaveStatus === 'saving'}
+                  className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-4 py-1.5 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors disabled:opacity-50"
+                >
+                  {bedrockSaveStatus === 'saving' ? '…'
+                    : bedrockSaveStatus === 'saved' ? '✓ Saved — Active'
+                    : bedrockSaveStatus === 'error' ? '✗ Error'
+                    : 'Save & Activate Bedrock'}
+                </button>
+              </div>
+            </div>
+          </section>
+
           {/* LLM Council Section */}
           <section className="panel overflow-hidden">
             <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
@@ -853,9 +1110,16 @@ const Settings = () => {
               <StatusRow label="Anthropic API" status={health?.anthropic_available} detail={health?.anthropic_available ? 'Connected' : 'Not Configured'} />
               <StatusRow label="Gemini API" status={health?.gemini_available} detail="model: gemini-1.5-pro" />
               <StatusRow label="Ollama Local" status={health?.ollama_available} detail="localhost:11434" />
+              <StatusRow
+                label="AWS Bedrock"
+                status={bedrockConfig.bedrock_enabled && bedrockConfig.aws_key_configured}
+                detail={bedrockConfig.bedrock_enabled && bedrockConfig.aws_key_configured
+                  ? `${bedrockConfig.bedrock_model_heavy} · ${bedrockConfig.aws_region}`
+                  : bedrockConfig.bedrock_enabled ? 'No credentials' : 'Disabled'}
+              />
               <div className="bg-accent/5 p-4 flex items-center justify-between">
                  <span className="text-sm font-bold text-accent uppercase tracking-tighter">Active Primary Provider</span>
-                 <span className="bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">{health?.llm_provider || 'Gemini'}</span>
+                 <span className="bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">{health?.llm_provider || bedrockConfig.primary_llm || 'openrouter'}</span>
               </div>
             </div>
           </section>
