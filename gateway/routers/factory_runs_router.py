@@ -1509,6 +1509,12 @@ if _DIST.is_dir():
         _set_current_run(run_id)
         _APP_DIRS[run_id] = str(root_dir)
         _APP_DIRS["__current__"] = str(root_dir)
+        # Publish to Redis so all workers can proxy to this port
+        try:
+            from aether_os.core.rate_limiter import run_app_port_set as _raps
+            await _raps(run_id, port)
+        except Exception:
+            pass
         return {"status": "started", "port": port, "pid": proc.pid,
                 "backend_dir": str(backend_dir),
                 "mode": mode,

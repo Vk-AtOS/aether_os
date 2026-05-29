@@ -339,3 +339,51 @@ async def sse_token_pop(token: str) -> Optional[dict]:
     if entry and entry.get("exp", 0) > time.time():
         return entry
     return None
+
+
+# ── Run-App port registry (multi-worker-safe via Redis) ───────────────────────
+_RUN_APP_KEY = "run_app:current"
+_RUN_APP_TTL = 3600  # 1 hour
+
+_run_app_port_memory: dict = {}
+
+
+async def run_app_port_set(run_id: str, port: int) -> None:
+    """Publish the ephemeral port for a run so all workers can proxy to it."""
+    r = await _get_async_redis()
+    if r:
+        try:
+            await r.setex(_RUN_APP_KEY, _RUN_APP_TTL, f"{run_id}:{port}")
+            return
+        except Exception as exc:
+            logger.warning("run_app_port_set Redis write failed: %s", exc)
+    _run_app_port_memory["current"] = {"run_id": run_id, "port": port}
+
+
+async def run_app_port_get() -> tuple:
+    """Return (run_id, port) of the most-recently started run-app, or (None, None)."""
+    r = await _get_async_redis()
+    if r:
+        try:
+            val = await r.get(_RUN_APP_KEY)
+            if val:
+                rid, p = val.split(":", 1)
+                return rid, int(p)
+            return None, None
+        except Exception as exc:
+            logger.warning("run_app_port_get Redis read failed: %s", exc)
+    entry = _run_app_port_memory.get("current")
+    if entry:
+        return entry["run_id"], entry["port"]
+    return None, None
+
+
+async def run_app_port_clear() -> None:
+    """Remove the current run-app port registration."""
+    r = await _get_async_redis()
+    if r:
+        try:
+            await r.delete(_RUN_APP_KEY)
+        except Exception as exc:
+            logger.warning("run_app_port_clear failed: %s", exc)
+    _run_app_port_memory.pop("current", None)
