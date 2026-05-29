@@ -702,9 +702,17 @@ def create_app() -> FastAPI:
         if not req.dpa_accepted:
             raise HTTPException(status_code=400, detail="You must accept the Data Processing Agreement (GDPR Art. 28) to register.")
 
-        # Enforce minimum password length
-        if len(req.password) < 10:
-            raise HTTPException(status_code=422, detail="Password must be at least 10 characters.")
+        # Password safety: complexity + HIBP breach check
+        try:
+            from aether_os.core.guardian.password_shield import check_password_safety
+            _pw_safe, _pw_reason = await check_password_safety(req.password)
+            if not _pw_safe:
+                raise HTTPException(status_code=422, detail=_pw_reason)
+        except HTTPException:
+            raise
+        except Exception as _pw_exc:
+            # Fail open — never block registration due to shield errors
+            logger.warning("Password shield check failed: %s", _pw_exc)
 
         session_factory = get_session_factory()
         async with session_factory() as session:
@@ -981,8 +989,16 @@ def create_app() -> FastAPI:
         user_id = user.get("user_id", "")
         current_pw = req.get("current_password", "")
         new_pw = req.get("new_password", "")
-        if len(new_pw) < 10:
-            raise HTTPException(status_code=422, detail="Password must be at least 10 characters.")
+        # Password safety: complexity + HIBP breach check
+        try:
+            from aether_os.core.guardian.password_shield import check_password_safety
+            _pw_safe, _pw_reason = await check_password_safety(new_pw)
+            if not _pw_safe:
+                raise HTTPException(status_code=422, detail=_pw_reason)
+        except HTTPException:
+            raise
+        except Exception as _pw_exc:
+            logger.warning("Password shield check failed: %s", _pw_exc)
         sf = get_session_factory()
         async with sf() as session:
             db_user = await session.get(User, user_id)

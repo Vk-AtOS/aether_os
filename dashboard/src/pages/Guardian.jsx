@@ -4,7 +4,7 @@ import {
   Shield, ShieldAlert, ShieldCheck, ShieldOff,
   RefreshCw, Loader2, Database, Clock, AlertTriangle,
   CheckCircle2, XCircle, Eye, RotateCcw, Camera,
-  Cpu, Server, HardDrive, Wifi, Lock, Unlock, Info,
+  Cpu, Server, HardDrive, Wifi, Lock, Unlock, Info, Zap,
 } from 'lucide-react';
 
 // ── Threat level config ───────────────────────────────────────────────────────
@@ -150,10 +150,24 @@ const SnapshotRow = ({ snap, onRestore, restoring }) => (
   </div>
 );
 
+// ── Stat counter card ─────────────────────────────────────────────────────────
+
+const StatCard = ({ label, value, sub, color = 'text-bright', icon: Icon, pulse }) => (
+  <div className="bg-panel border border-border rounded-xl p-4 space-y-1.5">
+    <div className="flex items-center justify-between">
+      <span className="text-[10px] text-muted font-bold uppercase tracking-wider">{label}</span>
+      {Icon && <Icon className={`w-4 h-4 ${color} ${pulse ? 'animate-pulse' : ''}`} />}
+    </div>
+    <p className={`text-2xl font-black ${color}`}>{value ?? '—'}</p>
+    {sub && <p className="text-[11px] text-muted/70">{sub}</p>}
+  </div>
+);
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Guardian() {
   const [status, setStatus] = useState(null);
+  const [stats, setStats] = useState(null);
   const [events, setEvents] = useState([]);
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -165,12 +179,14 @@ export default function Guardian() {
 
   const load = useCallback(async () => {
     try {
-      const [statusRes, eventsRes, snapshotsRes] = await Promise.all([
+      const [statusRes, statsRes, eventsRes, snapshotsRes] = await Promise.all([
         api.client.get('/guardian/status'),
+        api.client.get('/guardian/stats'),
         api.client.get('/guardian/events?limit=50'),
         api.client.get('/guardian/snapshots?limit=20'),
       ]);
       setStatus(statusRes.data);
+      setStats(statsRes.data);
       setEvents(eventsRes.data?.items || []);
       setSnapshots(snapshotsRes.data?.snapshots || []);
       setError(null);
@@ -326,6 +342,65 @@ export default function Guardian() {
           </div>
         </div>
       </div>
+
+      {/* Real-time prevention stats */}
+      {stats && (
+        <div>
+          <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3 flex items-center gap-2">
+            <Zap className="w-3.5 h-3.5 text-accent" />
+            Threats Prevented — Live Counters
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard
+              label="Blocked Today"
+              value={stats.threats_blocked_today}
+              sub="threats detected & logged"
+              color={stats.threats_blocked_today > 0 ? 'text-orange-400' : 'text-emerald-400'}
+              icon={ShieldAlert}
+              pulse={stats.threats_blocked_today > 0}
+            />
+            <StatCard
+              label="Blocked This Week"
+              value={stats.threats_blocked_week}
+              sub="rolling 7-day window"
+              color="text-bright"
+              icon={Shield}
+            />
+            <StatCard
+              label="All-Time Blocked"
+              value={stats.threats_blocked_total}
+              sub={`${stats.critical_incidents_total} critical incidents`}
+              color="text-accent"
+              icon={ShieldCheck}
+            />
+            <StatCard
+              label="Auto-Recoveries"
+              value={stats.auto_recoveries_performed}
+              sub={`${stats.snapshots_available} snapshots ready`}
+              color={stats.auto_recoveries_performed > 0 ? 'text-sky-400' : 'text-muted'}
+              icon={RotateCcw}
+            />
+          </div>
+          {/* Per-type breakdown */}
+          {Object.keys(stats.by_type).length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Object.entries(stats.by_type)
+                .filter(([type]) => type !== 'recovery')
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, count]) => {
+                  const Icon = EVENT_ICONS[type] || AlertTriangle;
+                  return (
+                    <div key={type} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-panel text-xs">
+                      <Icon className="w-3.5 h-3.5 text-muted" />
+                      <span className="text-bright font-bold">{count}</span>
+                      <span className="text-muted capitalize">{type.replace(/_/g, ' ')}</span>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Last snapshot card */}
       {status?.last_snapshot && (

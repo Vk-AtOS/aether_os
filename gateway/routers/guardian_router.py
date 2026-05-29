@@ -2,6 +2,7 @@
 AetherOS Guardian Router
 
 GET  /guardian/status           — threat level, last snapshot, service health  (authenticated)
+GET  /guardian/stats            — cumulative prevention counters                (authenticated)
 GET  /guardian/events           — paginated threat event log                   (admin)
 GET  /guardian/snapshots        — list available snapshots                     (admin)
 POST /guardian/snapshots        — trigger manual snapshot                      (admin)
@@ -114,6 +115,93 @@ async def guardian_status(
     except Exception as exc:
         logger.warning("Guardian status endpoint error: %s", exc)
         return {"threat_level": "unknown", "error": str(exc)}
+
+
+# ── Stats (any authenticated user) ───────────────────────────────────────────
+
+@router.get("/stats")
+async def guardian_stats() -> Dict[str, Any]:
+    """Cumulative prevention counters — powers the real-time threat dashboard."""
+    from aether_os.core.guardian.models import GuardianEvent, GuardianSnapshot
+    from aether_os.core.db import get_session_factory
+    from sqlalchemy import select, func, desc
+    from datetime import datetime, timedelta
+
+    sf = get_session_factory()
+    try:
+        async with sf() as sess:
+            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            week_ago = datetime.utcnow() - timedelta(days=7)
+
+            # Total threats (all non-recovery events)
+            total = (await sess.execute(
+                select(func.count()).select_from(GuardianEvent)
+                .where(GuardianEvent.event_type != "recovery")
+            )).scalar() or 0
+
+            # Today
+            today_count = (await sess.execute(
+                select(func.count()).select_from(GuardianEvent)
+                .where(GuardianEvent.event_type != "recovery")
+                .where(GuardianEvent.created_at >= today)
+            )).scalar() or 0
+
+            # This week
+            week_count = (await sess.execute(
+                select(func.count()).select_from(GuardianEvent)
+                .where(GuardianEvent.event_type != "recovery")
+                .where(GuardianEvent.created_at >= week_ago)
+            )).scalar() or 0
+
+            # Breakdown by type
+            by_type_rows = (await sess.execute(
+                select(GuardianEvent.event_type, func.count())
+                .group_by(GuardianEvent.event_type)
+            )).all()
+            by_type = {r[0]: r[1] for r in by_type_rows}
+
+            # Auto-recoveries performed
+            recoveries = by_type.get("recovery", 0)
+
+            # Snapshots available
+            snap_count = (await sess.execute(
+                select(func.count()).select_from(GuardianSnapshot)
+                .where(GuardianSnapshot.status.in_(["ok", "restored"]))
+            )).scalar() or 0
+
+            # Last threat timestamp
+            last_threat_row = (await sess.execute(
+                select(GuardianEvent.created_at)
+                .where(GuardianEvent.event_type != "recovery")
+                .order_by(desc(GuardianEvent.created_at))
+                .limit(1)
+            )).scalar()
+
+            # Critical incidents (critical severity, all time)
+            critical_total = (await sess.execute(
+                select(func.count()).select_from(GuardianEvent)
+                .where(GuardianEvent.severity == "critical")
+                .where(GuardianEvent.event_type != "recovery")
+            )).scalar() or 0
+
+        return {
+            "threats_blocked_total":   total,
+            "threats_blocked_today":   today_count,
+            "threats_blocked_week":    week_count,
+            "critical_incidents_total": critical_total,
+            "auto_recoveries_performed": recoveries,
+            "snapshots_available":     snap_count,
+            "by_type":                 by_type,
+            "last_threat_at":          last_threat_row.isoformat() if last_threat_row else None,
+        }
+    except Exception as exc:
+        logger.warning("Guardian stats error: %s", exc)
+        return {
+            "threats_blocked_total": 0, "threats_blocked_today": 0,
+            "threats_blocked_week": 0, "critical_incidents_total": 0,
+            "auto_recoveries_performed": 0, "snapshots_available": 0,
+            "by_type": {}, "last_threat_at": None,
+        }
 
 
 # ── Events (admin) ────────────────────────────────────────────────────────────
