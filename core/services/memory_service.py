@@ -71,14 +71,16 @@ class MemoryService:
         status: str,
         domain: str = "general",
         phase_outputs: Optional[Dict[str, Any]] = None,
+        project_name: str = "",
     ) -> None:
-        """Store fingerprint + outcome for future cross-run learning."""
+        """Store fingerprint + vector embedding for future cross-run learning."""
         if status not in ("completed", "passed"):
             return  # Only learn from successful runs
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._sync_store_outcome,
-                                        org_id, run_id, raw_input, domain, phase_outputs or {})
+                                        org_id, run_id, raw_input, domain, phase_outputs or {},
+                                        project_name)
         except Exception as exc:
             logger.debug("MemoryService.store_run_outcome failed: %s", exc)
 
@@ -89,7 +91,25 @@ class MemoryService:
         raw_input: str,
         domain: str,
         phase_outputs: Dict[str, Any],
+        project_name: str = "",
     ) -> None:
+        # Store in ChromaDB for semantic search
+        try:
+            from aether_os.core.memory.vector_store import ChromaProjectMemory
+            chroma = ChromaProjectMemory.get_instance()
+            if chroma.available:
+                winning = json.dumps(list(phase_outputs.keys()))
+                chroma.store(
+                    run_id=run_id,
+                    org_id=org_id,
+                    raw_input=raw_input,
+                    domain=domain,
+                    project_name=project_name,
+                    winning_approach=winning,
+                )
+        except Exception as exc:
+            logger.debug("ChromaDB store failed: %s", exc)
+        # Always also store in SQLite fingerprint DB as backup
         try:
             from aether_os.core.memory.fingerprinter import ProjectFingerprinter
             fp = ProjectFingerprinter()
@@ -109,8 +129,21 @@ class MemoryService:
         raw_input: str,
         top_k: int = 3,
     ) -> List[Dict[str, Any]]:
-        """Use fingerprinter + matcher to find similar past runs."""
+        """Semantic similarity search — tries ChromaDB vector store first, falls back to fingerprint matcher."""
         loop = asyncio.get_running_loop()
+        # Try ChromaDB semantic search first
+        try:
+            from aether_os.core.memory.vector_store import ChromaProjectMemory
+            chroma = ChromaProjectMemory.get_instance()
+            if chroma.available:
+                results = await loop.run_in_executor(
+                    None, chroma.search, org_id, raw_input, top_k
+                )
+                if results:
+                    return results
+        except Exception as exc:
+            logger.debug("ChromaDB search failed, falling back to fingerprinter: %s", exc)
+        # Fallback: SQLite fingerprint matcher
         return await loop.run_in_executor(
             None, self._sync_find_similar, org_id, raw_input, top_k
         )

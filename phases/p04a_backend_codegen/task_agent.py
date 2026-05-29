@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import re
+import secrets
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -518,7 +519,8 @@ REQUIREMENTS:
 3. `async def seed_database()` — called on every startup
 4. Check if already seeded: `result = await db.execute(select(func.count()).select_from(User))`
    If count > 0, return early (idempotent)
-5. Create admin user: email="admin@example.com", password=get_password_hash("admin123"), role="admin"
+5. Create admin user: email="admin@example.com", password=get_password_hash(os.environ.get("ADMIN_PASSWORD", "changeme-" + str(uuid.uuid4())[:8])), role="admin"
+   Add `import os, uuid` at top of file.
 6. Create 15-20 realistic records for EACH entity:
    - Use real-world names, descriptions, values (NOT "test1", "item1", "string")
    - Values must be domain-appropriate for {domain}
@@ -631,10 +633,10 @@ def _fallback_schemas(entities: list) -> str:
 def _fallback_crud_routers(entities: list) -> str:
     lines = [
         "from __future__ import annotations",
-        "from typing import List",
+        "from typing import Any, Dict, List",
         "from fastapi import APIRouter, Depends, HTTPException, status",
         "from sqlalchemy.ext.asyncio import AsyncSession",
-        "from sqlalchemy import select",
+        "from sqlalchemy import select, text, func",
         "from ..database import get_db",
         "from ..auth import get_current_user",
         "",
@@ -648,24 +650,49 @@ def _fallback_crud_routers(entities: list) -> str:
         lines += [
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
-            f"@{var}.get('/', response_model=List[dict])",
+            f"@{var}.get('/', response_model=List[Dict[str, Any]])",
             f"async def list_{table}(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    return []",
+            f"    result = await db.execute(text('SELECT * FROM {table} LIMIT :limit OFFSET :skip'), {{'limit': min(limit, 100), 'skip': skip}})",
+            f"    return [dict(r._mapping) for r in result.fetchall()]",
             "",
             f"@{var}.post('/', status_code=201)",
-            f"async def create_{table}(data: dict, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    return {{}}",
+            f"async def create_{table}(data: Dict[str, Any], db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
+            f"    if not data:",
+            f"        raise HTTPException(status_code=422, detail='Request body required')",
+            f"    cols = ', '.join(data.keys())",
+            f"    vals = ', '.join(f':{{k}}' for k in data.keys())",
+            f"    result = await db.execute(text(f'INSERT INTO {table} ({{cols}}) VALUES ({{vals}}) RETURNING *'), data)",
+            f"    await db.commit()",
+            f"    row = result.fetchone()",
+            f"    return dict(row._mapping) if row else data",
             "",
             f"@{var}.get('/{{id}}')",
             f"async def get_{table}(id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    raise HTTPException(status_code=404, detail='{name} not found')",
+            f"    result = await db.execute(text('SELECT * FROM {table} WHERE id = :id'), {{'id': id}})",
+            f"    row = result.fetchone()",
+            f"    if not row:",
+            f"        raise HTTPException(status_code=404, detail='{name} not found')",
+            f"    return dict(row._mapping)",
             "",
             f"@{var}.put('/{{id}}')",
-            f"async def update_{table}(id: int, data: dict, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    raise HTTPException(status_code=404, detail='{name} not found')",
+            f"async def update_{table}(id: int, data: Dict[str, Any], db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
+            f"    if not data:",
+            f"        raise HTTPException(status_code=422, detail='Request body required')",
+            f"    sets = ', '.join(f'{{k}} = :{{k}}' for k in data.keys())",
+            f"    data['_id'] = id",
+            f"    result = await db.execute(text(f'UPDATE {table} SET {{sets}} WHERE id = :_id RETURNING *'), data)",
+            f"    await db.commit()",
+            f"    row = result.fetchone()",
+            f"    if not row:",
+            f"        raise HTTPException(status_code=404, detail='{name} not found')",
+            f"    return dict(row._mapping)",
             "",
             f"@{var}.delete('/{{id}}', status_code=204)",
             f"async def delete_{table}(id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
+            f"    result = await db.execute(text('DELETE FROM {table} WHERE id = :id RETURNING id'), {{'id': id}})",
+            f"    await db.commit()",
+            f"    if not result.fetchone():",
+            f"        raise HTTPException(status_code=404, detail='{name} not found')",
             f"    return None",
             "",
         ]
@@ -674,14 +701,17 @@ def _fallback_crud_routers(entities: list) -> str:
 
 
 def _fallback_seed(project_name: str, entities: list) -> str:
-    entity_names = [e.get("name", "Item") for e in entities[:6]]
+    admin_password = secrets.token_urlsafe(12)
     return textwrap.dedent(f"""\
         from __future__ import annotations
+        import logging
         from sqlalchemy import select, func
         from .database import AsyncSessionLocal
         from .auth import get_password_hash
         from .models import User
 
+        _logger = logging.getLogger(__name__)
+        _ADMIN_PASSWORD = "{admin_password}"
 
         async def seed_database() -> None:
             async with AsyncSessionLocal() as db:
@@ -690,12 +720,13 @@ def _fallback_seed(project_name: str, entities: list) -> str:
                     return
                 admin = User(
                     email="admin@example.com",
-                    password_hash=get_password_hash("admin123"),
+                    password_hash=get_password_hash(_ADMIN_PASSWORD),
                     role="admin",
                     is_active=True,
                 )
                 db.add(admin)
                 await db.commit()
+                _logger.info("Seeded admin user: admin@example.com / %s", _ADMIN_PASSWORD)
     """)
 
 
@@ -737,10 +768,38 @@ def _build_main_py(project_name: str, routers_have_all_routers: bool) -> str:
 
 # ── Smoke test ─────────────────────────────────────────────────────────────────
 
+def _check_imports(src_dir: Path) -> list[str]:
+    """AST pass — flag absolute imports that should be relative inside the package."""
+    issues = []
+    # These namespaces would only exist in the AetherOS host, not in the generated app
+    forbidden_absolute = ("aether_os.", "gateway.", "core.services.", "phases.")
+    for f in src_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(f.read_text(), filename=str(f))
+        except SyntaxError:
+            continue  # syntax errors caught by py_compile pass
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = []
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif node.module:
+                    names = [node.module]
+                for name in names:
+                    if any(name.startswith(p) for p in forbidden_absolute):
+                        issues.append(
+                            f"HallucinatedImport in {f.name}:{node.lineno}: "
+                            f"absolute import '{name}' won't resolve in generated app"
+                        )
+    return issues
+
+
 async def _smoke_test(src_dir: Path, emit) -> dict:
-    """Syntax-check all Python files in src/. Returns {passed, errors}."""
+    """Syntax-check + import-style validation for all Python files in src/."""
     errors = []
     py_files = list(src_dir.rglob("*.py"))
+
+    # Pass 1: syntax check via py_compile
     for f in py_files:
         proc = await asyncio.create_subprocess_exec(
             "python3", "-m", "py_compile", str(f),
@@ -753,6 +812,11 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
                 errors.append(f"SyntaxError in {f.name}: {stderr.decode()[:300]}")
         except asyncio.TimeoutError:
             pass
+
+    # Pass 2: AST import validation (only if syntax passes)
+    if not errors:
+        import_issues = _check_imports(src_dir)
+        errors.extend(import_issues)
 
     passed = len(errors) == 0
     await emit({

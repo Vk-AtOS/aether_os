@@ -57,3 +57,6 @@ test/
 # ── Build artefacts ───────────────────────────────────────────────────────────
 *.tgz
 charts/*.tgz
+# Note: charts/ directory (downloaded by `helm dependency update`) is intentionally
+# committed so the chart is self-contained and works air-gapped.
+# Remove this comment and add `charts/` here if you prefer to download on the fly.

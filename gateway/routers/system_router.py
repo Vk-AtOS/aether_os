@@ -507,3 +507,20 @@ async def pricing():
     </html>
     """
     return HTMLResponse(content=html)
+
+
+@router.get("/system/feature-flags")
+async def list_feature_flags():
+    """Return current platform feature flag states (admin use)."""
+    from aether_os.core.feature_flags import flags
+    return {"flags": flags.all_flags(), "source": "growthbook+env+defaults"}
+
+
+@router.post("/system/feature-flags/{flag}")
+async def set_feature_flag(flag: str, body: dict = {}):
+    """Override a platform feature flag at runtime via env var."""
+    import os
+    value = body.get("enabled", True)
+    key = f"FEATURE_{flag.upper()}"
+    os.environ[key] = "true" if value else "false"
+    return {"flag": flag, "enabled": value, "env_key": key}
