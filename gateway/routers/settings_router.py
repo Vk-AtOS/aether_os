@@ -364,6 +364,18 @@ async def get_llm_config(
     raw_fallback = os.environ.get("OPENROUTER_FALLBACK_MODELS", "")
     fallback_list = [m.strip() for m in raw_fallback.split(",") if m.strip()] if raw_fallback else []
 
+    # Bedrock config always comes from env (credentials not stored in DB)
+    bedrock_cfg = {
+        "bedrock_enabled":      os.environ.get("BEDROCK_ENABLED", "false").lower() == "true",
+        "aws_region":           os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1")),
+        "bedrock_model_heavy":  os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6"),
+        "bedrock_model_light":  os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-haiku-4-5-20251001-v1:0"),
+        # Mask key IDs for display — never return secrets
+        "aws_key_id_masked":    (os.environ.get("AWS_ACCESS_KEY_ID", "")[:8] + "…") if os.environ.get("AWS_ACCESS_KEY_ID") else "",
+        "aws_key_configured":   bool(os.environ.get("AWS_ACCESS_KEY_ID")),
+        "aws_secret_configured": bool(os.environ.get("AWS_SECRET_ACCESS_KEY")),
+    }
+
     if db_cfg:
         return {
             "primary_llm":             db_cfg.provider or os.environ.get("PRIMARY_LLM", "anthropic"),
@@ -374,6 +386,7 @@ async def get_llm_config(
             "openrouter_prefer_paid":  db_cfg.prefer_paid,
             "openrouter_fallback_models": fallback_list,
             "active_model": _live_model,
+            **bedrock_cfg,
         }
 
     return {
@@ -385,6 +398,7 @@ async def get_llm_config(
         "openrouter_prefer_paid":  os.environ.get("OPENROUTER_PREFER_PAID", "false").lower() == "true",
         "openrouter_fallback_models": fallback_list,
         "active_model": _live_model,
+        **bedrock_cfg,
     }
 
 
@@ -452,6 +466,22 @@ async def update_llm_config(
         models = req["openrouter_fallback_models"]
         if isinstance(models, list):
             env_updates["OPENROUTER_FALLBACK_MODELS"] = ",".join(str(m).strip() for m in models if str(m).strip())
+
+    # Bedrock fields — applied to env immediately; credentials written to .env on VPS
+    if "bedrock_enabled" in req:
+        env_updates["BEDROCK_ENABLED"] = "true" if req["bedrock_enabled"] else "false"
+    if req.get("aws_access_key_id", "").strip():
+        env_updates["AWS_ACCESS_KEY_ID"] = req["aws_access_key_id"].strip()
+    if req.get("aws_secret_access_key", "").strip():
+        env_updates["AWS_SECRET_ACCESS_KEY"] = req["aws_secret_access_key"].strip()
+    if req.get("aws_region", "").strip():
+        env_updates["AWS_REGION"] = req["aws_region"].strip()
+        env_updates["AWS_DEFAULT_REGION"] = req["aws_region"].strip()
+    if req.get("bedrock_model_heavy", "").strip():
+        env_updates["BEDROCK_MODEL_HEAVY"] = req["bedrock_model_heavy"].strip()
+    if req.get("bedrock_model_light", "").strip():
+        env_updates["BEDROCK_MODEL_LIGHT"] = req["bedrock_model_light"].strip()
+
     for k, v in env_updates.items():
         if v:
             os.environ[k] = v
@@ -501,6 +531,68 @@ async def test_model(
         return {"success": True, "model": model_id, "response": text[:80].strip()}
     except Exception as exc:
         return {"success": False, "model": model_id, "error": str(exc)[:200]}
+
+
+@router.post("/settings/bedrock/test")
+async def test_bedrock(
+    req: Dict[str, Any],
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Test AWS Bedrock connectivity. Body: {aws_access_key_id?, aws_secret_access_key?, aws_region?, model_id?}"""
+    import asyncio as _asyncio
+    key_id  = req.get("aws_access_key_id",     os.environ.get("AWS_ACCESS_KEY_ID", "")).strip()
+    secret  = req.get("aws_secret_access_key", os.environ.get("AWS_SECRET_ACCESS_KEY", "")).strip()
+    region  = req.get("aws_region",            os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))).strip()
+    model   = req.get("model_id",              os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")).strip()
+
+    def _invoke():
+        import boto3  # type: ignore
+        kwargs: dict = {"region_name": region}
+        if key_id and secret:
+            kwargs["aws_access_key_id"] = key_id
+            kwargs["aws_secret_access_key"] = secret
+        client = boto3.client("bedrock-runtime", **kwargs)
+        resp = client.converse(
+            modelId=model,
+            system=[{"text": "You are a connectivity test. Reply with exactly: BEDROCK_OK"}],
+            messages=[{"role": "user", "content": [{"text": "ping"}]}],
+            inferenceConfig={"maxTokens": 16},
+        )
+        text = resp["output"]["message"]["content"][0]["text"]
+        usage = resp.get("usage", {})
+        return text.strip(), usage.get("inputTokens", 0), usage.get("outputTokens", 0)
+
+    try:
+        loop = _asyncio.get_running_loop()
+        text, in_tok, out_tok = await _asyncio.wait_for(
+            loop.run_in_executor(None, _invoke), timeout=30.0
+        )
+        return {
+            "success": True,
+            "model": model,
+            "region": region,
+            "response": text,
+            "tokens": {"input": in_tok, "output": out_tok},
+            "message": f"Bedrock connected — {model} is responding",
+        }
+    except _asyncio.TimeoutError:
+        return {"success": False, "model": model, "error": "Request timed out after 30s"}
+    except ImportError:
+        return {"success": False, "error": "boto3 not installed on server — run: pip install boto3"}
+    except Exception as exc:
+        err = str(exc)
+        hint = ""
+        if "AccessDeniedException" in err:
+            hint = "Model not enabled — go to AWS Console → Bedrock → Model access and enable the model."
+        elif "InvalidClientTokenId" in err or "AuthFailure" in err or "UnrecognizedClientException" in err:
+            hint = "Invalid AWS credentials. Check your Access Key ID and Secret."
+        elif "InvalidPaymentInstrument" in err or "invalidpaymentinstrument" in err.lower():
+            hint = "No valid payment instrument on AWS account. Add a credit card in AWS Billing."
+        elif "ResourceNotFoundException" in err:
+            hint = "Model ID not found in this region. Try us.anthropic.claude-sonnet-4-6 in us-east-1."
+        elif "ValidationException" in err:
+            hint = "Model ID format is incorrect for this region."
+        return {"success": False, "model": model, "error": err[:300], "hint": hint}
 
 
 # ── Council config routes ─────────────────────────────────────────────────────
