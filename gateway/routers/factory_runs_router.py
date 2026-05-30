@@ -54,6 +54,7 @@ import json
 import logging
 import os
 import pathlib
+import tempfile
 import time
 from typing import Any, Dict, List, Optional
 
@@ -1103,7 +1104,14 @@ async def patch_envvars(
 
     lines = [f"{item.key}={item.value}" for item in body.vars]
     try:
-        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        fd, tmp_name = tempfile.mkstemp(dir=env_path.parent, prefix=".env.tmp.")
+        try:
+            with os.fdopen(fd, 'w', encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            os.replace(tmp_name, env_path)
+        except Exception:
+            os.unlink(tmp_name)
+            raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error writing .env: {e}")
 

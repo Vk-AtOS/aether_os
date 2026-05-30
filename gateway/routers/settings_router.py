@@ -26,6 +26,7 @@ import asyncio
 import logging
 import os
 import pathlib
+import tempfile
 import time
 from typing import Any, Dict, List, Optional
 
@@ -57,9 +58,14 @@ def _atomic_env_write(env_path: pathlib.Path, updates: Dict[str, str]) -> None:
     for k, v in updates.items():
         if k not in found:
             new_lines.append(f"{k}={v}")
-    tmp = env_path.with_suffix(".env.tmp")
-    tmp.write_text("\n".join(new_lines) + "\n")
-    os.replace(tmp, env_path)  # atomic on POSIX — prevents partial writes
+    fd, tmp_name = tempfile.mkstemp(dir=env_path.parent, prefix=".env.tmp.")
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write("\n".join(new_lines) + "\n")
+        os.replace(tmp_name, env_path)  # atomic on POSIX — prevents partial writes
+    except Exception:
+        os.unlink(tmp_name)
+        raise
 
 
 # ── Request models ────────────────────────────────────────────────────────────
