@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api } from '../api';
 import {
   Shield,
@@ -84,6 +85,14 @@ const PhaseConfigPanel = ({ phase, config, onSave }) => {
 
 const Settings = () => {
   const { updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
+  const location = useLocation();
+  const ssoRef = useRef(null);
+
+  useEffect(() => {
+    if (location.pathname.endsWith('/sso') && ssoRef.current) {
+      setTimeout(() => ssoRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+    }
+  }, [location.pathname]);
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
   const [expandedPhase, setExpandedPhase] = useState(null);
@@ -1147,7 +1156,7 @@ const Settings = () => {
           </section>
 
           {/* SSO Configuration Section */}
-          <section className="panel overflow-hidden">
+          <section id="sso" ref={ssoRef} className="panel overflow-hidden">
             <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
               <Shield className="w-4 h-4 mr-2 text-accent" />
               <h3 className="text-xs font-bold text-muted uppercase tracking-widest">SSO / SAML Configuration</h3>
