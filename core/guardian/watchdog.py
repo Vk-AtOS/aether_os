@@ -20,6 +20,8 @@ import logging
 import time
 from typing import Any, Dict, Optional, Set, Tuple
 
+from aether_os.core.guardian.threat_detector import _get_redis
+
 logger = logging.getLogger(__name__)
 
 _TICK_INTERVAL   = 30       # seconds between health/brute-force ticks
@@ -105,16 +107,15 @@ class GuardianWatchdog:
     # ── Event processing ──────────────────────────────────────────────────────
 
     async def _process_events(self, events: list[Dict[str, Any]]) -> None:
-        new_events = [e for e in events if not self._is_duplicate(e)]
+        new_events = []
+        for e in events:
+            if not await self._is_duplicate(e):
+                new_events.append(e)
         if not new_events:
             return
 
         # Persist to DB
         saved = await self._persist_events(new_events)
-
-        # Mark dedup timestamps
-        for e in new_events:
-            self._dedup[self._dedup_key(e)] = time.monotonic()
 
         # Take pre-threat snapshot on HIGH/CRITICAL
         severities = {e.get("severity", "low") for e in new_events}
@@ -137,10 +138,19 @@ class GuardianWatchdog:
     def _dedup_key(self, event: Dict[str, Any]) -> str:
         return f"{event.get('event_type')}:{event.get('source_ip', '')}:{event.get('endpoint', '')}:{event.get('detail', {}).get('service', '')}"
 
-    def _is_duplicate(self, event: Dict[str, Any]) -> bool:
-        key = self._dedup_key(event)
+    async def _is_duplicate(self, event: Dict[str, Any]) -> bool:
+        key = "guardian:dedup:" + self._dedup_key(event)
+        r = await _get_redis()
+        if r:
+            # SET NX EX 600 — returns True if key was newly set (not duplicate), None if existed
+            result = await r.set(key, "1", nx=True, ex=_DEDUP_WINDOW)
+            return result is None  # None means key existed = duplicate
+        # Redis unavailable — fall back to in-memory
         last = self._dedup.get(key, 0.0)
-        return (time.monotonic() - last) < _DEDUP_WINDOW
+        is_dup = (time.monotonic() - last) < _DEDUP_WINDOW
+        if not is_dup:
+            self._dedup[key] = time.monotonic()
+        return is_dup
 
     async def _persist_events(self, events: list[Dict[str, Any]]) -> list[str]:
         """Write events to guardian_events table. Returns list of inserted IDs."""
