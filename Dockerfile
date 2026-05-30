@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /srv
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client curl git \
+    postgresql-client curl git nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
