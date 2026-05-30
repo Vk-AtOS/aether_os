@@ -299,7 +299,7 @@ async def test_provider(
 
     elif req.provider == "gemini":
         try:
-            import google.genai as genai
+            from google import genai
             api_key = os.environ.get("GOOGLE_API_KEY", "")
             client = genai.Client(api_key=api_key)
 
