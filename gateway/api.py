@@ -775,6 +775,8 @@ def create_app() -> FastAPI:
     if os.path.isdir(_dist):
         logger.info("Mounting dashboard SPA from %s", _dist)
 
+        _NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+
         @app.get("/dashboard", include_in_schema=False)
         @app.get("/dashboard/{path:path}", include_in_schema=False)
         async def _dashboard_spa(path: str = ""):
@@ -782,8 +784,10 @@ def create_app() -> FastAPI:
             if path:
                 candidate = os.path.normpath(os.path.join(_dist, path))
                 if candidate.startswith(_dist) and os.path.isfile(candidate):
+                    # Static assets (JS/CSS with content-hash filenames) can be cached long-term
                     return FileResponse(candidate)
-            return FileResponse(_index)
+            # index.html — never cache so new JS bundles are always picked up
+            return FileResponse(_index, headers=_NO_CACHE)
 
         app.mount("/dashboard", StaticFiles(directory=_dist, html=True), name="dashboard")
 
