@@ -225,7 +225,7 @@ def test_p07_gate_blocks_when_no_tests():
         output_path="",
         confidence=0.9,
         metadata={},  # no test_code key → no tests generated
-        success=True,
+        success=False,  # hard block requires success=False
     )
     outcome = validate(result)
     assert outcome.passed is False
@@ -315,8 +315,8 @@ async def test_p07_supervisor_gate_calls_real_validate():
 
     supervisor = TestingSupervisor()
 
-    # No test code → gate.validate returns passed=False
-    bad_result = _make_task_result(success=True, metadata={})
+    # No test code + success=False → gate.validate returns passed=False (hard block)
+    bad_result = _make_task_result(success=False, metadata={})
     outcome = await supervisor.validate_gate(bad_result, None)
 
     assert outcome.passed is False, (

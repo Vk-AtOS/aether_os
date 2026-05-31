@@ -2,7 +2,7 @@ import pytest
 import uuid
 import os
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from aether_os.gateway.api import create_app
 
@@ -10,10 +10,17 @@ from aether_os.gateway.api import create_app
 @pytest.mark.asyncio
 async def test_multi_tenancy_workflow(tmp_path):
     import aether_os.core.db as _db_mod
+    import aether_os.core.rate_limiter as _rl_mod
 
     # File-based SQLite — each connection sees the same data (unlike :memory:)
     _db_mod._engine = None
     _db_mod._session_factory = None
+
+    # Force rate limiter into in-memory mode — Redis state accumulates across runs
+    _rl_mod._mem = _rl_mod._MemoryStore()
+    _rl_mod._instance = None
+    _rl_mod._redis_available = False
+    _rl_mod._async_redis_client = None
     old_db = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path}/mt_test.db"
     os.environ["AETHER_SECRET_KEY"] = "test-secret-key-12345678901234567890"
@@ -45,13 +52,15 @@ async def test_multi_tenancy_workflow(tmp_path):
 
     try:
         with patch.object(FactoryPipeline, "run", _fake_pipeline_run), \
+             patch("aether_os.core.guardian.password_shield.check_password_safety",
+                   new_callable=AsyncMock, return_value=(True, "")), \
              TestClient(create_app()) as client:
 
             # 1. Register Org A
             email_a = f"owner_a_{uuid.uuid4()}@test.com"
             resp = client.post("/auth/register", json={
                 "email": email_a,
-                "password": "password123",
+                "password": "TestPass@123!",
                 "org_name": "Org A",
                 "terms_accepted": True,
                 "dpa_accepted": True,
@@ -63,7 +72,7 @@ async def test_multi_tenancy_workflow(tmp_path):
             email_b = f"owner_b_{uuid.uuid4()}@test.com"
             resp = client.post("/auth/register", json={
                 "email": email_b,
-                "password": "password123",
+                "password": "TestPass@123!",
                 "org_name": "Org B",
                 "terms_accepted": True,
                 "dpa_accepted": True,

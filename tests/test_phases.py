@@ -385,7 +385,7 @@ async def test_p05f_full_run_writes_vite_project(tmp_path):
 
     mock_client = AsyncMock()
     mock_client.call = AsyncMock(return_value="")  # LLM returns empty → skip optional domain component
-    with patch("aether_os.phases.p05_frontend.task_agent.get_llm_client",
+    with patch("aether_os.core.llm.client.get_llm_client",
                return_value=mock_client):
         out_dir = tmp_path / "output"
         result = await run(PhaseInput(), [], out_dir)
@@ -439,7 +439,7 @@ def test_p06_security_report_written(tmp_path):
     mock_llm = MagicMock()
     mock_llm.call = AsyncMock(return_value='{"findings": [], "overall_score": 100, "summary": "ok"}')
 
-    with patch.object(task_agent, "get_llm_client", return_value=mock_llm):
+    with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_llm):
         out_dir = tmp_path / "security_out"
         result = asyncio.run(
             task_agent.run(PhaseInput(), [], out_dir)
@@ -468,7 +468,7 @@ def test_p06_security_scans_src_subdir(tmp_path):
     mock_llm = MagicMock()
     mock_llm.call = AsyncMock(return_value='{"findings": [], "overall_score": 100, "summary": "ok"}')
 
-    with patch.object(task_agent, "get_llm_client", return_value=mock_llm):
+    with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_llm):
         out_dir = tmp_path / "security_out"
         result = asyncio.run(
             task_agent.run(PhaseInput(), [], out_dir)
@@ -526,7 +526,7 @@ async def test_p07a_full_run_no_source(tmp_path):
         input_data = {"project_dir": str(tmp_path / "empty_run")}
 
     mock_llm = AsyncMock()
-    with patch("aether_os.phases.p07a_unit_testing.task_agent.get_llm_client",
+    with patch("aether_os.core.llm.client.get_llm_client",
                return_value=mock_llm):
         result = await run(PhaseInput(), [], tmp_path / "out")
 
@@ -556,7 +556,7 @@ async def test_p07a_full_run_with_source_uses_fallback_on_bad_llm(tmp_path):
     mock_llm = AsyncMock()
     mock_llm.call = AsyncMock(return_value="this is !!! not valid python ???")
 
-    with patch("aether_os.phases.p07a_unit_testing.task_agent.get_llm_client",
+    with patch("aether_os.core.llm.client.get_llm_client",
                return_value=mock_llm):
         result = await run(PhaseInput(), [], tmp_path / "out")
 
@@ -583,7 +583,7 @@ async def test_p08_cicd_generates_ci_yml(tmp_path):
     agent = CICDAgent()
     result = await agent.run(PhaseInput())
 
-    ci_file = tmp_path / "cicd_out" / "ci.yml"
+    ci_file = tmp_path / "p08_cicd_deployment" / "cicd" / "ci.yml"
     assert ci_file.exists(), "ci.yml not written"
     content = ci_file.read_text()
     assert "pytest" in content
@@ -604,7 +604,7 @@ def test_p08_ci_yml_has_required_steps(tmp_path):
     agent = CICDAgent()
     asyncio.run(agent.run(PhaseInput()))
 
-    content = (tmp_path / "cicd_out" / "ci.yml").read_text()
+    content = (tmp_path / "p08_cicd_deployment" / "cicd" / "ci.yml").read_text()
     assert "actions/checkout" in content
     assert "setup-python" in content
     assert "requirements.txt" in content
@@ -719,7 +719,7 @@ async def test_p10_docs_run_writes_readme(tmp_path):
     mock_llm = MagicMock()
     mock_llm.call = AsyncMock(return_value="")
 
-    with patch.object(task_agent, "get_llm_client", return_value=mock_llm):
+    with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_llm):
         result = await task_agent.run(PhaseInput(), [], tmp_path / "docs_out")
 
     readme = tmp_path / "docs_out" / "docs" / "README.md"

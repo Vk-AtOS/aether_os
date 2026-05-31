@@ -36,6 +36,8 @@ def _make_app(tmp_path=None):
     import aether_os.core.rate_limiter as _rl_mod
     _rl_mod._mem = _rl_mod._MemoryStore()
     _rl_mod._instance = None
+    _rl_mod._redis_available = False   # force in-memory mode so Redis state doesn't bleed
+    _rl_mod._async_redis_client = None
 
     from aether_os.gateway.api import create_app
     return create_app()
@@ -45,14 +47,16 @@ def _make_app(tmp_path=None):
 def client(tmp_path):
     app = _make_app(tmp_path)
     with TestClient(app, raise_server_exceptions=False) as c:
-        # Register a default user for login tests
-        c.post("/auth/register", json={
-            "email": "testadmin@example.com",
-            "password": "testpass123",
-            "org_name": "Test Org",
-            "terms_accepted": True,
-            "dpa_accepted": True,
-        })
+        # Mock HIBP password check so common test passwords are accepted
+        with patch("aether_os.core.guardian.password_shield.check_password_safety",
+                   new_callable=AsyncMock, return_value=(True, "")):
+            c.post("/auth/register", json={
+                "email": "testadmin@example.com",
+                "password": "TestPass@123!",
+                "org_name": "Test Org",
+                "terms_accepted": True,
+                "dpa_accepted": True,
+            })
         yield c
 
 
@@ -67,7 +71,7 @@ def test_health_endpoint(client):
 def test_login_success(client):
     resp = client.post("/auth/login", json={
         "email": "testadmin@example.com",
-        "password": "testpass123",
+        "password": "TestPass@123!",
     })
     assert resp.status_code == 200
     data = resp.json()
@@ -94,7 +98,7 @@ def test_protected_endpoint_with_token(client):
     # Get token
     login_resp = client.post("/auth/login", json={
         "email": "testadmin@example.com",
-        "password": "testpass123",
+        "password": "TestPass@123!",
     })
     assert login_resp.status_code == 200, f"Login failed: {login_resp.status_code} {login_resp.text}"
     token = login_resp.json()["access_token"]
@@ -112,7 +116,7 @@ def test_protected_endpoint_with_token(client):
 
 
 def test_pipeline_start_requires_auth(client):
-    resp = client.post("/pipeline/start", json={
+    resp = client.post("/factory/start", json={
         "requirement": "Build a REST API",
     })
     assert resp.status_code == 401
@@ -125,12 +129,12 @@ def test_pipeline_start_with_auth(client, tmp_path):
     # Get token
     login_resp = client.post("/auth/login", json={
         "email": "testadmin@example.com",
-        "password": "testpass123",
+        "password": "TestPass@123!",
     })
     token = login_resp.json()["access_token"]
 
     resp = client.post(
-        "/pipeline/start",
+        "/factory/start",
         json={"requirement": "Build a hello world app", "project_name": "test"},
         headers={"Authorization": f"Bearer {token}"},
     )
