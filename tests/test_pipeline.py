@@ -130,6 +130,18 @@ async def test_pipeline_run_complete(tmp_path):
     old_primary = os.environ.get("PRIMARY_LLM")
     os.environ["PRIMARY_LLM"] = "anthropic"
 
+    # Clear any real cloud LLM credentials loaded from .env so only the
+    # ollama mock is used.  load_dotenv() runs at gateway.api import time
+    # (triggered by test_multi_tenancy.py's module-level import during
+    # pytest collection) and can set OPENROUTER_API_KEY / BEDROCK_ENABLED,
+    # causing real API calls that return dict-format findings instead of the
+    # mock string responses.
+    old_openrouter_key = os.environ.pop("OPENROUTER_API_KEY", None)
+    old_bedrock_enabled = os.environ.pop("BEDROCK_ENABLED", None)
+    old_bedrock_heavy = os.environ.pop("BEDROCK_MODEL_HEAVY", None)
+    old_bedrock_light = os.environ.pop("BEDROCK_MODEL_LIGHT", None)
+    old_google_key = os.environ.pop("GOOGLE_API_KEY", None)
+
     # Reset singletons
     import aether_os.core.llm.client as llm_mod
     llm_mod._instance = None
@@ -199,7 +211,20 @@ if __name__ == "__main__":
             os.environ["PRIMARY_LLM"] = old_primary
         elif "PRIMARY_LLM" in os.environ:
             del os.environ["PRIMARY_LLM"]
-            
+
+        # Restore any cloud credentials we cleared
+        for _key, _val in [
+            ("OPENROUTER_API_KEY", old_openrouter_key),
+            ("BEDROCK_ENABLED", old_bedrock_enabled),
+            ("BEDROCK_MODEL_HEAVY", old_bedrock_heavy),
+            ("BEDROCK_MODEL_LIGHT", old_bedrock_light),
+            ("GOOGLE_API_KEY", old_google_key),
+        ]:
+            if _val is not None:
+                os.environ[_key] = _val
+            else:
+                os.environ.pop(_key, None)
+
         if old_db:
             os.environ["DATABASE_URL"] = old_db
         elif "DATABASE_URL" in os.environ:
