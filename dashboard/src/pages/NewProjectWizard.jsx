@@ -530,12 +530,26 @@ const NewProjectWizard = () => {
             <div className="bg-danger/10 border border-danger/30 rounded-lg px-4 py-3 text-sm text-danger">{error}</div>
           )}
 
-          <button onClick={handleLaunch} disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-accent hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-base transition-colors">
-            {loading ? (
-              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Starting Factory Run…</>
-            ) : '🚀 Start Factory Run'}
-          </button>
+          <div className="flex flex-col gap-3">
+            <button onClick={handleLaunch} disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-accent hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-base transition-colors">
+              {loading ? (
+                <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Starting Factory Run…</>
+              ) : '🚀 Start Factory Run'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (name) params.set('name', name);
+                if (selectedTpl && selectedTpl !== 'custom') params.set('template', selectedTpl);
+                navigate(`/designer?${params.toString()}`);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 border border-border text-muted hover:text-bright hover:border-accent/50 text-sm font-semibold rounded-xl transition-colors"
+            >
+              🎨 Configure in Designer
+            </button>
+          </div>
         </div>
       )}
 

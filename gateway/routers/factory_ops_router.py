@@ -474,9 +474,49 @@ async def start_factory_run(
     domain = req.get("domain", "general")
     project_name = req.get("project_name")
     github_url = req.get("github_url", "").strip()
+    designer_spec = req.get("designer_spec")
 
     if not raw_input:
         raise HTTPException(status_code=400, detail="raw_input or requirement is required")
+
+    # Prepend structured spec preamble when designer_spec is provided
+    if designer_spec and isinstance(designer_spec, dict):
+        try:
+            fe = designer_spec.get("frontend", {})
+            be = designer_spec.get("backend", {})
+            inf = designer_spec.get("infra", {})
+            ft = designer_spec.get("features", {})
+            ds = designer_spec.get("design", {})
+            preamble = (
+                "=== PROJECT SPECIFICATION ===\n"
+                "Tech Stack:\n"
+                f"  Frontend: {fe.get('framework','')} + {fe.get('styling','')}\n"
+                f"  State: {fe.get('state_management','')}\n"
+                f"  Forms: {fe.get('form_library','')}\n"
+                f"  Data Fetching: {fe.get('data_fetching','')}\n"
+                f"  Backend: {be.get('framework','')} + {be.get('database','')} + {be.get('orm','')}\n"
+                f"  Auth: {be.get('auth','')}\n"
+                f"  API: {be.get('api_style','')}\n"
+                f"  Infrastructure: {inf.get('deployment','')}, cache={inf.get('cache','')}, queue={inf.get('queue','')}\n"
+                f"  File Storage: {inf.get('file_storage','')}, Email: {inf.get('email','')}\n"
+                f"  Features: multi_tenant={ft.get('multi_tenancy',False)}, audit_log={ft.get('audit_log',False)}, "
+                f"rate_limiting={ft.get('rate_limiting',True)}, webhooks={ft.get('webhooks_out',False)}, "
+                f"realtime={ft.get('realtime','None')}, payments={ft.get('payments','None')}, "
+                f"i18n={ft.get('internationalization',False)}\n"
+                "\nDesign Tokens:\n"
+                f"  Primary color: {ds.get('primary_hex','#6366f1')}\n"
+                f"  Secondary color: {ds.get('secondary_hex','#8b5cf6')}\n"
+                f"  Background: {ds.get('background_hex','#0f172a')}\n"
+                f"  Surface: {ds.get('surface_hex','#1e293b')}\n"
+                f"  Font pairing: {ds.get('font_pairing','Inter + Inter')}\n"
+                f"  Border radius: {ds.get('border_radius','Rounded (8px)')}\n"
+                f"  Layout: {ds.get('layout','sidebar-topbar')}\n"
+                f"  Component density: {ds.get('density','Normal')}\n"
+                "\n=== PROJECT REQUIREMENT ===\n"
+            )
+            raw_input = preamble + raw_input
+        except Exception as _spec_exc:
+            logger.warning("Failed to build designer_spec preamble: %s", _spec_exc)
 
     # B7: Prompt injection guard — block jailbreak and shell injection attempts
     from aether_os.core.security.prompt_guard import guard as _guard
