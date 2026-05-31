@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -55,7 +55,7 @@ class RepairMemory:
         repo_name: str,
     ) -> None:
         with self._lock:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             if fp in self._memory:
                 entry = self._memory[fp]
                 entry["success_count"] += 1
