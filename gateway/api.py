@@ -355,6 +355,21 @@ def create_app() -> FastAPI:
         except Exception as _redis_exc:
             logger.warning("Redis startup check failed: %s", _redis_exc)
 
+        # ── Field-level encryption key check ─────────────────────────────────
+        if not os.environ.get("AETHER_FIELD_KEY", ""):
+            logger.warning(
+                "\n"
+                "  ┌─────────────────────────────────────────────────────────────┐\n"
+                "  │  WARNING: AETHER_FIELD_KEY is not set.                      │\n"
+                "  │  LLM API keys and MFA secrets are stored UNENCRYPTED.       │\n"
+                "  │                                                             │\n"
+                "  │  Generate a key with:                                       │\n"
+                "  │    python -c \"from cryptography.fernet import Fernet;       │\n"
+                "  │    print(Fernet.generate_key().decode())\"                   │\n"
+                "  │  Then add AETHER_FIELD_KEY=<key> to your .env file.         │\n"
+                "  └─────────────────────────────────────────────────────────────┘"
+            )
+
         # ── CORS startup validation ───────────────────────────────────────────
         if _is_production and not os.environ.get("CORS_ORIGINS", ""):
             logger.warning(

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,5 +14,5 @@ class Workspace(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preferences: Mapped[str] = mapped_column(Text, nullable=False) # JSON
     created_by: Mapped[str] = mapped_column(String(36), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)

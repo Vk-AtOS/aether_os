@@ -274,10 +274,13 @@ class BackendAuditCouncil:
 
         from aether_os.core.llm.openrouter_client import call_openrouter, COUNCIL_MODELS
 
-        # org_isolation check only makes sense for multi-tenant domains
+        # org_isolation is skipped only for purely static/non-multi-tenant domains.
+        # Healthcare, fintech, education, and all SaaS variants must have it enforced.
+        _ORG_ISOLATION_EXEMPT = frozenset({"static_site", "landing_page", "documentation"})
         checks = (
-            self._CHECKS if domain in ("saas_multitenant", "saas", "crm")
-            else [c for c in self._CHECKS if c["id"] != "org_isolation"]
+            [c for c in self._CHECKS if c["id"] != "org_isolation"]
+            if domain in _ORG_ISOLATION_EXEMPT
+            else self._CHECKS
         )
 
         # Trim code — council checks need structure, not every line.
