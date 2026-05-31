@@ -10,7 +10,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -124,7 +124,7 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
         session.add(org)
 
         # Create owner user — role is always "owner" regardless of request body (B1)
-        _consent_now = datetime.utcnow()
+        _consent_now = datetime.now(timezone.utc)
         _consent_meta = json.dumps({
             "tos_version": _CURRENT_TOS_VERSION,
             "dpa_version": _CURRENT_DPA_VERSION,

@@ -4,7 +4,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from pathlib import Path as _Path
 from typing import List, Optional
@@ -56,7 +56,7 @@ class ProjectManager:
             project_id=project_id,
             client_id=client_id,
             name=name,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             metadata=metadata or {},
         )
         self._records[project_id] = rec

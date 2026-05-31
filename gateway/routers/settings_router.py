@@ -96,16 +96,9 @@ class SamlConfigRequest(BaseModel):
 async def get_api_keys(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return current API key configuration from .env, masking key values.
-    Also reports which providers have org-specific keys in the DB."""
-    env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
-    env_vars: Dict[str, str] = {}
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                env_vars[k.strip()] = v.strip()
+    """Return masked API key status from environment variables only.
+    Never reads from the .env file on disk."""
+    import os as _os
 
     def _mask(val: str) -> str:
         if not val:
@@ -132,12 +125,12 @@ async def get_api_keys(
             logger.debug("get_api_keys: org_keys DB check failed (non-fatal): %s", _exc)
 
     return {
-        "anthropic": _mask(env_vars.get("ANTHROPIC_API_KEY", "")),
-        "google": _mask(env_vars.get("GOOGLE_API_KEY", "")),
-        "openai": _mask(env_vars.get("OPENAI_API_KEY", "")),
-        "openrouter": _mask(env_vars.get("OPENROUTER_API_KEY", "")),
-        "primary_llm": env_vars.get("PRIMARY_LLM", "ollama"),
-        "ollama_model": env_vars.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+        "anthropic": _mask(_os.environ.get("ANTHROPIC_API_KEY", "")),
+        "google": _mask(_os.environ.get("GOOGLE_API_KEY", "")),
+        "openai": _mask(_os.environ.get("OPENAI_API_KEY", "")),
+        "openrouter": _mask(_os.environ.get("OPENROUTER_API_KEY", "")),
+        "primary_llm": _os.environ.get("PRIMARY_LLM", "ollama"),
+        "ollama_model": _os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
         "org_keys": org_keys,
     }
 
@@ -201,23 +194,14 @@ async def update_api_keys(
 async def get_langsmith_settings(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return current LangSmith observability configuration."""
-    env_path = pathlib.Path(__file__).parent.parent.parent / ".env"
-    env_vars: Dict[str, str] = {}
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                env_vars[k.strip()] = v.strip()
-
-    opt_in_raw = env_vars.get("LANGSMITH_OPT_IN", os.environ.get("LANGSMITH_OPT_IN", "false"))
-    api_key_raw = env_vars.get("LANGSMITH_API_KEY", os.environ.get("LANGSMITH_API_KEY", ""))
+    """Return current LangSmith observability configuration from environment variables."""
+    opt_in_raw = os.environ.get("LANGSMITH_OPT_IN", "false")
+    api_key_raw = os.environ.get("LANGSMITH_API_KEY", "")
     return {
         "opt_in": opt_in_raw.lower() in ("1", "true", "yes"),
         "api_key_set": bool(api_key_raw),
         "api_key_preview": (api_key_raw[:8] + "...") if len(api_key_raw) > 8 else "",
-        "project": env_vars.get("LANGCHAIN_PROJECT", os.environ.get("LANGCHAIN_PROJECT", "aetheros-factory")),
+        "project": os.environ.get("LANGCHAIN_PROJECT", "aetheros-factory"),
     }
 
 

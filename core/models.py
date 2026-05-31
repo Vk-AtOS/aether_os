@@ -6,6 +6,7 @@ from typing import Optional, List
 from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
+from .encryption import EncryptedText
 
 class Organisation(Base):
     __tablename__ = "organisations"
@@ -38,7 +39,7 @@ class User(Base):
     consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    mfa_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    mfa_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
@@ -191,7 +192,7 @@ class OrgApiKey(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)   # "anthropic", "google", "openrouter", "bedrock"
-    api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    api_key: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
     updated_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)   # user_id who saved it
 

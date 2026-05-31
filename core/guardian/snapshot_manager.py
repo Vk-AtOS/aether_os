@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -156,7 +156,7 @@ class SnapshotManager:
 
         snap = GuardianSnapshot(
             id=snapshot_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             snapshot_path=str(dest),
             size_bytes=size,
             integrity_hash=digest,

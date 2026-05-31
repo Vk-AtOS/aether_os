@@ -1433,11 +1433,11 @@ async def start_run_app(
         _stub_main.write_text(
             f"""from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
-import pathlib, re
+import os, secrets, pathlib, re
 
 app = FastAPI()
 
-_PREVIEW_TOKEN = "preview-token-demo"
+_PREVIEW_TOKEN = os.environ.get("PREVIEW_TOKEN", secrets.token_hex(32))
 _MOCK_USER = {{"id": 1, "email": "admin@example.com", "name": "Admin User", "role": "admin"}}
 
 _BANNER_SCRIPT = \"\"\"
@@ -2119,7 +2119,7 @@ async def save_frontend_spec(
         row = await session.get(RunSpec, (run_id, "frontend"))
         if row:
             row.spec = spec
-            row.updated_at = __import__("datetime").datetime.utcnow()
+            row.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
         else:
             session.add(RunSpec(run_id=run_id, spec_type="frontend", spec=spec))
         await session.commit()
@@ -2158,7 +2158,7 @@ async def save_backend_spec(
         row = await session.get(RunSpec, (run_id, "backend"))
         if row:
             row.spec = spec
-            row.updated_at = __import__("datetime").datetime.utcnow()
+            row.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
         else:
             session.add(RunSpec(run_id=run_id, spec_type="backend", spec=spec))
         await session.commit()
