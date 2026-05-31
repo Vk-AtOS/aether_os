@@ -5,7 +5,7 @@ import {
   Plug, Wrench, Brain, DollarSign, ChevronDown, ChevronRight,
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
-  Activity, Sparkles, Zap, Bot, ShieldAlert,
+  Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2,
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
@@ -28,6 +28,7 @@ const Sidebar = () => {
   const { latestRunId } = useRuns();
   const { orgName } = useSettings();
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [platformOpen, setPlatformOpen] = useState(false);
   const [userRole, setUserRole] = useState('member');
   const [userEmail, setUserEmail] = useState('');
 
@@ -39,8 +40,11 @@ const Sidebar = () => {
       if (payload?.sub) setUserEmail(payload.sub);
     }
 
-    if (['/connectors', '/skills', '/memory', '/costs', '/frontend-builder', '/backend-builder', '/prompt', '/learning', '/settings/webhooks'].some(p => location.pathname.startsWith(p))) {
+    if (['/connectors', '/skills', '/memory', '/costs', '/learning', '/settings/webhooks'].some(p => location.pathname.startsWith(p))) {
       setToolsOpen(true);
+    }
+    if (['/intelligence', '/health', '/guardian', '/agents', '/compliance'].some(p => location.pathname.startsWith(p))) {
+      setPlatformOpen(true);
     }
   }, [location.pathname]);
 
@@ -54,20 +58,23 @@ const Sidebar = () => {
   const isViewer = userRole === 'viewer';
 
   const staticItems = [
-    { name: 'Dashboard',   path: '/',              icon: LayoutDashboard },
-    !isViewer && { name: 'New Project', path: '/new-project', icon: PlusCircle },
-    { name: 'Projects',    path: '/projects',      icon: List },
-    { name: 'Search',      path: '/search',        icon: Search },
-    { name: 'Deployments', path: '/deployments',   icon: Rocket },
-    { name: 'Marketplace', path: '/marketplace',   icon: Store },
-    { name: 'Intelligence',path: '/intelligence',  icon: Sparkles },
-    { name: 'System Health',path: '/health',       icon: Activity },
-    { name: 'Guardian',     path: '/guardian',     icon: ShieldAlert },
-    { name: 'Agents',       path: '/agents',       icon: Bot },
-    { name: 'Settings',    path: '/settings',      icon: Settings },
-    { name: 'Compliance',  path: '/compliance',    icon: Shield },
-    { name: 'Profile',     path: '/profile',       icon: UserCircle },
+    { name: 'Dashboard',         path: '/',          icon: LayoutDashboard },
+    !isViewer && { name: 'New Project',       path: '/new-project', icon: PlusCircle },
+    !isViewer && { name: 'Project Designer',  path: '/designer',    icon: Wand2 },
+    { name: 'Projects',          path: '/projects',  icon: List },
+    { name: 'Search',            path: '/search',    icon: Search },
+    { name: 'Deployments',       path: '/deployments', icon: Rocket },
+    { name: 'Marketplace',       path: '/marketplace', icon: Store },
+    { name: 'Settings',          path: '/settings',  icon: Settings },
   ].filter(Boolean);
+
+  const platformItems = [
+    { name: 'Intelligence',  path: '/intelligence', icon: Sparkles },
+    { name: 'System Health', path: '/health',       icon: Activity },
+    { name: 'Guardian',      path: '/guardian',     icon: ShieldAlert },
+    { name: 'Agents',        path: '/agents',       icon: Bot },
+    { name: 'Compliance',    path: '/compliance',   icon: Shield },
+  ];
 
   const toolItems = [
     { name: 'Connectors', path: '/connectors', icon: Plug },
@@ -75,10 +82,7 @@ const Sidebar = () => {
     { name: 'Memory',     path: '/memory',     icon: Brain },
     { name: 'Costs',      path: '/costs',      icon: DollarSign },
     { name: 'Webhooks',   path: '/settings/webhooks', icon: Webhook },
-    { name: 'Frontend Builder', path: '/frontend-builder', icon: Layout },
-    { name: 'Backend Builder',  path: '/backend-builder',  icon: Database },
-    { name: 'Prompt Input',     path: '/prompt',            icon: MessageSquare },
-    { name: 'Learning',         path: '/learning',          icon: GraduationCap },
+    { name: 'Learning',   path: '/learning',   icon: GraduationCap },
   ];
 
   const adminItems = isAdmin ? [
@@ -122,6 +126,36 @@ const Sidebar = () => {
             </NavLink>
           );
         })}
+
+        {/* Platform section */}
+        <button
+          onClick={() => setPlatformOpen(!platformOpen)}
+          aria-expanded={platformOpen}
+          aria-controls="platform-submenu"
+          className="flex items-center w-full px-4 py-2.5 text-sm font-medium rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <Sparkles className="w-4 h-4 mr-3" aria-hidden="true" />
+          <span className="flex-1 text-left">Platform</span>
+          {platformOpen
+            ? <ChevronDown className="w-3 h-3" aria-hidden="true" />
+            : <ChevronRight className="w-3 h-3" aria-hidden="true" />}
+        </button>
+        <div id="platform-submenu" role="region" aria-label="Platform submenu">
+          {platformOpen && platformItems.map((item) => {
+            const active = location.pathname.startsWith(item.path);
+            return (
+              <NavLink
+                key={item.name}
+                to={item.path}
+                className={`ml-3 ${linkClass(active)}`}
+                aria-current={active ? 'page' : undefined}
+              >
+                <item.icon className={`w-4 h-4 mr-3 ${active ? 'text-white' : ''}`} aria-hidden="true" />
+                {item.name}
+              </NavLink>
+            );
+          })}
+        </div>
 
         {/* Tools section */}
         <button
