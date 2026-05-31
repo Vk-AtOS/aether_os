@@ -94,7 +94,7 @@ function App() {
         <Route path="settings/sso" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
         <Route path="compliance" element={<ErrorBoundary><Compliance /></ErrorBoundary>} />
         <Route path="marketplace" element={<ErrorBoundary><Marketplace /></ErrorBoundary>} />
-        <Route path="new-project" element={<ErrorBoundary><NewProjectWizard /></ErrorBoundary>} />
+        <Route path="new-project" element={<Navigate to="/designer" replace />} />
         <Route path="connectors" element={<ErrorBoundary><ConnectorHub /></ErrorBoundary>} />
         <Route path="dashboard/tools/connectors" element={<Navigate to="/connectors" replace />} />
         <Route path="skills" element={<ErrorBoundary><PluginManager /></ErrorBoundary>} />
