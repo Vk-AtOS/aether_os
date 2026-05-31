@@ -38,6 +38,8 @@ def _make_app(tmp_path=None):
     import aether_os.core.rate_limiter as _rl_mod
     _rl_mod._mem = _rl_mod._MemoryStore()
     _rl_mod._instance = None
+    _rl_mod._redis_available = False   # force in-memory mode — Redis state bleeds across runs
+    _rl_mod._async_redis_client = None
 
     from aether_os.gateway.api import create_app
     return create_app()
@@ -143,14 +145,14 @@ def test_webhook_missing_secret_env_returns_500(tmp_path):
 def _register_and_login(client):
     client.post("/auth/register", json={
         "email": "billingtest@example.com",
-        "password": "billingtest1234",
+        "password": "BillingTest@123!",
         "org_name": "BillingTestOrg",
         "terms_accepted": True,
         "dpa_accepted": True,
     })
     resp = client.post("/auth/login", json={
         "email": "billingtest@example.com",
-        "password": "billingtest1234",
+        "password": "BillingTest@123!",
     })
     if resp.status_code != 200:
         return None

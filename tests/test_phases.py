@@ -234,8 +234,8 @@ def test_p04b_gate_pass(tmp_path):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_p05_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p05_code_review.gate")
-    from aether_os.phases.p05_code_review.gate import validate
+    pytest.importorskip("aether_os.phases.p06_review_security.gate")
+    from aether_os.phases.p06_review_security.gate import validate
     from aether_os.phases.base import TaskResult
 
     report = tmp_path / "review_report.md"
@@ -254,8 +254,8 @@ def test_p05_gate_pass(tmp_path):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_p06_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p06_security.gate")
-    from aether_os.phases.p06_security.gate import validate
+    pytest.importorskip("aether_os.phases.p06_review_security.gate")
+    from aether_os.phases.p06_review_security.gate import validate
     from aether_os.phases.base import TaskResult
 
     report = tmp_path / "security_report.json"
@@ -292,7 +292,6 @@ def test_p07a_gate_pass():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_p09_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p09_documentation.gate")
     from aether_os.phases.p09_documentation.gate import validate
     from aether_os.phases.base import TaskResult
 
@@ -303,8 +302,7 @@ def test_p09_gate_pass(tmp_path):
     assert outcome.passed
 
 def test_p10_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p10_deployment.gate")
-    from aether_os.phases.p10_deployment.gate import validate
+    from aether_os.phases.p11_deployment.gate import validate
     from aether_os.phases.base import TaskResult
 
     result = TaskResult(
@@ -659,7 +657,6 @@ async def test_p09_monitoring_prometheus_has_scrape_config(tmp_path):
 
 def test_p10_fallback_readme_is_long_enough(tmp_path):
     """_build_fallback_readme produces >= 500 words."""
-    pytest.importorskip("aether_os.phases.p09_documentation.task_agent")
     from aether_os.phases.p09_documentation.task_agent import _build_fallback_readme
 
     arch = {
@@ -679,7 +676,6 @@ def test_p10_fallback_readme_is_long_enough(tmp_path):
 
 def test_p10_fallback_readme_has_key_sections(tmp_path):
     """_build_fallback_readme includes Installation, API, curl examples."""
-    pytest.importorskip("aether_os.phases.p09_documentation.task_agent")
     from aether_os.phases.p09_documentation.task_agent import _build_fallback_readme
 
     arch = {
@@ -698,7 +694,6 @@ def test_p10_fallback_readme_has_key_sections(tmp_path):
 @pytest.mark.asyncio
 async def test_p10_docs_run_writes_readme(tmp_path):
     """p09_documentation.run() writes README.md even when LLM fails."""
-    pytest.importorskip("aether_os.phases.p09_documentation.task_agent")
     from unittest.mock import AsyncMock, patch, MagicMock
     from aether_os.phases.p09_documentation import task_agent
 
