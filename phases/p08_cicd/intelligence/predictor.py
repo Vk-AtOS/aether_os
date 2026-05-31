@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class FailurePredictor:
         was_resolved: bool = False
     ) -> None:
         """Record a failure occurrence."""
-        ts = occurred_at or datetime.utcnow()
+        ts = occurred_at or datetime.now(timezone.utc)
         record = FailureRecord(
             error_type=error_type,
             language=language,
@@ -81,7 +81,7 @@ class FailurePredictor:
         Recent events score near 1.0,
         older events score lower.
         """
-        now = now or datetime.utcnow()
+        now = now or datetime.now(timezone.utc)
         days_ago = (now - occurred_at).total_seconds() / 86400
         half_lives = days_ago / DECAY_HALF_LIFE_DAYS
         return math.pow(0.5, half_lives)
@@ -100,7 +100,7 @@ class FailurePredictor:
         if len(records) < MIN_OCCURRENCES:
             return None
 
-        now = now or datetime.utcnow()
+        now = now or datetime.now(timezone.utc)
 
         # Sum decay scores
         score = sum(
