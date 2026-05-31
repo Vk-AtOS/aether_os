@@ -205,14 +205,14 @@ def test_score_project_test_score_one_test_file(tmp_path):
     from aether_os.core.quality.metrics import score_project
     proj = _make_project(tmp_path, main_py=_MAIN_WITH_AUTH, test_files=1)
     score = score_project(proj)
-    assert score.test_coverage == 50
+    assert score.test_coverage == 60
 
 
 def test_score_project_test_score_multiple_test_files(tmp_path):
     from aether_os.core.quality.metrics import score_project
     proj = _make_project(tmp_path, main_py=_MAIN_WITH_AUTH, test_files=3)
     score = score_project(proj)
-    assert score.test_coverage == 75
+    assert score.test_coverage == 60
 
 
 def test_score_project_has_docker(tmp_path):

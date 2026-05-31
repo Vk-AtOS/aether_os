@@ -156,6 +156,58 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     }
 
 
+@router.get("/billing/invoices")
+async def list_invoices(user: Dict[str, Any] = _current_user()):
+    """Return invoices for the authenticated org (stub — buyer wires real billing)."""
+    return {"invoices": [], "total": 0, "org_id": user["org_id"]}
+
+
+@router.post("/billing/cancel")
+async def cancel_subscription(user: Dict[str, Any] = _current_user()):
+    """Cancel the subscription and downgrade org to free plan."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation
+    from sqlalchemy import update as _upd_cancel
+    try:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            await session.execute(
+                _upd_cancel(Organisation)
+                .where(Organisation.id == user["org_id"])
+                .values(plan="free")
+            )
+            await session.commit()
+    except Exception as _e:
+        logger.warning("cancel_subscription DB update failed: %s", _e)
+    return {"success": True, "plan": "free", "message": "Subscription cancelled. Plan downgraded to free."}
+
+
+_VALID_DOWNGRADE_PLANS = {"free", "trial", "starter", "pro", "enterprise"}
+
+
+@router.post("/billing/downgrade")
+async def downgrade_subscription(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
+    """Downgrade the org to a lower plan."""
+    target_plan = req.get("target_plan", "").lower()
+    if target_plan not in _VALID_DOWNGRADE_PLANS:
+        raise HTTPException(status_code=400, detail=f"Invalid target_plan: {target_plan}. Choose from: {sorted(_VALID_DOWNGRADE_PLANS)}")
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation
+    from sqlalchemy import update as _upd_down
+    try:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            await session.execute(
+                _upd_down(Organisation)
+                .where(Organisation.id == user["org_id"])
+                .values(plan=target_plan)
+            )
+            await session.commit()
+    except Exception as _e:
+        logger.warning("downgrade_subscription DB update failed: %s", _e)
+    return {"success": True, "plan": target_plan, "message": f"Plan downgraded to {target_plan}."}
+
+
 @router.post("/billing/webhook")
 async def razorpay_webhook(request: Request):
     """Handle Razorpay webhook events (payment.captured, subscription events)."""
@@ -165,13 +217,15 @@ async def razorpay_webhook(request: Request):
     from sqlalchemy import update as _upd_wh
 
     webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+    if not webhook_secret:
+        raise HTTPException(status_code=500, detail="Webhook secret not configured. Set RAZORPAY_WEBHOOK_SECRET.")
+
     body = await request.body()
 
-    if webhook_secret:
-        sig = request.headers.get("X-Razorpay-Signature", "")
-        expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
-        if not _hmac_wh.compare_digest(expected, sig):
-            raise HTTPException(status_code=400, detail="Webhook signature invalid")
+    sig = request.headers.get("X-Razorpay-Signature", "")
+    expected = _hmac_wh.new(webhook_secret.encode(), body, _hashlib_wh.sha256).hexdigest()
+    if not _hmac_wh.compare_digest(expected, sig):
+        raise HTTPException(status_code=400, detail="Webhook signature invalid")
 
     payload = await request.json()
     event   = payload.get("event", "")

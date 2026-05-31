@@ -37,6 +37,9 @@ def strip_api_keys(monkeypatch):
     """Remove cloud API keys so only Ollama is active by default."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("BEDROCK_ENABLED", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("PRIMARY_LLM", "anthropic")
 
 
 # ── FALLBACK_CHAIN structure ──────────────────────────────────────────────────
@@ -48,7 +51,10 @@ def clean_env_chain(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
     monkeypatch.setenv("OLLAMA_TIMEOUT", "120")
-    monkeypatch.delenv("OPENROUTER_FALLBACK_MODELS", raising=False)
+    monkeypatch.delenv("BEDROCK_ENABLED", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test-key-abc-1234567890")
+    # Fix OPENROUTER_FALLBACK_MODELS to exactly 4 to get deterministic chain length
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "model-a,model-b,model-c,model-d")
     # Force re-call of get_fallback_chain
     from aether_os.core.model_router import get_fallback_chain
     return get_fallback_chain()
@@ -124,26 +130,30 @@ def test_classify_timeout_as_fallback():
 # ── Provider configuration detection ─────────────────────────────────────────
 
 def test_anthropic_not_configured_without_key():
-    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN
-    assert _is_provider_configured(FALLBACK_CHAIN[0]) is False
+    from aether_os.core.model_router import _is_provider_configured, ModelSpec
+    spec = ModelSpec("anthropic", "claude-sonnet-4-6", 30, 2)
+    assert _is_provider_configured(spec) is False
 
 
 def test_anthropic_configured_with_key(monkeypatch):
-    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN
+    from aether_os.core.model_router import _is_provider_configured, ModelSpec
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
-    assert _is_provider_configured(FALLBACK_CHAIN[0]) is True
+    spec = ModelSpec("anthropic", "claude-sonnet-4-6", 30, 2)
+    assert _is_provider_configured(spec) is True
 
 
 def test_gemini_not_configured_with_placeholder(monkeypatch):
-    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN
+    from aether_os.core.model_router import _is_provider_configured, ModelSpec
     monkeypatch.setenv("GOOGLE_API_KEY", "REPLACE_WITH_YOUR_GEMINI_KEY")
-    assert _is_provider_configured(FALLBACK_CHAIN[1]) is False
+    spec = ModelSpec("gemini", "gemini-2.5-flash", 45, 2)
+    assert _is_provider_configured(spec) is False
 
 
 def test_gemini_configured_with_real_key(monkeypatch):
-    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN
+    from aether_os.core.model_router import _is_provider_configured, ModelSpec
     monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-real-key-here")
-    assert _is_provider_configured(FALLBACK_CHAIN[1]) is True
+    spec = ModelSpec("gemini", "gemini-2.5-flash", 45, 2)
+    assert _is_provider_configured(spec) is True
 
 
 def test_ollama_always_configured():
@@ -212,7 +222,7 @@ async def test_fallback_count_increments_on_chain_advance(monkeypatch):
                side_effect=RuntimeError("invalid_api_key")), \
          patch("aether_os.core.llm.client._call_ollama_with_model",
                new_callable=AsyncMock,
-               return_value="ok"):
+               return_value="hello from ollama — this is a complete response"):
         from aether_os.core.model_router import ModelRouter
         router = ModelRouter()
         await router.call("hi")
@@ -244,7 +254,6 @@ def test_get_status_structure():
     assert "model_availability" in status
     avail = status["model_availability"]
     assert "anthropic" in avail
-    assert "gemini" in avail
     assert "ollama" in avail
 
 

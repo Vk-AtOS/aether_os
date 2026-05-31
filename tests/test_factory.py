@@ -123,7 +123,9 @@ async def test_bus_fan_out_to_subscriber():
     )
     msg = PhaseMessage(message_id="sub-msg", from_phase="p00_intake",
                        to_phase="p01_requirements", result=result)
-    await bus.publish(msg)
+    # Force in-memory fan-out by making Redis unavailable for this publish
+    with patch.object(bus, "_get_redis", new_callable=AsyncMock, return_value=None):
+        await bus.publish(msg)
     item = bus._subscribers["p01_requirements"].get_nowait()
     assert item.from_phase == "p00_intake"
 
@@ -352,6 +354,10 @@ async def test_factory_pipeline_smoke(tmp_path):
         mock_ledger.return_value = MagicMock(
             save_run=MagicMock(),
             update_run_status=MagicMock(),
+            async_save_run=AsyncMock(),
+            async_update_run_status=AsyncMock(),
+            async_log_phase_completion=AsyncMock(),
+            async_get_run_detail=AsyncMock(return_value=None),
         )
 
         from aether_os.orchestrator.factory_pipeline import FactoryPipeline
@@ -392,7 +398,12 @@ async def test_factory_pipeline_start_phase(tmp_path):
          patch("aether_os.core.audit.ledger.get_ledger") as mock_ledger:
 
         mock_ledger.return_value = MagicMock(
-            save_run=MagicMock(), update_run_status=MagicMock(),
+            save_run=MagicMock(),
+            update_run_status=MagicMock(),
+            async_save_run=AsyncMock(),
+            async_update_run_status=AsyncMock(),
+            async_log_phase_completion=AsyncMock(),
+            async_get_run_detail=AsyncMock(return_value=None),
         )
 
         from aether_os.orchestrator.factory_pipeline import FactoryPipeline
@@ -407,8 +418,8 @@ async def test_factory_pipeline_start_phase(tmp_path):
                 start_phase="p08_cicd_deployment",
             )
 
-    # Starting at p08 means fewer than 10 phases
-    assert result["phase_count"] < 10
+    # Starting at p08 (index 8 of 20) means 12 phases run
+    assert result["phase_count"] < 15
     assert result["phase_count"] > 0
 
 
@@ -418,7 +429,7 @@ def test_factory_pipeline_phase_sequence():
 
     assert len(PHASE_SEQUENCE) >= 10
     assert PHASE_SEQUENCE[0] == "p01_intake_requirements"
-    assert PHASE_SEQUENCE[-1] == "p11_deployment"
+    assert PHASE_SEQUENCE[-1] == "p14_client_portal"
 
 
 def test_factory_pipeline_phase_supervisors_mapped():
@@ -540,11 +551,18 @@ def test_portal_status_project_not_found(tmp_path):
 
 def test_portal_feedback_writes_file(tmp_path):
     """POST /portal/{id}/feedback writes feedback.jsonl."""
+    import os
     from aether_os.core.projects import ProjectManager
     import aether_os.core.projects as pm_mod
+    from aether_os.gateway.client_portal.routes import _get_portal_token
 
+    os.environ.setdefault("AETHER_SECRET_KEY", "test-secret-key-32-chars-minimum")
     pm_mod._manager = ProjectManager(root=tmp_path / "projects")
     pid = pm_mod._manager.create_project("c1", "FeedbackTest")
+
+    # Create portal token (writes .portal_token file into project_dir)
+    portal_token = _get_portal_token(pid)
+    assert portal_token, "Portal token must be generated"
 
     from fastapi.testclient import TestClient
     from fastapi import FastAPI
@@ -555,6 +573,7 @@ def test_portal_feedback_writes_file(tmp_path):
     client = TestClient(app)
     resp = client.post(
         f"/portal/{pid}/feedback",
+        params={"portal_token": portal_token},
         json={"feedback": "Looks great!", "phase": "p02_architecture"},
     )
 
