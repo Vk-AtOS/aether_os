@@ -45,6 +45,7 @@ class _FeatureFlags:
         sdk_key = os.environ.get("GROWTHBOOK_SDK_KEY", "")
         api_host = os.environ.get("GROWTHBOOK_API_HOST", "https://cdn.growthbook.io")
         if not sdk_key:
+            logger.debug("GrowthBook not configured — using default feature flags")
             return
         try:
             from growthbook import GrowthBook

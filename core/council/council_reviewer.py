@@ -327,6 +327,9 @@ def _find_consensus(reviews: List[CouncilReview], min_models: int = 2) -> List[s
         "it", "its", "this", "that", "be", "by", "on", "at", "with", "from",
         "not", "no", "use", "used", "using", "when", "where", "which", "has",
         "have", "does", "do", "can", "all", "any", "should", "would", "will",
+        # Generic action words that create false-positive consensus
+        "missing", "must", "ensure", "check", "verify",
+        "add", "remove", "consider", "implement", "handle",
     })
 
     def _words(text: str) -> frozenset:
@@ -358,7 +361,7 @@ def _find_consensus(reviews: List[CouncilReview], min_models: int = 2) -> List[s
                 continue
             words_b = _words(issue_b)
             overlap = len(words_a & words_b)
-            if overlap >= 2:
+            if overlap >= 3:
                 cluster_models.add(model_b)
                 used.add(j)
 

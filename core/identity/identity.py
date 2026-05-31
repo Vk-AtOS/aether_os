@@ -39,7 +39,7 @@ users = Table(
     Column("hashed_password", String(512), nullable=False),
     Column("roles", String(256), nullable=True),  # comma-separated roles
     Column("is_active", Boolean, default=True),
-    Column("created_at", DateTime, default=datetime.utcnow),
+    Column("created_at", DateTime, default=lambda: datetime.now(timezone.utc)),
 )
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL, future=True, echo=False)

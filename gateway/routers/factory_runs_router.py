@@ -2259,3 +2259,38 @@ async def project_chat(
         reply = "I'm having trouble connecting right now. Please try again shortly."
 
     return {"reply": reply, "run_id": run_id, "project": project_name}
+
+
+# ── Council-review stuck-run cleanup ─────────────────────────────────────────
+
+@router.post("/admin/runs/cleanup-council-review")
+async def cleanup_stuck_council_review(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Promote runs stuck in 'council_review' for > 10 minutes to 'completed'.
+
+    Intended for admin use or automated scheduling. Prevents indefinite stuck runs
+    when the DeliveryCouncil background task silently fails.
+    """
+    if user.get("role") not in ("owner", "admin"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Admin or owner role required")
+
+    import time as _time
+    from aether_os.core.db import get_session_factory as _gsf
+    from aether_os.core.models import Run as _Run
+    from sqlalchemy import update as _upd, select as _sel
+
+    cutoff = _time.time() - 600  # 10 minutes ago
+    sf = _gsf()
+    async with sf() as session:
+        result = await session.execute(
+            _upd(_Run)
+            .where(_Run.status == "council_review")
+            .where(_Run.started_at < cutoff)
+            .values(status="completed")
+        )
+        await session.commit()
+    promoted = result.rowcount
+    logger.info("cleanup_stuck_council_review: promoted %d run(s) to completed", promoted)
+    return {"promoted": promoted, "message": f"Promoted {promoted} stuck run(s) from council_review to completed"}

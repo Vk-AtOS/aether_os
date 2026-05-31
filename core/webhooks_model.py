@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,7 +14,7 @@ class Webhook(Base):
     events: Mapped[str] = mapped_column(Text, nullable=False) # JSON encoded
     secret: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_triggered_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     organisation: Mapped["Organisation"] = relationship()

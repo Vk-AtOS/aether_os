@@ -275,9 +275,23 @@ class FactoryPipeline:
             if start_phase in all_phases:
                 phases_to_run = all_phases[all_phases.index(start_phase):]
 
+        # Aether2Bridge — optional DCSP integration (failure here never blocks pipeline)
+        _bridge = None
+        _dcsp_url = os.environ.get("DCSP_URL", "")
+        if _dcsp_url:
+            try:
+                from aether_os.integrations.aether2_bridge import Aether2Bridge
+                _bridge = Aether2Bridge()
+                _bridge.connect(_dcsp_url, os.environ.get("DCSP_API_KEY", ""))
+                _bridge.register_pipeline(run_id, list(phases_to_run))
+                logger.info("Aether2Bridge connected to %s, monitoring %d phases", _dcsp_url, len(phases_to_run))
+            except Exception as _br_exc:
+                logger.debug("Aether2Bridge init non-fatal: %s", _br_exc)
+                _bridge = None
+
         results = {}
         pipeline_start = time.time()
-        
+
         for phase_name in phases_to_run:
             # Set context vars so LLM calls in this phase can emit to the queue
             run_token   = ACTIVE_RUN_ID.set(run_id)
@@ -301,6 +315,11 @@ class FactoryPipeline:
                 
                 # Run phase with timeout (configurable per phase)
                 _phase_timeout = float(os.environ.get("PHASE_TIMEOUT_SECONDS", "600"))
+                if _bridge:
+                    try:
+                        _bridge.report_stage_start(run_id, phase_name)
+                    except Exception as _bse:
+                        logger.debug("bridge.report_stage_start non-fatal: %s", _bse)
                 phase_result = await asyncio.wait_for(
                     self._run_phase(phase_name, phase_input),
                     timeout=_phase_timeout)
@@ -515,12 +534,24 @@ class FactoryPipeline:
                     "status": p_status,
                     "duration": phase_result.get("duration_s"),
                 }, run_id=run_id)
+                if _bridge:
+                    try:
+                        _elapsed = int(phase_result.get("duration_s") or 0)
+                        _bridge.report_stage_complete(run_id, phase_name, _elapsed, success=True)
+                    except Exception as _bce:
+                        logger.debug("bridge.report_stage_complete non-fatal: %s", _bce)
 
             except asyncio.TimeoutError:
                 logger.warning(f"{phase_name} timed out, continuing")
                 await self._update_state(run_id, phase_name, "timeout")
                 results[phase_name] = {"status": "timeout", "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "timeout"}, run_id=run_id)
+                if _bridge:
+                    try:
+                        _bridge.report_failure(run_id, phase_name, "Phase timed out")
+                        _bridge.report_stage_complete(run_id, phase_name, int(_phase_timeout), success=False)
+                    except Exception as _btoe:
+                        logger.debug("bridge.report_failure(timeout) non-fatal: %s", _btoe)
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
                     await self.ledger.async_update_run_status(run_id, "failed")
@@ -534,6 +565,12 @@ class FactoryPipeline:
                 results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
                             "error": str(e)}, run_id=run_id)
+                if _bridge:
+                    try:
+                        _bridge.report_failure(run_id, phase_name, str(e))
+                        _bridge.report_stage_complete(run_id, phase_name, 0, success=False)
+                    except Exception as _bfe:
+                        logger.debug("bridge.report_failure non-fatal: %s", _bfe)
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s failed — aborting pipeline %s", phase_name, run_id)
                     await self.ledger.async_update_run_status(run_id, "failed")
@@ -613,12 +650,15 @@ class FactoryPipeline:
                 from aether_os.core.models import Run as _Run
                 from sqlalchemy import update as _sa_update
                 _dc = DeliveryCouncil()
-                _delivery = await _dc.run(
-                    run_id=run_id,
-                    project_name=project_name or f"project-{run_id[:8]}",
-                    domain=domain,
-                    phases_results=results,
-                    org_id=org_id,
+                _delivery = await asyncio.wait_for(
+                    _dc.run(
+                        run_id=run_id,
+                        project_name=project_name or f"project-{run_id[:8]}",
+                        domain=domain,
+                        phases_results=results,
+                        org_id=org_id,
+                    ),
+                    timeout=120,
                 )
                 # Determine final status: completed or needs_review
                 _council_passed = _delivery.get("passed", True)
@@ -659,6 +699,22 @@ class FactoryPipeline:
                     logger.info(
                         "DeliveryCouncil: run %s passed (score=%.2f)", run_id, _council_score
                     )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "DeliveryCouncil timed out after 120s for run %s — marking completed", run_id
+                )
+                try:
+                    from aether_os.core.db import get_session_factory as _gsf2t
+                    from aether_os.core.models import Run as _Run2t
+                    from sqlalchemy import update as _sa_update2t
+                    _sf2t = _gsf2t()
+                    async with _sf2t() as _s2t:
+                        await _s2t.execute(
+                            _sa_update2t(_Run2t).where(_Run2t.id == run_id).values(status="completed")
+                        )
+                        await _s2t.commit()
+                except Exception:
+                    pass
             except Exception as _exc:
                 logger.warning("DeliveryCouncil check failed: %s", _exc)
                 # Council unavailable — promote to completed so run is not stuck in council_review
