@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    env:
+      AETHER_SECRET_KEY: test-secret-key-32-chars-minimum-x
+      AETHER_ONE_ZT_SECRET: test-zt-secret-32-chars-minimum-xx
+      AETHER_ADMIN_EMAIL: admin@test.com
+      AETHER_ADMIN_PASSWORD: TestAdmin@123
+      AETHER_FIELD_KEY: ${{ secrets.AETHER_FIELD_KEY || '' }}
+      CORS_ORIGINS: http://localhost:3000
+      ENVIRONMENT: test
+      REQUIRE_REDIS: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check . --select E,F,W --ignore E501,W503 || true
+
+      - name: Run tests
+        run: |
+          pytest tests/ \
+            --timeout=60 \
+            --tb=short \
+            -q \
+            --ignore=tests/playwright_audit_report.md

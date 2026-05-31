@@ -71,7 +71,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+import jwt; JWTError = jwt.exceptions.PyJWTError
 from passlib.context import CryptContext
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production-use-openssl-rand-hex-32")
@@ -177,7 +177,7 @@ try:
 except ImportError:
     User = None  # type: ignore[assignment,misc]
 
-from jose import JWTError, jwt
+import jwt; JWTError = jwt.exceptions.PyJWTError
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

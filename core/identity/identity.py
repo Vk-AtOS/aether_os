@@ -1,7 +1,7 @@
 # aetherone/identity.py
 from __future__ import annotations
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import (Column, Integer, String, DateTime, Boolean, Table, MetaData, create_engine)
@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import select
 from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
-from jose import jwt, JWTError
+import jwt as _pyjwt
 
 # Config
 DB_DIR = os.path.expanduser(".aether-one")
@@ -24,7 +24,7 @@ if not _raw_secret:
     )
 SECRET_KEY = _raw_secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # default 1 week
+ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 metadata = MetaData()
@@ -67,7 +67,7 @@ def create_user(username: str, password: str, email: Optional[str] = None, full_
                 hashed_password=hashed,
                 roles=roles_csv,
                 is_active=True,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             ))
             uid = res.inserted_primary_key[0]
             return {"id": uid, "username": username, "roles": roles or []}
@@ -90,17 +90,16 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return _pyjwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def decode_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError as exc:
+        return _pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except _pyjwt.exceptions.PyJWTError as exc:
         raise ValueError("Invalid token") from exc
 
 def get_user_by_username(username: str) -> Optional[dict]:

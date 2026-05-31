@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -187,6 +187,11 @@ import os
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
+        import secrets as _sec
+        # Generate a per-request nonce to replace unsafe-inline for script-src (M-10)
+        nonce = _sec.token_urlsafe(16)
+        request.state.csp_nonce = nonce
+
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         # Rate limit headers on factory start and /auth/login routes
@@ -206,9 +211,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             and _urlparse(o.strip()).hostname
         )
         _frame_src = f"'self' {_cors_hosts} http://localhost:*".strip()
+        # Nonce replaces unsafe-inline for script-src; unsafe-eval kept for Monaco editor.
+        # style-src retains unsafe-inline (CSS injection risk lower than script injection).
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
+            f"script-src 'self' 'nonce-{nonce}' 'strict-dynamic' 'unsafe-eval' https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
             "img-src 'self' data: blob:; "
             "connect-src 'self' https://cdn.jsdelivr.net; "
@@ -779,15 +786,22 @@ def create_app() -> FastAPI:
 
         @app.get("/dashboard", include_in_schema=False)
         @app.get("/dashboard/{path:path}", include_in_schema=False)
-        async def _dashboard_spa(path: str = ""):
+        async def _dashboard_spa(request: Request, path: str = ""):
             _index = os.path.join(_dist, "index.html")
             if path:
                 candidate = os.path.normpath(os.path.join(_dist, path))
                 if candidate.startswith(_dist) and os.path.isfile(candidate):
-                    # Static assets (JS/CSS with content-hash filenames) can be cached long-term
                     return FileResponse(candidate)
-            # index.html — never cache so new JS bundles are always picked up
-            return FileResponse(_index, headers=_NO_CACHE)
+            # Inject CSP nonce into index.html <script> tags (M-10)
+            nonce = getattr(request.state, "csp_nonce", "")
+            try:
+                html = pathlib.Path(_index).read_text(encoding="utf-8")
+                if nonce:
+                    html = html.replace("<script ", f'<script nonce="{nonce}" ')
+                    html = html.replace("<script>", f'<script nonce="{nonce}">')
+                return HTMLResponse(html, headers=_NO_CACHE)
+            except Exception:
+                return FileResponse(_index, headers=_NO_CACHE)
 
         app.mount("/dashboard", StaticFiles(directory=_dist, html=True), name="dashboard")
 

@@ -48,12 +48,12 @@ async def guardian_status(
         from aether_os.core.guardian.models import GuardianEvent, GuardianSnapshot
         from aether_os.core.db import get_session_factory
         from sqlalchemy import select, desc, func
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         sf = get_session_factory()
         async with sf() as sess:
             # Count unresolved events by severity in last 24h
-            cutoff = datetime.utcnow() - timedelta(hours=24)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
             rows = (await sess.execute(
                 select(GuardianEvent.severity, func.count())
                 .where(GuardianEvent.resolved == False)  # noqa: E712
@@ -125,13 +125,13 @@ async def guardian_stats() -> Dict[str, Any]:
     from aether_os.core.guardian.models import GuardianEvent, GuardianSnapshot
     from aether_os.core.db import get_session_factory
     from sqlalchemy import select, func, desc
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     sf = get_session_factory()
     try:
         async with sf() as sess:
-            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-            week_ago = datetime.utcnow() - timedelta(days=7)
+            today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            week_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
             # Total threats (all non-recovery events)
             total = (await sess.execute(
@@ -256,7 +256,7 @@ async def resolve_event(
     _require_admin(user)
     from aether_os.core.db import get_session_factory
     from sqlalchemy import text
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     sf = get_session_factory()
     async with sf() as sess:
@@ -265,7 +265,7 @@ async def resolve_event(
                 "UPDATE guardian_events SET resolved = true, resolved_at = :ts "
                 "WHERE id = :eid"
             ),
-            {"ts": datetime.utcnow(), "eid": event_id},
+            {"ts": datetime.now(timezone.utc), "eid": event_id},
         )
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Event not found")

@@ -79,34 +79,30 @@ def create_refresh_token(data: Dict[str, Any], expires_days: int = 30) -> str:
 
 def create_access_token(
     data: Dict[str, Any],
-    expires_hours: int = 168,  # 7 days default — avoids 80K simultaneous re-login storms
+    expires_hours: int = 1,  # 1 hour default
 ) -> str:
     """Create a signed JWT access token."""
     import uuid as _uuid
-    try:
-        from jose import jwt  # type: ignore
-    except ImportError as exc:
-        raise ImportError("python-jose not installed. Run: pip install python-jose[cryptography]") from exc
-
+    import jwt as _jwt  # PyJWT
     payload = dict(data)
     expire = datetime.now(timezone.utc) + timedelta(hours=expires_hours)
     payload["exp"] = expire
     payload["iat"] = datetime.now(timezone.utc)
     payload.setdefault("jti", str(_uuid.uuid4()))  # unique token ID for blacklisting
-    return jwt.encode(payload, _get_secret_key(), algorithm=_ALGORITHM)
+    return _jwt.encode(payload, _get_secret_key(), algorithm=_ALGORITHM)
 
 
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """Decode and verify a JWT token. Returns None if invalid.
     SEC-045: Structured logging distinguishes expired vs. invalid tokens."""
+    import jwt as _jwt  # PyJWT
     try:
-        from jose import jwt, JWTError, ExpiredSignatureError  # type: ignore
-        return jwt.decode(token, _get_secret_key(), algorithms=[_ALGORITHM])
-    except ExpiredSignatureError:
+        return _jwt.decode(token, _get_secret_key(), algorithms=[_ALGORITHM])
+    except _jwt.exceptions.ExpiredSignatureError:
         logger.warning("JWT decode: ExpiredSignatureError — token has expired")
         return None
-    except JWTError as exc:
-        logger.warning("JWT decode: JWTError (%s) — invalid token", type(exc).__name__)
+    except _jwt.exceptions.PyJWTError as exc:
+        logger.warning("JWT decode: PyJWTError (%s) — invalid token", type(exc).__name__)
         return None
     except Exception as exc:
         logger.warning("JWT decode: unexpected error (%s): %s", type(exc).__name__, exc)

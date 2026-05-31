@@ -10,9 +10,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 import time
+import urllib.parse
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +26,31 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 _RETRY_DELAYS = [5, 30, 120]   # seconds between attempts (exponential-ish)
 _DELIVERY_TIMEOUT = 10.0       # seconds per HTTP attempt
+
+
+_BLOCKED_HOSTS = {"localhost", "metadata.google.internal", "169.254.169.254"}
+
+
+def _assert_safe_url(url: str) -> None:
+    """Re-validate the webhook URL by resolving its hostname at delivery time.
+    Prevents DNS rebinding attacks where a hostname passes registration checks
+    but later resolves to a private/internal IP."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or ""
+        if not host:
+            raise ValueError("empty hostname")
+        if host in _BLOCKED_HOSTS:
+            raise ValueError(f"blocked host: {host}")
+        # Resolve the hostname to its current IP
+        resolved_ip = socket.gethostbyname(host)
+        addr = ipaddress.ip_address(resolved_ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"hostname {host!r} resolved to private IP {resolved_ip}")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"SSRF pre-check failed for {url!r}: {exc}") from exc
 
 
 class WebhookDelivery:
@@ -68,6 +96,8 @@ class WebhookDelivery:
 
         for attempt in range(_MAX_RETRIES):
             try:
+                # Re-resolve DNS on every attempt to block DNS rebinding (H-09)
+                _assert_safe_url(url)
                 async with httpx.AsyncClient(timeout=_DELIVERY_TIMEOUT) as client:
                     resp = await client.post(url, content=body, headers=headers)
                 if resp.status_code < 300:
@@ -77,6 +107,10 @@ class WebhookDelivery:
                     "[webhook] %s → %s returned HTTP %s (attempt %d/%d)",
                     event_type, url, resp.status_code, attempt + 1, _MAX_RETRIES,
                 )
+            except ValueError as exc:
+                # SSRF check failed — abort all retries immediately
+                logger.error("[webhook] SSRF block: %s → %s: %s", event_type, url, exc)
+                return False
             except Exception as exc:
                 logger.warning(
                     "[webhook] %s → %s failed: %s (attempt %d/%d)",

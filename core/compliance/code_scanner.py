@@ -59,7 +59,7 @@ def scan_file(
     """
     import datetime
 
-    ts = datetime.datetime.utcnow().isoformat()
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     if not main_py_path.exists():
         return ComplianceScanResult(

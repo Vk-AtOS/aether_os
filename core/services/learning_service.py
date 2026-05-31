@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select
@@ -90,7 +90,7 @@ async def upsert_pattern(
         existing.occurrence_count += 1
         existing.confidence = min(1.0, existing.confidence + 0.1)
         existing.pattern_value = value if isinstance(value, dict) else {"v": value}
-        existing.last_updated_at = datetime.utcnow()
+        existing.last_updated_at = datetime.now(timezone.utc)
         if run_id:
             try:
                 ids = json.loads(existing.source_run_ids or "[]")
@@ -155,7 +155,7 @@ async def get_pending_clarifications(
         LearningClarificationPending.org_id == org_id,
         LearningClarificationPending.user_id == user_id,
         LearningClarificationPending.answered_at.is_(None),
-        LearningClarificationPending.expires_at > datetime.utcnow(),
+        LearningClarificationPending.expires_at > datetime.now(timezone.utc),
     ).order_by(LearningClarificationPending.created_at.asc())
     result = await session.execute(stmt)
     rows = result.scalars().all()
@@ -195,7 +195,7 @@ async def answer_clarification(
     if not row:
         return False
 
-    row.answered_at = datetime.utcnow()
+    row.answered_at = datetime.now(timezone.utc)
     row.answer = answer if isinstance(answer, dict) else {"text": str(answer)}
     await session.commit()
     return True
@@ -222,7 +222,7 @@ async def store_clarification(
                 LearningClarificationPending.org_id == org_id,
                 LearningClarificationPending.user_id == user_id,
                 LearningClarificationPending.answered_at.is_(None),
-                LearningClarificationPending.expires_at > datetime.utcnow(),
+                LearningClarificationPending.expires_at > datetime.now(timezone.utc),
             )
         )
     ).scalar_one()
@@ -237,7 +237,7 @@ async def store_clarification(
         question=question,
         question_type=question_type,
         context=context,
-        expires_at=datetime.utcnow() + timedelta(days=7),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     )
     session.add(row)
     await session.commit()

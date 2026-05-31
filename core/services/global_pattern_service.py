@@ -11,7 +11,7 @@ No user-specific data, raw prompts, or org IDs are stored here.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -73,7 +73,7 @@ async def record_global_pattern(
                     existing.success_rate = min(1.0, existing.success_rate + 0.05)
                 else:
                     existing.success_rate = max(0.0, existing.success_rate - 0.05)
-                existing.last_updated = datetime.utcnow()
+                existing.last_updated = datetime.now(timezone.utc)
             else:
                 pattern_name = f"{domain}_{pattern_type}"
                 initial_success = 1.0 if quality_score_total > 60 else 0.5
@@ -85,7 +85,7 @@ async def record_global_pattern(
                         success_rate=initial_success,
                         usage_count=1,
                         avg_quality_score=float(quality_score_total),
-                        last_updated=datetime.utcnow(),
+                        last_updated=datetime.now(timezone.utc),
                     )
                 )
 

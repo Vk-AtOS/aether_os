@@ -88,7 +88,7 @@ class RateLimiter:
     def __init__(self):
         self.max_concurrent_runs     = int(os.environ.get("MAX_CONCURRENT_RUNS_PER_ORG", 5))
         self.max_starts_per_hour     = int(os.environ.get("MAX_STARTS_PER_ORG_PER_HOUR", 20))
-        self.max_login_attempts      = int(os.environ.get("MAX_LOGIN_ATTEMPTS_PER_IP", 20))
+        self.max_login_attempts      = int(os.environ.get("MAX_LOGIN_ATTEMPTS_PER_IP", 5))
         self.max_registrations       = int(os.environ.get("MAX_REGISTRATIONS_PER_IP", 5))
         self.max_factory_starts_per_min = int(os.environ.get("MAX_FACTORY_STARTS_PER_MIN", 10))
 
