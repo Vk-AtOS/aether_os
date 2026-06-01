@@ -1,10 +1,9 @@
 # AetherOS .gitignore
 #
-# IMPORTANT: Sensitive files (token.txt, auth_res.json, aether_os.db.bak) were
-# accidentally committed previously. They have been removed from the git index via
-# `git rm --cached`. A full history scrub with `git filter-repo` is still
-# required before any public repository or acquisition due diligence:
-#   git filter-repo --invert-paths --path token.txt --path auth_res.json --path aether_os.db.bak
+# History has been fully scrubbed with git filter-repo (2026-06-01):
+#   - token.txt, auth_res.json, aether_os.db.bak (pass 1)
+#   - .env (pass 2)
+# GitHub history is clean. Credentials exposed in old .env must be rotated.
 
 # Sensitive runtime / auth files — never commit
 token.txt
