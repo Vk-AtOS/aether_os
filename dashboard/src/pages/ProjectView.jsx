@@ -646,6 +646,19 @@ const ProjectView = () => {
     }
   }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Restore appRunning state on mount (survives page refresh) ────────────
+  useEffect(() => {
+    if (!id || appRunning) return;
+    api.getRunAppStatus(id)
+      .then(r => {
+        if (r.data?.running) {
+          setAppRunning(true);
+          setAppOutput(prev => prev.length ? prev : ['[AetherOS] App is already running — preview available.']);
+        }
+      })
+      .catch(() => {});
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── SSE live feed ─────────────────────────────────────────────────────────
 
   const appendLine = useCallback((line) => {
@@ -708,6 +721,13 @@ const ProjectView = () => {
             }
             const line = formatEvent(event);
             if (line) appendLine(line);
+          }
+
+          if (event.type === 'app_started') {
+            setAppRunning(true);
+            setAppOutput(prev => [...prev,
+              `[AetherOS] App auto-started (${event.mode || 'backend'}) — preview available at /app-preview/`,
+            ]);
           }
 
           if (event.type === 'pipeline_complete') {
