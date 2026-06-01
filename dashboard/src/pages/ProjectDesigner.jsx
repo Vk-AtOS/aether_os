@@ -326,15 +326,89 @@ const UI_THEMES = [
 ];
 
 // ── Default spec ───────────────────────────────────────────────────────────────
+// ── Country / compliance data ──────────────────────────────────────────────────
+const COUNTRIES = [
+  // EU/EEA — GDPR triggers
+  { code:'AT', label:'Austria',        region:'EU',    flag:'🇦🇹' },
+  { code:'BE', label:'Belgium',        region:'EU',    flag:'🇧🇪' },
+  { code:'CZ', label:'Czechia',        region:'EU',    flag:'🇨🇿' },
+  { code:'DE', label:'Germany',        region:'EU',    flag:'🇩🇪' },
+  { code:'DK', label:'Denmark',        region:'EU',    flag:'🇩🇰' },
+  { code:'ES', label:'Spain',          region:'EU',    flag:'🇪🇸' },
+  { code:'FI', label:'Finland',        region:'EU',    flag:'🇫🇮' },
+  { code:'FR', label:'France',         region:'EU',    flag:'🇫🇷' },
+  { code:'GR', label:'Greece',         region:'EU',    flag:'🇬🇷' },
+  { code:'HR', label:'Croatia',        region:'EU',    flag:'🇭🇷' },
+  { code:'HU', label:'Hungary',        region:'EU',    flag:'🇭🇺' },
+  { code:'IE', label:'Ireland',        region:'EU',    flag:'🇮🇪' },
+  { code:'IT', label:'Italy',          region:'EU',    flag:'🇮🇹' },
+  { code:'NL', label:'Netherlands',    region:'EU',    flag:'🇳🇱' },
+  { code:'PL', label:'Poland',         region:'EU',    flag:'🇵🇱' },
+  { code:'PT', label:'Portugal',       region:'EU',    flag:'🇵🇹' },
+  { code:'RO', label:'Romania',        region:'EU',    flag:'🇷🇴' },
+  { code:'SE', label:'Sweden',         region:'EU',    flag:'🇸🇪' },
+  { code:'SK', label:'Slovakia',       region:'EU',    flag:'🇸🇰' },
+  { code:'CH', label:'Switzerland',    region:'EU',    flag:'🇨🇭' },  // FADP ≈ GDPR
+  { code:'NO', label:'Norway',         region:'EU',    flag:'🇳🇴' },  // EEA
+  { code:'GB', label:'United Kingdom', region:'UK',    flag:'🇬🇧' },  // UK GDPR
+  // Americas
+  { code:'US', label:'United States',  region:'US',    flag:'🇺🇸' },
+  { code:'CA', label:'Canada',         region:'CANADA',flag:'🇨🇦' },  // PIPEDA / Law 25
+  { code:'BR', label:'Brazil',         region:'LATAM', flag:'🇧🇷' },  // LGPD
+  { code:'MX', label:'Mexico',         region:'LATAM', flag:'🇲🇽' },
+  { code:'AR', label:'Argentina',      region:'LATAM', flag:'🇦🇷' },
+  { code:'CL', label:'Chile',          region:'LATAM', flag:'🇨🇱' },
+  { code:'CO', label:'Colombia',       region:'LATAM', flag:'🇨🇴' },
+  // APAC
+  { code:'AU', label:'Australia',      region:'APAC',  flag:'🇦🇺' },  // Privacy Act
+  { code:'NZ', label:'New Zealand',    region:'APAC',  flag:'🇳🇿' },
+  { code:'IN', label:'India',          region:'APAC',  flag:'🇮🇳' },  // DPDP Act + RBI
+  { code:'SG', label:'Singapore',      region:'APAC',  flag:'🇸🇬' },  // PDPA
+  { code:'JP', label:'Japan',          region:'APAC',  flag:'🇯🇵' },  // APPI
+  { code:'KR', label:'South Korea',    region:'APAC',  flag:'🇰🇷' },  // PIPA
+  { code:'TH', label:'Thailand',       region:'APAC',  flag:'🇹🇭' },  // PDPA
+  { code:'PH', label:'Philippines',    region:'APAC',  flag:'🇵🇭' },  // DPA
+  { code:'ID', label:'Indonesia',      region:'APAC',  flag:'🇮🇩' },
+  { code:'MY', label:'Malaysia',       region:'APAC',  flag:'🇲🇾' },
+  { code:'VN', label:'Vietnam',        region:'APAC',  flag:'🇻🇳' },
+  { code:'HK', label:'Hong Kong',      region:'APAC',  flag:'🇭🇰' },
+  { code:'TW', label:'Taiwan',         region:'APAC',  flag:'🇹🇼' },
+  // MENA
+  { code:'AE', label:'UAE',            region:'MENA',  flag:'🇦🇪' },
+  { code:'SA', label:'Saudi Arabia',   region:'MENA',  flag:'🇸🇦' },
+  { code:'IL', label:'Israel',         region:'MENA',  flag:'🇮🇱' },
+  { code:'EG', label:'Egypt',          region:'MENA',  flag:'🇪🇬' },
+  { code:'NG', label:'Nigeria',        region:'AFRICA',flag:'🇳🇬' },  // NDPR
+  { code:'ZA', label:'South Africa',   region:'AFRICA',flag:'🇿🇦' },  // POPIA
+  // China (special — PIPL)
+  { code:'CN', label:'China',          region:'CHINA', flag:'🇨🇳' },
+];
+
+const REGION_COMPLIANCE = {
+  EU:     ['GDPR','Data Residency Rules','AI Act (high-risk use cases)'],
+  UK:     ['UK GDPR','ICO Requirements'],
+  US:     ['State Privacy Laws (CCPA/CPRA)','HIPAA (if healthcare)','PCI-DSS (if payments)','SOC 2 (recommended)'],
+  CANADA: ['PIPEDA / Québec Law 25','CASL'],
+  LATAM:  ['LGPD (Brazil)','Local data localisation laws'],
+  APAC:   ['Country-specific data protection act','Data localisation requirements'],
+  MENA:   ['Local data protection regulations','Data residency requirements'],
+  AFRICA: ['POPIA (South Africa)','NDPR (Nigeria)','Local regulations'],
+  CHINA:  ['PIPL','Cybersecurity Law','Data Localisation Mandate','MLPS Certification'],
+  global: ['General best practices apply'],
+};
+
+const EMBARGOED = new Set(['CU','IR','KP','SY','RU','BY']);
+
 const DEFAULT_SPEC = {
   frontend: { framework: 'React + Vite', styling: 'Tailwind + shadcn/ui', state_management: 'Zustand', form_library: 'React Hook Form + Zod', data_fetching: 'TanStack Query' },
   backend:  { framework: 'FastAPI', database: 'PostgreSQL', orm: 'SQLAlchemy', auth: 'JWT + refresh tokens', api_style: 'REST' },
   infra:    { deployment: 'Docker + Compose', cache: 'Redis', queue: 'None', file_storage: 'Local', email: 'Resend' },
   features: { multi_tenancy: false, audit_log: false, rate_limiting: true, webhooks_out: false, realtime: 'None', payments: 'None', internationalization: false },
   design:   { primary: '#6366f1', secondary: '#8b5cf6', background: '#0f172a', surface: '#1e293b', font_pairing: 'Inter + Inter (system)', font_scale: 'Normal', border_radius: 'Rounded (8px)', layout: 'sidebar-topbar', density: 'Normal', card_style: 'Subtle Shadow', ui_theme: 'default' },
+  compliance: { production_country: '', data_sensitivity: 'moderate', handles_personal_data: true, handles_biometric_data: false, handles_children_data: false, requires_data_residency: false, deployment_type: 'saas' },
 };
 
-const TABS = ['Understand', 'Tech Stack', 'Design', 'Preview', 'Output'];
+const TABS = ['Understand', 'Tech Stack', 'Design', 'Compliance', 'Preview', 'Output'];
 const COLOR_SLOTS = ['primary', 'secondary', 'background', 'surface'];
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -569,7 +643,7 @@ const ProjectDesigner = () => {
 
   // ── Init from URL params ───────────────────────────────────────────────────
   useEffect(() => {
-    if (urlRunId) { setRunId(urlRunId); setActiveTab(4); }
+    if (urlRunId) { setRunId(urlRunId); setActiveTab(5); }
   }, [urlRunId]);
 
   useEffect(() => {
@@ -599,7 +673,7 @@ const ProjectDesigner = () => {
 
   // ── Fetch cost estimate when entering Preview ──────────────────────────────
   useEffect(() => {
-    if (activeTab === 3) {
+    if (activeTab === 4) {
       api.estimateCost({ domain, backend: spec.backend.framework, database: spec.backend.database, scale: 'small' })
         .then(res => setEstimate(res.data))
         .catch(() => {});
@@ -699,13 +773,22 @@ const ProjectDesigner = () => {
         client_id: (projectName.trim() || 'project').toLowerCase().replace(/\s+/g, '-'),
         codebase_mode: projectMode,
         designer_spec: designerSpec,
+        production_country: spec.compliance.production_country || undefined,
+        compliance_flags: {
+          data_sensitivity: spec.compliance.data_sensitivity,
+          handles_personal_data: spec.compliance.handles_personal_data,
+          handles_biometric_data: spec.compliance.handles_biometric_data,
+          handles_children_data: spec.compliance.handles_children_data,
+          requires_data_residency: spec.compliance.requires_data_residency,
+          deployment_type: spec.compliance.deployment_type,
+        },
         ...(importedSchema ? { existing_schema: importedSchema } : {}),
       };
       const res = await api.startPipeline(payload);
       const newRunId = res.data?.run_id;
       if (newRunId) {
         setRunId(newRunId);
-        setActiveTab(4);
+        setActiveTab(5);
         navigate(`/designer/${newRunId}`, { replace: true });
       }
     } catch (err) {
@@ -1055,7 +1138,149 @@ const ProjectDesigner = () => {
     </div>
   );
 
-  // ── Tab 4: Preview ─────────────────────────────────────────────────────────
+  // ── Tab 4: Compliance ──────────────────────────────────────────────────────
+  const renderCompliance = () => {
+    const cc = spec.compliance;
+    const selectedCountry = COUNTRIES.find(c => c.code === cc.production_country);
+    const region = selectedCountry?.region || 'global';
+    const frameworks = REGION_COMPLIANCE[region] || REGION_COMPLIANCE.global;
+    const isEmbargoed = EMBARGOED.has(cc.production_country);
+    const isEU = region === 'EU' || region === 'UK';
+    const [countrySearch, setCountrySearch] = React.useState('');
+    const filtered = COUNTRIES.filter(c =>
+      c.label.toLowerCase().includes(countrySearch.toLowerCase()) ||
+      c.code.toLowerCase().includes(countrySearch.toLowerCase())
+    );
+    return (
+      <div className="space-y-7">
+        {/* Country selector */}
+        <div>
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-1">Production Country</h3>
+          <p className="text-xs text-muted mb-3">Where will end users of this product be located? AetherOS will enforce the correct compliance frameworks automatically before, during, and after the build.</p>
+          <input
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent mb-3 transition-colors"
+            placeholder="Search country…"
+            value={countrySearch}
+            onChange={e => setCountrySearch(e.target.value)}
+          />
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+            {filtered.map(c => (
+              <button key={c.code} type="button"
+                onClick={() => updateSpec('compliance', 'production_country', c.code)}
+                className={`flex flex-col items-center gap-0.5 p-2 rounded-lg border text-xs transition-all ${
+                  cc.production_country === c.code
+                    ? 'border-accent bg-accent/10 text-accent'
+                    : EMBARGOED.has(c.code)
+                      ? 'border-red-800/40 text-red-400/70 hover:border-red-600/60'
+                      : 'border-border text-muted hover:border-accent/40 hover:text-bright'
+                }`}>
+                <span className="text-lg leading-none">{c.flag}</span>
+                <span className="font-semibold text-[10px] leading-tight text-center">{c.label}</span>
+                <span className="text-[9px] opacity-60">{c.code}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Live compliance panel */}
+        {cc.production_country && (
+          <div className={`rounded-xl border p-5 space-y-4 ${isEmbargoed ? 'border-red-600/50 bg-red-500/5' : 'border-accent/30 bg-accent/5'}`}>
+            <div className="flex items-start gap-3">
+              <span className="text-3xl">{selectedCountry?.flag}</span>
+              <div>
+                <h4 className="text-base font-bold text-bright">{selectedCountry?.label}
+                  <span className="ml-2 text-xs font-normal text-muted">({selectedCountry?.region})</span>
+                </h4>
+                {isEmbargoed && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <div className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-xs font-bold text-red-400">EMBARGOED JURISDICTION — Pipeline will be blocked</span>
+                  </div>
+                )}
+                {!isEmbargoed && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span className="text-xs text-emerald-400 font-semibold">Compliance rules will be auto-enforced</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-muted uppercase tracking-widest mb-2">Applicable Frameworks</p>
+              <div className="flex flex-wrap gap-2">
+                {frameworks.map(f => (
+                  <span key={f} className="px-2.5 py-1 bg-surface border border-border rounded-full text-xs text-bright font-medium">{f}</span>
+                ))}
+              </div>
+            </div>
+            {isEU && (
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-xs text-blue-300 space-y-1">
+                <p className="font-bold">GDPR Requirements — automatically injected into your build:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-blue-300/80">
+                  <li>Cookie consent banner</li>
+                  <li>Privacy policy endpoint + GDPR data deletion API</li>
+                  <li>Data processing records in audit log</li>
+                  <li>Right to erasure implementation</li>
+                  <li>Data Protection Officer contact field</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        {!cc.production_country && (
+          <div className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+            <span className="text-2xl">⚠️</span>
+            <p className="text-sm text-yellow-300">No country selected — compliance checks will run in generic mode. Select a country to get jurisdiction-specific enforcement.</p>
+          </div>
+        )}
+
+        <div className="h-px bg-border" />
+
+        {/* Additional compliance flags */}
+        <div>
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Data Handling Flags</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-muted mb-1.5">Data Sensitivity</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {['low','moderate','high'].map(s => (
+                  <button key={s} type="button" onClick={() => updateSpec('compliance','data_sensitivity',s)}
+                    className={`py-2 text-xs font-semibold rounded-lg border capitalize transition-all ${cc.data_sensitivity === s ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{s}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1.5">Deployment Type</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {['saas','on_prem','hybrid'].map(d => (
+                  <button key={d} type="button" onClick={() => updateSpec('compliance','deployment_type',d)}
+                    className={`py-2 text-xs font-semibold rounded-lg border capitalize transition-all ${cc.deployment_type === d ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{d.replace('_',' ')}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            {[
+              {key:'handles_personal_data',    label:'Personal Data'},
+              {key:'handles_biometric_data',   label:'Biometric Data'},
+              {key:'handles_children_data',    label:'Children\'s Data'},
+              {key:'requires_data_residency',  label:'Data Residency Required'},
+            ].map(f => (
+              <div key={f.key}>
+                <label className="block text-xs text-muted mb-1">{f.label}</label>
+                <button type="button" onClick={() => updateSpec('compliance', f.key, !cc[f.key])}
+                  className={`w-full px-3 py-2 rounded-lg text-sm font-semibold border transition-all ${cc[f.key] ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:border-border/80'}`}>
+                  {cc[f.key] ? 'Yes' : 'No'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Tab 5: Preview ─────────────────────────────────────────────────────────
   const renderPreview = () => {
     const cx = complexity;
     return (
@@ -1198,7 +1423,7 @@ const ProjectDesigner = () => {
     </div>
   );
 
-  const tabContent = [renderUnderstand, renderTechStack, renderDesign, renderPreview, renderOutput];
+  const tabContent = [renderUnderstand, renderTechStack, renderDesign, renderCompliance, renderPreview, renderOutput];
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
