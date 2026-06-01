@@ -472,6 +472,34 @@ def create_app() -> FastAPI:
         except Exception as _exc:
             logger.warning("Crash recovery cleanup failed: %s", _exc)
 
+        # ── Auto-restart last run_app after service restart ───────────────────
+        async def _restore_run_app():
+            try:
+                await asyncio.sleep(5)  # wait for DB + deps to settle
+                from aether_os.core.rate_limiter import run_app_port_get as _rapg
+                _rid, _rport = await _rapg()
+                if not _rid:
+                    return
+                # Verify the old port is actually dead before restarting
+                import socket as _sock
+                _dead = True
+                try:
+                    with _sock.create_connection(("127.0.0.1", _rport), timeout=1):
+                        _dead = False
+                except OSError:
+                    pass
+                if not _dead:
+                    logger.info("run_app: port %d still alive for run %s — no restart needed", _rport, _rid)
+                    return
+                logger.info("run_app: restarting run %s after service restart (old port %d was dead)", _rid, _rport)
+                from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
+                _system_user = {"org_id": None, "user_id": "system", "role": "admin"}
+                result = await _sar(run_id=_rid, user=_system_user)
+                logger.info("run_app: auto-restarted run %s → port %d", _rid, result.get("port"))
+            except Exception as _exc:
+                logger.debug("run_app auto-restore skipped: %s", _exc)
+        asyncio.create_task(_restore_run_app())
+
         # Seed marketplace with built-in skills if empty
         try:
             from aether_os.core.db import get_session_factory as _sf_market
@@ -846,8 +874,34 @@ def create_app() -> FastAPI:
             return _Resp(content=_r.content, status_code=_r.status_code,
                          headers=_headers, media_type=_r.headers.get("content-type"))
         except _httpx.ConnectError:
-            return _Resp(content="Generated app is not running. Click 'Run App' in the project view first.",
-                         status_code=503, media_type="text/plain")
+            # App is down — try to auto-restart if we have a run_id
+            _restart_triggered = False
+            if _APP_CURRENT_RUN:
+                _dead_run = _APP_CURRENT_RUN[0]
+                try:
+                    from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
+                    _system_user = {"org_id": None, "user_id": "system", "role": "admin"}
+                    asyncio.create_task(_sar(run_id=_dead_run, user=_system_user))
+                    _restart_triggered = True
+                    logger.info("app-preview: auto-restarting run %s after ConnectError", _dead_run)
+                except Exception as _re:
+                    logger.debug("app-preview: auto-restart failed: %s", _re)
+            _html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>AetherOS — Starting App…</title>
+<style>
+  body{{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px}}
+  .spinner{{width:40px;height:40px;border:3px solid rgba(99,102,241,.3);border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite}}
+  @keyframes spin{{to{{transform:rotate(360deg)}}}}
+  p{{color:#94a3b8;font-size:14px;text-align:center}}
+  small{{color:#475569;font-size:12px}}
+</style>
+{'<meta http-equiv="refresh" content="4">' if _restart_triggered else ''}
+</head><body>
+<div class="spinner"></div>
+<p>{'Starting generated app… page will refresh automatically.' if _restart_triggered else 'Generated app is not running.'}<br>
+{'<small>This takes ~10–20 seconds on first start.</small>' if _restart_triggered else '<small>Go to the project view and click <strong>Run App</strong>.</small>'}</p>
+</body></html>"""
+            return _Resp(content=_html, status_code=503 if not _restart_triggered else 200, media_type="text/html")
         except Exception as _pe:
             return _Resp(content=f"Preview proxy error: {_pe}", status_code=502, media_type="text/plain")
 

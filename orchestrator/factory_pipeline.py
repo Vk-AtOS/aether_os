@@ -644,34 +644,24 @@ class FactoryPipeline:
         await self._update_state(run_id, "pipeline", "complete")
         await self.ledger.async_update_run_status(run_id, "council_review")
 
-        # Auto-start the generated app
-        try:
-            import sys as _sys
-            import subprocess as _sp
-            import socket as _sock
-            from aether_os.gateway.api import _APP_PROCS, _APP_PORTS, _APP_CURRENT_RUN
-            _proj_dir = get_project_manager().get_project_dir(run_id).resolve()
-            _log = _proj_dir / "run_app.log"
-            _log_f = open(_log, "w")
-            with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as _s:
-                _s.bind(("127.0.0.1", 0))
-                _port = _s.getsockname()[1]
-            _proc = _sp.Popen(
-                [_sys.executable, "-m", "uvicorn", "src.main:app",
-                 "--host", "127.0.0.1", "--port", str(_port)],
-                cwd=str(_proj_dir),
-                stdout=_log_f,
-                stderr=_log_f,
-            )
-            _APP_PROCS[run_id] = _proc
-            _APP_PORTS[run_id] = _port
-            if _APP_CURRENT_RUN:
-                _APP_CURRENT_RUN[0] = run_id
-            else:
-                _APP_CURRENT_RUN.append(run_id)
-            logger.info("Auto-started generated app for run %s on port %d (pid %d)", run_id, _port, _proc.pid)
-        except Exception as _e:
-            logger.warning("Auto-start generated app failed: %s", _e)
+        # Auto-start the generated app via the proper run_app logic
+        # (builds frontend, patches SQLite, handles crash fallback)
+        async def _auto_start_app():
+            try:
+                from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
+                _system_user = {"org_id": org_id, "user_id": "system", "role": "admin", "email": "system@aetheros.internal"}
+                result = await _sar(run_id=run_id, user=_system_user)
+                logger.info("Auto-started generated app for run %s: %s", run_id, result)
+                await publish_event(run_id, {
+                    "type": "app_started",
+                    "run_id": run_id,
+                    "port": result.get("port"),
+                    "mode": result.get("mode", "backend"),
+                    "preview_url": "/app-preview/",
+                })
+            except Exception as _e:
+                logger.warning("Auto-start generated app failed for run %s: %s", run_id, _e)
+        asyncio.create_task(_auto_start_app())
 
         duration = time.time() - pipeline_start
 
