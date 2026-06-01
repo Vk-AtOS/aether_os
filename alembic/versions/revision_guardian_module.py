@@ -25,15 +25,15 @@ def upgrade() -> None:
         sa.Column('endpoint', sa.String(length=512), nullable=True),
         sa.Column('detail', sa.JSON(), nullable=True),
         sa.Column('resolved', sa.Boolean(), server_default='0', nullable=False),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.Column('resolved_at', sa.DateTime(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index('ix_guardian_events_created_at', 'guardian_events', ['created_at'])
 
     op.create_table(
         'guardian_snapshots',
         sa.Column('id', sa.String(length=36), primary_key=True),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('snapshot_path', sa.Text(), nullable=False),
         sa.Column('size_bytes', sa.Integer(), server_default='0', nullable=False),
         sa.Column('integrity_hash', sa.String(length=64), nullable=False),
