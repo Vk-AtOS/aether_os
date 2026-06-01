@@ -404,7 +404,7 @@ const DEFAULT_SPEC = {
   backend:  { framework: 'FastAPI', database: 'PostgreSQL', orm: 'SQLAlchemy', auth: 'JWT + refresh tokens', api_style: 'REST' },
   infra:    { deployment: 'Docker + Compose', cache: 'Redis', queue: 'None', file_storage: 'Local', email: 'Resend' },
   features: { multi_tenancy: false, audit_log: false, rate_limiting: true, webhooks_out: false, realtime: 'None', payments: 'None', internationalization: false },
-  design:   { primary: '#6366f1', secondary: '#8b5cf6', background: '#0f172a', surface: '#1e293b', font_pairing: 'Inter + Inter (system)', font_scale: 'Normal', border_radius: 'Rounded (8px)', layout: 'sidebar-topbar', density: 'Normal', card_style: 'Subtle Shadow', ui_theme: 'default' },
+  design:   { primary: '#6366f1', secondary: '#8b5cf6', background: '#0f172a', surface: '#1e293b', font_pairing: 'Inter + Inter (system)', font_scale: 'Normal', border_radius: 'Rounded (8px)', layout: 'sidebar-topbar', density: 'Normal', card_style: 'Subtle Shadow', ui_theme: 'default', page_transition: 'fade', micro_interactions: true, animation_speed: 'normal', scroll_reveal: true, loading_style: 'shimmer', hover_lift: true },
   compliance: { production_country: '', data_sensitivity: 'moderate', handles_personal_data: true, handles_biometric_data: false, handles_children_data: false, requires_data_residency: false, deployment_type: 'saas' },
 };
 
@@ -636,6 +636,9 @@ const ProjectDesigner = () => {
   // ── Design tab state ───────────────────────────────────────────────────────
   const [activeColorSlot, setActiveColorSlot] = useState('primary');
 
+  // ── Compliance tab state (must be at component level — Rules of Hooks) ─────
+  const [countrySearch, setCountrySearch] = useState('');
+
   // ── Launch state ──────────────────────────────────────────────────────────
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState('');
@@ -761,6 +764,12 @@ const ProjectDesigner = () => {
           layout: spec.design.layout,
           density: spec.design.density,
           ui_theme: spec.design.ui_theme || 'default',
+          page_transition: spec.design.page_transition || 'fade',
+          animation_speed: spec.design.animation_speed || 'normal',
+          micro_interactions: spec.design.micro_interactions !== false,
+          scroll_reveal: spec.design.scroll_reveal !== false,
+          loading_style: spec.design.loading_style || 'shimmer',
+          hover_lift: spec.design.hover_lift !== false,
         },
       };
       const rawInput = requirement.trim() + (repoContext ? `\n\nExisting codebase context:\n${repoContext.slice(0, 3000)}` : '');
@@ -1007,35 +1016,27 @@ const ProjectDesigner = () => {
   // ── Tab 3: Design ──────────────────────────────────────────────────────────
   const renderDesign = () => (
     <div className="space-y-8">
-      {/* UI/UX Theme Chooser */}
+
+      {/* ── Style Foundation ── */}
       <div>
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-1">UI/UX Design Style</h3>
-        <p className="text-xs text-muted mb-3">Choose a visual style — the AI will apply matching CSS patterns to your generated app.</p>
+        <div className="flex items-baseline gap-2 mb-1">
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Style Foundation</h3>
+          <span className="text-[10px] text-muted normal-case">— pick a base, then customise everything below</span>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {UI_THEMES.map(theme => (
-            <button
-              key={theme.id}
-              type="button"
-              onClick={() => updateSpec('design', 'ui_theme', theme.id)}
+            <button key={theme.id} type="button" onClick={() => updateSpec('design', 'ui_theme', theme.id)}
               className={`group relative flex flex-col rounded-xl border-2 overflow-hidden transition-all ${
-                spec.design.ui_theme === theme.id
-                  ? 'border-accent shadow-lg shadow-accent/20 scale-[1.02]'
-                  : 'border-border hover:border-accent/40'
-              }`}
-            >
-              <div className="w-full aspect-[3/2] bg-panel overflow-hidden">
-                {theme.preview}
-              </div>
-              <div className={`px-2 py-1.5 text-left transition-colors ${spec.design.ui_theme === theme.id ? 'bg-accent/10' : 'bg-surface'}`}>
+                spec.design.ui_theme === theme.id ? 'border-accent shadow-lg shadow-accent/20 scale-[1.02]' : 'border-border hover:border-accent/40'
+              }`}>
+              <div className="w-full aspect-[3/2] bg-panel overflow-hidden">{theme.preview}</div>
+              <div className={`px-2 py-1.5 text-left ${spec.design.ui_theme === theme.id ? 'bg-accent/10' : 'bg-surface'}`}>
                 <div className="flex items-center justify-between">
-                  <span className={`text-[11px] font-bold leading-tight ${spec.design.ui_theme === theme.id ? 'text-accent' : 'text-bright'}`}>
-                    {theme.label}
-                  </span>
-                  {spec.design.ui_theme === theme.id && <Check className="w-3 h-3 text-accent shrink-0 ml-1" />}
+                  <span className={`text-[11px] font-bold ${spec.design.ui_theme === theme.id ? 'text-accent' : 'text-bright'}`}>{theme.label}</span>
+                  {spec.design.ui_theme === theme.id && <Check className="w-3 h-3 text-accent shrink-0" />}
                 </div>
               </div>
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-panel border border-border rounded-lg text-[10px] text-bright whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl max-w-[180px] text-center leading-relaxed">
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-panel border border-border rounded-lg text-[10px] text-bright opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl max-w-[180px] text-center leading-relaxed whitespace-normal">
                 {theme.description}
               </div>
             </button>
@@ -1045,96 +1046,169 @@ const ProjectDesigner = () => {
 
       <div className="h-px bg-border" />
 
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Colors */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Colors</h3>
-        <div className="flex gap-1">
-          {COLOR_SLOTS.map(slot => (
-            <button key={slot} type="button" onClick={() => setActiveColorSlot(slot)}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded capitalize transition-all ${activeColorSlot === slot ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-bright'}`}>
-              {slot}
-            </button>
-          ))}
-        </div>
-        <HslPicker hex={spec.design[activeColorSlot]} onChange={v => updateSpec('design', activeColorSlot, v)} />
-        <div className="flex gap-2">
-          {COLOR_SLOTS.map(slot => (
-            <div key={slot} className="flex-1 flex flex-col items-center gap-1">
-              <div onClick={() => setActiveColorSlot(slot)}
-                className={`w-full h-8 rounded-lg cursor-pointer border-2 transition-all ${activeColorSlot === slot ? 'border-white' : 'border-transparent'}`}
-                style={{ background: spec.design[slot] }} />
-              <span className="text-[9px] text-muted capitalize">{slot}</span>
+      {/* ── Animations & Motion ── */}
+      <div>
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-4">Animations & Motion</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div>
+            <label className="block text-xs text-muted mb-1.5">Page Transitions</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                {id:'none',     label:'None',       desc:'Instant'},
+                {id:'fade',     label:'Fade',       desc:'Crossfade'},
+                {id:'slide',    label:'Slide',      desc:'Horizontal push'},
+                {id:'scale',    label:'Scale',      desc:'Zoom in/out'},
+                {id:'flip',     label:'Flip',       desc:'3D flip'},
+                {id:'blur',     label:'Blur',       desc:'Defocus shift'},
+              ].map(t => (
+                <button key={t.id} type="button" onClick={() => updateSpec('design','page_transition',t.id)}
+                  className={`flex flex-col px-2 py-2 rounded-lg border text-left transition-all ${spec.design.page_transition === t.id ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/40'}`}>
+                  <span className={`text-xs font-semibold ${spec.design.page_transition === t.id ? 'text-accent' : 'text-bright'}`}>{t.label}</span>
+                  <span className="text-[10px] text-muted">{t.desc}</span>
+                </button>
+              ))}
             </div>
-          ))}
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1.5">Animation Speed</label>
+            <div className="grid grid-cols-2 gap-1.5 mb-4">
+              {[
+                {id:'instant', label:'Instant',  css:'0ms'},
+                {id:'fast',    label:'Fast',     css:'150ms'},
+                {id:'normal',  label:'Normal',   css:'300ms'},
+                {id:'slow',    label:'Slow',     css:'500ms'},
+                {id:'cinematic',label:'Cinematic',css:'800ms'},
+              ].map(s => (
+                <button key={s.id} type="button" onClick={() => updateSpec('design','animation_speed',s.id)}
+                  className={`flex items-center justify-between px-2 py-2 rounded-lg border text-xs transition-all ${spec.design.animation_speed === s.id ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:border-accent/40 hover:text-bright'}`}>
+                  <span className="font-semibold">{s.label}</span>
+                  <span className="text-[10px] opacity-60">{s.css}</span>
+                </button>
+              ))}
+            </div>
+            <label className="block text-xs text-muted mb-1.5">Loading Skeleton</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {['none','pulse','shimmer'].map(l => (
+                <button key={l} type="button" onClick={() => updateSpec('design','loading_style',l)}
+                  className={`py-2 text-xs font-semibold capitalize rounded-lg border transition-all ${spec.design.loading_style === l ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-3">
+            <label className="block text-xs text-muted">Interaction Effects</label>
+            {[
+              {key:'micro_interactions', label:'Micro-interactions', desc:'Button press, ripple, tick feedback'},
+              {key:'scroll_reveal',      label:'Scroll reveal',      desc:'Elements animate in as you scroll'},
+              {key:'hover_lift',         label:'Hover lift',         desc:'Cards rise on hover (translateY + shadow)'},
+            ].map(f => (
+              <button key={f.key} type="button" onClick={() => updateSpec('design', f.key, !spec.design[f.key])}
+                className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${spec.design[f.key] ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/30'}`}>
+                <div className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${spec.design[f.key] ? 'border-accent bg-accent' : 'border-border'}`}>
+                  {spec.design[f.key] && <Check className="w-2.5 h-2.5 text-white" />}
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold ${spec.design[f.key] ? 'text-accent' : 'text-bright'}`}>{f.label}</p>
+                  <p className="text-[10px] text-muted mt-0.5">{f.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Typography */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Typography</h3>
-        <div>
-          <label className="block text-xs text-muted mb-2">Font Pairing</label>
-          {FONT_PAIRS.map(fp => (
-            <button key={fp} type="button" onClick={() => updateSpec('design','font_pairing',fp)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 mb-1.5 rounded-lg border text-xs transition-all ${spec.design.font_pairing === fp ? 'border-accent bg-accent/10 text-accent' : 'border-border text-bright hover:border-accent/40'}`}>
-              {fp}{spec.design.font_pairing === fp && <Check className="w-3.5 h-3.5" />}
-            </button>
-          ))}
-        </div>
-        <div>
-          <label className="block text-xs text-muted mb-1.5">Font Size Scale</label>
-          <div className="grid grid-cols-3 gap-1.5">
-            {['Compact','Normal','Comfortable'].map(s => (
-              <button key={s} type="button" onClick={() => updateSpec('design','font_scale',s)}
-                className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.font_scale === s ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{s}</button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs text-muted mb-1.5">Border Radius</label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {['Sharp (0px)','Subtle (4px)','Rounded (8px)','Pill (16px)'].map(r => (
-              <button key={r} type="button" onClick={() => updateSpec('design','border_radius',r)}
-                className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.border_radius === r ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{r}</button>
-            ))}
-          </div>
-        </div>
-      </div>
+      <div className="h-px bg-border" />
 
-      {/* Layout */}
-      <div className="space-y-4">
-        <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Layout</h3>
-        <div className="space-y-2">
-          {LAYOUTS.map(lay => (
-            <button key={lay.id} type="button" onClick={() => updateSpec('design','layout',lay.id)}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${spec.design.layout === lay.id ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/40'}`}>
-              <div className="w-16 h-10 shrink-0 rounded overflow-hidden border border-border/50">{lay.svg}</div>
-              <span className={`text-xs font-semibold flex-1 text-left ${spec.design.layout === lay.id ? 'text-accent' : 'text-bright'}`}>{lay.label}</span>
-              {spec.design.layout === lay.id && <Check className="w-4 h-4 text-accent" />}
-            </button>
-          ))}
-        </div>
-        <div>
-          <label className="block text-xs text-muted mb-1.5">Component Density</label>
-          <div className="grid grid-cols-3 gap-1.5">
-            {['Compact','Normal','Spacious'].map(d => (
-              <button key={d} type="button" onClick={() => updateSpec('design','density',d)}
-                className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.density === d ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{d}</button>
+      {/* ── Colors / Typography / Layout ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Colors */}
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Brand Colors</h3>
+          <div className="flex gap-1">
+            {COLOR_SLOTS.map(slot => (
+              <button key={slot} type="button" onClick={() => setActiveColorSlot(slot)}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded capitalize transition-all ${activeColorSlot === slot ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-bright'}`}>
+                {slot}
+              </button>
+            ))}
+          </div>
+          <HslPicker hex={spec.design[activeColorSlot]} onChange={v => updateSpec('design', activeColorSlot, v)} />
+          <div className="flex gap-2">
+            {COLOR_SLOTS.map(slot => (
+              <div key={slot} className="flex-1 flex flex-col items-center gap-1">
+                <div onClick={() => setActiveColorSlot(slot)}
+                  className={`w-full h-8 rounded-lg cursor-pointer border-2 transition-all ${activeColorSlot === slot ? 'border-white' : 'border-transparent'}`}
+                  style={{ background: spec.design[slot] }} />
+                <span className="text-[9px] text-muted capitalize">{slot}</span>
+              </div>
             ))}
           </div>
         </div>
-        <div>
-          <label className="block text-xs text-muted mb-1.5">Card Style</label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {['Flat','Subtle Shadow','Elevated','Glass'].map(cs => (
-              <button key={cs} type="button" onClick={() => updateSpec('design','card_style',cs)}
-                className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.card_style === cs ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{cs}</button>
+
+        {/* Typography */}
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Typography</h3>
+          <div>
+            <label className="block text-xs text-muted mb-2">Font Pairing</label>
+            {FONT_PAIRS.map(fp => (
+              <button key={fp} type="button" onClick={() => updateSpec('design','font_pairing',fp)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 mb-1.5 rounded-lg border text-xs transition-all ${spec.design.font_pairing === fp ? 'border-accent bg-accent/10 text-accent' : 'border-border text-bright hover:border-accent/40'}`}>
+                {fp}{spec.design.font_pairing === fp && <Check className="w-3.5 h-3.5" />}
+              </button>
             ))}
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1.5">Font Size Scale</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {['Compact','Normal','Comfortable'].map(s => (
+                <button key={s} type="button" onClick={() => updateSpec('design','font_scale',s)}
+                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.font_scale === s ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1.5">Border Radius</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {['Sharp (0px)','Subtle (4px)','Rounded (8px)','Pill (16px)'].map(r => (
+                <button key={r} type="button" onClick={() => updateSpec('design','border_radius',r)}
+                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.border_radius === r ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{r}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Layout */}
+        <div className="space-y-4">
+          <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Layout & Structure</h3>
+          <div className="space-y-2">
+            {LAYOUTS.map(lay => (
+              <button key={lay.id} type="button" onClick={() => updateSpec('design','layout',lay.id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${spec.design.layout === lay.id ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/40'}`}>
+                <div className="w-16 h-10 shrink-0 rounded overflow-hidden border border-border/50">{lay.svg}</div>
+                <span className={`text-xs font-semibold flex-1 text-left ${spec.design.layout === lay.id ? 'text-accent' : 'text-bright'}`}>{lay.label}</span>
+                {spec.design.layout === lay.id && <Check className="w-4 h-4 text-accent" />}
+              </button>
+            ))}
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1.5">Component Density</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {['Compact','Normal','Spacious'].map(d => (
+                <button key={d} type="button" onClick={() => updateSpec('design','density',d)}
+                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.density === d ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{d}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1.5">Card Style</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {['Flat','Subtle Shadow','Elevated','Glass'].map(cs => (
+                <button key={cs} type="button" onClick={() => updateSpec('design','card_style',cs)}
+                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${spec.design.card_style === cs ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-bright'}`}>{cs}</button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </div>
   );
 
@@ -1146,7 +1220,6 @@ const ProjectDesigner = () => {
     const frameworks = REGION_COMPLIANCE[region] || REGION_COMPLIANCE.global;
     const isEmbargoed = EMBARGOED.has(cc.production_country);
     const isEU = region === 'EU' || region === 'UK';
-    const [countrySearch, setCountrySearch] = React.useState('');
     const filtered = COUNTRIES.filter(c =>
       c.label.toLowerCase().includes(countrySearch.toLowerCase()) ||
       c.code.toLowerCase().includes(countrySearch.toLowerCase())
