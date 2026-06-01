@@ -1,7 +1,7 @@
 """AetherOS — Inter-phase message types for the message bus."""
 from __future__ import annotations
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
@@ -34,7 +34,7 @@ class PhaseResult(BaseModel):
 
 class PhaseMessage(BaseModel):
     message_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     from_phase: str
     to_phase: Optional[str] = None
     result: PhaseResult

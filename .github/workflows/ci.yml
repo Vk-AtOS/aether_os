@@ -48,4 +48,14 @@ jobs:
             --timeout=60 \
             --tb=short \
             -q \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
             --ignore=tests/playwright_audit_report.md
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml

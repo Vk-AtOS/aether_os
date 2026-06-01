@@ -1,4 +1,0 @@
-- generic [ref=e4]:
-  - heading "Project Not Found" [level=2] [ref=e5]
-  - paragraph [ref=e6]: "Could not load the project portal: Project demo-run-123 not found"
-  - paragraph [ref=e7]: If you received a link, please check it is correct and try again.

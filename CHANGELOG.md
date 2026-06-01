@@ -11,6 +11,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] — 2026-06-01
+
+First stable release. All enterprise features complete, load-tested, and Playwright-verified.
+
+### Added
+- **Project Designer**: Unified New Project wizard with HSL colour picker, tech-stack configurator, and designer_spec pipeline wiring (replaces legacy two-step wizard)
+- **Full Development Environment (FDE)**: Monaco editor in-browser, env-var panel, run-app process manager, VS Code extension one-click open
+- **SCIM v2 provisioning UI**: Settings page SCIM section with token management and Okta/Azure AD setup guide
+- **Marketplace CRUD**: Publish, browse, install, and manage reusable pipeline profiles
+- **Council preflight/delivery gates**: Truth Engine, Conflict Resolver, Tradeoff Engine, and Improvement Loop wired into pipeline gate evaluation
+- **Portal ZIP + provenance**: Client portal delivers signed artifact ZIP with build provenance JSON
+- **Quality metrics trend**: 5-point rolling quality score chart on project view
+- **Workspace management**: CRUD for logical workspaces within an organisation
+- **Memory knowledge graph**: D3.js interactive graph view of ChromaDB entity relationships
+- **4-router extraction**: Factory ops, factory runs, guardian, and account routers extracted from monolithic api.py
+- **GrowthBook feature flags**: Wired into p12a phase with flag definitions and gradual-rollout config
+- **Bedrock cross-region inference profile support**: Heavy tasks via Sonnet, light tasks via Haiku
+- **Air-gapped deployment mode**: `OFFLINE_MODE=true` + Ollama for fully local operation
+- **DCSP bridge**: Optional integration with DCSP predictive monitoring module
+
+### Fixed
+- p07b self-healing gate now correctly sets `passed=False` on error (quality gate restored)
+- p08/p09 double-execution eliminated (8 phases no longer run twice on large pipelines)
+- p10 bad imports from retired phase modules corrected
+- p06 security LLM call fixed (wrong import + `task=` kwarg)
+- Council `_ERROR_RESULT` now sets `passed=False` (was silently passing on exception)
+- Billing stats endpoint returning incorrect aggregate totals
+- Portal requirements not propagating to p14 client portal phase
+- Duplicate pipeline run creation on concurrent POST requests
+- SAML assertion route changed HEAD→GET
+- SSE v2 token moved from URL query param to header (SEC fix)
+- Redis password enforcement and PostgreSQL port no longer host-exposed
+- asyncio.ensure_future loop= removed (Python 3.10+ compatibility)
+- All `datetime.utcnow()` replaced with timezone-aware `datetime.now(timezone.utc)`
+- Alembic heads merged and UNIQUE constraint on org/provider added for `org_api_keys`
+
+### Security
+- Field-level Fernet encryption applied to `mfa_secret`, `org_api_keys.api_key`, and LLM provider keys
+- Zero-trust execution secret (`AETHER_ONE_ZT_SECRET`) raises RuntimeError if unset
+- CORS origins never wildcard — reads from `CORS_ORIGINS` env var exclusively
+- Rate limiting: Redis sliding-window on login (5/15 min), registration (5/hr), factory-start (10/min)
+- Prompt injection guard: 10 jailbreak + 5 shell injection patterns blocked at intake
+- Password checked against HIBP (Have I Been Pwned) on registration
+- `METRICS_API_KEY` now enforced on `/metrics` endpoint when set
+- systemd service demoted from root to `aetheros` user with ProtectSystem=strict
+
+### Performance
+- Load test: p95 = 240ms, 0% error rate at 50 concurrent users (Locust)
+- SQLite WAL mode + 22 explicit indexes on all high-traffic query patterns
+- PostgreSQL connection pool tuned: pool_size=3, max_overflow=7 per worker (safe under 100 max_connections default)
+
+---
+
 ## [0.1.0] — 2026-05-24
 
 Initial public release of AetherOS — the autonomous, multi-tenant AI software factory.
