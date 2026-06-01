@@ -1344,6 +1344,27 @@ async def start_run_app(
         if patches:
             main_py.write_text(content + patches)
 
+    # ── Patch auth.py: replace passlib CryptContext with direct bcrypt ───────
+    # passlib's bcrypt backend throws AttributeError on bcrypt >= 4.0 (missing __about__).
+    # Replace get_password_hash / verify_password with direct bcrypt calls to avoid this.
+    _auth_py = backend_dir / "src" / "auth.py"
+    if _auth_py.exists():
+        _auth = _auth_py.read_text()
+        if "AetherOS: bcrypt direct" not in _auth and "CryptContext" in _auth:
+            _bcrypt_patch = (
+                "\n# AetherOS: bcrypt direct — passlib CryptContext incompatible with bcrypt >= 4.x\n"
+                "try:\n"
+                "    import bcrypt as _bcrypt_mod\n"
+                "    def get_password_hash(pw: str) -> str:\n"
+                "        return _bcrypt_mod.hashpw(pw.encode(), _bcrypt_mod.gensalt()).decode()\n"
+                "    def verify_password(plain: str, hashed: str) -> bool:\n"
+                "        try: return _bcrypt_mod.checkpw(plain.encode(), hashed.encode())\n"
+                "        except Exception: return False\n"
+                "except ImportError:\n"
+                "    pass  # fall back to passlib\n"
+            )
+            _auth_py.write_text(_auth + _bcrypt_patch)
+
     # ── Patch seed.py: enforce predictable demo password for preview ──────────
     _PREVIEW_PASSWORD = "Admin1234!"
     _preview_email = "admin@example.com"
