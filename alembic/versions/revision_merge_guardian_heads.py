@@ -1,7 +1,7 @@
-"""merge guardian branch heads
+"""merge guardian branch heads (excludes encrypt_sensitive_columns — requires AETHER_FIELD_KEY)
 
 Revision ID: revision_merge_guardian_heads
-Revises: add_artifact_embedding_org_fk, encrypt_sensitive_columns, revision_guardian_timestamptz
+Revises: add_artifact_embedding_org_fk, revision_guardian_timestamptz
 Create Date: 2026-06-01 00:00:01.000000
 
 """
@@ -10,7 +10,6 @@ from typing import Sequence, Union
 revision: str = 'revision_merge_guardian_heads'
 down_revision: Union[str, tuple] = (
     'add_artifact_embedding_org_fk',
-    'encrypt_sensitive_columns',
     'revision_guardian_timestamptz',
 )
 branch_labels: Union[str, Sequence[str], None] = None
