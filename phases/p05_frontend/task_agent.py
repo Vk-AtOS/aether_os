@@ -43,35 +43,58 @@ def _detect_domain(phase_input: Any) -> str:
     entities = [e.get("name", "").lower() for e in data.get("entities", [])]
     all_text = description + " " + " ".join(entities)
 
-    domain_keywords = {
-        "security":            ["camera", "cctv", "surveillance", "motion", "detection",
-                                "guard", "alert", "incident", "zone", "monitor", "feed",
-                                "security", "intrusion", "access control", "footage", "nvr",
-                                "dvr", "ptz", "analytics", "ai detection", "facial"],
-        "iot":                 ["sensor", "device", "telemetry", "mqtt", "firmware",
-                                "gateway", "edge", "iot", "embedded", "actuator",
-                                "temperature", "humidity", "smart", "arduino", "raspberry"],
-        "healthcare":          ["patient", "appointment", "doctor", "clinic", "medical",
-                                "prescription", "diagnosis", "health", "vitals", "nurse"],
-        "crm":                 ["lead", "deal", "pipeline", "contact", "opportunity",
-                                "prospect", "sales", "funnel", "crm"],
-        "ecommerce":           ["product", "order", "cart", "inventory", "sku",
-                                "purchase", "shop", "store", "payment", "checkout"],
-        "hrm":                 ["employee", "payroll", "attendance", "leave",
-                                "department", "salary", "hr", "hire", "onboard"],
-        "finance":             ["invoice", "payment", "expense", "budget",
-                                "transaction", "account", "billing", "ledger"],
-        "project_management":  ["task", "sprint", "milestone", "ticket",
-                                "board", "kanban", "project", "backlog"],
-        "restaurant":          ["menu", "table", "reservation", "kitchen",
-                                "dish", "waiter", "restaurant", "pos"],
-        "education":           ["student", "course", "grade", "teacher",
-                                "enrollment", "class", "lesson", "school"],
+    # Weighted keyword matching: each keyword has a weight (default 1).
+    # Phrases or highly specific terms get higher weights.
+    # Final domain = highest total score (ties broken by dict order).
+    # Requires at least 2 points to prevent a single generic word from winning.
+    domain_keywords: Dict[str, List] = {
+        "security":            [("camera", 3), ("cctv", 3), ("surveillance", 3), ("footage", 3),
+                                ("nvr", 3), ("dvr", 3), ("ptz", 3), ("facial recognition", 3),
+                                ("intrusion", 2), ("motion detection", 2), ("security camera", 3),
+                                ("access control", 1), ("guard", 2), ("zone", 1), ("feed", 1)],
+        "iot":                 [("sensor", 2), ("telemetry", 3), ("mqtt", 3), ("firmware", 3),
+                                ("iot", 3), ("embedded", 2), ("actuator", 2), ("arduino", 3),
+                                ("raspberry pi", 3), ("temperature sensor", 3), ("humidity", 2),
+                                ("edge computing", 2), ("device", 1)],
+        "healthcare":          [("patient", 3), ("appointment", 2), ("doctor", 2), ("clinic", 2),
+                                ("medical", 2), ("prescription", 3), ("diagnosis", 3),
+                                ("vitals", 3), ("nurse", 2), ("ehr", 3), ("emr", 3), ("health", 1)],
+        "crm":                 [("crm", 3), ("lead", 2), ("deal", 2), ("opportunity", 2),
+                                ("prospect", 2), ("sales pipeline", 3), ("funnel", 2),
+                                ("contact", 1), ("sales", 1)],
+        "ecommerce":           [("cart", 3), ("checkout", 3), ("sku", 3), ("ecommerce", 3),
+                                ("shop", 2), ("store", 2), ("inventory", 2), ("order", 2),
+                                ("product", 1), ("payment", 1), ("purchase", 1)],
+        "hrm":                 [("employee", 3), ("payroll", 3), ("attendance", 3), ("leave request", 3),
+                                ("department", 2), ("salary", 3), ("human resources", 3),
+                                ("workforce", 3), ("hrm", 3), ("hr platform", 3),
+                                ("onboarding", 2), ("hire", 2), (" hr ", 2), ("hris", 3)],
+        "finance":             [("invoice", 3), ("expense", 2), ("budget", 2), ("ledger", 3),
+                                ("transaction", 2), ("accounting", 3), ("billing", 2),
+                                ("financial", 2), ("payment", 1), ("account", 1)],
+        "project_management":  [("sprint", 3), ("kanban", 3), ("backlog", 3), ("milestone", 2),
+                                ("ticket", 2), ("board", 2), ("task", 1), ("project", 1)],
+        "restaurant":          [("restaurant", 3), ("menu", 2), ("table", 2), ("reservation", 2),
+                                ("kitchen", 2), ("waiter", 2), ("dish", 2), ("pos", 2)],
+        "education":           [("student", 3), ("enrollment", 3), ("grade", 2), ("teacher", 2),
+                                ("course", 2), ("lesson", 2), ("school", 2), ("class", 1)],
     }
 
-    for domain, keywords in domain_keywords.items():
-        if any(kw in all_text for kw in keywords):
-            return domain
+    scores: Dict[str, int] = {}
+    for domain, weighted_kws in domain_keywords.items():
+        total = 0
+        for item in weighted_kws:
+            kw, weight = item if isinstance(item, tuple) else (item, 1)
+            if kw in all_text:
+                total += weight
+        if total > 0:
+            scores[domain] = total
+
+    if scores:
+        best = max(scores, key=lambda d: scores[d])
+        if scores[best] >= 3:
+            return best
+
     return "saas"
 
 
