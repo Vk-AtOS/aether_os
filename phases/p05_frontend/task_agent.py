@@ -894,14 +894,82 @@ body { background: #fdf4ff; color: #3b1f5e; font-family: 'Nunito', 'Inter', sans
 }
 
 
-def _generate_index_css(ui_theme: str = "default") -> str:
+_SPEED_MS: dict = {
+    "instant": 0, "fast": 150, "normal": 300, "slow": 500, "cinematic": 800,
+}
+
+_TRANSITION_CSS: dict = {
+    "fade":  "transition: opacity {ms}ms ease;",
+    "slide": "transition: transform {ms}ms ease, opacity {ms}ms ease;",
+    "scale": "transition: transform {ms}ms cubic-bezier(.4,0,.2,1), opacity {ms}ms ease;",
+    "flip":  "transition: transform {ms}ms ease; transform-style: preserve-3d;",
+    "blur":  "transition: filter {ms}ms ease, opacity {ms}ms ease;",
+}
+
+_SKELETON_CSS: dict = {
+    "pulse":   ".skeleton { animation: pulse 1.5s cubic-bezier(.4,0,.6,1) infinite; background: rgba(148,163,184,.2); border-radius:4px; } @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}",
+    "shimmer": ".skeleton { background: linear-gradient(90deg,rgba(148,163,184,.1) 25%,rgba(148,163,184,.25) 50%,rgba(148,163,184,.1) 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px; } @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}",
+}
+
+
+def _generate_index_css(
+    ui_theme: str = "default",
+    page_transition: str = "fade",
+    animation_speed: str = "normal",
+    micro_interactions: bool = True,
+    scroll_reveal: bool = True,
+    loading_style: str = "shimmer",
+    hover_lift: bool = True,
+) -> str:
     base = """\
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 """
-    extra = _THEME_CSS.get(ui_theme, "")
-    return base + ("\n" + extra if extra else "")
+    parts: list[str] = [base]
+
+    # Theme layer
+    theme_extra = _THEME_CSS.get(ui_theme, "")
+    if theme_extra:
+        parts.append(theme_extra)
+
+    # Animation speed variable
+    ms = _SPEED_MS.get(animation_speed, 300)
+    parts.append(f":root {{ --anim-speed: {ms}ms; }}")
+
+    # Page transitions
+    if page_transition != "none" and ms > 0:
+        tpl = _TRANSITION_CSS.get(page_transition, _TRANSITION_CSS["fade"])
+        rule = tpl.replace("{ms}", str(ms))
+        parts.append(f".page-enter {{ {rule} }}")
+
+    # Loading skeleton
+    skel = _SKELETON_CSS.get(loading_style, "")
+    if skel:
+        parts.append(skel)
+
+    # Hover lift
+    if hover_lift:
+        parts.append(
+            ".hover-lift { transition: transform var(--anim-speed) ease, box-shadow var(--anim-speed) ease; }"
+            " .hover-lift:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }"
+        )
+
+    # Micro-interactions
+    if micro_interactions:
+        parts.append(
+            ".btn-press:active { transform: scale(0.96); }"
+            " .btn-press { transition: transform calc(var(--anim-speed) * 0.5) ease; }"
+        )
+
+    # Scroll reveal (CSS-only baseline; JS layer can enhance)
+    if scroll_reveal:
+        parts.append(
+            ".reveal { opacity: 0; transform: translateY(16px); transition: opacity var(--anim-speed) ease, transform var(--anim-speed) ease; }"
+            " .reveal.visible { opacity: 1; transform: translateY(0); }"
+        )
+
+    return "\n".join(parts)
 
 
 def _generate_main_tsx() -> str:
@@ -2040,10 +2108,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
 
-    # Extract designer UI theme if provided
+    # Extract designer spec settings
     designer_spec = data.get("designer_spec") or {}
-    ui_theme: str = (designer_spec.get("design") or {}).get("ui_theme", "default") or "default"
-    logger.info("p05_frontend: ui_theme=%s", ui_theme)
+    _design = designer_spec.get("design") or {}
+    ui_theme: str = _design.get("ui_theme", "default") or "default"
+    page_transition: str = _design.get("page_transition", "fade") or "fade"
+    animation_speed: str = _design.get("animation_speed", "normal") or "normal"
+    micro_interactions: bool = bool(_design.get("micro_interactions", True))
+    scroll_reveal: bool = bool(_design.get("scroll_reveal", True))
+    loading_style: str = _design.get("loading_style", "shimmer") or "shimmer"
+    hover_lift: bool = bool(_design.get("hover_lift", True))
+    logger.info("p05_frontend: ui_theme=%s transition=%s speed=%s", ui_theme, page_transition, animation_speed)
 
     # 3. Build frontend/ directory
     frontend_dir = output_dir / "frontend"
@@ -2065,7 +2140,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (frontend_dir / ".env.example").write_text(_generate_env_example())
     (frontend_dir / ".eslintrc.cjs").write_text(_generate_eslint_config())
     (frontend_dir / "README.md").write_text(_generate_frontend_readme(project_name))
-    (src_dir / "index.css").write_text(_generate_index_css(ui_theme))
+    (src_dir / "index.css").write_text(_generate_index_css(
+        ui_theme=ui_theme,
+        page_transition=page_transition,
+        animation_speed=animation_speed,
+        micro_interactions=micro_interactions,
+        scroll_reveal=scroll_reveal,
+        loading_style=loading_style,
+        hover_lift=hover_lift,
+    ))
     (src_dir / "main.tsx").write_text(_generate_main_tsx())
 
     # ── lib/ ──────────────────────────────────────────────────────────────────
