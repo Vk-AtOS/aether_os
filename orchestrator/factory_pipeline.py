@@ -518,6 +518,39 @@ class FactoryPipeline:
                         accumulated_context["api_routes_path"] = str(_routes_candidate)
                         logger.info("[pipeline] api_routes_path → %s", _routes_candidate)
 
+                    # BackendAuditCouncil — autonomous multi-model code review of generated main.py
+                    async def _backend_audit_council():
+                        try:
+                            from aether_os.core.council.council_reviewer import run_council
+                            _main_candidates = [
+                                project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+                                project_dir / "p04_backend" / "src" / "main.py",
+                                project_dir / "src" / "main.py",
+                            ]
+                            _main_py = next((p for p in _main_candidates if p.exists()), None)
+                            if not _main_py:
+                                logger.debug("[BackendAuditCouncil] main.py not found, skipping")
+                                return
+                            _src = _main_py.read_text()
+                            _report = await asyncio.wait_for(
+                                run_council(_src, run_id, accumulated_context.get("project_name", "Project"), domain or "general"),
+                                timeout=90.0,
+                            )
+                            from dataclasses import asdict as _asdict
+                            _report_dict = _asdict(_report)
+                            _out = project_dir / "council_review.json"
+                            import json as _cj
+                            _out.write_text(_cj.dumps(_report_dict, indent=2))
+                            accumulated_context["council_review"] = _report_dict
+                            await emit({"type": "council_review_complete", "score": _report.average_score, "issues": len(_report.consensus_issues)}, run_id=run_id)
+                            logger.info("[BackendAuditCouncil] run %s: avg_score=%.1f consensus_issues=%d", run_id, _report.average_score, len(_report.consensus_issues))
+                        except Exception as _bac_exc:
+                            logger.warning("[BackendAuditCouncil] non-fatal: %s", _bac_exc)
+                    _bac_task = asyncio.create_task(_backend_audit_council())
+                    _background_tasks_set = getattr(self, "_bg_tasks", set())
+                    _background_tasks_set.add(_bac_task)
+                    _bac_task.add_done_callback(_background_tasks_set.discard)
+
                 # Update state
                 p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
                 await self._update_state(run_id, phase_name, p_status)

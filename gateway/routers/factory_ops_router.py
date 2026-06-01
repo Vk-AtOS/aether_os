@@ -475,6 +475,8 @@ async def start_factory_run(
     project_name = req.get("project_name")
     github_url = req.get("github_url", "").strip()
     designer_spec = req.get("designer_spec")
+    production_country = (req.get("production_country") or "").strip().upper() or None
+    compliance_flags = req.get("compliance_flags") or {}
 
     if not raw_input:
         raise HTTPException(status_code=400, detail="raw_input or requirement is required")
@@ -512,11 +514,76 @@ async def start_factory_run(
                 f"  Border radius: {ds.get('border_radius','Rounded (8px)')}\n"
                 f"  Layout: {ds.get('layout','sidebar-topbar')}\n"
                 f"  Component density: {ds.get('density','Normal')}\n"
+                f"  UI Theme: {ds.get('ui_theme','default')}\n"
                 "\n=== PROJECT REQUIREMENT ===\n"
             )
             raw_input = preamble + raw_input
         except Exception as _spec_exc:
             logger.warning("Failed to build designer_spec preamble: %s", _spec_exc)
+
+    # ── Compliance pre-check — block embargoed countries, enforce jurisdiction ──
+    _EMBARGOED = {"CU", "IR", "KP", "SY", "RU", "BY"}
+    if production_country and production_country in _EMBARGOED:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Production in '{production_country}' is blocked — embargoed jurisdiction."
+        )
+    if production_country:
+        try:
+            from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
+            _region_map = {
+                "AT":"EU","BE":"EU","CZ":"EU","DE":"EU","DK":"EU","ES":"EU","FI":"EU","FR":"EU",
+                "GR":"EU","HR":"EU","HU":"EU","IE":"EU","IT":"EU","NL":"EU","PL":"EU","PT":"EU",
+                "RO":"EU","SE":"EU","SK":"EU","CH":"EU","NO":"EU","GB":"UK",
+                "US":"US","CA":"CANADA","BR":"LATAM","MX":"LATAM","AR":"LATAM","CL":"LATAM","CO":"LATAM",
+                "AU":"APAC","NZ":"APAC","IN":"APAC","SG":"APAC","JP":"APAC","KR":"APAC","TH":"APAC",
+                "PH":"APAC","ID":"APAC","MY":"APAC","VN":"APAC","HK":"APAC","TW":"APAC",
+                "AE":"MENA","SA":"MENA","IL":"MENA","EG":"MENA","NG":"AFRICA","ZA":"AFRICA",
+                "CN":"CHINA",
+            }
+            _region = _region_map.get(production_country, "global")
+            _ctx = ComplianceContext(
+                country_code=production_country,
+                region=_region,
+                deployment_type=compliance_flags.get("deployment_type", "saas"),
+                data_sensitivity=compliance_flags.get("data_sensitivity", "moderate"),
+                handles_personal_data=compliance_flags.get("handles_personal_data", True),
+                handles_biometric_data=compliance_flags.get("handles_biometric_data", False),
+                handles_children_data=compliance_flags.get("handles_children_data", False),
+                industries=[domain] if domain else [],
+                high_risk_use_cases=[],
+                uses_strong_crypto=True,
+                uses_weak_crypto=False,
+                customer_requires_data_residency=compliance_flags.get("requires_data_residency", False),
+                uses_third_country_cloud=False,
+                model_providers=[],
+                repo_tags=[],
+            )
+            _decision = ComplianceEngine().evaluate(_ctx)
+            if _decision.denied:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Compliance check denied: {'; '.join(_decision.reasons)}"
+                )
+            # Inject compliance context so all phases can access it
+            if not isinstance(designer_spec, dict):
+                designer_spec = {}
+            designer_spec["compliance_context"] = {
+                "country_code": production_country,
+                "region": _region,
+                "allowed": _decision.allowed,
+                "requires_approval": _decision.requires_approval,
+                "violations": [{"rule_id": v.rule_id, "severity": v.severity, "message": v.message} for v in _decision.violations],
+                **compliance_flags,
+            }
+            logger.info(
+                "Compliance pre-check: country=%s region=%s allowed=%s requires_approval=%s violations=%d",
+                production_country, _region, _decision.allowed, _decision.requires_approval, len(_decision.violations),
+            )
+        except HTTPException:
+            raise
+        except Exception as _comp_exc:
+            logger.warning("Compliance pre-check non-fatal error: %s", _comp_exc)
 
     # B7: Prompt injection guard — block jailbreak and shell injection attempts
     from aether_os.core.security.prompt_guard import guard as _guard
