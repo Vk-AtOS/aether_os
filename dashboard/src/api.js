@@ -104,6 +104,7 @@ export const api = {
   startRunApp: (runId) => client.post(`/factory/runs/${runId}/run-app`),
   stopRunApp: (runId) => client.delete(`/factory/runs/${runId}/run-app`),
   getRunAppStatus: (runId) => client.get(`/factory/runs/${runId}/run-app/status`),
+  getPreviewCredentials: (runId) => client.get(`/factory/runs/${runId}/preview-credentials`),
   approveAction: (ticketId, decision, reason) =>
     client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
   listDecisions: (runId, status) => client.get(`/factory/runs/${runId}/decisions`, { params: status ? { status } : {} }),
