@@ -623,8 +623,11 @@ REQUIREMENTS:
 3. `async def seed_database()` — called on every startup
 4. Check if already seeded: `result = await db.execute(select(func.count()).select_from(User))`
    If count > 0, return early (idempotent)
-5. Create admin user: email="admin@example.com", password=get_password_hash(os.environ.get("ADMIN_PASSWORD", "changeme-" + str(uuid.uuid4())[:8])), role="admin"
-   Add `import os, uuid` at top of file.
+5. Create admin user: email="admin@example.com", role="admin"
+   Set `_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin1234!")`
+   Use `password=get_password_hash(_ADMIN_PASSWORD)`.
+   Add `import os` at top of file.
+   Log: `_logger.info("Seeded admin: admin@example.com / %s", _ADMIN_PASSWORD)`
 6. Create 15-20 realistic records for EACH entity:
    - Use real-world names, descriptions, values (NOT "test1", "item1", "string")
    - Values must be domain-appropriate for {domain}
@@ -805,17 +808,16 @@ def _fallback_crud_routers(entities: list) -> str:
 
 
 def _fallback_seed(project_name: str, entities: list) -> str:
-    admin_password = secrets.token_urlsafe(12)
-    return textwrap.dedent(f"""\
+    return textwrap.dedent("""\
         from __future__ import annotations
-        import logging
+        import os, logging
         from sqlalchemy import select, func
         from .database import AsyncSessionLocal
         from .auth import get_password_hash
         from .models import User
 
         _logger = logging.getLogger(__name__)
-        _ADMIN_PASSWORD = "{admin_password}"
+        _ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin1234!")
 
         async def seed_database() -> None:
             async with AsyncSessionLocal() as db:

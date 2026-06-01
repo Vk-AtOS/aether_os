@@ -32,6 +32,8 @@ import {
   GitPullRequest,
   CheckCircle2,
   XCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -531,8 +533,10 @@ const ProjectView = () => {
   // Env vars tab
   const [envVars, setEnvVars]       = useState(null);
   const [envSaving, setEnvSaving]   = useState(false);
-  const [appRunning, setAppRunning] = useState(false);
-  const [appOutput, setAppOutput]   = useState([]);
+  const [appRunning, setAppRunning]         = useState(false);
+  const [appOutput, setAppOutput]           = useState([]);
+  const [previewCreds, setPreviewCreds]     = useState(null);
+  const [credsCopied, setCredsCopied]       = useState(false);
 
   // Re-run dropdown (managed inside RerunDropdown component)
 
@@ -656,6 +660,10 @@ const ProjectView = () => {
           setAppOutput(prev => prev.length ? prev : ['[AetherOS] App is already running — preview available.']);
         }
       })
+      .catch(() => {});
+    // Fetch preview credentials (available after first Run App)
+    api.getPreviewCredentials(id)
+      .then(r => setPreviewCreds(r.data))
       .catch(() => {});
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2259,10 +2267,17 @@ const ProjectView = () => {
                     <button
                       onClick={async () => {
                         try {
-                          await api.startRunApp(id);
+                          const res = await api.startRunApp(id);
                           setAppRunning(true);
-                          setAppOutput(['[AetherOS] Starting app…', '[AetherOS] Preview available at /app-preview/ (click "Open App Preview" above)']);
-                          setToast('App starting on port 8001…');
+                          const email = res.data?.preview_email || 'admin@example.com';
+                          const pw    = res.data?.preview_password || 'Admin1234!';
+                          setPreviewCreds({ email, password: pw });
+                          setAppOutput([
+                            '[AetherOS] Starting app… (builds frontend + installs deps ~15s)',
+                            `[AetherOS] Demo login → ${email} / ${pw}`,
+                            '[AetherOS] Preview available at /app-preview/',
+                          ]);
+                          setToast('App starting — demo credentials shown below.');
                         } catch (e) {
                           setToast('Failed to start app: ' + (e.response?.data?.detail || e.message));
                         }
@@ -2304,6 +2319,28 @@ const ProjectView = () => {
                   appOutput.map((line, i) => <div key={i} className="leading-relaxed">{line}</div>)
                 )}
               </div>
+              {/* ── Demo credentials card ── */}
+              {previewCreds && (
+                <div className="border-t border-border px-4 py-3 bg-emerald-950/30 flex items-center justify-between gap-4 shrink-0">
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className="text-emerald-400 font-bold uppercase tracking-wider text-[10px]">Demo Login</span>
+                    <span className="font-mono text-emerald-300">{previewCreds.email}</span>
+                    <span className="text-muted">·</span>
+                    <span className="font-mono text-emerald-300 tracking-wider">{previewCreds.password}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${previewCreds.email}\n${previewCreds.password}`);
+                      setCredsCopied(true);
+                      setTimeout(() => setCredsCopied(false), 1800);
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 bg-emerald-800/40 hover:bg-emerald-700/50 text-emerald-300 rounded text-[10px] font-bold transition-colors shrink-0"
+                  >
+                    {credsCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {credsCopied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
           </div>

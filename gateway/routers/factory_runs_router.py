@@ -1344,6 +1344,42 @@ async def start_run_app(
         if patches:
             main_py.write_text(content + patches)
 
+    # ── Patch seed.py: enforce predictable demo password for preview ──────────
+    _PREVIEW_PASSWORD = "Admin1234!"
+    _preview_email = "admin@example.com"
+    _seed_py = backend_dir / "src" / "seed.py"
+    if _seed_py.exists():
+        import re as _re_seed
+        _seed = _seed_py.read_text()
+        # Extract admin email if present
+        _email_m = _re_seed.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', _seed)
+        if _email_m:
+            _preview_email = _email_m.group(1)
+        # Replace any hardcoded password with the known preview password
+        _seed_patched = _re_seed.sub(
+            r'(_ADMIN_PASSWORD\s*=\s*)["\'][^"\']*["\']',
+            f'\\1"{_PREVIEW_PASSWORD}"',
+            _seed,
+        )
+        # Also patch get_password_hash(os.environ.get(...)) style
+        _seed_patched = _re_seed.sub(
+            r'get_password_hash\s*\(\s*os\.environ\.get\s*\([^)]+\)\s*\)',
+            f'get_password_hash("{_PREVIEW_PASSWORD}")',
+            _seed_patched,
+        )
+        if _seed_patched != _seed:
+            _seed_py.write_text(_seed_patched)
+    # Write preview_credentials.json so the UI can display them
+    import json as _json
+    _creds_path = root_dir / "preview_credentials.json"
+    _creds_path.write_text(_json.dumps({
+        "email": _preview_email,
+        "password": _PREVIEW_PASSWORD,
+        "note": "Demo credentials for the AetherOS preview — change before production",
+    }))
+    with open(log_path, "a") as _lf:
+        _lf.write(f"[AetherOS] Preview credentials: {_preview_email} / {_PREVIEW_PASSWORD}\n")
+
     # ── Start uvicorn (with crash-detect fallback to frontend-only server) ──────
     _env = {**os.environ}
     _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
@@ -1508,7 +1544,10 @@ if _DIST.is_dir():
                 "backend_dir": str(backend_dir),
                 "mode": mode,
                 "frontend_built": bool(frontend_dist and frontend_dist.is_dir()),
-                "log": str(log_path)}
+                "log": str(log_path),
+                "preview_email": _preview_email,
+                "preview_password": _PREVIEW_PASSWORD,
+                "preview_url": "/app-preview/"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1553,6 +1592,36 @@ async def run_app_status(
         "pid": proc.pid if running else None,
         "preview_url": "/app-preview/" if running else None,
     }
+
+
+@router.get("/factory/runs/{run_id}/preview-credentials")
+async def get_preview_credentials(
+    run_id: str,
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return demo login credentials for the generated app preview."""
+    import json as _json
+    from aether_os.core.projects import get_project_manager
+    root_dir = get_project_manager().get_project_dir(run_id).resolve()
+    creds_path = root_dir / "preview_credentials.json"
+    if creds_path.exists():
+        return _json.loads(creds_path.read_text())
+    # Fall back to scanning seed.py directly
+    for seed_candidate in [
+        root_dir / "p04_backend" / "backend_codegen" / "src" / "seed.py",
+    ]:
+        if seed_candidate.exists():
+            import re as _re
+            txt = seed_candidate.read_text()
+            _email_m = _re.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', txt)
+            _pass_m  = _re.search(r'_ADMIN_PASSWORD\s*=\s*["\']([^"\']+)["\']', txt)
+            if _email_m or _pass_m:
+                return {
+                    "email": _email_m.group(1) if _email_m else "admin@example.com",
+                    "password": _pass_m.group(1) if _pass_m else "(check seed.py)",
+                    "note": "Extracted from seed.py — run 'Run App' to get predictable credentials",
+                }
+    raise HTTPException(status_code=404, detail="Preview credentials not available — start the app first.")
 
 
 @router.get("/factory/runs/{run_id}/compliance")
