@@ -329,6 +329,21 @@ def create_app() -> FastAPI:
         """Application startup/shutdown lifecycle."""
         logger.info("AetherOS API starting up...")
 
+        # ── JWT key validation — fail fast if no signing key is configured ─────
+        try:
+            from aether_os.gateway.auth import get_algorithm as _get_alg
+            _jwt_alg = _get_alg()
+            if _jwt_alg == "HS256":
+                logger.warning(
+                    "JWT: HS256 mode active (symmetric). "
+                    "Set AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 to upgrade to RS256."
+                )
+            else:
+                logger.info("JWT: RS256 asymmetric signing active.")
+        except RuntimeError as _jwt_err:
+            logger.critical("FATAL: JWT key configuration error — %s", _jwt_err)
+            import sys as _sys_jwt; _sys_jwt.exit(1)
+
         # ── Redis startup validation ──────────────────────────────────────────
         # REQUIRE_REDIS=true makes Redis mandatory (production). Without Redis,
         # rate limiting is per-worker only (unsafe at scale) and SSE/pause/cancel

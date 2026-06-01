@@ -57,7 +57,7 @@ We currently operate a good-faith acknowledgement programme. Reporters of valid 
 
 ### Security Architecture Overview
 
-- **Authentication**: JWT (python-jose, RS256 recommended in production), passlib/bcrypt, TOTP MFA (pyotp)
+- **Authentication**: JWT RS256 (RSA-2048 asymmetric signing; HS256 legacy fallback with deprecation warning), passlib/bcrypt, TOTP MFA (pyotp)
 - **Multi-tenancy**: Every database query is scoped to `org_id`; middleware enforces `X-Org-ID` header
 - **Zero-trust execution**: Generated code runs under a restricted sandbox guard (`core/sandbox/guard.py`)
 - **Rate limiting**: Sliding-window rate limiter applied to all public endpoints (`core/rate_limiter.py`)
