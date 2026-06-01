@@ -78,6 +78,16 @@ spec:
                 secretKeyRef:
                   name: aetheros-secrets
                   key: REDIS_URL
+            - name: AETHER_JWT_PRIVATE_KEY_B64
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: AETHER_JWT_PRIVATE_KEY_B64
+            - name: AETHER_JWT_PUBLIC_KEY_B64
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: AETHER_JWT_PUBLIC_KEY_B64
             - name: SAML_SP_ENTITY_ID
               valueFrom:
                 secretKeyRef:

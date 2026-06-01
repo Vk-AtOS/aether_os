@@ -149,69 +149,34 @@ async def list_factory_runs(
     """List pipeline runs for the organisation with pagination."""
     limit = min(max(limit, 1), 100)
     page = max(page, 1)
+    offset = (page - 1) * limit
     try:
         from aether_os.core.audit.ledger import get_ledger
         org_id = user.get("org_id")
-        history = await get_ledger().async_get_run_history(org_id=org_id, limit=limit * page)
+        result = await get_ledger().async_get_run_history(
+            org_id=org_id, limit=limit, offset=offset
+        )
+        items = result.get("items", [])
+        total = result.get("total", len(items))
 
-        # Pull latest phase per run, priorities, and live_url via ORM (FIX-017)
-        phase_map: Dict[str, str] = {}
-        priority_map: Dict[str, str] = {}
-        live_url_map: Dict[str, str] = {}
-        try:
-            from aether_os.core.db import get_session_factory as _gsf
-            from aether_os.core.models import PhaseCompletion as _PC, RunMetadata as _RM, Run as _Run
-            from sqlalchemy import select as _sel
-            _sf = _gsf()
-            async with _sf() as _sess:
-                # Phase completions
-                _pc_rows = (await _sess.execute(
-                    _sel(_PC.run_id, _PC.phase_name, _PC.updated_at)
-                    .join(_Run, _PC.run_id == _Run.id)
-                    .where(_Run.org_id == org_id, _PC.phase_name != "pipeline")
-                    .order_by(_PC.updated_at.desc())
-                )).all()
-                for _rid, _phase, _ in _pc_rows:
-                    if _rid not in phase_map:
-                        phase_map[_rid] = _phase
-                # Priorities
-                _rm_rows = (await _sess.execute(
-                    _sel(_RM.run_id, _RM.priority)
-                    .join(_Run, _RM.run_id == _Run.id)
-                    .where(_Run.org_id == org_id)
-                )).all()
-                for _rid2, _pri in _rm_rows:
-                    priority_map[_rid2] = _pri
-                # Live URLs + quality scores
-                _url_rows = (await _sess.execute(
-                    _sel(_Run.id, _Run.live_url, _Run.quality_score)
-                    .where(_Run.org_id == org_id)
-                )).all()
-                quality_map: Dict[str, Any] = {}
-                for _rid3, _url, _qs in _url_rows:
-                    if _url:
-                        live_url_map[_rid3] = _url
-                    if _qs is not None:
-                        quality_map[_rid3] = _qs
-        except Exception as _e:
-            logger.debug("ORM enrichment for run list failed: %s", _e)
-            quality_map = {}
+        # Enrich with quality_score from Run table (phase/priority/live_url already in items)
+        if items:
+            try:
+                from aether_os.core.db import get_session_factory as _gsf
+                from aether_os.core.models import Run as _Run
+                from sqlalchemy import select as _sel
+                _run_ids = [r.get("id") for r in items if r.get("id")]
+                async with _gsf()() as _sess:
+                    _qs_rows = (await _sess.execute(
+                        _sel(_Run.id, _Run.quality_score).where(_Run.id.in_(_run_ids))
+                    )).all()
+                _qs_map = {rid: qs for rid, qs in _qs_rows if qs is not None}
+                for item in items:
+                    item.setdefault("quality_score", _qs_map.get(item.get("id")))
+            except Exception as _e:
+                logger.debug("quality_score enrichment failed: %s", _e)
 
-        formatted = []
-        for run in history:
-            d = dict(run)
-            d.setdefault("cost", 0.0)
-            d["current_phase"] = phase_map.get(d.get("id", "")) or d.get("current_phase")
-            d.setdefault("phases", {})
-            d["priority"] = priority_map.get(d.get("id", ""), d.get("priority", "normal"))
-            d["live_url"] = live_url_map.get(d.get("id", "")) or d.get("live_url")
-            d["quality_score"] = quality_map.get(d.get("id", ""))
-            formatted.append(d)
-
-        # Apply pagination slice
-        start = (page - 1) * limit
-        paginated = formatted[start:start + limit]
-        return {"items": paginated, "page": page, "limit": limit, "total": len(formatted)}
+        return {"items": items, "page": page, "limit": limit, "total": total}
     except Exception as exc:
         logger.warning("Could not fetch run history: %s", exc)
         return {"items": [], "page": page, "limit": limit, "total": 0}

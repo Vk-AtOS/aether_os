@@ -109,9 +109,9 @@ class PipelineService:
             raise LookupError(f"Run {run_id} not found")
         return detail
 
-    async def list_runs(self, org_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    async def list_runs(self, org_id: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         from aether_os.core.db_utils import get_run_list
-        return await get_run_list(org_id=org_id, limit=limit)
+        return await get_run_list(org_id=org_id, limit=limit, offset=offset)
 
     async def pause_run(self, run_id: str, org_id: str) -> None:
         from aether_os.core.db_utils import update_run_status

@@ -215,7 +215,7 @@ The `org_id` is embedded in the JWT at login time. The gateway middleware extrac
 
 ## Authentication
 
-- **JWT**: `python-jose` with HS256. Access tokens expire in 15 minutes. Refresh tokens are long-lived, stored hashed in the database.
+- **JWT**: PyJWT with RS256 (RSA-2048 asymmetric signing; HS256 legacy fallback with deprecation warning). Access tokens expire in 1 hour. Refresh tokens are 30-day, stored hashed in the database.
 - **Refresh flow**: `POST /auth/refresh` accepts a refresh token, rotates it (old token is revoked), and returns a new access + refresh pair.
 - **RBAC**: roles are `owner`, `admin`, `member`, `viewer`. Role checks are enforced via FastAPI dependencies in individual routes.
 - **MFA**: TOTP (pyotp) — QR code provisioning + verification endpoint. Enforced at login for orgs with MFA required.

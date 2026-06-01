@@ -842,7 +842,7 @@ class FactoryPipeline:
                         for f in _phase_dir.rglob("*"):
                             if f.is_file() and f.suffix in _extensions:
                                 try:
-                                    await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text())
+                                    await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text(), org_id=org_id)
                                     _count += 1
                                     if _count >= _MAX_ARTIFACTS:
                                         break
