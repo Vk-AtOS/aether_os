@@ -20,25 +20,40 @@ _background_notify_tasks: set = set()
 
 # ── Run queries ───────────────────────────────────────────────────────────────
 
-async def get_run_list(org_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-    """Return run history for an org, enriched with phase + priority + live_url."""
+async def get_run_list(
+    org_id: str,
+    limit: int = 100,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """Return paginated run history for an org with total count.
+
+    Returns {"items": [...], "total": int} so callers don't overfetch.
+    """
     from .db import get_session_factory
     from .models import Run, PhaseCompletion, RunMetadata
 
     session_factory = get_session_factory()
     async with session_factory() as session:
-        # Runs
+        # Total count (separate query, cheap with index on org_id)
+        count_stmt = select(func.count()).select_from(Run).where(Run.org_id == org_id)
+        total: int = (await session.execute(count_stmt)).scalar_one()
+
+        if total == 0:
+            return {"items": [], "total": 0}
+
+        # Paginated runs
         stmt = (
             select(Run)
             .where(Run.org_id == org_id)
             .order_by(Run.started_at.desc())
+            .offset(offset)
             .limit(limit)
         )
         result = await session.execute(stmt)
         runs = result.scalars().all()
 
         if not runs:
-            return []
+            return {"items": [], "total": total}
 
         run_ids = [r.id for r in runs]
 
@@ -68,22 +83,22 @@ async def get_run_list(org_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     for run in runs:
         cmd = run.command or "Untitled Project"
         d: Dict[str, Any] = {
-            "id":           run.id,
-            "project_name": run.project_name or (cmd[9:] if cmd.startswith("factory: ") else cmd),
-            "command":      cmd,
-            "status":       run.status,
-            "cost":         run.cost or 0.0,
-            "started_at":   int(run.started_at * 1000) if run.started_at else None,
-            "finished_at":  int(run.finished_at * 1000) if run.finished_at else None,
-            "live_url":     run.live_url,
+            "id":            run.id,
+            "project_name":  run.project_name or (cmd[9:] if cmd.startswith("factory: ") else cmd),
+            "command":       cmd,
+            "status":        run.status,
+            "cost":          run.cost or 0.0,
+            "started_at":    int(run.started_at * 1000) if run.started_at else None,
+            "finished_at":   int(run.finished_at * 1000) if run.finished_at else None,
+            "live_url":      run.live_url,
             "current_phase": phase_map.get(run.id),
-            "phases":       run.phases or {},
-            "priority":     prio_map.get(run.id, "normal"),
-            "domain":       run.domain,
-            "client_id":    run.client_id,
+            "phases":        run.phases or {},
+            "priority":      prio_map.get(run.id, "normal"),
+            "domain":        run.domain,
+            "client_id":     run.client_id,
         }
         formatted.append(d)
-    return formatted
+    return {"items": formatted, "total": total}
 
 
 async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:

@@ -5,7 +5,6 @@ Usage:
     python3 scripts/embed_existing.py
 """
 import asyncio
-import sqlite3
 import sys
 import os
 from pathlib import Path
@@ -19,34 +18,39 @@ try:
 except ImportError:
     pass
 
-_HOME_DB = Path.home() / ".aether_os" / "aether_os.db"
 _PROJECTS_DIR = Path.home() / ".aether_os" / "projects"
 _EMBED_EXTENSIONS = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
 
 
-def _get_completed_runs_without_embeddings():
-    """Return (run_id, org_id) pairs for completed runs with no embeddings."""
-    if not _HOME_DB.exists():
-        print(f"Database not found: {_HOME_DB}")
-        return []
-    with sqlite3.connect(str(_HOME_DB)) as conn:
-        embedded = {
-            row[0]
-            for row in conn.execute(
-                "SELECT DISTINCT run_id FROM artifact_embeddings"
-            ).fetchall()
-        }
-        rows = conn.execute(
-            "SELECT id, org_id FROM runs WHERE status = 'completed'"
-        ).fetchall()
-    return [(run_id, org_id) for run_id, org_id in rows if run_id not in embedded]
+async def _get_pending_runs():
+    """Return (run_id, org_id) pairs for completed runs with no embeddings yet."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Run, ArtifactEmbedding
+    from sqlalchemy import select, not_, exists
+
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(Run.id, Run.org_id)
+            .where(Run.status == "completed")
+            .where(
+                not_(
+                    exists(
+                        select(ArtifactEmbedding.id).where(
+                            ArtifactEmbedding.run_id == Run.id
+                        )
+                    )
+                )
+            )
+        )
+        rows = (await session.execute(stmt)).all()
+    return [(run_id, org_id) for run_id, org_id in rows]
 
 
-async def embed_run(run_id: str) -> int:
+async def embed_run(run_id: str, org_id: str) -> int:
     """Embed all artifacts for a single run. Returns number of files embedded."""
     from aether_os.core.artifact_store import get_artifact_store
     store = get_artifact_store()
-    store.init_db()
 
     project_dir = _PROJECTS_DIR / run_id
     if not project_dir.exists():
@@ -58,7 +62,7 @@ async def embed_run(run_id: str) -> int:
             try:
                 content = f.read_text(errors="replace")
                 rel = str(f.relative_to(project_dir))
-                await store.store_artifact(run_id, rel, content)
+                await store.store_artifact(run_id, rel, content, org_id=org_id)
                 count += 1
                 if count >= 50:
                     break
@@ -68,7 +72,7 @@ async def embed_run(run_id: str) -> int:
 
 
 async def main() -> None:
-    pending = _get_completed_runs_without_embeddings()
+    pending = await _get_pending_runs()
     if not pending:
         print("No completed runs without embeddings found.")
         return
@@ -77,7 +81,7 @@ async def main() -> None:
     total = 0
     for run_id, org_id in pending:
         print(f"  Embedding run {run_id} (org={org_id}) ...", end=" ", flush=True)
-        n = await embed_run(run_id)
+        n = await embed_run(run_id, org_id)
         print(f"{n} file(s)")
         total += n
 
@@ -85,9 +89,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    if "AETHER_SECRET_KEY" not in os.environ:
+    if not os.environ.get("DATABASE_URL") and not os.environ.get("AETHER_SECRET_KEY"):
         raise SystemExit(
-            "ERROR: AETHER_SECRET_KEY environment variable is not set.\n"
-            "Set it to the same secret key used by your running AetherOS instance."
+            "ERROR: DATABASE_URL (or AETHER_SECRET_KEY for SQLite fallback) is not set.\n"
+            "Source your .env file before running: source .env && python3 scripts/embed_existing.py"
         )
     asyncio.run(main())

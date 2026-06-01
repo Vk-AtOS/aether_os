@@ -198,16 +198,20 @@ class DecisionLedger:
             logger.debug("async_get_audit_logs failed: %s", exc)
             return {"logs": [], "total": 0, "page": page, "pages": 1}
 
-    async def async_get_run_history(self, org_id: Optional[str] = None,
-                                    limit: int = 20) -> List[Dict[str, Any]]:
+    async def async_get_run_history(
+        self,
+        org_id: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
         try:
             from aether_os.core.db_utils import get_run_list
             if org_id:
-                return await get_run_list(org_id=org_id, limit=limit)
-            return []
+                return await get_run_list(org_id=org_id, limit=limit, offset=offset)
+            return {"items": [], "total": 0}
         except Exception as exc:
             logger.debug("async_get_run_history failed: %s", exc)
-            return []
+            return {"items": [], "total": 0}
 
     async def async_get_run_detail(self, run_id: str,
                                    org_id: Optional[str] = None) -> Dict[str, Any]:
