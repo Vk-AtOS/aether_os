@@ -131,13 +131,207 @@ function calcComplexity(spec) {
   return             { label: 'Enterprise',      color: 'text-red-400',     bgColor: 'bg-red-400',     bar: 4 };
 }
 
+// ── UI/UX Design Themes ────────────────────────────────────────────────────────
+const UI_THEMES = [
+  {
+    id: 'default',
+    label: 'Default Dark',
+    description: 'Clean dark UI with subtle surfaces and indigo accents',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <rect width="120" height="80" fill="#0f172a"/>
+        <rect x="0" y="0" width="24" height="80" fill="#1e293b"/>
+        <rect x="28" y="8" width="50" height="6" rx="2" fill="#6366f1"/>
+        <rect x="28" y="20" width="84" height="4" rx="1" fill="#334155"/>
+        <rect x="28" y="28" width="70" height="4" rx="1" fill="#334155"/>
+        <rect x="28" y="38" width="36" height="16" rx="3" fill="#1e293b" stroke="#334155" strokeWidth="0.5"/>
+        <rect x="70" y="38" width="42" height="16" rx="3" fill="#1e293b" stroke="#334155" strokeWidth="0.5"/>
+        <rect x="4" y="10" width="16" height="3" rx="1" fill="#475569"/>
+        <rect x="4" y="18" width="14" height="3" rx="1" fill="#475569"/>
+        <rect x="4" y="26" width="16" height="3" rx="1" fill="#475569"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'glassmorphism',
+    label: 'Glassmorphism',
+    description: 'Frosted glass cards, translucent surfaces, vibrant gradient backgrounds',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <defs>
+          <linearGradient id="glBg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#4f46e5"/>
+            <stop offset="50%" stopColor="#7c3aed"/>
+            <stop offset="100%" stopColor="#db2777"/>
+          </linearGradient>
+        </defs>
+        <rect width="120" height="80" fill="url(#glBg)"/>
+        <circle cx="20" cy="20" r="30" fill="#818cf8" opacity="0.3"/>
+        <circle cx="100" cy="60" r="25" fill="#f472b6" opacity="0.25"/>
+        <rect x="10" y="20" width="45" height="40" rx="8" fill="white" fillOpacity="0.15" stroke="white" strokeOpacity="0.3" strokeWidth="0.5"/>
+        <rect x="65" y="25" width="45" height="35" rx="8" fill="white" fillOpacity="0.12" stroke="white" strokeOpacity="0.25" strokeWidth="0.5"/>
+        <rect x="16" y="28" width="30" height="3" rx="1" fill="white" fillOpacity="0.8"/>
+        <rect x="16" y="35" width="22" height="2" rx="1" fill="white" fillOpacity="0.5"/>
+        <rect x="16" y="42" width="26" height="2" rx="1" fill="white" fillOpacity="0.5"/>
+        <rect x="71" y="33" width="28" height="3" rx="1" fill="white" fillOpacity="0.8"/>
+        <rect x="71" y="40" width="20" height="2" rx="1" fill="white" fillOpacity="0.5"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'neomorphism',
+    label: 'Neomorphism',
+    description: 'Soft extruded surfaces with dual-shadow depth on a monochromatic base',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <rect width="120" height="80" fill="#e0e5ec"/>
+        <rect x="10" y="12" width="45" height="56" rx="12" fill="#e0e5ec" filter="url(#neo-shadow)"/>
+        <rect x="65" y="18" width="45" height="44" rx="10" fill="#e0e5ec" filter="url(#neo-shadow)"/>
+        <defs>
+          <filter id="neo-shadow">
+            <feDropShadow dx="-3" dy="-3" stdDeviation="3" floodColor="#ffffff" floodOpacity="0.9"/>
+            <feDropShadow dx="3" dy="3" stdDeviation="3" floodColor="#a3b1c6" floodOpacity="0.5"/>
+          </filter>
+        </defs>
+        <rect x="20" y="24" width="25" height="3" rx="1.5" fill="#6b7280"/>
+        <rect x="20" y="32" width="18" height="2" rx="1" fill="#9ca3af"/>
+        <rect x="20" y="40" width="22" height="2" rx="1" fill="#9ca3af"/>
+        <rect x="20" y="52" width="28" height="8" rx="4" fill="#e0e5ec" filter="url(#neo-shadow)"/>
+        <rect x="72" y="28" width="28" height="3" rx="1.5" fill="#6b7280"/>
+        <rect x="72" y="36" width="22" height="2" rx="1" fill="#9ca3af"/>
+        <rect x="72" y="44" width="26" height="2" rx="1" fill="#9ca3af"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'material',
+    label: 'Material Design 3',
+    description: 'Google Material You — dynamic color, elevation shadows, filled/tonal buttons',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <rect width="120" height="80" fill="#fffbfe"/>
+        <rect x="0" y="0" width="120" height="14" fill="#6750a4"/>
+        <rect x="6" y="4" width="30" height="6" rx="1" fill="white" fillOpacity="0.9"/>
+        <rect x="90" y="4" width="6" height="6" rx="3" fill="white" fillOpacity="0.7"/>
+        <rect x="100" y="4" width="6" height="6" rx="3" fill="white" fillOpacity="0.7"/>
+        <rect x="110" y="4" width="6" height="6" rx="3" fill="white" fillOpacity="0.7"/>
+        <rect x="8" y="20" width="48" height="28" rx="4" fill="#f3edf7" stroke="#e8def8" strokeWidth="0.5"/>
+        <rect x="64" y="20" width="48" height="28" rx="4" fill="#f3edf7" stroke="#e8def8" strokeWidth="0.5"/>
+        <rect x="14" y="26" width="30" height="3" rx="1" fill="#21005d"/>
+        <rect x="14" y="33" width="22" height="2" rx="1" fill="#49454f"/>
+        <rect x="14" y="39" width="26" height="2" rx="1" fill="#49454f"/>
+        <rect x="70" y="26" width="30" height="3" rx="1" fill="#21005d"/>
+        <rect x="70" y="33" width="22" height="2" rx="1" fill="#49454f"/>
+        <rect x="8" y="55" width="40" height="10" rx="5" fill="#6750a4"/>
+        <rect x="52" y="55" width="40" height="10" rx="5" fill="#e8def8"/>
+        <rect x="16" y="58" width="24" height="4" rx="1" fill="white"/>
+        <rect x="60" y="58" width="24" height="4" rx="1" fill="#6750a4"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'flat',
+    label: 'Flat / Minimal',
+    description: 'Zero shadows, crisp lines, high contrast, whitespace-driven hierarchy',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <rect width="120" height="80" fill="#ffffff"/>
+        <rect x="0" y="0" width="120" height="1" fill="#e5e7eb"/>
+        <rect x="8" y="8" width="60" height="5" rx="0" fill="#111827"/>
+        <rect x="8" y="18" width="104" height="1" fill="#e5e7eb"/>
+        <rect x="8" y="24" width="50" height="3" rx="0" fill="#374151"/>
+        <rect x="8" y="32" width="44" height="3" rx="0" fill="#6b7280"/>
+        <rect x="8" y="40" width="48" height="3" rx="0" fill="#6b7280"/>
+        <rect x="8" y="52" width="28" height="8" rx="0" fill="#111827"/>
+        <rect x="42" y="52" width="28" height="8" rx="0" fill="white" stroke="#111827" strokeWidth="1"/>
+        <rect x="72" y="24" width="40" height="28" rx="0" fill="#f9fafb" stroke="#e5e7eb" strokeWidth="1"/>
+        <rect x="76" y="30" width="26" height="3" rx="0" fill="#374151"/>
+        <rect x="76" y="38" width="18" height="2" rx="0" fill="#9ca3af"/>
+        <rect x="76" y="44" width="22" height="2" rx="0" fill="#9ca3af"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'brutalist',
+    label: 'Brutalist',
+    description: 'Raw bold borders, stark contrast, offset shadows, unapologetically visible structure',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <rect width="120" height="80" fill="#ffffff"/>
+        <rect x="8" y="8" width="60" height="8" rx="0" fill="#000000"/>
+        <rect x="8" y="22" width="48" height="26" rx="0" fill="#ffffff" stroke="#000000" strokeWidth="2"/>
+        <rect x="11" y="24" width="48" height="26" rx="0" fill="#000000" opacity="0.15"/>
+        <rect x="64" y="22" width="48" height="26" rx="0" fill="#facc15" stroke="#000000" strokeWidth="2"/>
+        <rect x="67" y="24" width="48" height="26" rx="0" fill="#000000" opacity="0.1"/>
+        <rect x="12" y="28" width="30" height="4" rx="0" fill="#000000"/>
+        <rect x="12" y="36" width="22" height="3" rx="0" fill="#374151"/>
+        <rect x="68" y="28" width="30" height="4" rx="0" fill="#000000"/>
+        <rect x="68" y="36" width="22" height="3" rx="0" fill="#374151"/>
+        <rect x="8" y="56" width="36" height="12" rx="0" fill="#000000" stroke="#000000" strokeWidth="2"/>
+        <rect x="10" y="58" width="36" height="12" rx="0" fill="#f97316"/>
+        <rect x="16" y="61" width="22" height="4" rx="0" fill="#000000"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'neon_cyberpunk',
+    label: 'Neon / Cyberpunk',
+    description: 'Near-black background, electric neon glow accents, grid lines, futuristic feel',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <defs>
+          <filter id="neon-glow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+            <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <rect width="120" height="80" fill="#050810"/>
+        {[0,10,20,30,40,50,60,70,80].map(y => <line key={y} x1="0" y1={y} x2="120" y2={y} stroke="#0ff" strokeOpacity="0.05" strokeWidth="0.5"/>)}
+        {[0,15,30,45,60,75,90,105,120].map(x => <line key={x} x1={x} y1="0" x2={x} y2="80" stroke="#0ff" strokeOpacity="0.05" strokeWidth="0.5"/>)}
+        <rect x="8" y="10" width="48" height="30" rx="2" fill="#050810" stroke="#00ffff" strokeWidth="1" filter="url(#neon-glow)"/>
+        <rect x="64" y="10" width="48" height="30" rx="2" fill="#050810" stroke="#ff00ff" strokeWidth="1" filter="url(#neon-glow)"/>
+        <rect x="12" y="16" width="28" height="3" rx="0" fill="#00ffff" opacity="0.9" filter="url(#neon-glow)"/>
+        <rect x="12" y="24" width="20" height="2" rx="0" fill="#00ffff" opacity="0.4"/>
+        <rect x="12" y="30" width="24" height="2" rx="0" fill="#00ffff" opacity="0.4"/>
+        <rect x="68" y="16" width="28" height="3" rx="0" fill="#ff00ff" opacity="0.9" filter="url(#neon-glow)"/>
+        <rect x="68" y="24" width="20" height="2" rx="0" fill="#ff00ff" opacity="0.4"/>
+        <rect x="8" y="52" width="36" height="12" rx="2" fill="#050810" stroke="#00ffff" strokeWidth="1" filter="url(#neon-glow)"/>
+        <rect x="14" y="56" width="24" height="4" rx="0" fill="#00ffff" opacity="0.8"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'soft_pastel',
+    label: 'Soft Pastel',
+    description: 'Light airy backgrounds, pastel color palette, rounded corners, gentle shadows',
+    preview: (
+      <svg viewBox="0 0 120 80" className="w-full h-full">
+        <rect width="120" height="80" fill="#fdf4ff"/>
+        <rect x="0" y="0" width="120" height="14" fill="#f0abfc" opacity="0.4"/>
+        <rect x="6" y="4" width="30" height="6" rx="3" fill="#a855f7" opacity="0.7"/>
+        <rect x="8" y="20" width="48" height="30" rx="10" fill="#fce7f3" stroke="#fbcfe8" strokeWidth="0.5"/>
+        <rect x="64" y="20" width="48" height="30" rx="10" fill="#e0f2fe" stroke="#bae6fd" strokeWidth="0.5"/>
+        <rect x="14" y="27" width="28" height="3" rx="1.5" fill="#a855f7" opacity="0.7"/>
+        <rect x="14" y="34" width="22" height="2" rx="1" fill="#c084fc" opacity="0.6"/>
+        <rect x="14" y="40" width="26" height="2" rx="1" fill="#c084fc" opacity="0.6"/>
+        <rect x="70" y="27" width="28" height="3" rx="1.5" fill="#0ea5e9" opacity="0.7"/>
+        <rect x="70" y="34" width="22" height="2" rx="1" fill="#38bdf8" opacity="0.6"/>
+        <rect x="8" y="58" width="36" height="10" rx="5" fill="#a855f7" opacity="0.7"/>
+        <rect x="50" y="58" width="36" height="10" rx="5" fill="#fce7f3" stroke="#f9a8d4" strokeWidth="0.5"/>
+        <rect x="14" y="61" width="24" height="4" rx="2" fill="white" opacity="0.8"/>
+        <rect x="56" y="61" width="24" height="4" rx="2" fill="#a855f7" opacity="0.6"/>
+      </svg>
+    ),
+  },
+];
+
 // ── Default spec ───────────────────────────────────────────────────────────────
 const DEFAULT_SPEC = {
   frontend: { framework: 'React + Vite', styling: 'Tailwind + shadcn/ui', state_management: 'Zustand', form_library: 'React Hook Form + Zod', data_fetching: 'TanStack Query' },
   backend:  { framework: 'FastAPI', database: 'PostgreSQL', orm: 'SQLAlchemy', auth: 'JWT + refresh tokens', api_style: 'REST' },
   infra:    { deployment: 'Docker + Compose', cache: 'Redis', queue: 'None', file_storage: 'Local', email: 'Resend' },
   features: { multi_tenancy: false, audit_log: false, rate_limiting: true, webhooks_out: false, realtime: 'None', payments: 'None', internationalization: false },
-  design:   { primary: '#6366f1', secondary: '#8b5cf6', background: '#0f172a', surface: '#1e293b', font_pairing: 'Inter + Inter (system)', font_scale: 'Normal', border_radius: 'Rounded (8px)', layout: 'sidebar-topbar', density: 'Normal', card_style: 'Subtle Shadow' },
+  design:   { primary: '#6366f1', secondary: '#8b5cf6', background: '#0f172a', surface: '#1e293b', font_pairing: 'Inter + Inter (system)', font_scale: 'Normal', border_radius: 'Rounded (8px)', layout: 'sidebar-topbar', density: 'Normal', card_style: 'Subtle Shadow', ui_theme: 'default' },
 };
 
 const TABS = ['Understand', 'Tech Stack', 'Design', 'Preview', 'Output'];
@@ -492,6 +686,7 @@ const ProjectDesigner = () => {
           border_radius: spec.design.border_radius,
           layout: spec.design.layout,
           density: spec.design.density,
+          ui_theme: spec.design.ui_theme || 'default',
         },
       };
       const rawInput = requirement.trim() + (repoContext ? `\n\nExisting codebase context:\n${repoContext.slice(0, 3000)}` : '');
@@ -728,6 +923,45 @@ const ProjectDesigner = () => {
 
   // ── Tab 3: Design ──────────────────────────────────────────────────────────
   const renderDesign = () => (
+    <div className="space-y-8">
+      {/* UI/UX Theme Chooser */}
+      <div>
+        <h3 className="text-xs font-bold text-muted uppercase tracking-widest mb-1">UI/UX Design Style</h3>
+        <p className="text-xs text-muted mb-3">Choose a visual style — the AI will apply matching CSS patterns to your generated app.</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {UI_THEMES.map(theme => (
+            <button
+              key={theme.id}
+              type="button"
+              onClick={() => updateSpec('design', 'ui_theme', theme.id)}
+              className={`group relative flex flex-col rounded-xl border-2 overflow-hidden transition-all ${
+                spec.design.ui_theme === theme.id
+                  ? 'border-accent shadow-lg shadow-accent/20 scale-[1.02]'
+                  : 'border-border hover:border-accent/40'
+              }`}
+            >
+              <div className="w-full aspect-[3/2] bg-panel overflow-hidden">
+                {theme.preview}
+              </div>
+              <div className={`px-2 py-1.5 text-left transition-colors ${spec.design.ui_theme === theme.id ? 'bg-accent/10' : 'bg-surface'}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`text-[11px] font-bold leading-tight ${spec.design.ui_theme === theme.id ? 'text-accent' : 'text-bright'}`}>
+                    {theme.label}
+                  </span>
+                  {spec.design.ui_theme === theme.id && <Check className="w-3 h-3 text-accent shrink-0 ml-1" />}
+                </div>
+              </div>
+              {/* Tooltip */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-panel border border-border rounded-lg text-[10px] text-bright whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl max-w-[180px] text-center leading-relaxed">
+                {theme.description}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="h-px bg-border" />
+
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Colors */}
       <div className="space-y-4">
@@ -818,6 +1052,7 @@ const ProjectDesigner = () => {
         </div>
       </div>
     </div>
+    </div>
   );
 
   // ── Tab 4: Preview ─────────────────────────────────────────────────────────
@@ -867,6 +1102,7 @@ const ProjectDesigner = () => {
             {spec.features.payments !== 'None' && <span className="px-2 py-0.5 bg-accent/10 border border-accent/20 text-accent rounded-full text-xs">Payments ({spec.features.payments})</span>}
           </div>
           <div className="flex flex-wrap gap-4 text-sm border-t border-border pt-4">
+            <span className="text-muted">Style: <span className="text-accent font-semibold">{UI_THEMES.find(t => t.id === spec.design.ui_theme)?.label || 'Default Dark'}</span></span>
             <span className="text-muted">Font: <span className="text-bright">{spec.design.font_pairing}</span></span>
             <span className="text-muted">Radius: <span className="text-bright">{spec.design.border_radius}</span></span>
             <span className="text-muted">Layout: <span className="text-bright">{LAYOUTS.find(l => l.id === spec.design.layout)?.label}</span></span>

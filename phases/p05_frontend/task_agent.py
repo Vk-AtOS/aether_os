@@ -829,12 +829,79 @@ def _generate_env_example() -> str:
     )
 
 
-def _generate_index_css() -> str:
-    return """\
+_THEME_CSS: dict = {
+    "glassmorphism": """\
+/* Glassmorphism theme */
+body { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%) fixed; min-height: 100vh; }
+.glass-card { background: rgba(255,255,255,0.12); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+""",
+    "neomorphism": """\
+/* Neomorphism theme */
+body { background: #e0e5ec; color: #4b5563; }
+.neo-card { background: #e0e5ec; border-radius: 12px; box-shadow: 6px 6px 12px #a3b1c6, -6px -6px 12px #ffffff; border: none; }
+.neo-inset { box-shadow: inset 4px 4px 8px #a3b1c6, inset -4px -4px 8px #ffffff; }
+.neo-btn { background: #e0e5ec; border-radius: 8px; box-shadow: 4px 4px 8px #a3b1c6, -4px -4px 8px #ffffff; border: none; }
+.neo-btn:active { box-shadow: inset 2px 2px 5px #a3b1c6, inset -2px -2px 5px #ffffff; }
+""",
+    "material": """\
+/* Material Design 3 theme */
+body { background: #fffbfe; color: #1c1b1f; font-family: 'Roboto', 'Google Sans', sans-serif; }
+.md-surface { background: #f3edf7; border-radius: 12px; }
+.md-surface-variant { background: #e7e0ec; }
+.md-primary { background: #6750a4; color: #ffffff; border-radius: 100px; }
+.md-secondary { background: #625b71; color: #ffffff; border-radius: 100px; }
+.md-elevation-1 { box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px 1px rgba(0,0,0,0.15); }
+.md-elevation-2 { box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 6px 2px rgba(0,0,0,0.15); }
+.md-ripple { position: relative; overflow: hidden; }
+""",
+    "flat": """\
+/* Flat / Minimal theme */
+body { background: #ffffff; color: #111827; }
+* { box-shadow: none !important; }
+.flat-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0; }
+.flat-btn { border-radius: 0; border: 2px solid #111827; background: #111827; color: #ffffff; }
+.flat-btn-outline { border-radius: 0; border: 2px solid #111827; background: transparent; color: #111827; }
+""",
+    "brutalist": """\
+/* Brutalist theme */
+body { background: #ffffff; color: #000000; font-family: 'Courier New', monospace; }
+* { border-radius: 0 !important; }
+.brut-card { background: #ffffff; border: 2px solid #000000; box-shadow: 4px 4px 0 #000000; }
+.brut-card:hover { box-shadow: 6px 6px 0 #000000; transform: translate(-2px,-2px); }
+.brut-btn { background: #000000; color: #ffffff; border: 2px solid #000000; padding: 8px 16px; box-shadow: 3px 3px 0 #f97316; }
+.brut-btn:hover { box-shadow: 5px 5px 0 #f97316; transform: translate(-2px,-2px); }
+.brut-accent { background: #facc15; color: #000000; }
+""",
+    "neon_cyberpunk": """\
+/* Neon / Cyberpunk theme */
+body { background: #050810; color: #e2e8f0; font-family: 'Share Tech Mono', 'Courier New', monospace; }
+body::before { content:''; position:fixed; inset:0; background-image: linear-gradient(rgba(0,255,255,0.03) 1px,transparent 1px), linear-gradient(90deg,rgba(0,255,255,0.03) 1px,transparent 1px); background-size: 40px 40px; pointer-events:none; z-index:0; }
+.cyber-card { background: rgba(5,8,16,0.85); border: 1px solid #00ffff; box-shadow: 0 0 12px rgba(0,255,255,0.25), inset 0 0 12px rgba(0,255,255,0.05); }
+.cyber-card-magenta { border-color: #ff00ff; box-shadow: 0 0 12px rgba(255,0,255,0.25), inset 0 0 12px rgba(255,0,255,0.05); }
+.cyber-text-glow { color: #00ffff; text-shadow: 0 0 8px #00ffff; }
+.cyber-btn { background: transparent; border: 1px solid #00ffff; color: #00ffff; box-shadow: 0 0 8px rgba(0,255,255,0.4); }
+.cyber-btn:hover { background: rgba(0,255,255,0.1); box-shadow: 0 0 16px rgba(0,255,255,0.6); }
+""",
+    "soft_pastel": """\
+/* Soft Pastel theme */
+body { background: #fdf4ff; color: #3b1f5e; font-family: 'Nunito', 'Inter', sans-serif; }
+.pastel-card { background: #fce7f3; border: 1px solid #fbcfe8; border-radius: 16px; box-shadow: 0 4px 20px rgba(168,85,247,0.08); }
+.pastel-card-blue { background: #e0f2fe; border-color: #bae6fd; }
+.pastel-card-green { background: #dcfce7; border-color: #bbf7d0; }
+.pastel-btn { background: #a855f7; color: #ffffff; border-radius: 50px; box-shadow: 0 4px 12px rgba(168,85,247,0.3); }
+.pastel-btn:hover { background: #9333ea; box-shadow: 0 6px 16px rgba(168,85,247,0.4); transform: translateY(-1px); }
+""",
+}
+
+
+def _generate_index_css(ui_theme: str = "default") -> str:
+    base = """\
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 """
+    extra = _THEME_CSS.get(ui_theme, "")
+    return base + ("\n" + extra if extra else "")
 
 
 def _generate_main_tsx() -> str:
@@ -1973,6 +2040,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
 
+    # Extract designer UI theme if provided
+    designer_spec = data.get("designer_spec") or {}
+    ui_theme: str = (designer_spec.get("design") or {}).get("ui_theme", "default") or "default"
+    logger.info("p05_frontend: ui_theme=%s", ui_theme)
+
     # 3. Build frontend/ directory
     frontend_dir = output_dir / "frontend"
     src_dir = frontend_dir / "src"
@@ -1993,7 +2065,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (frontend_dir / ".env.example").write_text(_generate_env_example())
     (frontend_dir / ".eslintrc.cjs").write_text(_generate_eslint_config())
     (frontend_dir / "README.md").write_text(_generate_frontend_readme(project_name))
-    (src_dir / "index.css").write_text(_generate_index_css())
+    (src_dir / "index.css").write_text(_generate_index_css(ui_theme))
     (src_dir / "main.tsx").write_text(_generate_main_tsx())
 
     # ── lib/ ──────────────────────────────────────────────────────────────────
