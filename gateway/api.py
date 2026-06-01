@@ -577,14 +577,31 @@ def create_app() -> FastAPI:
     )
 
     # C9: Prometheus metrics — /metrics endpoint for Prometheus scraping
+    # SEC: METRICS_API_KEY gates this endpoint; set the env var in production.
+    _metrics_api_key = os.environ.get("METRICS_API_KEY", "")
     try:
         from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore
-        Instrumentator(
+        instrumentator = Instrumentator(
             should_group_status_codes=True,
             should_ignore_untemplated=True,
             excluded_handlers=["/health", "/metrics"],
-        ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
-        logger.info("Prometheus metrics enabled at /metrics")
+        ).instrument(app)
+
+        if _metrics_api_key:
+            @app.get("/metrics", include_in_schema=False)
+            async def metrics_endpoint(request: Request):
+                provided = request.headers.get("X-Metrics-Key", "")
+                if provided != _metrics_api_key:
+                    from fastapi.responses import Response as _Resp
+                    return _Resp(status_code=401, content="Unauthorized")
+                from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+                from fastapi.responses import Response as _Resp
+                return _Resp(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+            instrumentator.expose(app, endpoint="/_metrics_internal", include_in_schema=False)
+            logger.info("Prometheus metrics enabled at /metrics (key-protected)")
+        else:
+            instrumentator.expose(app, endpoint="/metrics", include_in_schema=False)
+            logger.warning("METRICS_API_KEY not set — /metrics is unauthenticated. Set this in production.")
     except ImportError:
         logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
     except Exception as exc:
@@ -626,6 +643,26 @@ def create_app() -> FastAPI:
             except Exception:
                 pass  # Audit logging must never break the request
         return response
+
+    # ── Global exception handler — prevents stack traces leaking to clients ────
+    from fastapi import Request as _Request
+    from fastapi.responses import JSONResponse as _JSONResponse
+    from fastapi.exceptions import RequestValidationError
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(_req: _Request, exc: RequestValidationError):
+        return _JSONResponse(
+            status_code=422,
+            content={"detail": exc.errors(), "body": str(exc.body)[:200]},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(_req: _Request, exc: Exception):
+        logger.exception("Unhandled exception on %s %s", _req.method, _req.url.path)
+        return _JSONResponse(
+            status_code=500,
+            content={"detail": "An internal error occurred. The error has been logged."},
+        )
 
     # ── Routes ────────────────────────────────────────────────────────────────
 

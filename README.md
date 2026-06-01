@@ -61,7 +61,7 @@ Each phase is an independent module. All inter-phase communication is routed exc
 | LLM Tier 1 | Anthropic claude-sonnet-4-6 |
 | LLM Tier 2 | Google Gemini 2.5 Flash (google-genai) |
 | LLM Fallback | Ollama via HTTP / OpenRouter |
-| Agent frameworks | CrewAI, LangChain, LangGraph |
+| Agent frameworks | Native multi-model routing (core/model_router.py); LangSmith tracing |
 | Code generation | cookiecutter, aider-chat |
 | Security scanning | Bandit, Semgrep |
 | Testing | pytest, Playwright, Locust, Hypothesis |

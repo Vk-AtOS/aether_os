@@ -1,5 +1,0 @@
-- generic [active] [ref=e1]:
-  - text: The server is configured with a public base URL of /dashboard/ - did you mean to visit
-  - link "/dashboard/login" [ref=e2] [cursor=pointer]:
-    - /url: /dashboard/login
-  - text: instead?
