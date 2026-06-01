@@ -193,6 +193,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         request.state.csp_nonce = nonce
 
         response = await call_next(request)
+
+        # app-preview proxy handles its own permissive CSP — don't overwrite it
+        if request.url.path.startswith("/app-preview"):
+            return response
+
         response.headers["X-Content-Type-Options"] = "nosniff"
         # Rate limit headers on factory start and /auth/login routes
         response.headers["X-RateLimit-Factory-Limit"] = os.getenv("MAX_FACTORY_STARTS_PER_MIN", "10")
