@@ -356,6 +356,7 @@ fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.20.0
+alembic>=1.13.0
 pydantic[email]>=2.0.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
@@ -375,6 +376,106 @@ HEALTHCHECK --interval=15s --timeout=5s --retries=5 \\
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 """
+
+_ALEMBIC_INI = """\
+[alembic]
+script_location = alembic
+prepend_sys_path = .
+[loggers]
+keys = root,sqlalchemy,alembic
+[handlers]
+keys = console
+[formatters]
+keys = generic
+[logger_root]
+level = WARN
+handlers = console
+qualname =
+[logger_sqlalchemy]
+level = WARN
+handlers =
+qualname = sqlalchemy.engine
+[logger_alembic]
+level = INFO
+handlers =
+qualname = alembic
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+"""
+
+_ALEMBIC_ENV_PY = """\
+from logging.config import fileConfig
+from sqlalchemy import engine_from_config, pool
+from alembic import context
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from src.database import Base
+from src import models  # noqa: F401 — ensures all models are registered
+
+config = context.config
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+
+def run_migrations_offline():
+    url = os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    context.configure(url=url, target_metadata=target_metadata, literal_binds=True,
+                      dialect_opts={"paramstyle": "named"})
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online():
+    url = os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url", "sqlite:///./app.db"))
+    from sqlalchemy import create_engine
+    connectable = create_engine(url.replace("+aiosqlite", "").replace("+asyncpg", "").replace("+aiomysql", ""),
+                                poolclass=pool.NullPool)
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+"""
+
+_ALEMBIC_SCRIPT_PY_MAKO = """\
+\"\"\"${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+\"\"\"
+from alembic import op
+import sqlalchemy as sa
+${imports if imports else ""}
+
+revision = ${repr(up_revision)}
+down_revision = ${repr(down_revision)}
+branch_labels = ${repr(branch_labels)}
+depends_on = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    ${downgrades if downgrades else "pass"}
+"""
+
+_SERVICES_INIT_PY = ""
 
 
 # ── LLM generation functions ───────────────────────────────────────────────────
@@ -733,6 +834,202 @@ def _fallback_seed(project_name: str, entities: list) -> str:
     """)
 
 
+async def _llm_service_layer(
+    llm, project_name: str, entities: list, models_code: str, schemas_code: str,
+    mem_hint: str = "",
+) -> str:
+    """One LLM call → services/entity_services.py with one service class per entity."""
+    prompt = f"""
+Generate src/services/__init__.py for "{project_name}".
+{mem_hint}
+Create one service class per entity: class EntityService with async staticmethods:
+  - get_all(db, skip, limit) -> list
+  - get_by_id(db, id) -> model | None
+  - create(db, data) -> model
+  - update(db, id, data) -> model | None
+  - delete(db, id) -> bool
+Each method uses SQLAlchemy async session (AsyncSession).
+Import models from ..models, return ORM objects.
+The CRUD routers will call these service methods instead of querying the DB directly.
+Return ONLY the complete Python file. No markdown.
+"""
+    result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
+    if not result or len(result.strip()) < 100:
+        raise ValueError("Empty LLM response for service layer")
+    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
+    code = re.sub(r"\n?```\s*$", "", code.strip())
+    return code
+
+
+def _fallback_service_layer(entities: list) -> str:
+    """Generate bare service stubs for each entity using SQLAlchemy select/add/delete."""
+    lines = [
+        "from __future__ import annotations",
+        "from typing import Any, Dict, List, Optional",
+        "from sqlalchemy.ext.asyncio import AsyncSession",
+        "from sqlalchemy import select",
+        "",
+    ]
+    for ent in entities[:8]:
+        name = ent.get("name", "Item")
+        lines += [
+            f"class {name}Service:",
+            f"    @staticmethod",
+            f"    async def get_all(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Any]:",
+            f"        try:",
+            f"            from ..models import {name}",
+            f"            result = await db.execute(select({name}).offset(skip).limit(limit))",
+            f"            return list(result.scalars().all())",
+            f"        except Exception:",
+            f"            return []",
+            "",
+            f"    @staticmethod",
+            f"    async def get_by_id(db: AsyncSession, id: int) -> Optional[Any]:",
+            f"        try:",
+            f"            from ..models import {name}",
+            f"            result = await db.execute(select({name}).where({name}.id == id))",
+            f"            return result.scalar_one_or_none()",
+            f"        except Exception:",
+            f"            return None",
+            "",
+            f"    @staticmethod",
+            f"    async def create(db: AsyncSession, data: Dict[str, Any]) -> Optional[Any]:",
+            f"        try:",
+            f"            from ..models import {name}",
+            f"            obj = {name}(**data)",
+            f"            db.add(obj)",
+            f"            await db.flush()",
+            f"            await db.refresh(obj)",
+            f"            return obj",
+            f"        except Exception:",
+            f"            return None",
+            "",
+            f"    @staticmethod",
+            f"    async def update(db: AsyncSession, id: int, data: Dict[str, Any]) -> Optional[Any]:",
+            f"        try:",
+            f"            from ..models import {name}",
+            f"            result = await db.execute(select({name}).where({name}.id == id))",
+            f"            obj = result.scalar_one_or_none()",
+            f"            if obj is None:",
+            f"                return None",
+            f"            for k, v in data.items():",
+            f"                setattr(obj, k, v)",
+            f"            await db.flush()",
+            f"            await db.refresh(obj)",
+            f"            return obj",
+            f"        except Exception:",
+            f"            return None",
+            "",
+            f"    @staticmethod",
+            f"    async def delete(db: AsyncSession, id: int) -> bool:",
+            f"        try:",
+            f"            from ..models import {name}",
+            f"            result = await db.execute(select({name}).where({name}.id == id))",
+            f"            obj = result.scalar_one_or_none()",
+            f"            if obj is None:",
+            f"                return False",
+            f"            await db.delete(obj)",
+            f"            return True",
+            f"        except Exception:",
+            f"            return False",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def _generate_makefile(project_name: str) -> str:
+    slug = project_name.lower().replace(" ", "-")
+    return f"""\
+.PHONY: dev test lint migrate seed install clean
+
+install:
+\tpip install -r requirements.txt
+
+dev:
+\tuvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+
+test:
+\tpytest tests/ -v --tb=short
+
+lint:
+\truff check src/ && ruff format --check src/
+
+migrate:
+\talembic upgrade head
+
+migration:
+\t@read -p "Migration name: " name; alembic revision --autogenerate -m "$$name"
+
+seed:
+\tpython3 -c "import asyncio; from src.seed import seed_database; asyncio.run(seed_database())"
+
+docker:
+\tdocker-compose up --build
+
+clean:
+\tfind . -type d -name __pycache__ -exec rm -rf {{}} + 2>/dev/null || true
+\tfind . -name "*.pyc" -delete
+\trm -f test_*.db
+"""
+
+
+def _generate_backend_readme(project_name: str, entities: list) -> str:
+    entity_list = "\n".join(
+        f"- {e.get('name', e.get('table', ''))} — `/api/{e.get('table', '')}`"
+        for e in entities[:10]
+    )
+    return f"""\
+# {project_name} API
+
+Auto-generated production backend by AetherOS.
+
+## Quick Start
+
+```bash
+cp .env.example .env
+make install
+make migrate
+make seed
+make dev
+```
+
+API docs: http://localhost:8000/docs
+
+## Auth
+
+POST /api/auth/login     — email + password → access_token + refresh_token
+POST /api/auth/register  — email + password + name → tokens
+POST /api/auth/refresh   — refresh_token → new access_token
+GET  /api/auth/me        — current user (requires Bearer token)
+
+## Entities
+
+{entity_list}
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| DATABASE_URL | sqlite+aiosqlite:///./app.db | DB connection |
+| SECRET_KEY | change-me | JWT signing key |
+| CORS_ORIGINS | * | Comma-separated allowed origins |
+| ENVIRONMENT | development | development / production |
+
+## Tests
+
+```bash
+make test
+```
+
+## Migrations
+
+```bash
+make migrate          # Apply all pending
+make migration        # Create a new migration
+```
+"""
+
+
 # ── Post-processing ────────────────────────────────────────────────────────────
 
 def _fix_common_issues(code: str) -> str:
@@ -914,6 +1211,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         crud_code = _fallback_crud_routers(entities)
         (routers_dir / "crud.py").write_text(crud_code)
 
+    # ── Step 3b: Services layer ───────────────────────────────────────────────
+    services_dir = src_dir / "services"
+    services_dir.mkdir(parents=True, exist_ok=True)
+    (services_dir / "__init__.py").write_text(_SERVICES_INIT_PY)
+    try:
+        service_code = await _llm_service_layer(llm, project_name, entities,
+                                                  models_code, schemas_code, mem)
+        service_code = _fix_common_issues(service_code)
+        (services_dir / "entity_services.py").write_text(service_code)
+        logger.info("[p04a] services/entity_services.py %d chars", len(service_code))
+    except Exception as exc:
+        logger.warning("[p04a] service layer LLM failed (%s), using fallback", exc)
+        service_code = _fallback_service_layer(entities)
+        (services_dir / "entity_services.py").write_text(service_code)
+
     # ── Step 4: LLM call 3 — seed data ───────────────────────────────────────
     try:
         await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
@@ -941,6 +1253,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         f"CORS_ORIGINS=http://localhost:3000,http://localhost:5173\n"
         f"ENVIRONMENT=development\n"
     )
+    # ── Makefile ──────────────────────────────────────────────────────────────
+    (output_dir / "Makefile").write_text(_generate_makefile(project_name))
+    (output_dir / "README.md").write_text(_generate_backend_readme(project_name, entities))
+
+    # ── Step 6b: Alembic scaffold ─────────────────────────────────────────────
+    alembic_dir = output_dir / "alembic"
+    alembic_versions = alembic_dir / "versions"
+    alembic_versions.mkdir(parents=True, exist_ok=True)
+    (output_dir / "alembic.ini").write_text(_ALEMBIC_INI)
+    (alembic_dir / "env.py").write_text(_ALEMBIC_ENV_PY)
+    (alembic_dir / "script.py.mako").write_text(_ALEMBIC_SCRIPT_PY_MAKO)
+    (alembic_dir / "README").write_text(
+        "Generate a migration: alembic revision --autogenerate -m 'description'\n"
+        "Apply migrations:    alembic upgrade head\n"
+        "Rollback one step:   alembic downgrade -1\n"
+    )
 
     # ── Step 7: Smoke test ────────────────────────────────────────────────────
     smoke = {"passed": True, "errors": [], "skipped": False}
@@ -964,6 +1292,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "schemas_py": str(src_dir / "schemas.py"),
             "seed_py": str(src_dir / "seed.py"),
             "crud_router": str(routers_dir / "crud.py"),
+            "services_dir": str(services_dir),
+            "alembic_ini": str(output_dir / "alembic.ini"),
             "generated_via": generated_via,
             "code_size_bytes": code_size,
             "entities_count": len(entities),

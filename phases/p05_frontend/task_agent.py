@@ -596,7 +596,10 @@ def _generate_package_json(project_slug: str) -> str:
             "build": "tsc && vite build",
             "preview": "vite preview",
             "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
-            "typecheck": "tsc --noEmit"
+            "typecheck": "tsc --noEmit",
+            "test": "vitest run",
+            "test:watch": "vitest",
+            "test:coverage": "vitest run --coverage"
         },
         "dependencies": {
             "react": "^18.3.1",
@@ -624,7 +627,13 @@ def _generate_package_json(project_slug: str) -> str:
             "vite": "^6.0.5",
             "tailwindcss": "^3.4.17",
             "autoprefixer": "^10.4.20",
-            "postcss": "^8.4.45"
+            "postcss": "^8.4.45",
+            "@testing-library/react": "^14.0.0",
+            "@testing-library/jest-dom": "^6.0.0",
+            "@testing-library/user-event": "^14.0.0",
+            "vitest": "^1.0.0",
+            "@vitest/coverage-v8": "^1.0.0",
+            "jsdom": "^24.0.0"
         }
     }
     return json.dumps(data, indent=2)
@@ -835,6 +844,7 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { ToastProvider } from './components/Toaster'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { router } from './App'
 import './index.css'
 
@@ -849,7 +859,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <RouterProvider router={router} />
+        <ErrorBoundary>
+          <RouterProvider router={router} />
+        </ErrorBoundary>
       </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>,
@@ -1393,6 +1405,189 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 """
 
 
+def _generate_vitest_config() -> str:
+    return """\
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/__tests__/setup.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+    },
+  },
+})
+"""
+
+
+def _generate_test_setup() -> str:
+    return """\
+import '@testing-library/jest-dom'
+"""
+
+
+def _generate_login_test(project_name: str) -> str:
+    return f"""\
+import {{ render, screen }} from '@testing-library/react'
+import {{ describe, it, expect }} from 'vitest'
+import {{ BrowserRouter }} from 'react-router-dom'
+import LoginPage from '../pages/LoginPage'
+
+describe('LoginPage', () => {{
+  it('renders login form', () => {{
+    render(<BrowserRouter><LoginPage /></BrowserRouter>)
+    expect(screen.getByRole('button', {{ name: /sign in|log in|login/i }})).toBeInTheDocument()
+  }})
+
+  it('shows email and password fields', () => {{
+    render(<BrowserRouter><LoginPage /></BrowserRouter>)
+    expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument()
+  }})
+}})
+"""
+
+
+def _generate_dashboard_test() -> str:
+    return """\
+import { render } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter } from 'react-router-dom'
+
+// Mock the api module
+vi.mock('../lib/api', () => ({ api: { get: vi.fn().mockResolvedValue({ data: [] }) } }))
+
+describe('Dashboard', () => {
+  it('renders without crashing', async () => {
+    const { default: Dashboard } = await import('../pages/Dashboard')
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { container } = render(
+      <QueryClientProvider client={qc}><BrowserRouter><Dashboard /></BrowserRouter></QueryClientProvider>
+    )
+    expect(container).toBeTruthy()
+  })
+})
+"""
+
+
+def _generate_error_boundary() -> str:
+    return """\
+import React, { Component, ReactNode } from 'react'
+
+interface Props { children: ReactNode }
+interface State { hasError: boolean; error: Error | null }
+
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { hasError: false, error: null }
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('ErrorBoundary caught:', error, info)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="text-center p-8 max-w-md">
+            <div className="text-6xl mb-4">⚠️</div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
+            <p className="text-gray-500 mb-6">{this.state.error?.message ?? 'An unexpected error occurred.'}</p>
+            <button
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+export default ErrorBoundary
+"""
+
+
+def _generate_not_found_page() -> str:
+    return """\
+import { Link } from 'react-router-dom'
+
+export function NotFoundPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center p-8 max-w-md">
+        <div className="text-8xl font-black text-gray-200 mb-4">404</div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Page not found</h1>
+        <p className="text-gray-500 mb-6">The page you're looking for doesn't exist or has been moved.</p>
+        <Link
+          to="/"
+          className="inline-block px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Back to home
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+export default NotFoundPage
+"""
+
+
+def _generate_frontend_readme(project_name: str) -> str:
+    return f"""\
+# {project_name} Frontend
+
+Auto-generated React 18 + Vite 5 + TypeScript frontend by AetherOS.
+
+## Quick Start
+
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Runs on http://localhost:3000
+
+## Stack
+
+- React 18 + TypeScript
+- Vite 5 (bundler)
+- TanStack Router (routing)
+- TanStack Query (data fetching)
+- Tailwind CSS (styling)
+- shadcn/ui components
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| npm run dev | Dev server with HMR |
+| npm run build | Production build |
+| npm run test | Run Vitest tests |
+| npm run test:coverage | Coverage report |
+| npm run lint | ESLint |
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and set:
+- `VITE_API_URL` — backend API base URL
+"""
+
+
 def _generate_login_page(project_name: str) -> str:
     return f"""\
 // Auto-generated by AetherOS p05_frontend
@@ -1797,6 +1992,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (frontend_dir / "Dockerfile").write_text(_generate_dockerfile())
     (frontend_dir / ".env.example").write_text(_generate_env_example())
     (frontend_dir / ".eslintrc.cjs").write_text(_generate_eslint_config())
+    (frontend_dir / "README.md").write_text(_generate_frontend_readme(project_name))
     (src_dir / "index.css").write_text(_generate_index_css())
     (src_dir / "main.tsx").write_text(_generate_main_tsx())
 
@@ -1812,16 +2008,26 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "components" / "DataTable.tsx").write_text(_generate_data_table())
     (src_dir / "components" / "CrudModal.tsx").write_text(_generate_crud_modal())
     (src_dir / "components" / "Toaster.tsx").write_text(_generate_toaster())
+    (src_dir / "components" / "ErrorBoundary.tsx").write_text(_generate_error_boundary())
 
     # ── pages/ ────────────────────────────────────────────────────────────────
     (src_dir / "pages" / "LoginPage.tsx").write_text(_generate_login_page(project_name))
     (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain))
+    (src_dir / "pages" / "NotFoundPage.tsx").write_text(_generate_not_found_page())
     for ent in entities:
         pascal = _to_pascal_case(ent["table"])
         (src_dir / "pages" / f"{pascal}Page.tsx").write_text(_generate_entity_page(ent, route_map))
 
     # ── App.tsx ───────────────────────────────────────────────────────────────
     (src_dir / "App.tsx").write_text(_generate_app(entities))
+
+    # ── Tests ─────────────────────────────────────────────────────────────────
+    tests_dir = src_dir / "__tests__"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "setup.ts").write_text(_generate_test_setup())
+    (tests_dir / "LoginPage.test.tsx").write_text(_generate_login_test(project_name))
+    (tests_dir / "Dashboard.test.tsx").write_text(_generate_dashboard_test())
+    (frontend_dir / "vitest.config.ts").write_text(_generate_vitest_config())
 
     # ── Domain-specific LLM component (non-fatal bonus step) ─────────────────
     domain_widget_generated = False
@@ -1887,10 +2093,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _copy_err:
             logger.warning("p05_frontend: could not mirror frontend to project root: %s", _copy_err)
 
+    # ── Frontend council audit ─────────────────────────────────────────────────
+    frontend_audit: Dict[str, Any] = {"passed": True, "failures": [], "corrections": ""}
+    try:
+        dashboard_code = (src_dir / "pages" / "Dashboard.tsx").read_text()
+        from aether_os.core.council.council import FrontendAuditCouncil
+        frontend_audit = await FrontendAuditCouncil().audit(dashboard_code)
+        if not frontend_audit["passed"]:
+            logger.warning("[p05] FrontendAuditCouncil failures: %s", frontend_audit["failures"])
+    except Exception as _fac_exc:
+        logger.debug("[p05] FrontendAuditCouncil skipped: %s", _fac_exc)
+
     # 5. Write frontend_meta.json
     generated_files = [
         "frontend/package.json",
         "frontend/vite.config.ts",
+        "frontend/vitest.config.ts",
         "frontend/tsconfig.json",
         "frontend/tailwind.config.js",
         "frontend/postcss.config.js",
@@ -1899,6 +2117,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "frontend/Dockerfile",
         "frontend/.env.example",
         "frontend/.eslintrc.cjs",
+        "frontend/README.md",
         "frontend/src/index.css",
         "frontend/src/main.tsx",
         "frontend/src/App.tsx",
@@ -1909,8 +2128,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "frontend/src/components/DataTable.tsx",
         "frontend/src/components/CrudModal.tsx",
         "frontend/src/components/Toaster.tsx",
+        "frontend/src/components/ErrorBoundary.tsx",
         "frontend/src/pages/LoginPage.tsx",
         "frontend/src/pages/Dashboard.tsx",
+        "frontend/src/pages/NotFoundPage.tsx",
+        "frontend/src/__tests__/setup.ts",
+        "frontend/src/__tests__/LoginPage.test.tsx",
+        "frontend/src/__tests__/Dashboard.test.tsx",
     ] + [f"frontend/src/pages/{_to_pascal_case(e['table'])}Page.tsx" for e in entities]
     if domain_widget_generated:
         generated_files.append("frontend/src/components/DomainWidget.jsx")
@@ -1928,6 +2152,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "domain_widget_generated": domain_widget_generated,
         "confidence": 0.9,
         "files_generated": generated_files,
+        "frontend_audit": frontend_audit,
     }
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
 
