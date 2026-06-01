@@ -356,6 +356,120 @@ class BackendAuditCouncil:
         }
 
 
+class FrontendAuditCouncil:
+    """
+    Post-generation audit for p05 frontend output.
+    Runs 3 checks on the generated TypeScript/TSX code.
+    """
+
+    _CHECKS = [
+        {
+            "id": "responsive_classes",
+            "label": "Tailwind responsive classes present",
+            "prompt_tmpl": (
+                "React/TSX code below. Does it use Tailwind responsive prefixes "
+                "(sm:, md:, lg:, xl:) for layout or sizing on at least 3 elements?\n"
+                "Reply: PASS or FAIL\nIf FAIL: MISSING: <what's missing>\n\nCode:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: Add Tailwind responsive prefixes (sm:, md:, lg:) to grids, "
+                "flex containers, and text sizes so the UI is usable on mobile."
+            ),
+        },
+        {
+            "id": "aria_labels",
+            "label": "ARIA labels on interactive elements",
+            "prompt_tmpl": (
+                "React/TSX code below. Do all buttons and form inputs have "
+                "aria-label, aria-labelledby, or an associated <label>?\n"
+                "Reply: PASS or FAIL\nIf FAIL: MISSING: <element description>\n\nCode:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: Add aria-label to every icon-only button and associate "
+                "every form input with a <label> element or aria-label attribute."
+            ),
+        },
+        {
+            "id": "loading_empty_states",
+            "label": "Loading and empty state handling",
+            "prompt_tmpl": (
+                "React/TSX code below. Does the component handle both a loading state "
+                "(spinner or skeleton) and an empty state (no data message or illustration) "
+                "for its main data list or table?\n"
+                "Reply: PASS or FAIL\nIf FAIL: MISSING: <loading|empty|both>\n\nCode:\n{code}"
+            ),
+            "correction": (
+                "CORRECTION: Add an isLoading branch that shows a spinner or skeleton, "
+                "and an isEmpty branch that shows an empty state illustration and CTA "
+                "before rendering the data list."
+            ),
+        },
+    ]
+
+    async def audit(self, tsx_code: str) -> Dict[str, Any]:
+        if not _is_enabled():
+            return {"passed": True, "failures": [], "corrections": ""}
+
+        from aether_os.core.llm.openrouter_client import call_openrouter, COUNCIL_MODELS
+        code_snippet = tsx_code[:6000]
+        failures: List[Dict[str, Any]] = []
+        corrections: List[str] = []
+
+        for i, check in enumerate(self._CHECKS):
+            model = COUNCIL_MODELS[i % len(COUNCIL_MODELS)]
+            prompt = check["prompt_tmpl"].format(code=code_snippet)
+            verdict_raw = None
+            tried: List[str] = []
+            for candidate in [model] + [m for m in COUNCIL_MODELS if m != model]:
+                if candidate in tried:
+                    continue
+                tried.append(candidate)
+                try:
+                    verdict_raw = await call_openrouter(
+                        prompt,
+                        task_type="review",
+                        system=(
+                            "You are a strict frontend code reviewer. "
+                            "Reply in exactly the format requested. No prose."
+                        ),
+                        max_tokens=150,
+                        model=candidate,
+                    )
+                    model = candidate
+                    break
+                except Exception as exc:
+                    logger.warning(
+                        "FrontendAuditCouncil: check=%s model=%s failed — %s",
+                        check["id"], candidate, exc,
+                    )
+
+            if verdict_raw is None:
+                continue
+
+            lines = verdict_raw.strip().splitlines()
+            verdict = lines[0].strip().upper()
+            detail = lines[1].strip() if len(lines) > 1 else ""
+
+            if "FAIL" in verdict:
+                failures.append({
+                    "check": check["id"],
+                    "label": check["label"],
+                    "detail": detail,
+                    "model": model,
+                })
+                corrections.append(check["correction"])
+                logger.warning("FrontendAuditCouncil FAIL: check=%s detail=%s", check["id"], detail)
+            else:
+                logger.info("FrontendAuditCouncil PASS: check=%s", check["id"])
+
+        all_passed = len(failures) == 0
+        return {
+            "passed": all_passed,
+            "failures": failures,
+            "corrections": "\n".join(corrections),
+        }
+
+
 class DeliveryCouncil:
     """Validates pipeline output before delivery to the client."""
 
