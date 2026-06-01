@@ -832,8 +832,12 @@ def create_app() -> FastAPI:
                     headers={k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")},
                     content=await request.body(),
                 )
-            _skip = {"transfer-encoding", "content-encoding"}
+            _skip = {"transfer-encoding", "content-encoding", "content-security-policy", "x-frame-options"}
             _headers = {k: v for k, v in _r.headers.items() if k.lower() not in _skip}
+            # Generated Vite apps have no nonces — allow scripts/styles/eval so the app renders
+            _headers["content-security-policy"] = (
+                "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;"
+            )
             return _Resp(content=_r.content, status_code=_r.status_code,
                          headers=_headers, media_type=_r.headers.get("content-type"))
         except _httpx.ConnectError:
