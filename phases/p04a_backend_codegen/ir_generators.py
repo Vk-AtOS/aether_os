@@ -118,6 +118,9 @@ def generate_models_py(ir: DomainIR) -> str:
     lines.append(_USER_MODEL)
 
     for entity in ir.entities:
+        # Skip User — always emitted above from _USER_MODEL to avoid duplicate table
+        if entity.name == "User" or getattr(entity, "table", "") == "users":
+            continue
         constraints = _sql_check_constraints(entity.name, ir.business_rules)
         lines.append(f"class {entity.name}(Base):")
         lines.append(f"    __tablename__ = '{entity.table}'")

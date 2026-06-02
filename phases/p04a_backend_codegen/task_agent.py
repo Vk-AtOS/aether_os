@@ -288,8 +288,12 @@ from pathlib import Path
 # Load .env before importing anything that reads os.environ
 try:
     from dotenv import load_dotenv
-    load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env", override=False)
-    load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env", override=False)
+    try:
+        _here = Path(__file__).resolve().parent
+    except NameError:
+        _here = Path(os.getcwd())  # fallback when __file__ not available (e.g. exec context)
+    load_dotenv(dotenv_path=_here.parent / ".env", override=False)
+    load_dotenv(dotenv_path=_here.parent.parent / ".env", override=False)
 except ImportError:
     pass  # python-dotenv not installed; env vars must be set externally
 
