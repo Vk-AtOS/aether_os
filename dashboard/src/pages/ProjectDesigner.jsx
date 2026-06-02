@@ -1523,7 +1523,7 @@ const ProjectDesigner = () => {
       {/* Tab bar */}
       <div className="flex border-b border-border mb-6 overflow-x-auto">
         {TABS.map((tab, i) => (
-          <button key={tab} onClick={() => i < 4 || runId ? setActiveTab(i) : null}
+          <button key={tab} onClick={() => i !== 4 || runId ? setActiveTab(i) : null}
             className={`px-5 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors ${
               activeTab === i ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-bright'
             } ${i === 4 && !runId ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
