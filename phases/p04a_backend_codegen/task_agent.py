@@ -1241,10 +1241,11 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
     errors = []
     py_files = list(src_dir.rglob("*.py"))
 
+    import sys as _sys_st
     # Pass 1: syntax check via py_compile on every generated .py file
     for f in py_files:
         proc = await asyncio.create_subprocess_exec(
-            "python3", "-m", "py_compile", str(f),
+            _sys_st.executable, "-m", "py_compile", str(f),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1283,7 +1284,7 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
 
 async def _live_http_probe(src_dir: Path, emit) -> dict:
     """Start uvicorn on a temp port, hit /health, return result. Non-blocking on failure."""
-    import tempfile, socket as _sock, time as _time, os as _os
+    import sys as _sys, socket as _sock, os as _os
 
     # Find a free port
     with _sock.socket() as _s:
@@ -1315,7 +1316,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
 
         with open(_log_path, "w") as _lf:
             proc = await asyncio.create_subprocess_exec(
-                "python3", "-m", "uvicorn", "src.main:app",
+                _sys.executable, "-m", "uvicorn", "src.main:app",
                 "--host", "127.0.0.1", "--port", str(probe_port),
                 "--timeout-graceful-shutdown", "1",
                 cwd=str(src_dir.parent),
