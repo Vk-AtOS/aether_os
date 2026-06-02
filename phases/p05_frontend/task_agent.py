@@ -1205,11 +1205,12 @@ def _generate_app(entities: List[dict]) -> str:
 
     for ent in entities:
         table = ent["table"]
-        pascal = _to_pascal_case(table)
+        # Use entity name (singular) if available — matches IR fast-path page filenames
+        pascal = ent.get("name") or _to_pascal_case(table)
         route_path = f"/{table.replace('_', '-')}"
         route_var = f"{table}Route"
 
-        entity_imports.append(f"import {{ {pascal}Page }} from './pages/{pascal}Page'")
+        entity_imports.append(f"import {pascal}Page from './pages/{pascal}Page'")
         entity_routes.append(
             f"const {route_var} = createRoute({{\n"
             f"  getParentRoute: () => layoutRoute,\n"
@@ -1228,7 +1229,7 @@ def _generate_app(entities: List[dict]) -> str:
 import {{ createRootRoute, createRoute, createRouter, Outlet, redirect }} from '@tanstack/react-router'
 import {{ Layout }} from './components/Layout'
 import {{ LoginPage }} from './pages/LoginPage'
-import {{ Dashboard }} from './pages/Dashboard'
+import Dashboard from './pages/Dashboard'
 {imports_str}
 
 const rootRoute = createRootRoute({{ component: () => <Outlet /> }})
@@ -2317,7 +2318,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     else:
         (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain))
         for ent in entities:
-            pascal = _to_pascal_case(ent["table"])
+            # Use entity name (singular) to match App.tsx and IR fast-path naming
+            pascal = ent.get("name") or _to_pascal_case(ent["table"])
             (src_dir / "pages" / f"{pascal}Page.tsx").write_text(_generate_entity_page(ent, route_map))
 
     # ── App.tsx ───────────────────────────────────────────────────────────────
