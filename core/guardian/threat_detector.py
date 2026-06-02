@@ -119,6 +119,13 @@ class ThreatDetector:
                 self._mem_baseline = {}
             self._mem_baseline[str(path)] = h
 
+    async def update_all_baselines(self) -> None:
+        """Re-hash all critical files and write to baseline (call after git pull / deploy)."""
+        for path in _CRITICAL_FILES:
+            if path.exists():
+                await self.update_baseline(path)
+                logger.info("Guardian: baseline refreshed for %s", path.name)
+
     # ── Detection ─────────────────────────────────────────────────────────────
 
     async def check_brute_force(self) -> List[Dict[str, Any]]:

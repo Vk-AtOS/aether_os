@@ -174,6 +174,21 @@ def _classify_error(exc: Exception) -> str:
     return "fallback"
 
 
+# Process-level circuit breaker — providers that have hit a permanent hard failure
+# (e.g. INVALID_PAYMENT_INSTRUMENT, bad key) are added here and skipped for the
+# remainder of the process lifetime, saving 1-2s per call on every subsequent request.
+_DEAD_PROVIDERS: set[str] = set()
+_PERMANENT_FAILURE_PATTERNS = ("invalid_payment_instrument", "invalidpaymentinstrument", "invalid_api_key", "invalid api key")
+
+
+def _mark_provider_dead(provider: str, exc: Exception) -> None:
+    msg = str(exc).lower()
+    if any(p in msg for p in _PERMANENT_FAILURE_PATTERNS):
+        if provider not in _DEAD_PROVIDERS:
+            _DEAD_PROVIDERS.add(provider)
+            logger.warning("Router: circuit-breaker OPEN for %s — permanent failure, skipping for this process", provider)
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 class ModelRouter:
@@ -283,6 +298,9 @@ class ModelRouter:
         for spec in chain:
             if not _is_provider_configured(spec):
                 logger.debug("Router: skipping %s — not configured", spec.provider)
+                continue
+            if spec.provider in _DEAD_PROVIDERS:
+                logger.debug("Router: skipping %s — circuit-breaker open (permanent failure)", spec.provider)
                 continue
 
             # Every model after the first one is a fallback
@@ -460,6 +478,9 @@ class ModelRouter:
                     logger.warning("Router: %s", msg)
                     errors.append(msg)
                     error_class = _classify_error(exc)
+                    # Open circuit breaker for permanent failures (bad key, no payment)
+                    if error_class == "fallback":
+                        _mark_provider_dead(spec.provider, exc)
                     # For OpenRouter free-tier, a rate-limit on one model won't
                     # clear in 1-2 seconds — skip immediately to the next model.
                     if spec.provider == "openrouter" and error_class == "retry":
