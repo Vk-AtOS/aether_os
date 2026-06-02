@@ -285,7 +285,7 @@ async def _call_gemini(code: str, domain: str) -> Optional[CouncilReview]:
 
 
 async def _call_ollama(code: str, domain: str) -> Optional[CouncilReview]:
-    """Call local Ollama for a performance-focused review."""
+    """Call local Ollama for a performance-focused review. Falls back to Bedrock when unavailable."""
     ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
     try:
@@ -307,8 +307,10 @@ async def _call_ollama(code: str, domain: str) -> Optional[CouncilReview]:
         logger.info("CouncilReviewer: Ollama review complete (len=%d)", len(raw))
         return _parse_review_response(raw, "ollama", spec["focus"])
     except Exception as exc:
-        logger.warning("CouncilReviewer: Ollama call failed — %s", exc)
-        return None
+        logger.warning("CouncilReviewer: Ollama call failed — %s; trying Bedrock fallback", exc)
+
+    # Fallback: Bedrock Nova Lite for performance review when Ollama is unavailable
+    return await _call_via_bedrock(code, domain, "ollama")
 
 
 # ── Consensus ─────────────────────────────────────────────────────────────────
