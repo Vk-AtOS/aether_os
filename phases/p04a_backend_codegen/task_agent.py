@@ -315,6 +315,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    root_path=os.environ.get("ROOT_PATH", ""),
 )
 
 app.add_middleware(
@@ -1365,6 +1366,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
         seed_code = await _llm_seed_data(llm, project_name, domain, entities, models_code)
         seed_code = _fix_common_issues(seed_code)
+        # Validate: seed must import and use User model (auth requires it)
+        if "from .models import User" not in seed_code and "from .models import" in seed_code:
+            # LLM used a domain entity as auth user — replace with safe fallback
+            logger.warning("[p04a] seed.py does not import User model — using fallback")
+            seed_code = _fallback_seed(project_name, entities)
         (src_dir / "seed.py").write_text(seed_code)
         logger.info("[p04a] seed.py %d chars", len(seed_code))
     except Exception as exc:

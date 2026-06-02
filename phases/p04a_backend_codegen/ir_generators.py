@@ -95,9 +95,27 @@ def _sql_check_constraints(entity_name: str, rules: list) -> list[str]:
     return constraints
 
 
+_USER_MODEL = """\
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(320), nullable=False, unique=True, index=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(50), nullable=False, default='user')
+    is_active = Column(Boolean, nullable=False, default=True)
+    full_name = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+"""
+
+
 def generate_models_py(ir: DomainIR) -> str:
     """Generate complete models.py from DomainIR."""
     lines = [_SA_IMPORTS, ""]
+
+    # Always emit User model first so auth router import works
+    lines.append(_USER_MODEL)
 
     for entity in ir.entities:
         constraints = _sql_check_constraints(entity.name, ir.business_rules)
