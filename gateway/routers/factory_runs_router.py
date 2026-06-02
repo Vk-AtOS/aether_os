@@ -1294,6 +1294,7 @@ async def start_run_app(
 
         # Fix: remove explicit GET "/" root route only when we're adding the SPA catch-all.
         # If the frontend build failed, keep the root route so / doesn't return 404.
+        _dist_str = str(frontend_dist).replace("\\", "/") if frontend_dist and frontend_dist.is_dir() else ""
         _will_add_spa = bool(_dist_str)
         if _will_add_spa:
             content = _re.sub(
