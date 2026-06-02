@@ -111,6 +111,10 @@ export const api = {
   approveDecision: (runId, decisionId, approved, reason) =>
     client.post(`/factory/runs/${runId}/decisions/${decisionId}/decide`, { approved, reason }),
 
+  // Spec review gate
+  getRunSpec: (runId) => client.get(`/factory/runs/${runId}/spec`),
+  approveSpec: (runId, action = 'approve') => client.post(`/factory/runs/${runId}/approve-spec`, { action }),
+
   // Run controls
   pauseRun: (runId) => client.post(`/factory/runs/${runId}/pause`),
   resumeRun: (runId, extraInput) => client.post(`/factory/runs/${runId}/resume`, extraInput || {}),

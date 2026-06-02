@@ -1540,6 +1540,7 @@ async def start_run_app(
             stderr=log_file,
             shell=False,
             env=_env,
+            start_new_session=True,  # detach so process survives gateway restarts
         )
         import time as _t
         _t.sleep(2)
@@ -1573,6 +1574,7 @@ async def start_run_app(
                 stdout=log_file,
                 stderr=log_file,
                 shell=False,
+                start_new_session=True,
             )
         _stub_main.write_text(
             f"""from fastapi import FastAPI, Request
@@ -1660,6 +1662,7 @@ if _DIST.is_dir():
             stdout=log_file,
             stderr=log_file,
             shell=False,
+            start_new_session=True,
         )
 
     try:
@@ -1681,6 +1684,16 @@ if _DIST.is_dir():
         try:
             from aether_os.core.rate_limiter import run_app_port_set as _raps
             await _raps(run_id, port)
+        except Exception:
+            pass
+        # Persist state to disk so gateway restarts can recover without re-patching
+        import json as _js_state, time as _ts_state
+        _state_file = root_dir / "run_app_state.json"
+        try:
+            _state_file.write_text(_js_state.dumps({
+                "run_id": run_id, "port": port, "pid": proc.pid,
+                "started_at": _ts_state.time(), "mode": mode,
+            }))
         except Exception:
             pass
         return {"status": "started", "port": port, "pid": proc.pid,
@@ -1912,6 +1925,46 @@ async def decide_decision(
         raise HTTPException(status_code=404, detail="Decision not found")
     except PermissionError:
         raise HTTPException(status_code=403, detail="Decision belongs to a different org")
+
+
+# ── Spec review gate ──────────────────────────────────────────────────────────
+
+@router.get("/factory/runs/{run_id}/spec")
+async def get_run_spec(
+    run_id: str,
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return the parsed requirements spec produced by p01_intake_requirements."""
+    from pathlib import Path
+    project_dir = Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
+    _intake_path = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
+    if not _intake_path.exists():
+        raise HTTPException(status_code=404, detail="Spec not ready — p01 has not completed yet")
+    import json as _sj
+    spec = _sj.loads(_intake_path.read_text())
+    # Also return run control state so the UI knows if spec review is pending
+    from aether_os.core.pipeline_state import get_control as _gc
+    control = await _gc(run_id)
+    return {"spec": spec, "awaiting_approval": control == "spec_review"}
+
+
+@router.post("/factory/runs/{run_id}/approve-spec")
+async def approve_spec(
+    run_id: str,
+    body: Dict[str, Any] = {},
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Approve (or cancel) the parsed spec so the pipeline continues past the review gate."""
+    from aether_os.core.pipeline_state import set_control as _sc, get_control as _gc
+    ctrl = await _gc(run_id)
+    if ctrl not in ("spec_review", "running", None):
+        raise HTTPException(status_code=409, detail=f"Run is not at spec_review gate (current: {ctrl})")
+    action = str(body.get("action", "approve")).lower()
+    if action == "cancel":
+        await _sc(run_id, "cancel")
+        return {"status": "cancelled", "run_id": run_id}
+    await _sc(run_id, "spec_approved")
+    return {"status": "approved", "run_id": run_id}
 
 
 # ── LLM Council multi-model code review ───────────────────────────────────────

@@ -13,11 +13,11 @@ from aether_os.orchestrator.events import emit
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 5
 TEST_TIMEOUT = 60
 LLM_TIMEOUT = 45
 # Hard cap so the phase never blocks the orchestrator beyond this
-_PHASE_HARD_TIMEOUT = MAX_ATTEMPTS * (TEST_TIMEOUT + LLM_TIMEOUT + 15)  # 360s
+_PHASE_HARD_TIMEOUT = MAX_ATTEMPTS * (TEST_TIMEOUT + LLM_TIMEOUT + 15)  # 600s
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:

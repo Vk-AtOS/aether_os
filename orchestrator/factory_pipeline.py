@@ -419,6 +419,35 @@ class FactoryPipeline:
                     except Exception as _exc_p01:
                         logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
 
+                    # Spec review gate: pause here if decision_mode != "autonomous"
+                    # so the user can inspect/edit the parsed requirements before codegen starts.
+                    if accumulated_context.get("decision_mode") != "autonomous":
+                        try:
+                            await set_control(run_id, "spec_review")
+                            await emit({"type": "spec_review_ready", "run_id": run_id}, run_id=run_id)
+                            logger.info("[pipeline] Spec review gate: waiting for approval (run=%s)", run_id)
+                            _spec_timeout = int(os.environ.get("SPEC_REVIEW_TIMEOUT", "600"))
+                            _spec_waited = 0
+                            while _spec_waited < _spec_timeout:
+                                _ctrl = await get_control(run_id)
+                                if _ctrl == "spec_approved":
+                                    logger.info("[pipeline] Spec approved — continuing (run=%s)", run_id)
+                                    await set_control(run_id, "running")
+                                    break
+                                if _ctrl == "cancel":
+                                    logger.warning("[pipeline] Spec review cancelled (run=%s)", run_id)
+                                    raise RuntimeError("Pipeline cancelled at spec review")
+                                await asyncio.sleep(3)
+                                _spec_waited += 3
+                            else:
+                                # Timeout: auto-approve so the pipeline isn't blocked forever
+                                logger.warning("[pipeline] Spec review timeout — auto-approving (run=%s)", run_id)
+                                await set_control(run_id, "running")
+                        except RuntimeError:
+                            raise
+                        except Exception as _sr_exc:
+                            logger.warning("[pipeline] Spec review gate error (non-fatal): %s", _sr_exc)
+
                 # Eagerly load architecture.json after p02 so all downstream
                 # phases receive it via data.get("architecture_json", {}).
                 if phase_name == "p02_architecture":
