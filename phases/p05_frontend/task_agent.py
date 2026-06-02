@@ -378,6 +378,72 @@ def _extract_columns_from_main_py(data: dict, tables: List[str]) -> Dict[str, Li
     return cols_by_table
 
 
+def _extract_all_entities_from_models_py(data: dict) -> List[dict]:
+    """Parse models.py directly to get ALL non-user entities with their column names.
+
+    Used when architecture.json has no database_schema (thin LLM output).
+    Falls back gracefully — returns empty list if models.py can't be found/parsed.
+    """
+    backend_out = data.get("backend_output_path", "") or data.get("p04_backend_path", "")
+    if not backend_out:
+        return []
+
+    p = Path(backend_out)
+    candidates = [
+        p / "src" / "models.py",
+        p.parent / "src" / "models.py",
+        p.parent / "backend_codegen" / "src" / "models.py",
+    ]
+
+    for models_path in candidates:
+        if not models_path.exists():
+            continue
+        try:
+            code = models_path.read_text()
+            entities: List[dict] = []
+            current_table: str = ""
+            current_cols: List[str] = []
+            skip_table = False
+
+            for line in code.splitlines():
+                # New class definition
+                if re.match(r'^class \w+\(Base\)', line):
+                    if current_table and current_cols and not skip_table:
+                        entities.append({"table": current_table, "columns": current_cols})
+                    current_table = ""
+                    current_cols = []
+                    skip_table = False
+
+                tm = re.search(r'__tablename__\s*=\s*["\'](\w+)["\']', line)
+                if tm:
+                    tbl = tm.group(1).lower()
+                    skip_table = tbl in ("users", "user", "auth_users")
+                    current_table = tbl
+                    current_cols = []
+                    continue
+
+                cm = re.match(r'\s{4}(\w+)\s*=\s*Column\(', line)
+                if cm and current_table and not skip_table:
+                    col = cm.group(1)
+                    if not col.startswith("_"):
+                        current_cols.append(col)
+
+            # Flush last entity
+            if current_table and current_cols and not skip_table:
+                entities.append({"table": current_table, "columns": current_cols})
+
+            if entities:
+                logger.info(
+                    "p05: extracted %d entities from models.py: %s",
+                    len(entities), [e["table"] for e in entities],
+                )
+                return entities
+        except Exception as exc:
+            logger.warning("p05: _extract_all_entities_from_models_py failed: %s", exc)
+
+    return []
+
+
 # ── Schema helpers ─────────────────────────────────────────────────────────────
 
 def _normalise_entities(arch: dict) -> List[dict]:
@@ -2124,7 +2190,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # 2. Normalise entities
     entities = _normalise_entities(arch)
 
-    # 2a. Detect application domain (used for stat labels + LLM widget)
+    # 2a. If we only got the generic 'items' fallback, try reading models.py directly.
+    # This bridges the gap when architecture.json has an empty database_schema
+    # (thin LLM output) but p04a still generated real ORM classes.
+    if len(entities) == 1 and entities[0]["table"] == "items":
+        _models_entities = _extract_all_entities_from_models_py(data)
+        if _models_entities:
+            logger.info(
+                "p05: replaced generic 'items' fallback with %d real entities from models.py",
+                len(_models_entities),
+            )
+            entities = _models_entities
+
+    # 2b. Detect application domain (used for stat labels + LLM widget)
     domain = _detect_domain(phase_input)
     logger.info("p05_frontend: detected domain=%s for project=%s", domain, project_name)
 

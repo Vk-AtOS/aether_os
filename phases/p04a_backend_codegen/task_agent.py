@@ -648,6 +648,32 @@ Return ONLY the complete seed.py file. No markdown, no explanation."""
 
 # ── Fallback generators (no LLM) ──────────────────────────────────────────────
 
+def _col_to_sa_type(col_name: str) -> str:
+    """Infer SQLAlchemy column type from field name."""
+    lower = col_name.lower()
+    if lower.endswith("_id"):
+        return "Integer, ForeignKey('users.id')" if "user" in lower else "Integer"
+    if lower == "email" or lower.endswith("_email"):
+        return "String(320), unique=True, index=True"
+    if lower in ("phone", "mobile", "tel") or lower.endswith("_phone"):
+        return "String(50)"
+    if lower in ("price", "amount", "cost", "salary", "rate", "total", "revenue", "balance", "fee"):
+        return "Numeric(14, 2)"
+    if lower in ("count", "quantity", "qty", "age", "year", "rank", "position", "score") or lower.startswith("num_"):
+        return "Integer"
+    if lower.startswith("is_") or lower.startswith("has_") or lower.startswith("can_") or lower in ("active", "enabled", "verified", "completed", "archived", "published"):
+        return "Boolean, default=True"
+    if "date" in lower and lower not in ("updated_at", "created_at"):
+        return "DateTime(timezone=True)"
+    if lower in ("description", "notes", "body", "content", "bio", "address", "summary", "details", "remarks"):
+        return "Text"
+    if "url" in lower or "link" in lower or "image" in lower or "photo" in lower:
+        return "String(2048)"
+    if lower in ("status", "type", "role", "category", "stage", "priority", "gender"):
+        return "String(50)"
+    return "String(255)"
+
+
 def _fallback_models(project_name: str, entities: list) -> str:
     entity_classes = []
     for ent in entities[:8]:
@@ -659,7 +685,9 @@ def _fallback_models(project_name: str, entities: list) -> str:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
-            cols.append(f"    {fn} = Column(String(255), nullable=True)")
+            sa_type = _col_to_sa_type(fn)
+            nullable = "False" if any(req in fn.lower() for req in ("name", "email", "title", "status")) else "True"
+            cols.append(f"    {fn} = Column({sa_type}, nullable={nullable})")
         cols += [
             "    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))",
             "    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))",
@@ -671,7 +699,7 @@ def _fallback_models(project_name: str, entities: list) -> str:
     return textwrap.dedent(f"""\
         from __future__ import annotations
         from datetime import datetime, timezone
-        from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, Float, ForeignKey
+        from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey
         from sqlalchemy.orm import relationship
         from .database import Base
 
@@ -1189,16 +1217,54 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         schemas_code = _fix_common_issues(schemas_code)
 
         # Validate: LLM must have generated a class for at least half the domain entities.
-        # If it only generated User (or nothing), use the fallback that always generates all entities.
         _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
-        _expected_min = max(2, (len(entities) + 1) // 2)  # at least half, floor 2
+        _expected_min = max(2, (len(entities) + 1) // 2)
         if len(_llm_classes) < _expected_min:
-            logger.warning(
-                "[p04a] models.py only has %d ORM classes, expected ≥%d for %d entities — using fallback",
-                len(_llm_classes), _expected_min, len(entities),
-            )
-            models_code = _fallback_models(project_name, entities)
-            schemas_code = _fallback_schemas(entities)
+            # Retry once with an explicit entity list before falling back
+            try:
+                logger.info(
+                    "[p04a] models thin (%d ORM classes, expected ≥%d) — retrying LLM with explicit list",
+                    len(_llm_classes), _expected_min,
+                )
+                entities_explicit = json.dumps([
+                    {"name": e.get("name", "Item"), "table": e.get("table", "items"),
+                     "fields": e.get("fields", [])}
+                    for e in entities[:12]
+                ], indent=2)
+                retry_prompt = (
+                    f"You are a senior backend engineer. Generate COMPLETE SQLAlchemy ORM models AND "
+                    f"Pydantic v2 schemas for '{project_name}' ({domain} domain).\n\n"
+                    f"CRITICAL: You MUST generate a class for EACH of these entities:\n{entities_explicit}\n\n"
+                    f"Use the same JSON structure as before:\n"
+                    f"{{\"models_py\": \"<complete models.py>\", \"schemas_py\": \"<complete schemas.py>\"}}\n\n"
+                    f"Each entity needs: id (Integer PK), all domain fields with correct types, "
+                    f"created_at, updated_at (DateTime timezone=True).\n"
+                    f"Include User model with email/password_hash/role.\n"
+                    f"Return VALID JSON only."
+                )
+                retry_result = await llm.call(retry_prompt, task_type="code_generation", max_tokens=6000)
+                if retry_result:
+                    retry_result = re.sub(r"^```(?:json)?\s*\n?", "", retry_result.strip())
+                    retry_result = re.sub(r"\n?```\s*$", "", retry_result.strip())
+                    retry_parsed = json.loads(retry_result)
+                    _m = retry_parsed.get("models_py", "")
+                    _s = retry_parsed.get("schemas_py", "")
+                    _retry_classes = re.findall(r'^class \w+\(Base\)', _m, re.MULTILINE)
+                    if len(_retry_classes) >= _expected_min and len(_m) > 300:
+                        models_code = _fix_common_issues(_m)
+                        schemas_code = _fix_common_issues(_s)
+                        _llm_classes = _retry_classes
+                        logger.info("[p04a] retry succeeded: %d ORM classes", len(_llm_classes))
+            except Exception as _retry_exc:
+                logger.warning("[p04a] LLM retry failed (%s) — using fallback", _retry_exc)
+
+            if len(_llm_classes) < _expected_min:
+                logger.warning(
+                    "[p04a] models.py only %d ORM classes after retry — using typed fallback",
+                    len(_llm_classes),
+                )
+                models_code = _fallback_models(project_name, entities)
+                schemas_code = _fallback_schemas(entities)
 
         (src_dir / "models.py").write_text(models_code)
         (src_dir / "schemas.py").write_text(schemas_code)
