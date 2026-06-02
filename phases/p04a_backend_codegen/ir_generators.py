@@ -20,7 +20,7 @@ from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField, SA
 _SA_IMPORTS = """\
 from __future__ import annotations
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, JSON
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Integer, JSON
 from sqlalchemy import Numeric, String, Text
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -71,13 +71,43 @@ def _relationship_line(field: IRField) -> str | None:
     return f"    {field.ref_entity.lower()} = relationship('{field.ref_entity}', back_populates=None, lazy='select')"
 
 
+import re as _re
+
+
+def _sql_check_constraints(entity_name: str, rules: list) -> list[str]:
+    """
+    Convert IRBusinessRule expressions to SQLAlchemy CheckConstraint strings.
+    Handles patterns: field op value, field op field (e.g. 'salary > 0').
+    Returns list of CheckConstraint(...) strings for __table_args__.
+    """
+    constraints = []
+    sql_op_pattern = _re.compile(
+        r'^(\w+)\s*(>=|<=|!=|>|<|=)\s*(.+)$'
+    )
+    for rule in rules:
+        if rule.entity != entity_name:
+            continue
+        m = sql_op_pattern.match(rule.expression.strip())
+        if m:
+            expr = rule.expression.strip()
+            cname = f"ck_{entity_name.lower()}_{rule.name}"[:63]
+            constraints.append(f"        CheckConstraint('{expr}', name='{cname}')")
+    return constraints
+
+
 def generate_models_py(ir: DomainIR) -> str:
     """Generate complete models.py from DomainIR."""
     lines = [_SA_IMPORTS, ""]
 
     for entity in ir.entities:
+        constraints = _sql_check_constraints(entity.name, ir.business_rules)
         lines.append(f"class {entity.name}(Base):")
         lines.append(f"    __tablename__ = '{entity.table}'")
+        if constraints:
+            lines.append("    __table_args__ = (")
+            for c in constraints:
+                lines.append(c + ",")
+            lines.append("    )")
         lines.append("")
         lines.append("    id = Column(Integer, primary_key=True, index=True)")
         for f in entity.fields:
@@ -124,6 +154,42 @@ def _pydantic_type(field: IRField) -> str:
     return base
 
 
+_VALIDATOR_OP_MAP = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "!=": "!=", "=": "=="}
+_VALIDATOR_EXPR_RE = _re.compile(r'^(\w+)\s*(>=|<=|!=|>|<|=)\s*([0-9.]+)$')
+
+
+def _pydantic_validators(entity_name: str, rules: list) -> list[str]:
+    """
+    Generate @field_validator methods for simple scalar constraints
+    (e.g. 'salary > 0', 'age >= 18') on numeric fields.
+    """
+    validators = []
+    for rule in rules:
+        if rule.entity != entity_name:
+            continue
+        m = _VALIDATOR_EXPR_RE.match(rule.expression.strip())
+        if not m:
+            continue
+        field_name, op, raw_val = m.group(1), m.group(2), m.group(3)
+        py_op = _VALIDATOR_OP_MAP.get(op, op)
+        try:
+            val = int(raw_val) if "." not in raw_val else float(raw_val)
+        except ValueError:
+            continue
+        msg = rule.error_message or f"{field_name} must be {op} {val}"
+        vname = f"check_{rule.name}"
+        validators += [
+            f"    @field_validator('{field_name}', mode='before')",
+            f"    @classmethod",
+            f"    def {vname}(cls, v):",
+            f"        if v is not None and not (v {py_op} {val}):",
+            f"            raise ValueError({msg!r})",
+            f"        return v",
+            "",
+        ]
+    return validators
+
+
 def generate_schemas_py(ir: DomainIR) -> str:
     """Generate complete schemas.py from DomainIR."""
     lines = [_PYDANTIC_IMPORTS, ""]
@@ -131,18 +197,16 @@ def generate_schemas_py(ir: DomainIR) -> str:
     for entity in ir.entities:
         name = entity.name
         fields_block_base = []
-        fields_block_create = []
         fields_block_update = []
-        fields_block_response = []
 
         for f in entity.fields:
             ptype = _pydantic_type(f)
             default = " = None" if f.nullable else ""
             optional_ptype = f"Optional[{ptype.replace('Optional[', '').rstrip(']')}]"
             fields_block_base.append(f"    {f.name}: {ptype}{default}")
-            fields_block_create.append(f"    {f.name}: {ptype}{default}")
             fields_block_update.append(f"    {f.name}: {optional_ptype} = None")
-            fields_block_response.append(f"    {f.name}: {ptype}{default}")
+
+        validators = _pydantic_validators(name, ir.business_rules)
 
         # Base
         lines.append(f"class {name}Base(BaseModel):")
@@ -150,6 +214,9 @@ def generate_schemas_py(ir: DomainIR) -> str:
             lines.extend(fields_block_base)
         else:
             lines.append("    pass")
+        if validators:
+            lines.append("")
+            lines.extend(validators)
         lines.append("")
 
         # Create
@@ -192,12 +259,47 @@ from .. import models, schemas
 """
 
 
-def _entity_router(entity: IREntity) -> list[str]:
-    """Generate CRUD router function definitions for one entity."""
+
+def _role_sets(ir: DomainIR, entity_name: str) -> dict[str, list[str]]:
+    """
+    Build per-action allowed-role sets from ir.permissions for one entity.
+    Returns: {"read": ["admin","manager"], "create": ["admin"], ...}
+    Only populated when the IR actually defines restrictions (empty = allow all).
+    """
+    mapping: dict[str, set[str]] = {}
+    for perm in ir.permissions:
+        if perm.entity.lower() != entity_name.lower():
+            continue
+        for action in perm.actions:
+            mapping.setdefault(action, set()).add(perm.role)
+    return {k: sorted(v) for k, v in mapping.items()}
+
+
+def _role_guard(roles: list[str]) -> list[str]:
+    """Return lines that raise 403 unless current_user.role in roles."""
+    if not roles:
+        return []
+    roles_repr = repr(roles)
+    return [
+        f"    if getattr(current_user, 'role', None) not in {roles_repr}:",
+        f"        raise HTTPException(status_code=403, detail='Insufficient permissions')",
+    ]
+
+
+def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -> list[str]:
+    """Generate CRUD router function definitions for one entity, with optional role guards."""
     n = entity.name
     t = entity.table
     var = n.lower()
     router_var = f"{t}_router"
+
+    read_guard   = _role_guard(role_map.get("read", []))
+    create_guard = _role_guard(role_map.get("create", []))
+    update_guard = _role_guard(role_map.get("update", []))
+    delete_guard = _role_guard(role_map.get("delete", []))
+
+    def _g(guard: list[str]) -> str:
+        return ("\n" + "\n".join(guard) + "\n") if guard else ""
 
     lines = [
         f"{router_var} = APIRouter(prefix='/{t}', tags=['{n}'])",
@@ -209,6 +311,7 @@ def _entity_router(entity: IREntity) -> list[str]:
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
+        *([f"    {l}" for l in read_guard]),
         f"    offset = (page - 1) * limit",
         f"    total_q = await db.execute(select(func.count()).select_from(models.{n}))",
         f"    total = total_q.scalar_one()",
@@ -222,6 +325,7 @@ def _entity_router(entity: IREntity) -> list[str]:
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
+        *([f"    {l}" for l in create_guard]),
         f"    obj = models.{n}(**payload.model_dump(exclude_unset=True))",
         f"    db.add(obj)",
         f"    await db.flush()",
@@ -234,6 +338,7 @@ def _entity_router(entity: IREntity) -> list[str]:
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
+        *([f"    {l}" for l in read_guard]),
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
@@ -247,6 +352,7 @@ def _entity_router(entity: IREntity) -> list[str]:
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
+        *([f"    {l}" for l in update_guard]),
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
@@ -263,6 +369,7 @@ def _entity_router(entity: IREntity) -> list[str]:
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
+        *([f"    {l}" for l in delete_guard]),
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
@@ -278,7 +385,8 @@ def generate_crud_py(ir: DomainIR) -> str:
     lines = [_CRUD_IMPORTS, ""]
 
     for entity in ir.entities:
-        lines.extend(_entity_router(entity))
+        role_map = _role_sets(ir, entity.name)
+        lines.extend(_entity_router_with_rbac(entity, role_map))
 
     # all_routers list — every entity gets included
     router_vars = [f"{e.table}_router" for e in ir.entities]

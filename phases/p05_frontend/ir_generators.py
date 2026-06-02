@@ -253,7 +253,7 @@ def generate_ir_types_ts(ir: DomainIR) -> str:
 # Entity page with proper form fields
 # ---------------------------------------------------------------------------
 
-def _form_field_jsx(f: IRField) -> str:
+def _form_field_jsx(f: IRField, ref_data_var: str | None = None) -> str:
     """Generate a JSX form field for one IRField."""
     label = f.name.replace("_", " ").title()
     input_type = _field_to_input_type(f)
@@ -282,6 +282,18 @@ def _form_field_jsx(f: IRField) -> str:
 {options}
         </select>
       </div>"""
+    # FK field: render a select populated by a sibling useQuery (data var injected by caller)
+    if f.type == AetherType.FK and ref_data_var:
+        return f"""      <div>
+        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <select name="{f.name}" defaultValue={{String(item?.{f.name} ?? '')}}{required}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+          <option value="">— select —</option>
+          {{({ref_data_var}?.items ?? {ref_data_var} ?? []).map((r: any) => (
+            <option key={{r.id}} value={{r.id}}>{{r.name ?? r.title ?? r.email ?? String(r.id)}}</option>
+          ))}}
+        </select>
+      </div>"""
     return f"""      <div>
         <label className="block text-sm font-medium text-gray-700">{label}</label>
         <input type="{input_type}" name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
@@ -295,6 +307,26 @@ def generate_ir_entity_page(entity: IREntity) -> str:
     table = entity.table
     label = name.replace("_", " ")
 
+    # Collect FK refs → unique query hooks
+    fk_hook_lines = []
+    fk_var_map: dict[str, str] = {}
+    seen_refs: set[str] = set()
+    for f in entity.fields:
+        if f.type == AetherType.FK and f.ref_entity:
+            ref = f.ref_entity
+            data_var = ref[0].lower() + ref[1:] + "Data"
+            fk_var_map[f.name] = data_var
+            if ref not in seen_refs:
+                seen_refs.add(ref)
+                ref_table = "".join(
+                    "_" + c.lower() if c.isupper() else c for c in ref
+                ).lstrip("_") + "s"
+                fk_hook_lines.append(
+                    f"  const {{ data: {data_var} }} = useQuery({{ queryKey: ['{ref_table}'], "
+                    f"queryFn: () => api.get('/{ref_table}').then(r => r.data) }});"
+                )
+    fk_hooks = ("\n" + "\n".join(fk_hook_lines)) if fk_hook_lines else ""
+
     # Columns for the table (all fields)
     col_headers = "\n".join(
         f"              <th className='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>"
@@ -305,7 +337,7 @@ def generate_ir_entity_page(entity: IREntity) -> str:
         f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{f.name} ?? '')}}</td>"
         for f in entity.fields[:6]
     )
-    form_fields = "\n".join(_form_field_jsx(f) for f in entity.fields)
+    form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in entity.fields)
 
     return f"""import React, {{ useState }} from 'react';
 import {{ useQuery, useMutation, useQueryClient }} from '@tanstack/react-query';
@@ -319,7 +351,7 @@ export default function {name}Page() {{
   const {{ data, isLoading }} = useQuery({{
     queryKey: ['{table}'],
     queryFn: () => api.get('/{table}').then(r => r.data),
-  }});
+  }});{fk_hooks}
 
   const save = useMutation({{
     mutationFn: (payload: Partial<{name}>) =>
