@@ -49,6 +49,7 @@ CRITICAL_PHASES = frozenset({
 PHASE_SEQUENCE = [
     "p01_intake_requirements",
     "p02_architecture",
+    "p02b_domain_ir",
     "p03_scaffolding",
     "p04_backend",
     "p05_frontend",
@@ -73,6 +74,7 @@ PHASE_SEQUENCE = [
 PHASE_SUPERVISORS: Dict[str, str] = {
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
+    "p02b_domain_ir":          "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
     "p03_scaffolding":         "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
     "p04_backend":             "aether_os.phases.p04_backend.BackendSupervisor",
     "p05_frontend":            "aether_os.phases.p05_frontend.FrontendSupervisor",
@@ -443,6 +445,23 @@ class FactoryPipeline:
                     else:
                         logger.warning("[pipeline] architecture.json not found after p02 — "
                                        "downstream phases will use their own fallbacks")
+
+                # Load domain_ir.json after p02b so all downstream phases receive it
+                if phase_name == "p02b_domain_ir":
+                    import json as _json
+                    _ir_path_str = phase_result.get("domain_ir_path", "")
+                    _ir_candidates = []
+                    if _ir_path_str:
+                        _ir_candidates.append(Path(_ir_path_str))
+                    _ir_candidates.append(project_dir / "p02b_domain_ir" / "domain_ir.json")
+                    for _cand in _ir_candidates:
+                        if _cand.exists():
+                            try:
+                                accumulated_context["domain_ir_path"] = str(_cand)
+                                logger.info("[pipeline] domain_ir_path loaded from %s", _cand)
+                                break
+                            except Exception as _e:
+                                logger.warning("[pipeline] Failed to load domain_ir from %s: %s", _cand, _e)
 
                 # GraphRAG: build knowledge graph from architecture JSON after p02
                 if phase_name == "p02_architecture":

@@ -2187,20 +2187,39 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     project_slug = re.sub(r"[^a-z0-9-]", "-", project_name.lower()).strip("-") or "project"
     route_map: Dict[str, str] = arch.get("api_route_map", {})
 
-    # 2. Normalise entities
-    entities = _normalise_entities(arch)
+    # 2. Normalise entities — prefer Domain IR when available
+    _ir_path_str = data.get("domain_ir_path", "")
+    _domain_ir = None
+    if _ir_path_str:
+        _ir_p = Path(_ir_path_str)
+        if _ir_p.exists():
+            try:
+                from aether_os.core.domain_ir import DomainIR as _DomainIR
+                from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities as _ir_to_ents
+                _domain_ir = _DomainIR.load(_ir_p)
+                if _domain_ir.entities:
+                    entities = _ir_to_ents(_domain_ir)
+                    logger.info(
+                        "p05: IR fast-path — %d typed entities from domain_ir.json",
+                        len(entities),
+                    )
+                else:
+                    _domain_ir = None
+            except Exception as _ir_exc:
+                logger.warning("p05: domain_ir load failed (%s) — using arch fallback", _ir_exc)
+                _domain_ir = None
 
-    # 2a. If we only got the generic 'items' fallback, try reading models.py directly.
-    # This bridges the gap when architecture.json has an empty database_schema
-    # (thin LLM output) but p04a still generated real ORM classes.
-    if len(entities) == 1 and entities[0]["table"] == "items":
-        _models_entities = _extract_all_entities_from_models_py(data)
-        if _models_entities:
-            logger.info(
-                "p05: replaced generic 'items' fallback with %d real entities from models.py",
-                len(_models_entities),
-            )
-            entities = _models_entities
+    if _domain_ir is None:
+        entities = _normalise_entities(arch)
+        # 2a. If we only got the generic 'items' fallback, try reading models.py directly.
+        if len(entities) == 1 and entities[0]["table"] == "items":
+            _models_entities = _extract_all_entities_from_models_py(data)
+            if _models_entities:
+                logger.info(
+                    "p05: replaced generic 'items' fallback with %d real entities from models.py",
+                    len(_models_entities),
+                )
+                entities = _models_entities
 
     # 2b. Detect application domain (used for stat labels + LLM widget)
     domain = _detect_domain(phase_input)
@@ -2268,11 +2287,30 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── pages/ ────────────────────────────────────────────────────────────────
     (src_dir / "pages" / "LoginPage.tsx").write_text(_generate_login_page(project_name))
-    (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain))
     (src_dir / "pages" / "NotFoundPage.tsx").write_text(_generate_not_found_page())
-    for ent in entities:
-        pascal = _to_pascal_case(ent["table"])
-        (src_dir / "pages" / f"{pascal}Page.tsx").write_text(_generate_entity_page(ent, route_map))
+
+    if _domain_ir and _domain_ir.entities:
+        # IR fast-path: dashboard with real KPI cards, entity pages with typed forms
+        from aether_os.phases.p05_frontend.ir_generators import (
+            generate_ir_dashboard_tsx as _gen_dash,
+            generate_ir_entity_page as _gen_ent_page,
+            generate_ir_types_ts as _gen_types,
+        )
+        (src_dir / "pages" / "Dashboard.tsx").write_text(
+            _gen_dash(_domain_ir, entities, project_name)
+        )
+        for ir_entity in _domain_ir.entities:
+            (src_dir / "pages" / f"{ir_entity.name}Page.tsx").write_text(
+                _gen_ent_page(ir_entity)
+            )
+        # Override types/index.ts with IR-derived typed interfaces + Zod schemas
+        (src_dir / "types" / "index.ts").write_text(_gen_types(_domain_ir))
+        logger.info("p05: IR fast-path — dashboard + %d typed entity pages written", len(_domain_ir.entities))
+    else:
+        (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain))
+        for ent in entities:
+            pascal = _to_pascal_case(ent["table"])
+            (src_dir / "pages" / f"{pascal}Page.tsx").write_text(_generate_entity_page(ent, route_map))
 
     # ── App.tsx ───────────────────────────────────────────────────────────────
     (src_dir / "App.tsx").write_text(_generate_app(entities))

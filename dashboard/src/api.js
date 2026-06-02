@@ -113,7 +113,7 @@ export const api = {
 
   // Run controls
   pauseRun: (runId) => client.post(`/factory/runs/${runId}/pause`),
-  resumeRun: (runId) => client.post(`/factory/runs/${runId}/resume`),
+  resumeRun: (runId, extraInput) => client.post(`/factory/runs/${runId}/resume`, extraInput || {}),
   cancelRun: (runId) => client.post(`/factory/runs/${runId}/cancel`),
   setRunPriority: (runId, priority) =>
     client.post(`/factory/runs/${runId}/priority`, { priority }),

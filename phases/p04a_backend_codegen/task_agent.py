@@ -1204,67 +1204,107 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     crud_code = ""
     seed_code = ""
 
-    # ── Step 2: LLM call 1 — models + schemas ────────────────────────────────
-    try:
-        from aether_os.core.llm.client import get_llm_client
-        llm = get_llm_client()
-
-        await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating models + schemas…"})
-        models_code, schemas_code = await _llm_models_and_schemas(
-            llm, project_name, domain, entities, raw_input, arch_doc, mem
-        )
-        models_code = _fix_common_issues(models_code)
-        schemas_code = _fix_common_issues(schemas_code)
-
-        # Validate: LLM must have generated a class for at least half the domain entities.
-        _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
-        _expected_min = max(2, (len(entities) + 1) // 2)
-        if len(_llm_classes) < _expected_min:
-            # Retry once with an explicit entity list before falling back
-            try:
+    # ── Step 2 (IR fast-path): deterministic generation from Domain IR ────────
+    # If p02b produced a domain_ir.json, skip the LLM for structural files.
+    # Seed data still uses LLM (it needs invention, not structure).
+    _ir_path_str = data.get("domain_ir_path", "")
+    if _ir_path_str and Path(_ir_path_str).exists():
+        try:
+            from aether_os.core.domain_ir import DomainIR as _DomainIR
+            from aether_os.phases.p04a_backend_codegen.ir_generators import (
+                generate_models_py as _gen_models,
+                generate_schemas_py as _gen_schemas,
+                generate_crud_py as _gen_crud,
+            )
+            _ir = _DomainIR.load(Path(_ir_path_str))
+            if _ir.entities:
+                models_code = _gen_models(_ir)
+                schemas_code = _gen_schemas(_ir)
+                crud_code = _gen_crud(_ir)
+                (src_dir / "models.py").write_text(models_code)
+                (src_dir / "schemas.py").write_text(schemas_code)
+                (routers_dir / "crud.py").write_text(crud_code)
+                generated_via = "deterministic+ir"
                 logger.info(
-                    "[p04a] models thin (%d ORM classes, expected ≥%d) — retrying LLM with explicit list",
-                    len(_llm_classes), _expected_min,
+                    "[p04a] IR fast-path: %d entities → models/schemas/crud generated deterministically",
+                    len(_ir.entities),
                 )
-                entities_explicit = json.dumps([
-                    {"name": e.get("name", "Item"), "table": e.get("table", "items"),
-                     "fields": e.get("fields", [])}
-                    for e in entities[:12]
-                ], indent=2)
-                retry_prompt = (
-                    f"You are a senior backend engineer. Generate COMPLETE SQLAlchemy ORM models AND "
-                    f"Pydantic v2 schemas for '{project_name}' ({domain} domain).\n\n"
-                    f"CRITICAL: You MUST generate a class for EACH of these entities:\n{entities_explicit}\n\n"
-                    f"Use the same JSON structure as before:\n"
-                    f"{{\"models_py\": \"<complete models.py>\", \"schemas_py\": \"<complete schemas.py>\"}}\n\n"
-                    f"Each entity needs: id (Integer PK), all domain fields with correct types, "
-                    f"created_at, updated_at (DateTime timezone=True).\n"
-                    f"Include User model with email/password_hash/role.\n"
-                    f"Return VALID JSON only."
-                )
-                retry_result = await llm.call(retry_prompt, task_type="code_generation", max_tokens=6000)
-                if retry_result:
-                    retry_result = re.sub(r"^```(?:json)?\s*\n?", "", retry_result.strip())
-                    retry_result = re.sub(r"\n?```\s*$", "", retry_result.strip())
-                    retry_parsed = json.loads(retry_result)
-                    _m = retry_parsed.get("models_py", "")
-                    _s = retry_parsed.get("schemas_py", "")
-                    _retry_classes = re.findall(r'^class \w+\(Base\)', _m, re.MULTILINE)
-                    if len(_retry_classes) >= _expected_min and len(_m) > 300:
-                        models_code = _fix_common_issues(_m)
-                        schemas_code = _fix_common_issues(_s)
-                        _llm_classes = _retry_classes
-                        logger.info("[p04a] retry succeeded: %d ORM classes", len(_llm_classes))
-            except Exception as _retry_exc:
-                logger.warning("[p04a] LLM retry failed (%s) — using fallback", _retry_exc)
+                # Update entities list from IR so seed data is accurate
+                entities = [{"name": e.name, "table": e.table,
+                             "fields": [{"name": f.name, "type": f.type} for f in e.fields]}
+                            for e in _ir.entities]
+        except Exception as _ir_exc:
+            logger.warning("[p04a] IR fast-path failed (%s) — falling through to LLM", _ir_exc)
+            models_code = ""
+            schemas_code = ""
+            crud_code = ""
 
+    # ── Step 2: LLM call 1 — models + schemas ────────────────────────────────
+    # Skipped when IR fast-path already filled these; llm still used for seed data below
+    from aether_os.core.llm.client import get_llm_client
+    llm = get_llm_client()
+    # Models + schemas: use IR output if available, otherwise call LLM
+    _llm_classes: list = []
+    try:
+        if not models_code or not schemas_code:
+            await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating models + schemas…"})
+            models_code, schemas_code = await _llm_models_and_schemas(
+                llm, project_name, domain, entities, raw_input, arch_doc, mem
+            )
+            models_code = _fix_common_issues(models_code)
+            schemas_code = _fix_common_issues(schemas_code)
+
+            # Validate: LLM must have generated a class for at least half the domain entities.
+            _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
+            _expected_min = max(2, (len(entities) + 1) // 2)
             if len(_llm_classes) < _expected_min:
-                logger.warning(
-                    "[p04a] models.py only %d ORM classes after retry — using typed fallback",
-                    len(_llm_classes),
-                )
-                models_code = _fallback_models(project_name, entities)
-                schemas_code = _fallback_schemas(entities)
+                try:
+                    logger.info(
+                        "[p04a] models thin (%d ORM classes, expected ≥%d) — retrying LLM with explicit list",
+                        len(_llm_classes), _expected_min,
+                    )
+                    entities_explicit = json.dumps([
+                        {"name": e.get("name", "Item"), "table": e.get("table", "items"),
+                         "fields": e.get("fields", [])}
+                        for e in entities[:12]
+                    ], indent=2)
+                    retry_prompt = (
+                        f"You are a senior backend engineer. Generate COMPLETE SQLAlchemy ORM models AND "
+                        f"Pydantic v2 schemas for '{project_name}' ({domain} domain).\n\n"
+                        f"CRITICAL: You MUST generate a class for EACH of these entities:\n{entities_explicit}\n\n"
+                        f"Use the same JSON structure as before:\n"
+                        f"{{\"models_py\": \"<complete models.py>\", \"schemas_py\": \"<complete schemas.py>\"}}\n\n"
+                        f"Each entity needs: id (Integer PK), all domain fields with correct types, "
+                        f"created_at, updated_at (DateTime timezone=True).\n"
+                        f"Include User model with email/password_hash/role.\n"
+                        f"Return VALID JSON only."
+                    )
+                    retry_result = await llm.call(retry_prompt, task_type="code_generation", max_tokens=6000)
+                    if retry_result:
+                        retry_result = re.sub(r"^```(?:json)?\s*\n?", "", retry_result.strip())
+                        retry_result = re.sub(r"\n?```\s*$", "", retry_result.strip())
+                        retry_parsed = json.loads(retry_result)
+                        _m = retry_parsed.get("models_py", "")
+                        _s = retry_parsed.get("schemas_py", "")
+                        _retry_classes = re.findall(r'^class \w+\(Base\)', _m, re.MULTILINE)
+                        if len(_retry_classes) >= _expected_min and len(_m) > 300:
+                            models_code = _fix_common_issues(_m)
+                            schemas_code = _fix_common_issues(_s)
+                            _llm_classes = _retry_classes
+                            logger.info("[p04a] retry succeeded: %d ORM classes", len(_llm_classes))
+                except Exception as _retry_exc:
+                    logger.warning("[p04a] LLM retry failed (%s) — using fallback", _retry_exc)
+
+                if len(_llm_classes) < _expected_min:
+                    logger.warning(
+                        "[p04a] models.py only %d ORM classes after retry — using typed fallback",
+                        len(_llm_classes),
+                    )
+                    models_code = _fallback_models(project_name, entities)
+                    schemas_code = _fallback_schemas(entities)
+        else:
+            _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
+            logger.info("[p04a] IR fast-path: using deterministic models/schemas (%d classes)", len(_llm_classes))
 
         (src_dir / "models.py").write_text(models_code)
         (src_dir / "schemas.py").write_text(schemas_code)
@@ -1280,22 +1320,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Step 3: LLM call 2 — CRUD routers ────────────────────────────────────
     try:
-        await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating CRUD routers…"})
-        crud_code = await _llm_crud_routers(llm, project_name, entities, models_code, schemas_code, mem)
-        crud_code = _fix_common_issues(crud_code)
+        if not crud_code:
+            await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating CRUD routers…"})
+            crud_code = await _llm_crud_routers(llm, project_name, entities, models_code, schemas_code, mem)
+            crud_code = _fix_common_issues(crud_code)
 
-        # Validate: all_routers must exist and must not be an empty list.
-        # The LLM sometimes generates `all_routers = []` or omits it entirely.
-        _ar_match = re.search(r'all_routers\s*=\s*\[([^\]]*)\]', crud_code)
-        if not _ar_match:
-            # Missing all_routers entirely — append one built from the routers we expect
-            _router_vars = [f"{e.get('table', e.get('name','item').lower()+'s')}_router" for e in entities[:8]]
-            crud_code += f"\n\nall_routers = [{', '.join(_router_vars)}]\n"
-            logger.warning("[p04a] all_routers missing from LLM output, appended list of %d routers", len(_router_vars))
-        elif not _ar_match.group(1).strip():
-            # Empty list `all_routers = []` — LLM generated routes but forgot to list them
-            logger.warning("[p04a] LLM generated all_routers = [] — using fallback CRUD routers")
-            crud_code = _fallback_crud_routers(entities)
+            # Validate: all_routers must exist and must not be an empty list.
+            _ar_match = re.search(r'all_routers\s*=\s*\[([^\]]*)\]', crud_code)
+            if not _ar_match:
+                _router_vars = [f"{e.get('table', e.get('name','item').lower()+'s')}_router" for e in entities[:8]]
+                crud_code += f"\n\nall_routers = [{', '.join(_router_vars)}]\n"
+                logger.warning("[p04a] all_routers missing from LLM output, appended list of %d routers", len(_router_vars))
+            elif not _ar_match.group(1).strip():
+                logger.warning("[p04a] LLM generated all_routers = [] — using fallback CRUD routers")
+                crud_code = _fallback_crud_routers(entities)
+        else:
+            logger.info("[p04a] IR fast-path: using deterministic CRUD routers")
 
         (routers_dir / "crud.py").write_text(crud_code)
         logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
