@@ -74,7 +74,10 @@ from fastapi.security import OAuth2PasswordBearer
 import jwt; JWTError = jwt.exceptions.PyJWTError
 from passlib.context import CryptContext
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production-use-openssl-rand-hex-32")
+SECRET_KEY = os.environ.get("SECRET_KEY", "")
+if not SECRET_KEY:
+    import secrets as _secrets_mod
+    SECRET_KEY = _secrets_mod.token_hex(32)  # ephemeral; set SECRET_KEY env var for persistence
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = 7
@@ -144,8 +147,9 @@ class Settings:
     app_name: str = os.environ.get("APP_NAME", "API")
     environment: str = os.environ.get("ENVIRONMENT", "development")
     database_url: str = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")
-    secret_key: str = os.environ.get("SECRET_KEY", "change-me")
-    cors_origins: list[str] = os.environ.get("CORS_ORIGINS", "*").split(",")
+    secret_key: str = os.environ.get("SECRET_KEY", "")
+    # CORS_ORIGINS must be set explicitly — no wildcard default (security hardening)
+    cors_origins: list[str] = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
     debug: bool = os.environ.get("DEBUG", "false").lower() == "true"
 
 
@@ -279,6 +283,16 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Load .env before importing anything that reads os.environ
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env", override=False)
+    load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env", override=False)
+except ImportError:
+    pass  # python-dotenv not installed; env vars must be set externally
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -318,12 +332,13 @@ app = FastAPI(
     root_path=os.environ.get("ROOT_PATH", ""),
 )
 
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
 
@@ -359,11 +374,14 @@ sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.20.0
 alembic>=1.13.0
 pydantic[email]>=2.0.0
-python-jose[cryptography]>=3.3.0
+PyJWT>=2.8.0
 passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.0
 python-multipart>=0.0.9
 httpx>=0.27.0
 python-dotenv>=1.0.0
+slowapi>=0.1.9
+email-validator>=2.1.0
 """
 
 _DOCKERFILE = """\
@@ -493,7 +511,7 @@ You are a senior backend engineer. Generate SQLAlchemy async ORM models and Pyda
 for a {domain} application called "{project_name}".
 
 Project requirements:
-{raw_input[:1500]}
+{raw_input[:3000]}
 {mem_hint}
 Entities to model:
 {entities_json}
@@ -561,36 +579,74 @@ async def _llm_crud_routers(
     entity_names = [e.get("name", e.get("table", "")) for e in entities[:12]]
     entity_list = ", ".join(entity_names)
 
+    # Build a compact entity→fields map so the LLM can produce correct column references
+    entity_fields_summary = ""
+    for e in entities[:12]:
+        fields = e.get("fields", []) or []
+        field_names = [f.get("name", f) if isinstance(f, dict) else str(f) for f in fields[:12]]
+        entity_fields_summary += f"  {e.get('name','')}: {', '.join(field_names)}\n"
+
+    # Pass full models + schemas so LLM sees exact class names, field names, and types
+    # Cap at 5000 chars each to stay within context budget
+    models_ctx = models_code[:5000] + ("\n# ... (truncated)" if len(models_code) > 5000 else "")
+    schemas_ctx = schemas_code[:5000] + ("\n# ... (truncated)" if len(schemas_code) > 5000 else "")
+
     prompt = f"""\
-Generate FastAPI CRUD routers for "{project_name}".
+Generate production-quality FastAPI async CRUD routers for "{project_name}".
 {mem_hint}
 
-Entities: {entity_list}
+Entities and their fields:
+{entity_fields_summary}
+Full src/models.py:
+```python
+{models_ctx}
+```
 
-Models defined in src/models.py (first 800 chars):
-{models_code[:800]}
-
-Schemas defined in src/schemas.py (first 800 chars):
-{schemas_code[:800]}
+Full src/schemas.py:
+```python
+{schemas_ctx}
+```
 
 FILE: src/routers/crud.py
 
-REQUIREMENTS:
-1. Import all models from `..models` and all schemas from `..schemas`
-2. Import: `from ..database import get_db`, `from ..auth import get_current_user, require_admin`
-3. For EACH entity create an `APIRouter(prefix="/{entity_plural}", tags=["{entity_label}"])` with:
-   - GET / → list with `skip: int = 0, limit: int = 100` query params, returns list[EntityResponse]
-   - POST / → create, status_code=201, returns EntityResponse
-   - GET /{{id}} → get by id or raise 404, returns EntityResponse
-   - PUT /{{id}} → update by id or raise 404, returns EntityResponse
-   - DELETE /{{id}} → delete or raise 404, returns 204 No Content
-   - All endpoints use `current_user: dict = Depends(get_current_user)`
-   - DELETE uses `Depends(require_admin)` for sensitive entities, else `Depends(get_current_user)`
-4. Use `await db.execute(select(Model).where(Model.id == id))` for queries
-5. Use `await db.execute(select(Model).offset(skip).limit(limit))` for lists
-6. Call `db.add(obj)`, `await db.flush()`, `await db.refresh(obj)` after create/update
-7. Return `None` with `status_code=204` from delete endpoints
-8. LAST LINE must be: `all_routers = [{entity1}_router, {entity2}_router, ...]`
+STRICT REQUIREMENTS — every violation causes runtime errors:
+1. Imports:
+   - `from __future__ import annotations`
+   - `from typing import List, Optional, Any`
+   - `from fastapi import APIRouter, Depends, HTTPException, status, Query`
+   - `from sqlalchemy.ext.asyncio import AsyncSession`
+   - `from sqlalchemy import select, func`
+   - `from ..database import get_db`
+   - `from ..auth import get_current_user, require_admin`
+   - Import EVERY model class from `..models` that you reference
+   - Import EVERY schema class from `..schemas` that you reference
+
+2. For EACH domain entity (NOT User — User is handled by auth router):
+   Create `APIRouter(prefix="/{'{entity_plural}'}", tags=["{'{Entity Label}'}"]):
+   - `GET /` → paginated list: `skip: int = Query(0, ge=0)`, `limit: int = Query(100, le=500)`
+     Returns: `List[{Entity}Response]`
+   - `POST /` → create, `status_code=201`, returns `{Entity}Response`
+   - `GET /{{id}}` → single record or HTTP 404, returns `{Entity}Response`
+   - `PUT /{{id}}` → full update or HTTP 404, returns `{Entity}Response`
+   - `PATCH /{{id}}` → partial update, `data: {Entity}Update`, returns `{Entity}Response`
+   - `DELETE /{{id}}` → soft-delete or hard-delete, HTTP 204
+
+3. Query pattern (async SQLAlchemy):
+   - List:   `result = await db.execute(select({Model}).offset(skip).limit(limit))`
+             `items = list(result.scalars().all())`
+   - Single: `result = await db.execute(select({Model}).where({Model}.id == id))`
+             `obj = result.scalar_one_or_none()`
+             `if obj is None: raise HTTPException(status_code=404, ...)`
+   - Create: `obj = {Model}(**data.model_dump(exclude_unset=True))`
+             `db.add(obj); await db.flush(); await db.refresh(obj)`
+   - Update: fetch, then `for k, v in data.model_dump(exclude_unset=True).items(): setattr(obj, k, v)`
+             `await db.flush(); await db.refresh(obj)`
+   - Delete: fetch, `await db.delete(obj)` (or set `is_active=False` for soft-delete)
+
+4. Auth: ALL routes require `current_user: dict = Depends(get_current_user)`.
+   DELETE requires `Depends(require_admin)`.
+
+5. LAST LINE must be: `all_routers = [{'{entity}'}' _router, ...]` listing ALL entity routers.
 
 Return ONLY the complete Python file. No markdown, no explanation."""
 
@@ -613,8 +669,10 @@ async def _llm_seed_data(
     prompt = f"""\
 Generate a `seed_database()` async function for "{project_name}" ({domain}).
 
-Models (from src/models.py):
-{models_code[:1200]}
+Complete src/models.py (use EXACT class names from here):
+```python
+{models_code[:3000]}{"" if len(models_code) <= 3000 else chr(10) + "# ... (truncated)"}
+```
 
 FILE: src/seed.py
 
@@ -767,14 +825,15 @@ def _fallback_schemas(entities: list) -> str:
 
 
 def _fallback_crud_routers(entities: list) -> str:
+    """Fallback CRUD using ORM (no raw SQL — no injection vectors)."""
     lines = [
         "from __future__ import annotations",
-        "from typing import Any, Dict, List",
-        "from fastapi import APIRouter, Depends, HTTPException, status",
+        "from typing import Any, Dict, List, Optional",
+        "from fastapi import APIRouter, Depends, HTTPException, Query, status",
         "from sqlalchemy.ext.asyncio import AsyncSession",
-        "from sqlalchemy import select, text, func",
+        "from sqlalchemy import select, func",
         "from ..database import get_db",
-        "from ..auth import get_current_user",
+        "from ..auth import get_current_user, require_admin",
         "",
     ]
     router_vars = []
@@ -784,52 +843,71 @@ def _fallback_crud_routers(entities: list) -> str:
         var = f"{table}_router"
         router_vars.append(var)
         lines += [
+            f"# Import {name} model lazily to avoid circular imports",
+            f"def _get_{table}_model():",
+            f"    from ..models import {name}",
+            f"    return {name}",
+            "",
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
-            f"@{var}.get('/', response_model=List[Dict[str, Any]])",
-            f"async def list_{table}(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(text('SELECT * FROM {table} LIMIT :limit OFFSET :skip'), {{'limit': min(limit, 100), 'skip': skip}})",
-            f"    return [dict(r._mapping) for r in result.fetchall()]",
+            f"@{var}.get('/', response_model=dict)",
+            f"async def list_{table}(",
+            f"    page: int = Query(1, ge=1),",
+            f"    limit: int = Query(20, ge=1, le=200),",
+            f"    db: AsyncSession = Depends(get_db),",
+            f"    current_user: dict = Depends(get_current_user),",
+            f"):",
+            f"    _Model = _get_{table}_model()",
+            f"    offset = (page - 1) * limit",
+            f"    total_q = await db.execute(select(func.count()).select_from(_Model))",
+            f"    total = total_q.scalar_one()",
+            f"    result = await db.execute(select(_Model).offset(offset).limit(limit))",
+            f"    items = result.scalars().all()",
+            f"    return {{'items': [{{c.name: getattr(i, c.name) for c in _Model.__table__.columns}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
             "",
             f"@{var}.post('/', status_code=201)",
-            f"async def create_{table}(data: Dict[str, Any], db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    if not data:",
-            f"        raise HTTPException(status_code=422, detail='Request body required')",
-            f"    cols = ', '.join(data.keys())",
-            f"    vals = ', '.join(f':{{k}}' for k in data.keys())",
-            f"    result = await db.execute(text(f'INSERT INTO {table} ({{cols}}) VALUES ({{vals}}) RETURNING *'), data)",
-            f"    await db.commit()",
-            f"    row = result.fetchone()",
-            f"    return dict(row._mapping) if row else data",
+            f"async def create_{table}(data: Dict[str, Any], db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    _Model = _get_{table}_model()",
+            f"    valid_cols = {{c.name for c in _Model.__table__.columns}} - {{'id', 'created_at', 'updated_at'}}",
+            f"    filtered = {{k: v for k, v in data.items() if k in valid_cols}}",
+            f"    obj = _Model(**filtered)",
+            f"    db.add(obj)",
+            f"    await db.flush()",
+            f"    await db.refresh(obj)",
+            f"    return {{c.name: getattr(obj, c.name) for c in _Model.__table__.columns}}",
             "",
-            f"@{var}.get('/{{id}}')",
-            f"async def get_{table}(id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(text('SELECT * FROM {table} WHERE id = :id'), {{'id': id}})",
-            f"    row = result.fetchone()",
-            f"    if not row:",
+            f"@{var}.get('/{{item_id}}')",
+            f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    _Model = _get_{table}_model()",
+            f"    result = await db.execute(select(_Model).where(_Model.id == item_id))",
+            f"    obj = result.scalar_one_or_none()",
+            f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    return dict(row._mapping)",
+            f"    return {{c.name: getattr(obj, c.name) for c in _Model.__table__.columns}}",
             "",
-            f"@{var}.put('/{{id}}')",
-            f"async def update_{table}(id: int, data: Dict[str, Any], db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    if not data:",
-            f"        raise HTTPException(status_code=422, detail='Request body required')",
-            f"    sets = ', '.join(f'{{k}} = :{{k}}' for k in data.keys())",
-            f"    data['_id'] = id",
-            f"    result = await db.execute(text(f'UPDATE {table} SET {{sets}} WHERE id = :_id RETURNING *'), data)",
-            f"    await db.commit()",
-            f"    row = result.fetchone()",
-            f"    if not row:",
+            f"@{var}.patch('/{{item_id}}')",
+            f"async def update_{table}(item_id: int, data: Dict[str, Any], db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    _Model = _get_{table}_model()",
+            f"    result = await db.execute(select(_Model).where(_Model.id == item_id))",
+            f"    obj = result.scalar_one_or_none()",
+            f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    return dict(row._mapping)",
+            f"    valid_cols = {{c.name for c in _Model.__table__.columns}} - {{'id', 'created_at', 'updated_at'}}",
+            f"    for k, v in data.items():",
+            f"        if k in valid_cols:",
+            f"            setattr(obj, k, v)",
+            f"    await db.flush()",
+            f"    await db.refresh(obj)",
+            f"    return {{c.name: getattr(obj, c.name) for c in _Model.__table__.columns}}",
             "",
-            f"@{var}.delete('/{{id}}', status_code=204)",
-            f"async def delete_{table}(id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(text('DELETE FROM {table} WHERE id = :id RETURNING id'), {{'id': id}})",
-            f"    await db.commit()",
-            f"    if not result.fetchone():",
+            f"@{var}.delete('/{{item_id}}', status_code=204)",
+            f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_admin)):",
+            f"    _Model = _get_{table}_model()",
+            f"    result = await db.execute(select(_Model).where(_Model.id == item_id))",
+            f"    obj = result.scalar_one_or_none()",
+            f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    return None",
+            f"    await db.delete(obj)",
             "",
         ]
     lines.append(f"all_routers = [{', '.join(router_vars)}]")
@@ -1067,21 +1145,54 @@ def _fix_common_issues(code: str) -> str:
     """Fix frequent LLM codegen mistakes."""
     # Fix typing.AsyncSession
     code = code.replace("class_=typing.AsyncSession", "class_=AsyncSession")
-    # Ensure Float/JSON/BigInteger are imported if used
+
+    # Ensure SQLAlchemy column types used in code are imported
     if "from sqlalchemy import" in code:
         m = re.search(r'^from sqlalchemy import ([^\n]+)', code, re.MULTILINE)
         if m:
             existing = m.group(1)
-            needed = ["Float", "JSON", "BigInteger", "Numeric", "Text", "func"]
-            missing = [t for t in needed if t not in existing and t.lower() in code.lower()]
+            needed = ["Float", "JSON", "BigInteger", "Numeric", "Text", "func", "and_", "or_"]
+            missing = [t for t in needed if t not in existing and re.search(r'\b' + t + r'\b', code)]
             if missing:
                 code = code.replace(m.group(0), m.group(0) + ", " + ", ".join(missing))
-    # Fix datetime import in models
+
+    # Fix datetime import in models/crud
     if "datetime.now" in code and "from datetime import datetime" not in code:
         code = "from datetime import datetime, timezone\n" + code
-    # Fix missing timezone import
-    if "timezone.utc" in code and "timezone" not in code.split("from datetime import")[-1].split("\n")[0] if "from datetime import" in code else True:
+    if "timezone.utc" in code and "from datetime import" in code:
         code = code.replace("from datetime import datetime\n", "from datetime import datetime, timezone\n")
+
+    # Fix missing typing imports (Optional, List, Dict, Any, Union, Tuple)
+    _typing_needed = []
+    for _t in ("Optional", "List", "Dict", "Any", "Union", "Tuple", "Set"):
+        if re.search(r'\b' + _t + r'\b', code) and f"from typing import" not in code.split(_t)[0].split("\n")[-1]:
+            _typing_needed.append(_t)
+    if _typing_needed:
+        if "from typing import" in code:
+            m2 = re.search(r'^from typing import ([^\n]+)', code, re.MULTILINE)
+            if m2:
+                existing_types = [t.strip() for t in m2.group(1).split(",")]
+                to_add = [t for t in _typing_needed if t not in existing_types]
+                if to_add:
+                    code = code.replace(m2.group(0), m2.group(0) + ", " + ", ".join(to_add))
+        else:
+            code = "from typing import " + ", ".join(_typing_needed) + "\n" + code
+
+    # Remove pydantic v1 imports — always use v2
+    code = code.replace("from pydantic.v1 import", "from pydantic import")
+    code = code.replace("from pydantic import validator", "from pydantic import field_validator")
+
+    # Fix async SQLAlchemy result fetching (common LLM mistake: .all() not .scalars().all())
+    code = re.sub(
+        r'(await db\.execute\([^)]+\))\.all\(\)',
+        r'\1.scalars().all()',
+        code,
+    )
+    code = re.sub(
+        r'(await db\.execute\([^)]+\))\.first\(\)',
+        r'\1.scalar_one_or_none()',
+        code,
+    )
     return code
 
 
@@ -1126,11 +1237,11 @@ def _check_imports(src_dir: Path) -> list[str]:
 
 
 async def _smoke_test(src_dir: Path, emit) -> dict:
-    """Syntax-check + import-style validation for all Python files in src/."""
+    """Syntax-check + import-style validation + live HTTP probe for generated backend."""
     errors = []
     py_files = list(src_dir.rglob("*.py"))
 
-    # Pass 1: syntax check via py_compile
+    # Pass 1: syntax check via py_compile on every generated .py file
     for f in py_files:
         proc = await asyncio.create_subprocess_exec(
             "python3", "-m", "py_compile", str(f),
@@ -1144,18 +1255,133 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
         except asyncio.TimeoutError:
             pass
 
-    # Pass 2: AST import validation (only if syntax passes)
+    # Pass 2: AST import validation (catch hallucinated aether_os.* imports)
     if not errors:
         import_issues = _check_imports(src_dir)
         errors.extend(import_issues)
+
+    # Pass 3: live HTTP probe — start uvicorn briefly, hit /health
+    # Only run if syntax passes to avoid crashing the probe on bad code
+    http_result: dict = {"skipped": True}
+    if not errors:
+        http_result = await _live_http_probe(src_dir, emit)
+        if not http_result.get("passed") and not http_result.get("skipped"):
+            errors.extend(http_result.get("errors", []))
 
     passed = len(errors) == 0
     await emit({
         "type": "llm_chunk",
         "phase": "p04_smoke_test",
-        "text": f"{'✓' if passed else '✗'} Smoke test: {len(py_files)} files checked, {len(errors)} errors",
+        "text": (
+            f"{'✓' if passed else '✗'} Smoke test: {len(py_files)} files, "
+            f"{len(errors)} errors"
+            + (f", /health {http_result.get('health_status', '?')}" if not http_result.get("skipped") else "")
+        ),
     })
-    return {"passed": passed, "errors": errors}
+    return {"passed": passed, "errors": errors, "http_probe": http_result}
+
+
+async def _live_http_probe(src_dir: Path, emit) -> dict:
+    """Start uvicorn on a temp port, hit /health, return result. Non-blocking on failure."""
+    import tempfile, socket as _sock, time as _time, os as _os
+
+    # Find a free port
+    with _sock.socket() as _s:
+        _s.bind(("127.0.0.1", 0))
+        probe_port = _s.getsockname()[1]
+
+    # Write a temp .env so the app has a valid SECRET_KEY
+    _env_file = src_dir.parent / ".env"
+    _wrote_env = False
+    if not _env_file.exists():
+        import secrets as _sec2
+        _env_file.write_text(
+            f"DATABASE_URL=sqlite+aiosqlite:///{src_dir.parent}/probe.db\n"
+            f"SECRET_KEY={_sec2.token_hex(32)}\n"
+            f"CORS_ORIGINS=http://localhost:3000\n"
+        )
+        _wrote_env = True
+
+    _log_path = src_dir.parent / "probe.log"
+    proc = None
+    try:
+        _env = {**_os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
+        if _env_file.exists():
+            # Load .env into subprocess env
+            for line in _env_file.read_text().splitlines():
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    _env[k.strip()] = v.strip()
+
+        with open(_log_path, "w") as _lf:
+            proc = await asyncio.create_subprocess_exec(
+                "python3", "-m", "uvicorn", "src.main:app",
+                "--host", "127.0.0.1", "--port", str(probe_port),
+                "--timeout-graceful-shutdown", "1",
+                cwd=str(src_dir.parent),
+                stdout=_lf,
+                stderr=_lf,
+                env=_env,
+            )
+
+        # Wait up to 8 seconds for the server to be ready
+        _ready = False
+        for _ in range(16):
+            await asyncio.sleep(0.5)
+            try:
+                with _sock.create_connection(("127.0.0.1", probe_port), timeout=0.3):
+                    _ready = True
+                    break
+            except OSError:
+                pass
+
+        if not _ready:
+            _log_tail = _log_path.read_text()[-1000:] if _log_path.exists() else ""
+            return {"passed": False, "skipped": False, "errors": [f"Server did not start in 8s: {_log_tail[-400:]}"], "health_status": "timeout"}
+
+        # Hit /health
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=5.0) as _c:
+            _r = await _c.get(f"http://127.0.0.1:{probe_port}/health")
+        _health_ok = _r.status_code == 200
+
+        # Also probe /docs to verify OpenAPI schema generates cleanly
+        _docs_ok = False
+        try:
+            _dr = await _c.get(f"http://127.0.0.1:{probe_port}/docs")
+            _docs_ok = _dr.status_code == 200
+        except Exception:
+            pass
+
+        await emit({
+            "type": "llm_chunk", "phase": "p04_probe",
+            "text": f"  /health → {_r.status_code}  /docs → {'200' if _docs_ok else '?'}",
+        })
+        return {
+            "passed": _health_ok,
+            "skipped": False,
+            "health_status": str(_r.status_code),
+            "docs_ok": _docs_ok,
+            "errors": [] if _health_ok else [f"/health returned {_r.status_code}: {_r.text[:200]}"],
+        }
+    except Exception as _pe:
+        return {"passed": False, "skipped": False, "errors": [f"probe error: {_pe}"], "health_status": "error"}
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.terminate()
+                await asyncio.wait_for(proc.wait(), timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        # Clean up probe DB
+        for _f in [src_dir.parent / "probe.db", _log_path]:
+            try:
+                _f.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -1387,12 +1613,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _secret = _sec.token_hex(32)
     (output_dir / "requirements.txt").write_text(_REQUIREMENTS_TXT)
     (output_dir / "Dockerfile").write_text(_DOCKERFILE)
-    (output_dir / ".env.example").write_text(
+    _env_content = (
         f"DATABASE_URL=sqlite+aiosqlite:///./app.db\n"
         f"SECRET_KEY={_secret}\n"
         f"CORS_ORIGINS=http://localhost:3000,http://localhost:5173\n"
         f"ENVIRONMENT=development\n"
+        f"DEBUG=false\n"
+        f"ADMIN_PASSWORD=Admin1234!\n"
     )
+    # Write both .env (used by the running app) and .env.example (for documentation)
+    (output_dir / ".env").write_text(_env_content)
+    (output_dir / ".env.example").write_text(_env_content)
     # ── Makefile ──────────────────────────────────────────────────────────────
     (output_dir / "Makefile").write_text(_generate_makefile(project_name))
     (output_dir / "README.md").write_text(_generate_backend_readme(project_name, entities))

@@ -23,13 +23,26 @@ async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noq
     from aether_os.core.llm.client import get_llm_client
     client = get_llm_client()
     source = main_py.read_text()
+    # Also read models + schemas so the LLM has full context to fix import errors
+    _sibling_ctx = ""
+    for _sib in ["models.py", "schemas.py", "routers/crud.py"]:
+        _sib_path = main_py.parent / _sib
+        if _sib_path.exists():
+            _sib_src = _sib_path.read_text()[:1500]
+            _sibling_ctx += f"\n\n# --- {_sib} (first 1500 chars) ---\n{_sib_src}"
     prompt = (
         "The following FastAPI backend code fails to start with this error:\n\n"
         f"ERROR:\n{error}\n\n"
-        f"CODE (first 200 lines):\n{chr(10).join(source.splitlines()[:200])}\n\n"
-        "Fix ONLY the error above. Return the complete corrected Python file with no explanation.\n"
-        "Common fixes: add missing imports, fix undefined names, use correct SQLAlchemy syntax.\n"
-        "Do not change the API endpoints or business logic."
+        f"FILE: main.py (complete):\n{source}\n"
+        f"{_sibling_ctx}\n\n"
+        "Fix ONLY the error above. Return the COMPLETE corrected main.py with no explanation.\n"
+        "Rules:\n"
+        "- Add any missing imports at the top\n"
+        "- Fix undefined name errors by importing the correct module\n"
+        "- Fix SQLAlchemy async syntax (use .scalars().all(), not .all())\n"
+        "- Never use in-memory dicts/lists — use SQLAlchemy ORM only\n"
+        "- Never store plaintext passwords — always use passlib bcrypt\n"
+        "Do not change working API endpoints or business logic."
     )
     try:
         fixed = await client.call(prompt, task_type="code_fix", max_tokens=4000)
