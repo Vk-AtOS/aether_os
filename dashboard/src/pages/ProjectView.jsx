@@ -199,6 +199,59 @@ const formatEvent = (event) => {
   }
 };
 
+// ── SpecReviewModal ──────────────────────────────────────────────────────────
+const SpecReviewModal = ({ spec, onApprove, onCancel, approving }) => {
+  if (!spec) return null;
+  const entries = Object.entries(spec).filter(([k]) => !['run_id'].includes(k));
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="bg-surface border border-accent/40 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
+          <CheckCircle2 className="w-5 h-5 text-accent shrink-0" />
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-bold text-bright">Spec Review</h2>
+            <p className="text-xs text-muted">Review the council-parsed requirements before code generation starts.</p>
+          </div>
+          <button onClick={onCancel} className="text-muted hover:text-bright transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {entries.map(([key, value]) => (
+            <div key={key} className="bg-surface/60 border border-border rounded-lg p-3">
+              <div className="text-[10px] font-mono text-accent uppercase tracking-widest mb-1">{key.replace(/_/g, ' ')}</div>
+              <div className="text-sm text-bright whitespace-pre-wrap break-words">
+                {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '')}
+              </div>
+            </div>
+          ))}
+          {entries.length === 0 && (
+            <p className="text-sm text-muted text-center py-8">No spec data available yet.</p>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border">
+          <button
+            onClick={onCancel}
+            disabled={approving}
+            className="px-4 py-2 text-xs rounded-lg border border-border text-muted hover:text-bright hover:border-bright transition-colors disabled:opacity-50"
+          >
+            Cancel Build
+          </button>
+          <button
+            onClick={onApprove}
+            disabled={approving}
+            className="px-5 py-2 text-xs rounded-lg bg-accent text-black font-semibold hover:bg-accent/80 transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {approving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+            {approving ? 'Approving…' : 'Approve & Start Build'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 // ── ClarifyingQuestionsPanel ─────────────────────────────────────────────────
 const ClarifyingQuestionsPanel = ({ runId, questionCount, onAnswered }) => {
   const [answers, setAnswers] = React.useState({});
@@ -680,6 +733,11 @@ const ProjectView = () => {
   const [decisionsError, setDecisionsError]   = useState(null);
   const [decidingId, setDecidingId]           = useState(null);
 
+  // Spec review gate
+  const [specReview, setSpecReview]           = useState(null);   // parsed spec object or null
+  const [specModalOpen, setSpecModalOpen]     = useState(false);
+  const [specApproving, setSpecApproving]     = useState(false);
+
   const logEndRef = useRef(null);
   const logContainerRef = useRef(null);
 
@@ -854,6 +912,14 @@ const ProjectView = () => {
             }
             const line = formatEvent(event);
             if (line) appendLine(line);
+          }
+
+          if (event.type === 'spec_review_ready') {
+            // Fetch the parsed spec and open the review modal
+            api.getRunSpec(id).then(r => {
+              setSpecReview(r.data?.spec || {});
+              setSpecModalOpen(true);
+            }).catch(() => setSpecModalOpen(true));
           }
 
           if (event.type === 'app_started') {
@@ -1227,6 +1293,36 @@ const ProjectView = () => {
 
       {/* Toast notification */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      {/* Spec review modal */}
+      {specModalOpen && (
+        <SpecReviewModal
+          spec={specReview}
+          approving={specApproving}
+          onApprove={async () => {
+            setSpecApproving(true);
+            try {
+              await api.approveSpec(id, 'approve');
+              setSpecModalOpen(false);
+              showToast('✅ Spec approved — starting code generation');
+            } catch (e) {
+              showToast('Failed to approve spec: ' + (e.message || 'unknown error'));
+            } finally {
+              setSpecApproving(false);
+            }
+          }}
+          onCancel={async () => {
+            try {
+              await api.approveSpec(id, 'cancel');
+              setSpecModalOpen(false);
+              showToast('Build cancelled at spec review');
+              fetchRunDetail();
+            } catch {
+              setSpecModalOpen(false);
+            }
+          }}
+        />
+      )}
 
       {/* ── LEFT: Phase sidebar ──────────────────────────────────────────────── */}
       <div className="w-52 bg-panel border-r border-border flex flex-col shrink-0 overflow-hidden">
@@ -1715,6 +1811,25 @@ const ProjectView = () => {
           <section className="panel p-4 flex items-center space-x-3 border-warning/20">
             <Pause className="w-4 h-4 text-warning shrink-0" />
             <span className="text-sm font-bold text-warning">Pipeline paused — click Resume to continue</span>
+          </section>
+        )}
+
+        {/* Spec review banner — shown when pipeline is waiting for approval */}
+        {isRunning && specModalOpen && (
+          <section className="panel p-4 flex items-center justify-between border-accent/30 bg-accent/5">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-4 h-4 text-accent shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-accent">Spec Review Required</p>
+                <p className="text-xs text-muted">p01 completed — approve the parsed requirements to start code generation.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSpecModalOpen(true)}
+              className="text-xs px-3 py-1.5 bg-accent text-black font-semibold rounded-lg hover:bg-accent/80 transition-colors shrink-0"
+            >
+              Review Spec
+            </button>
           </section>
         )}
 

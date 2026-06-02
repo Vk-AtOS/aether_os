@@ -476,12 +476,46 @@ def create_app() -> FastAPI:
         async def _restore_run_app():
             try:
                 await asyncio.sleep(5)  # wait for DB + deps to settle
+                import json as _rjson, glob as _rglob
+                import socket as _sock
+
+                # First: scan per-run state files for a live port (avoids Redis overwrite)
+                _state_files = sorted(
+                    _rglob.glob(str(Path.home() / ".aether_os" / "projects" / "*" / "run_app_state.json")),
+                    key=lambda p: Path(p).stat().st_mtime,
+                    reverse=True,
+                )
+                for _sf in _state_files:
+                    try:
+                        _st = _rjson.loads(Path(_sf).read_text())
+                        _rid, _rport = _st.get("run_id"), int(_st.get("port", 0))
+                        if not _rid or not _rport:
+                            continue
+                        _alive = False
+                        try:
+                            with _sock.create_connection(("127.0.0.1", _rport), timeout=1):
+                                _alive = True
+                        except OSError:
+                            pass
+                        if _alive:
+                            logger.info("run_app: port %d still alive for run %s — registering (no restart)", _rport, _rid)
+                            from aether_os.core.rate_limiter import run_app_port_set as _raps
+                            await _raps(_rid, _rport)
+                            from aether_os.gateway.api import _APP_PORTS, _APP_CURRENT_RUN
+                            _APP_PORTS[_rid] = _rport
+                            if not _APP_CURRENT_RUN:
+                                _APP_CURRENT_RUN.append(_rid)
+                            else:
+                                _APP_CURRENT_RUN[0] = _rid
+                            return
+                    except Exception:
+                        continue
+
+                # Fallback: check Redis
                 from aether_os.core.rate_limiter import run_app_port_get as _rapg
                 _rid, _rport = await _rapg()
                 if not _rid:
                     return
-                # Verify the old port is actually dead before restarting
-                import socket as _sock
                 _dead = True
                 try:
                     with _sock.create_connection(("127.0.0.1", _rport), timeout=1):

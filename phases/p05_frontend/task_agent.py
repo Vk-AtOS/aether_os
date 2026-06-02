@@ -798,25 +798,77 @@ def _generate_tsconfig() -> str:
     return json.dumps(data, indent=2)
 
 
-def _generate_tailwind_config() -> str:
-    return """\
-export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
-  theme: {
-    extend: {
-      colors: {
+def _generate_tailwind_config(ui_theme: str = "default") -> str:
+    # Theme-appropriate brand palette + dark-mode class
+    _neon_palette = """\
+        brand: {
+          50:  '#e0ffff',
+          100: '#b3fffe',
+          200: '#80fffd',
+          300: '#4dfffc',
+          400: '#00ffff',
+          500: '#00e5e5',
+          600: '#00b3b3',
+          700: '#008080',
+          800: '#005555',
+          900: '#003333',
+        },
+        surface: {
+          50: '#0a0f1e',
+          100: '#050810',
+          200: '#0d1117',
+          300: '#1a2035',
+          400: '#242b45',
+        },
+        accent: {
+          pink:   '#ff00ff',
+          cyan:   '#00ffff',
+          yellow: '#facc15',
+        },"""
+    _glass_palette = """\
+        brand: {
+          50:  '#f5f3ff',
+          200: '#ddd6fe',
+          500: '#8b5cf6',
+          600: '#7c3aed',
+          700: '#6d28d9',
+          900: '#4c1d95',
+        },"""
+    _default_palette = """\
         brand: {
           50:  '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
           500: '#3b82f6',
           600: '#2563eb',
           700: '#1d4ed8',
           900: '#1e3a8a',
-        }
-      }
+        },"""
+
+    _theme_palettes = {
+        "neon_cyberpunk": (_neon_palette, "'Share Tech Mono', 'Courier New', monospace"),
+        "glassmorphism":  (_glass_palette, None),
+        "brutalist":      (_default_palette, "'Courier New', monospace"),
     }
-  },
+    _palette, _font = _theme_palettes.get(ui_theme, (_default_palette, None))
+    _dark = "darkMode: 'class'," if ui_theme in ("neon_cyberpunk", "glassmorphism") else ""
+    _font_block = f"""
+      fontFamily: {{
+        mono: [{_font}],
+      }},""" if _font else ""
+    return f"""\
+export default {{
+  content: ['./index.html', './src/**/*.{{js,ts,jsx,tsx}}'],
+  {_dark}
+  theme: {{
+    extend: {{
+      colors: {{
+{_palette}
+      }},{_font_block}
+    }}
+  }},
   plugins: []
-}
+}}
 """
 
 
@@ -1164,10 +1216,21 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("  return cfg")
     lines.append("})")
     lines.append("")
+    lines.append("// Debounce flag — prevents concurrent 401s from triggering multiple redirects")
+    lines.append("let _sessionExpired = false")
+    lines.append("")
     lines.append("apiClient.interceptors.response.use(")
     lines.append("  r => r,")
     lines.append("  err => {")
-    lines.append("    if (err.response?.status === 401) { clearToken(); window.location.href = '/app-preview/login' }")
+    lines.append("    const url = err.config?.url ?? ''")
+    lines.append("    const is401 = err.response?.status === 401")
+    lines.append("    const isAuthRoute = url.includes('/auth/login') || url.includes('/auth/register')")
+    lines.append("    if (is401 && !isAuthRoute && !_sessionExpired) {")
+    lines.append("      _sessionExpired = true")
+    lines.append("      clearToken()")
+    lines.append("      // Use replace (not href=) so the browser back-button still works after re-login")
+    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace('/app-preview/login') }, 80)")
+    lines.append("    }")
     lines.append("    return Promise.reject(err)")
     lines.append("  },")
     lines.append(")")
@@ -2262,7 +2325,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (frontend_dir / "package.json").write_text(_generate_package_json(project_slug))
     (frontend_dir / "vite.config.ts").write_text(_generate_vite_config())
     (frontend_dir / "tsconfig.json").write_text(_generate_tsconfig())
-    (frontend_dir / "tailwind.config.js").write_text(_generate_tailwind_config())
+    (frontend_dir / "tailwind.config.js").write_text(_generate_tailwind_config(ui_theme))
     (frontend_dir / "postcss.config.js").write_text(_generate_postcss_config())
     (frontend_dir / "index.html").write_text(_generate_index_html(project_name))
     (frontend_dir / "nginx.conf").write_text(_generate_nginx_conf(data))
