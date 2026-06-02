@@ -1486,11 +1486,13 @@ const ProjectDesigner = () => {
         <div className="py-20 text-center">
           <Wand2 className="w-12 h-12 text-muted/30 mx-auto mb-4" />
           <p className="text-muted text-sm">No build launched yet.</p>
-          <p className="text-muted/60 text-xs mt-1">Complete the spec and click Launch Build on the Preview tab.</p>
-          <button onClick={() => setActiveTab(3)}
-            className="mt-4 px-5 py-2 bg-accent hover:bg-accent/90 text-white text-sm font-semibold rounded-xl transition-colors">
-            Go to Preview
+          <p className="text-muted/60 text-xs mt-1">Your spec is ready — launch the pipeline to generate your app.</p>
+          <button onClick={handleLaunch} disabled={launching || !requirement.trim()}
+            className="mt-4 px-6 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors flex items-center gap-2 mx-auto">
+            {launching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {launching ? 'Launching…' : '🚀 Launch Build'}
           </button>
+          {launchError && <p className="mt-3 text-red-400 text-xs">{launchError}</p>}
         </div>
       )}
     </div>
@@ -1537,7 +1539,7 @@ const ProjectDesigner = () => {
       </div>
 
       {/* Bottom nav */}
-      {activeTab < 4 && (
+      {(activeTab < 4 || (activeTab === 5 && !runId)) && (
         <div className="flex justify-between mt-8 pt-4 border-t border-border">
           <button onClick={() => setActiveTab(p => Math.max(0, p - 1))} disabled={activeTab === 0}
             className="px-5 py-2.5 border border-border text-muted hover:text-bright disabled:opacity-30 text-sm font-semibold rounded-xl transition-colors">

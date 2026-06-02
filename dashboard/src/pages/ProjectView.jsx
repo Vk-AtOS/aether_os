@@ -41,6 +41,7 @@ import {
 const PHASES = [
   'p01_intake_requirements',
   'p02_architecture',
+  'p02b_domain_ir',
   'p03_scaffolding',
   'p04_backend',
   'p05_frontend',
@@ -56,6 +57,7 @@ const PHASES = [
 const PHASE_NAMES = {
   p01_intake_requirements: 'Intake',
   p02_architecture:        'Architecture',
+  p02b_domain_ir:          'Domain IR',
   p03_scaffolding:         'Scaffolding',
   p04_backend:             'Backend',
   p05_frontend:            'Frontend',
@@ -71,6 +73,7 @@ const PHASE_NAMES = {
 const PHASE_LABELS = {
   p01_intake_requirements: 'Intake & Requirements',
   p02_architecture:        'Architecture Design',
+  p02b_domain_ir:          'Domain IR Extraction',
   p03_scaffolding:         'Project Scaffolding',
   p04_backend:             'Backend Codegen',
   p05_frontend:            'Frontend Codegen',

@@ -313,23 +313,32 @@ async def create_run(
     client_id: Optional[str] = None,
     raw_input: Optional[str] = None,
 ) -> None:
-    """Insert a new run record."""
+    """Insert a new run record, or update status/command if it already exists."""
     from .db import get_session_factory
     from .models import Run
 
     session_factory = get_session_factory()
     async with session_factory() as session:
-        session.add(Run(
-            id=run_id,
-            command=command,
-            org_id=org_id,
-            status="running",
-            started_at=time.time(),
-            project_name=project_name,
-            domain=domain,
-            client_id=client_id,
-            raw_input=raw_input,
-        ))
+        existing = await session.get(Run, run_id)
+        if existing:
+            existing.status = "running"
+            existing.command = command
+            if project_name:
+                existing.project_name = project_name
+            if raw_input:
+                existing.raw_input = raw_input
+        else:
+            session.add(Run(
+                id=run_id,
+                command=command,
+                org_id=org_id,
+                status="running",
+                started_at=time.time(),
+                project_name=project_name,
+                domain=domain,
+                client_id=client_id,
+                raw_input=raw_input,
+            ))
         await session.commit()
 
 
