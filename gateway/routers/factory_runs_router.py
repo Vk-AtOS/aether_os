@@ -1027,8 +1027,16 @@ async def get_envvars(
     env_path = root_dir / ".env"
     source = ".env"
     if not env_path.exists():
-        env_path = root_dir / ".env.example"
-        source = ".env.example"
+        # Check root .env.example, then generated backend subdirectory
+        for _candidate, _src in [
+            (root_dir / ".env.example", ".env.example"),
+            (root_dir / "p04_backend" / "backend_codegen" / ".env", ".env"),
+            (root_dir / "p04_backend" / "backend_codegen" / ".env.example", ".env.example"),
+        ]:
+            if _candidate.exists():
+                env_path = _candidate
+                source = _src
+                break
 
     vars_list: List[Dict[str, str]] = []
     if env_path.exists():
@@ -1284,13 +1292,22 @@ async def start_run_app(
                     _sa_import_line.group(0) + ", " + ", ".join(_missing)
                 )
 
-        # Fix: remove explicit GET "/" root route — the SPA catch-all (/{path:path}) will handle it
-        # Leaving it would shadow the catch-all since FastAPI matches explicit routes first.
-        content = _re.sub(
-            r'\n@app\.get\(["\']\/["\'][^)]*\)\n(?:async )?def [^\n]+\n(?:    [^\n]+\n)*',
-            '\n',
-            content,
-        )
+        # Fix: remove explicit GET "/" root route only when we're adding the SPA catch-all.
+        # If the frontend build failed, keep the root route so / doesn't return 404.
+        _will_add_spa = bool(_dist_str)
+        if _will_add_spa:
+            content = _re.sub(
+                r'\n@app\.get\(["\']\/["\'][^)]*\)\n(?:async )?def [^\n]+\n(?:    [^\n]+\n)*',
+                '\n',
+                content,
+            )
+        else:
+            # Redirect root to /docs when no frontend is available
+            content = _re.sub(
+                r'(@app\.get\(["\']\/["\'][^)]*\)\n(?:async )?def [^\n]+\n)((?:    [^\n]+\n)*)',
+                lambda m: m.group(1) + '    from fastapi.responses import RedirectResponse\n    return RedirectResponse(url="/docs")\n',
+                content,
+            )
 
         # Fix: LLM sometimes generates routes before `app = FastAPI()` — prepend boilerplate
         if _re.search(r'^@app\.', content, _re.MULTILINE) and not _re.search(

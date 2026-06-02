@@ -186,43 +186,41 @@ def _parse_review_response(raw: str, model: str, focus: str) -> CouncilReview:
 # ── Per-model callers ─────────────────────────────────────────────────────────
 
 async def _call_via_bedrock(code: str, domain: str, role_key: str) -> Optional[CouncilReview]:
-    """Call Claude on Amazon Bedrock (used when direct Anthropic API key is absent)."""
+    """Call a model on Amazon Bedrock using the Converse API (works for Claude and Nova models)."""
     aws_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
     aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
     if not aws_key or not aws_secret:
         return None
     try:
-        import boto3, json as _json  # type: ignore
+        import boto3  # type: ignore
         spec = _PROMPTS[role_key]
         model_id = (
-            os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")
+            os.environ.get("BEDROCK_MODEL_HEAVY", "us.amazon.nova-pro-v1:0")
             if role_key == "claude"
-            else os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+            else os.environ.get("BEDROCK_MODEL_LIGHT", "us.amazon.nova-lite-v1:0")
         )
         region = os.environ.get("AWS_REGION", "us-east-1")
-        body = _json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1024,
-            "system": spec["system"],
-            "messages": [{
-                "role": "user",
-                "content": spec["prompt_tmpl"].format(domain=domain, code=code[:_MAX_CODE_CHARS]),
-            }],
-        })
+        full_prompt = spec["prompt_tmpl"].format(domain=domain, code=code[:_MAX_CODE_CHARS])
+
         def _invoke():
             c = boto3.client(
                 "bedrock-runtime", region_name=region,
                 aws_access_key_id=aws_key, aws_secret_access_key=aws_secret,
             )
-            resp = c.invoke_model(modelId=model_id, body=body,
-                                  contentType="application/json", accept="application/json")
-            return _json.loads(resp["body"].read()).get("content", [{}])[0].get("text", "")
+            # Use Converse API — works for both Anthropic Claude and Amazon Nova models
+            resp = c.converse(
+                modelId=model_id,
+                system=[{"text": spec["system"]}],
+                messages=[{"role": "user", "content": [{"text": full_prompt}]}],
+                inferenceConfig={"maxTokens": 1024},
+            )
+            return resp["output"]["message"]["content"][0]["text"]
 
         raw = await asyncio.wait_for(
             asyncio.get_running_loop().run_in_executor(None, _invoke), timeout=90
         )
         logger.info("CouncilReviewer: Bedrock/%s review complete (len=%d)", role_key, len(raw))
-        return _parse_review_response(raw, f"claude-bedrock ({model_id.split('.')[-1]})", spec["focus"])
+        return _parse_review_response(raw, f"bedrock ({model_id.split('.')[-1]})", spec["focus"])
     except Exception as exc:
         logger.warning("CouncilReviewer: Bedrock/%s failed — %s", role_key, exc)
         return None
