@@ -1166,7 +1166,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     routers_dir.mkdir(parents=True, exist_ok=True)
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
-    _emit = getattr(phase_input, "emit", lambda e: None)
+    async def _noop_emit(_e): pass
+    _emit = getattr(phase_input, "emit", _noop_emit)
 
     raw_input: str = data.get("raw_input", "") or data.get("requirements", "") or ""
     project_name: str = data.get("project_name", "App")

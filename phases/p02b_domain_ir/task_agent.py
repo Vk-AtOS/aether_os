@@ -377,7 +377,7 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
 
     async def _call(prompt: str, pass_num: int) -> dict:
         try:
-            resp = await llm.complete(prompt, max_tokens=4096, temperature=0.1)
+            resp = await llm.call(prompt, task_type="analysis", max_tokens=4096)
             result = _extract_json(resp)
             if not result:
                 logger.warning("p02b pass %d returned unparseable JSON", pass_num)
