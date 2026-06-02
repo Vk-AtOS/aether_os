@@ -1156,6 +1156,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("const API_PREFIX = BASE ? '' : '/app-preview/api'")
     lines.append("")
     lines.append("export const apiClient = axios.create({ baseURL: BASE + API_PREFIX })")
+    lines.append("export const api = apiClient  // alias used by IR-generated components")
     lines.append("")
     lines.append("apiClient.interceptors.request.use(cfg => {")
     lines.append("  const token = getToken()")
