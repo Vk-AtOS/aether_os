@@ -338,7 +338,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
-        *([f"    {l}" for l in read_guard]),
+        *read_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
