@@ -1366,6 +1366,30 @@ async def start_run_app(
         if patches:
             main_py.write_text(content + patches)
 
+    # ── Patch models.py: fix duplicate keyword arguments in Column() calls ─────
+    # LLM sometimes emits `Column(Boolean, default=True, ..., default=True)`.
+    # Python 3.10+ raises SyntaxError on repeated kwargs, crashing the app.
+    _models_py = backend_dir / "src" / "models.py"
+    if _models_py.exists():
+        import re as _re_m
+        _m_src = _models_py.read_text()
+        _m_lines = _m_src.splitlines()
+        _m_out = []
+        for _line in _m_lines:
+            if "Column(" in _line:
+                _seen_kw: set = set()
+                def _drop_dup(m: "_re_m.Match") -> str:
+                    k = m.group(1)
+                    if k in _seen_kw:
+                        return ""
+                    _seen_kw.add(k)
+                    return m.group(0)
+                _line = _re_m.sub(r",\s*(\w+)=[^,)]+", _drop_dup, _line)
+            _m_out.append(_line)
+        _m_fixed = "\n".join(_m_out)
+        if _m_fixed != _m_src:
+            _models_py.write_text(_m_fixed)
+
     # ── Patch auth.py: replace passlib CryptContext with direct bcrypt ───────
     # passlib's bcrypt backend throws AttributeError on bcrypt >= 4.0 (missing __about__).
     # Replace get_password_hash / verify_password with direct bcrypt calls to avoid this.
