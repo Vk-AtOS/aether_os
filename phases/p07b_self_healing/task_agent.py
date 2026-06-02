@@ -163,18 +163,41 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
 async def _get_fix(main_py: Path, test_file: Path, failure_output: str) -> Optional[str]:
     from aether_os.core.llm.client import get_llm_client
 
-    prompt = f"""You are a Python bug fixer. Fix the code so the tests pass.
+    # Gather full context — all generated source files matter for diagnosing the failure
+    src_dir = main_py.parent
+    _src_ctx = f"# === main.py ===\n{main_py.read_text()}\n"
+    for _sib in ["models.py", "schemas.py", "routers/crud.py", "auth.py", "database.py"]:
+        _p = src_dir / _sib
+        if _p.exists():
+            _content = _p.read_text()
+            _src_ctx += f"\n# === {_sib} ===\n{_content}\n"
 
-CURRENT CODE (main.py):
-{main_py.read_text()[:2000]}
+    # Cap total context at ~12000 chars to stay within LLM window
+    if len(_src_ctx) > 12000:
+        _src_ctx = _src_ctx[:12000] + "\n# ... (truncated — remaining files omitted)"
+
+    prompt = f"""You are a senior Python backend engineer. Fix the FastAPI backend so all tests pass.
+
+SOURCE FILES (complete):
+{_src_ctx}
 
 TEST FILE:
-{test_file.read_text()[:1000]}
+{test_file.read_text()[:2000]}
 
-TEST FAILURE:
-{failure_output[:1000]}
+TEST FAILURE OUTPUT:
+{failure_output[:2000]}
 
-Return ONLY the fixed Python code for main.py.
+RULES:
+- Never store plaintext passwords — use passlib bcrypt
+- Never use in-memory dicts/lists as databases — use SQLAlchemy ORM
+- Use `result.scalars().all()` not `result.all()` for async SQLAlchemy queries
+- Use `result.scalar_one_or_none()` not `result.first()` for single-row queries
+- All models must extend Base from .database, never use plain Python classes
+- All datetime defaults: `datetime.now(timezone.utc)`, never `datetime.utcnow()`
+- Import every name you use — no bare NameError references
+- After fixing, verify all imports exist and all referenced names are defined
+
+Return ONLY the fixed complete main.py.
 No explanation. No markdown. No code fences. Just valid Python."""
 
     def _strip_fences(code: str) -> str:

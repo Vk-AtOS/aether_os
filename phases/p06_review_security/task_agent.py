@@ -262,10 +262,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
 def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
     """
-    G12: Inject missing compliance boilerplate into a generated src/main.py.
+    G12: Inject missing compliance boilerplate + actively patch known insecure patterns.
 
-    Only injects what is actually absent — never duplicates existing blocks.
-    Writes the file back only when at least one injection was made.
+    Patches applied (in addition to injections):
+    - CORS wildcard `["*"]` → env-var-driven restrictive list
+    - Hardcoded SECRET_KEY → env-var with auto-fallback
+    - Plaintext password comparison → bcrypt check reminder comment
+
+    Only writes the file back when at least one change was made.
     """
     try:
         source = main_py.read_text(encoding="utf-8")
@@ -274,6 +278,62 @@ def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
         return
 
     injections: list[str] = []
+
+    # ── SECURITY PATCH 1: Fix CORS wildcard ──────────────────────────────────────
+    # Pattern: allow_origins=["*"]  or  allow_origins=['*']
+    _cors_wildcard = re.search(r'allow_origins\s*=\s*\[\s*["\']?\*["\']?\s*\]', source)
+    if _cors_wildcard:
+        source = re.sub(
+            r'allow_origins\s*=\s*\[\s*["\']?\*["\']?\s*\]',
+            'allow_origins=[o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]',
+            source,
+        )
+        # Ensure `import os` is present
+        if "import os" not in source:
+            source = "import os\n" + source
+        injections.append("cors_wildcard_fix")
+        logger.info("G12-security: patched CORS wildcard in %s", main_py.name)
+
+    # ── SECURITY PATCH 2: Fix hardcoded SECRET_KEY ──────────────────────────────
+    _hardcoded_secret = re.search(
+        r'SECRET_KEY\s*=\s*["\'](?!os\.environ)(?!{)[^"\']{4,}["\']',
+        source,
+    )
+    if _hardcoded_secret and "os.environ" not in source[max(0, _hardcoded_secret.start()-5):_hardcoded_secret.end()+5]:
+        source = re.sub(
+            r'(SECRET_KEY\s*=\s*)["\'][^"\']{4,}["\']',
+            r'\1os.environ.get("SECRET_KEY", __import__("secrets").token_hex(32))',
+            source,
+            count=1,
+        )
+        injections.append("secret_key_hardening")
+        logger.info("G12-security: replaced hardcoded SECRET_KEY in %s", main_py.name)
+
+    # ── SECURITY PATCH 3: Fix plaintext password check ──────────────────────────
+    # Pattern: password == plain_password (direct equality instead of bcrypt)
+    _plaintext_pw = re.search(r'password\s*==\s*\w+', source)
+    if _plaintext_pw and "verify_password" not in source and "pwd_context" not in source:
+        # Can't auto-fix logic, but inject a loud warning comment
+        source = source.replace(
+            _plaintext_pw.group(0),
+            f"# SECURITY: replace direct comparison with bcrypt verify_password()\n    {_plaintext_pw.group(0)}",
+            1,
+        )
+        injections.append("plaintext_password_warning")
+        logger.warning("G12-security: plaintext password comparison detected in %s — injected warning", main_py.name)
+
+    # ── SECURITY PATCH 4: Ensure SECRET_KEY is not empty at runtime ─────────────
+    if "SECRET_KEY" in source and "if not SECRET_KEY" not in source and "token_hex" not in source:
+        # Find the SECRET_KEY assignment and add a guard after it
+        _sk_m = re.search(r'^(SECRET_KEY\s*=.+)$', source, re.MULTILINE)
+        if _sk_m:
+            _guard = (
+                "\nif not SECRET_KEY:\n"
+                "    import secrets as _s; SECRET_KEY = _s.token_hex(32)\n"
+            )
+            source = source[:_sk_m.end()] + _guard + source[_sk_m.end():]
+            injections.append("secret_key_null_guard")
+
 
     # ── Rate-limiting (SOC2-CC6.6) ────────────────────────────────────────────
     rate_pass = any(
