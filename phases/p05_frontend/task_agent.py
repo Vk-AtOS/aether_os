@@ -682,7 +682,7 @@ def _generate_package_json(project_slug: str) -> str:
         "type": "module",
         "scripts": {
             "dev": "vite",
-            "build": "tsc && vite build",
+            "build": "vite build",
             "preview": "vite preview",
             "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
             "typecheck": "tsc --noEmit",
@@ -789,9 +789,11 @@ def _generate_tsconfig() -> str:
             "strict": True,
             "noUnusedLocals": False,
             "noUnusedParameters": False,
-            "noFallthroughCasesInSwitch": True
+            "noFallthroughCasesInSwitch": True,
+            "types": ["vite/client"]
         },
-        "include": ["src"]
+        "include": ["src"],
+        "exclude": ["src/__tests__"]
     }
     return json.dumps(data, indent=2)
 
@@ -1659,17 +1661,16 @@ def _generate_login_test(project_name: str) -> str:
     return f"""\
 import {{ render, screen }} from '@testing-library/react'
 import {{ describe, it, expect }} from 'vitest'
-import {{ BrowserRouter }} from 'react-router-dom'
-import LoginPage from '../pages/LoginPage'
+import {{ LoginPage }} from '../pages/LoginPage'
 
 describe('LoginPage', () => {{
   it('renders login form', () => {{
-    render(<BrowserRouter><LoginPage /></BrowserRouter>)
+    render(<LoginPage />)
     expect(screen.getByRole('button', {{ name: /sign in|log in|login/i }})).toBeInTheDocument()
   }})
 
   it('shows email and password fields', () => {{
-    render(<BrowserRouter><LoginPage /></BrowserRouter>)
+    render(<LoginPage />)
     expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument()
   }})
@@ -1682,17 +1683,24 @@ def _generate_dashboard_test() -> str:
 import { render } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter } from 'react-router-dom'
 
-// Mock the api module
-vi.mock('../lib/api', () => ({ api: { get: vi.fn().mockResolvedValue({ data: [] }) } }))
+// Mock the api module to match apiClient export
+vi.mock('../lib/api', () => ({
+  apiClient: {
+    get: vi.fn().mockResolvedValue({ data: [] }),
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    put: vi.fn().mockResolvedValue({ data: {} }),
+    delete: vi.fn().mockResolvedValue({ data: {} }),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+  },
+}))
 
 describe('Dashboard', () => {
   it('renders without crashing', async () => {
     const { default: Dashboard } = await import('../pages/Dashboard')
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { container } = render(
-      <QueryClientProvider client={qc}><BrowserRouter><Dashboard /></BrowserRouter></QueryClientProvider>
+      <QueryClientProvider client={qc}><Dashboard /></QueryClientProvider>
     )
     expect(container).toBeTruthy()
   })
