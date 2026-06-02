@@ -1390,6 +1390,81 @@ async def start_run_app(
         if _m_fixed != _m_src:
             _models_py.write_text(_m_fixed)
 
+    # ── Patch models.py: make FK columns nullable so preview inserts work ──────
+    # LLM often emits nullable=False on ForeignKey columns. Without data in the
+    # related tables the NOT NULL constraint fires on every insert in preview.
+    if _models_py.exists():
+        import re as _re_fk
+        _fk_src = _models_py.read_text()
+        _fk_lines = []
+        for _ln in _fk_src.splitlines():
+            if "ForeignKey" in _ln and "nullable=False" in _ln:
+                _ln = _ln.replace("nullable=False", "nullable=True")
+            _fk_lines.append(_ln)
+        _fk_fixed = "\n".join(_fk_lines)
+        if _fk_fixed != _fk_src:
+            _models_py.write_text(_fk_fixed)
+
+    # ── Patch schemas.py: make FK/bool/numeric fields optional with defaults ───
+    # LLM emits required fields for FKs and booleans. Preview forms omit FK
+    # dropdowns (no related data), causing 422 on every create. Make optional.
+    _schemas_py = backend_dir / "src" / "schemas.py"
+    if _schemas_py.exists():
+        import re as _re_s
+        _s_src = _schemas_py.read_text()
+        _s_src = _re_s.sub(r"(\n    (?:created_by|workspace_id|org_id|agent_id|member_id|organization_id|user_id)): int\b", r"\1: Optional[int] = None", _s_src)
+        _s_src = _re_s.sub(r"(\n    is_active): bool\b", r"\1: bool = True", _s_src)
+        _s_src = _re_s.sub(r"(\n    temperature): float\b", r"\1: float = 0.7", _s_src)
+        _s_src = _re_s.sub(r"(\n    max_tokens): int\b", r"\1: int = 4096", _s_src)
+        _s_src = _re_s.sub(r"(\n    tools_json): str\b", r"\1: Optional[str] = None", _s_src)
+        _schemas_py.write_text(_s_src)
+
+    # ── Patch crud.py: replace getattr(user, 'role') with user.get('role') ─────
+    # get_current_user returns a dict; getattr on a dict always returns None,
+    # making every role check fail with 403. Also remove inconsistent per-entity
+    # role lists that block the owner from accessing their own data.
+    _crud_py = backend_dir / "src" / "routers" / "crud.py"
+    if _crud_py.exists():
+        import re as _re_c
+        _c_src = _crud_py.read_text()
+        _c_src = _c_src.replace('getattr(current_user, "role", None)', 'current_user.get("role")')
+        _c_src = _c_src.replace("getattr(current_user, 'role', None)", 'current_user.get("role")')
+        # Remove all role-gate lines (inconsistent role lists cause 403 for owner)
+        _c_src = _re_c.sub(
+            r"    if current_user\.get\(\"role\"\) not in \[.*?\]:\n        raise HTTPException\(status_code=403.*?\)\n",
+            "", _c_src
+        )
+        _crud_py.write_text(_c_src)
+
+    # ── Patch crud.py: add /api prefix to entity routers in main.py ─────────
+    # LLM registers entity routers without prefix, but frontend baseURL = /api.
+    # Patch the loop that registers all_routers to add prefix="/api".
+    _main_py_crud = backend_dir / "src" / "main.py"
+    if _main_py_crud.exists():
+        _mp = _main_py_crud.read_text()
+        if "for _router in all_routers:" in _mp and 'prefix="/api"' not in _mp:
+            _mp = _mp.replace(
+                "    app.include_router(_router)",
+                '    app.include_router(_router, prefix="/api")'
+            )
+            _main_py_crud.write_text(_mp)
+
+    # ── Patch react-router-dom → @tanstack/react-router in frontend pages ─────
+    # LLM sometimes imports Link/useNavigate from react-router-dom while the
+    # template uses @tanstack/react-router. Swap imports to avoid null context.
+    _fe_src_dir = frontend_dir / "src" if frontend_dir else None
+    if _fe_src_dir and _fe_src_dir.is_dir():
+        import subprocess as _sp_rrd
+        for _tsx in _fe_src_dir.rglob("*.tsx"):
+            _tsx_src = _tsx.read_text()
+            if "react-router-dom" in _tsx_src:
+                _tsx_src = _tsx_src.replace(
+                    "from 'react-router-dom'", "from '@tanstack/react-router'"
+                ).replace(
+                    'from "react-router-dom"', 'from "@tanstack/react-router"'
+                )
+                _tsx.write_text(_tsx_src)
+
     # ── Patch auth.py: replace passlib CryptContext with direct bcrypt ───────
     # passlib's bcrypt backend throws AttributeError on bcrypt >= 4.0 (missing __about__).
     # Replace get_password_hash / verify_password with direct bcrypt calls to avoid this.
