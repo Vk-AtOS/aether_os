@@ -52,6 +52,14 @@ const PHASES = [
   'p09_observability',
   'p10_docs_delivery',
   'p11_deployment',
+  'p11a_monitoring',
+  'p11b_error_tracking',
+  'p11c_analytics',
+  'p11d_alerting',
+  'p12a_feature_flags',
+  'p12b_ab_testing',
+  'p13_app_memory',
+  'p14_client_portal',
 ];
 
 const PHASE_NAMES = {
@@ -68,6 +76,14 @@ const PHASE_NAMES = {
   p09_observability:       'Observability',
   p10_docs_delivery:       'Delivery',
   p11_deployment:          'Deployment',
+  p11a_monitoring:         'Monitoring',
+  p11b_error_tracking:     'Error Tracking',
+  p11c_analytics:          'Analytics',
+  p11d_alerting:           'Alerting',
+  p12a_feature_flags:      'Feature Flags',
+  p12b_ab_testing:         'A/B Testing',
+  p13_app_memory:          'App Memory',
+  p14_client_portal:       'Client Portal',
 };
 
 const PHASE_LABELS = {
@@ -84,6 +100,14 @@ const PHASE_LABELS = {
   p09_observability:       'Observability',
   p10_docs_delivery:       'Docs & Delivery',
   p11_deployment:          'Deployment',
+  p11a_monitoring:         'Monitoring & Metrics',
+  p11b_error_tracking:     'Error Tracking',
+  p11c_analytics:          'Analytics',
+  p11d_alerting:           'Alerting & Runbooks',
+  p12a_feature_flags:      'Feature Flags',
+  p12b_ab_testing:         'A/B Testing',
+  p13_app_memory:          'App Memory Layer',
+  p14_client_portal:       'Client Portal',
 };
 
 const PRIORITY_CONFIG = {
@@ -1276,7 +1300,7 @@ const ProjectView = () => {
         <div className="px-4 py-3 border-t border-border">
           <div className="flex justify-between text-[9px] font-bold text-muted uppercase mb-1.5">
             <span>Progress</span>
-            <span>{completedPhases}/10</span>
+            <span>{completedPhases}/{PHASES.length}</span>
           </div>
           <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
             <div className="h-full bg-accent transition-all duration-1000" style={{ width: `${progressPercent}%` }} />

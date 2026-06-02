@@ -1408,15 +1408,16 @@ async def start_run_app(
     # ── Patch schemas.py: make FK/bool/numeric fields optional with defaults ───
     # LLM emits required fields for FKs and booleans. Preview forms omit FK
     # dropdowns (no related data), causing 422 on every create. Make optional.
+    # All regexes use negative lookaheads so re-running is idempotent.
     _schemas_py = backend_dir / "src" / "schemas.py"
     if _schemas_py.exists():
         import re as _re_s
         _s_src = _schemas_py.read_text()
-        _s_src = _re_s.sub(r"(\n    (?:created_by|workspace_id|org_id|agent_id|member_id|organization_id|user_id)): int\b", r"\1: Optional[int] = None", _s_src)
-        _s_src = _re_s.sub(r"(\n    is_active): bool\b", r"\1: bool = True", _s_src)
-        _s_src = _re_s.sub(r"(\n    temperature): float\b", r"\1: float = 0.7", _s_src)
-        _s_src = _re_s.sub(r"(\n    max_tokens): int\b", r"\1: int = 4096", _s_src)
-        _s_src = _re_s.sub(r"(\n    tools_json): str\b", r"\1: Optional[str] = None", _s_src)
+        _s_src = _re_s.sub(r"(\n    (?:created_by|workspace_id|org_id|agent_id|member_id|organization_id|user_id)): int(?! =)", r"\1: Optional[int] = None", _s_src)
+        _s_src = _re_s.sub(r"(\n    is_active): bool(?! =)", r"\1: bool = True", _s_src)
+        _s_src = _re_s.sub(r"(\n    temperature): float(?! =)", r"\1: float = 0.7", _s_src)
+        _s_src = _re_s.sub(r"(\n    max_tokens): int(?! =)", r"\1: int = 4096", _s_src)
+        _s_src = _re_s.sub(r"(\n    tools_json): str(?! =)", r"\1: Optional[str] = None", _s_src)
         _schemas_py.write_text(_s_src)
 
     # ── Patch crud.py: replace getattr(user, 'role') with user.get('role') ─────

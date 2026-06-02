@@ -7,23 +7,34 @@ import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-reac
 import { useRuns } from '../contexts/RunsContext';
 import { SkeletonTable } from '../components/Skeleton';
 
-// 10-phase list in order
+// 21-phase list in order (matches factory_pipeline.py PHASE_SEQUENCE)
 const PHASES = [
   'p01_intake_requirements',
   'p02_architecture',
+  'p02b_domain_ir',
   'p03_scaffolding',
   'p04_backend',
   'p05_frontend',
   'p06_review_security',
   'p07_testing',
+  'p07b_self_healing',
   'p08_cicd_deployment',
   'p09_observability',
   'p10_docs_delivery',
+  'p11_deployment',
+  'p11a_monitoring',
+  'p11b_error_tracking',
+  'p11c_analytics',
+  'p11d_alerting',
+  'p12a_feature_flags',
+  'p12b_ab_testing',
+  'p13_app_memory',
+  'p14_client_portal',
 ];
 
 // Map run status/phases → number of completed phases for dot strip
 const getCompletedCount = (run) => {
-  if (run.status === 'completed') return 10;
+  if (run.status === 'completed') return PHASES.length;
   const phases = run.phases || {};
   const completed = PHASES.filter((p) => {
     const st = phases[p]?.status;
@@ -37,7 +48,7 @@ const getCompletedCount = (run) => {
   return completed;
 };
 
-// 10-dot progress strip
+// 21-dot progress strip
 const ProgressDots = ({ run }) => {
   const completed = getCompletedCount(run);
   const isRunning = run.status === 'running';

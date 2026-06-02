@@ -149,11 +149,11 @@ const Settings = () => {
   const [ssoForm, setSsoForm] = useState({ idp_entity_id: '', idp_sso_url: '', idp_cert: '' });
   const [ssoStatus, setSsoStatus] = useState(null); // null | 'saving' | 'saved' | 'error' | 'deleting'
 
-  // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (12 phases).
-  // Previously had 10 phases — missing p07b_self_healing and p11_deployment.
+  // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (21 phases).
   const PHASES = [
     'p01_intake_requirements',
     'p02_architecture',
+    'p02b_domain_ir',
     'p03_scaffolding',
     'p04_backend',
     'p05_frontend',
@@ -164,11 +164,20 @@ const Settings = () => {
     'p09_observability',
     'p10_docs_delivery',
     'p11_deployment',
+    'p11a_monitoring',
+    'p11b_error_tracking',
+    'p11c_analytics',
+    'p11d_alerting',
+    'p12a_feature_flags',
+    'p12b_ab_testing',
+    'p13_app_memory',
+    'p14_client_portal',
   ];
 
   const PHASE_NAMES = {
     p01_intake_requirements: 'Intake & Requirements',
     p02_architecture:        'Architecture',
+    p02b_domain_ir:          'Domain IR',
     p03_scaffolding:         'Scaffolding',
     p04_backend:             'Backend',
     p05_frontend:            'Frontend',
@@ -179,6 +188,14 @@ const Settings = () => {
     p09_observability:       'Observability',
     p10_docs_delivery:       'Docs & Delivery',
     p11_deployment:          'Deployment',
+    p11a_monitoring:         'Monitoring',
+    p11b_error_tracking:     'Error Tracking',
+    p11c_analytics:          'Analytics',
+    p11d_alerting:           'Alerting',
+    p12a_feature_flags:      'Feature Flags',
+    p12b_ab_testing:         'A/B Testing',
+    p13_app_memory:          'App Memory',
+    p14_client_portal:       'Client Portal',
   };
 
   useEffect(() => {
