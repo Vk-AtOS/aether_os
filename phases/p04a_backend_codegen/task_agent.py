@@ -370,6 +370,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router, prefix="/api")
 {ROUTER_INCLUDES}
 
+# Stats router (generated when Domain IR is available)
+try:
+    from .routers.stats import router as _stats_router
+    app.include_router(_stats_router, prefix="/api")
+except ImportError:
+    pass
+
 
 @app.get("/health", tags=["system"])
 async def health():
@@ -1463,18 +1470,26 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             )
             _ir = _DomainIR.load(Path(_ir_path_str))
             if _ir.entities:
+                from aether_os.phases.p04a_backend_codegen.ir_generators import (
+                    generate_seed_py as _gen_seed,
+                    generate_stats_router as _gen_stats,
+                )
                 models_code = _gen_models(_ir)
                 schemas_code = _gen_schemas(_ir)
                 crud_code = _gen_crud(_ir)
+                seed_code = _gen_seed(_ir)
+                stats_code = _gen_stats(_ir)
                 (src_dir / "models.py").write_text(models_code)
                 (src_dir / "schemas.py").write_text(schemas_code)
                 (routers_dir / "crud.py").write_text(crud_code)
+                (src_dir / "seed.py").write_text(seed_code)
+                (routers_dir / "stats.py").write_text(stats_code)
                 generated_via = "deterministic+ir"
                 logger.info(
-                    "[p04a] IR fast-path: %d entities → models/schemas/crud generated deterministically",
+                    "[p04a] IR fast-path: %d entities → models/schemas/crud/seed/stats generated deterministically",
                     len(_ir.entities),
                 )
-                # Update entities list from IR so seed data is accurate
+                # Update entities list from IR so LLM seed (if used) is accurate
                 entities = [{"name": e.name, "table": e.table,
                              "fields": [{"name": f.name, "type": f.type} for f in e.fields]}
                             for e in _ir.entities]
@@ -1604,22 +1619,25 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         service_code = _fallback_service_layer(entities)
         (services_dir / "entity_services.py").write_text(service_code)
 
-    # ── Step 4: LLM call 3 — seed data ───────────────────────────────────────
-    try:
-        await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
-        seed_code = await _llm_seed_data(llm, project_name, domain, entities, models_code)
-        seed_code = _fix_common_issues(seed_code)
-        # Validate: seed must import and use User model (auth requires it)
-        if "from .models import User" not in seed_code and "from .models import" in seed_code:
-            # LLM used a domain entity as auth user — replace with safe fallback
-            logger.warning("[p04a] seed.py does not import User model — using fallback")
+    # ── Step 4: Seed data — IR-generated (fast-path) or LLM ──────────────────
+    if seed_code:
+        # IR fast-path already wrote seed.py; just log it
+        logger.info("[p04a] IR fast-path: seed.py already generated (%d chars)", len(seed_code))
+    else:
+        try:
+            await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
+            seed_code = await _llm_seed_data(llm, project_name, domain, entities, models_code)
+            seed_code = _fix_common_issues(seed_code)
+            # Validate: seed must import and use User model (auth requires it)
+            if "from .models import User" not in seed_code and "from .models import" in seed_code:
+                logger.warning("[p04a] seed.py does not import User model — using fallback")
+                seed_code = _fallback_seed(project_name, entities)
+            (src_dir / "seed.py").write_text(seed_code)
+            logger.info("[p04a] seed.py %d chars (LLM)", len(seed_code))
+        except Exception as exc:
+            logger.warning("[p04a] LLM seed failed (%s), using fallback", exc)
             seed_code = _fallback_seed(project_name, entities)
-        (src_dir / "seed.py").write_text(seed_code)
-        logger.info("[p04a] seed.py %d chars", len(seed_code))
-    except Exception as exc:
-        logger.warning("[p04a] LLM seed failed (%s), using fallback", exc)
-        seed_code = _fallback_seed(project_name, entities)
-        (src_dir / "seed.py").write_text(seed_code)
+            (src_dir / "seed.py").write_text(seed_code)
 
     # ── Step 5: Generate main.py from template ────────────────────────────────
     main_py = _build_main_py(project_name, routers_have_all_routers=True)

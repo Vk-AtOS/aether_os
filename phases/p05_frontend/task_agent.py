@@ -1950,6 +1950,11 @@ export function LoginPage() {{
             {{loading ? 'Signing in...' : 'Sign in'}}
           </button>
         </form>
+        <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+          <p className="font-medium text-amber-800 mb-1">Demo credentials</p>
+          <p className="text-amber-700">Email: <span className="font-mono">admin@example.com</span></p>
+          <p className="text-amber-700">Password: <span className="font-mono">Admin1234!</span></p>
+        </div>
       </div>
     </div>
   )

@@ -144,31 +144,28 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
             cards2.append(f"        <StatCard key='{tbl}' title='Total {ename}' endpoint='/{tbl}' aggregation='count' color='blue' />")
         stat_cards_jsx = "\n".join(cards2)
 
-    return f"""import React, {{ useState, useEffect }} from 'react';
+    # Build count cards from entity list as fallback
+    _colors6 = ["blue", "green", "purple", "orange", "red", "teal"]
+    count_cards_jsx = "\n".join([
+        f"        <StatCard title='Total {e.get('name', e['table'].title())}' "
+        f"value={{{{stats?.total_{e['table']} ?? '…'}}}} color='{_colors6[i % 6]}' />"
+        for i, e in enumerate(entities[:6])
+    ])
+
+    return f"""import React from 'react';
 import {{ Link }} from 'react-router-dom';
 import {{ useQuery }} from '@tanstack/react-query';
 import {{ api }} from '../lib/api';
-{metric_imports}
 
 interface StatCardProps {{
   title: string;
-  endpoint: string;
-  aggregation?: string;
-  queryHint?: string;
+  value: string | number;
   color?: string;
-  icon?: string;
+  sub?: string;
 }}
 
-function StatCard({{ title, endpoint, aggregation = 'count', color = 'blue' }}: StatCardProps) {{
-  const {{ data, isLoading }} = useQuery({{
-    queryKey: ['stat', endpoint],
-    queryFn: () => api.get(endpoint + '?limit=1').then(r => r.data),
-    staleTime: 30_000,
-  }});
-
-  const value = isLoading ? '...' : (data?.total ?? data?.items?.length ?? 0);
-
-  const colors = {{
+function StatCard({{ title, value, color = 'blue', sub }}: StatCardProps) {{
+  const colors: Record<string, string> = {{
     blue: 'bg-blue-50 text-blue-700 border-blue-200',
     green: 'bg-green-50 text-green-700 border-green-200',
     purple: 'bg-purple-50 text-purple-700 border-purple-200',
@@ -176,22 +173,34 @@ function StatCard({{ title, endpoint, aggregation = 'count', color = 'blue' }}: 
     red: 'bg-red-50 text-red-700 border-red-200',
     teal: 'bg-teal-50 text-teal-700 border-teal-200',
   }};
-
   return (
     <div className={{`rounded-xl border p-5 ${{colors[color] ?? colors.blue}}`}}>
       <div className="text-sm font-medium opacity-70">{{title}}</div>
       <div className="mt-1 text-3xl font-bold">{{value}}</div>
+      {{sub && <div className="mt-1 text-xs opacity-60">{{sub}}</div>}}
     </div>
   );
 }}
 
 export default function Dashboard() {{
+  const {{ data: stats }} = useQuery({{
+    queryKey: ['stats'],
+    queryFn: () => api.get('/stats').then(r => r.data),
+    staleTime: 30_000,
+  }});
+
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">{project_name}</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-{stat_cards_jsx}
+{count_cards_jsx}
+        {{stats?.success_rate !== undefined && (
+          <StatCard title="Success Rate" value={{stats.success_rate + '%'}} color="green" />
+        )}}
+        {{stats?.total_cost !== undefined && (
+          <StatCard title="Total Cost" value={{'$' + Number(stats.total_cost).toFixed(2)}} color="purple" />
+        )}}
       </div>
 
       <div className="mt-6">
@@ -327,16 +336,35 @@ def generate_ir_entity_page(entity: IREntity) -> str:
                 )
     fk_hooks = ("\n" + "\n".join(fk_hook_lines)) if fk_hook_lines else ""
 
-    # Columns for the table (all fields)
+    # Lookup maps for FK fields (reuse the ref data already fetched for dropdowns)
+    fk_lookup_lines = []
+    for ref in seen_refs:
+        data_var = ref[0].lower() + ref[1:] + "Data"
+        lookup_var = ref[0].lower() + ref[1:] + "Lookup"
+        fk_lookup_lines.append(
+            f"  const {lookup_var}: Record<number, string> = Object.fromEntries("
+            f"({data_var}?.items ?? {data_var} ?? []).map((r: any) => "
+            f"[r.id, r.name ?? r.title ?? r.label ?? r.email ?? String(r.id)]));"
+        )
+    fk_lookups = ("\n" + "\n".join(fk_lookup_lines)) if fk_lookup_lines else ""
+
+    # Columns for the table (all fields) — FK fields resolved to names
     col_headers = "\n".join(
         f"              <th className='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>"
         f"{f.name.replace('_', ' ').title()}</th>"
         for f in entity.fields[:6]
     )
-    col_cells = "\n".join(
-        f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{f.name} ?? '')}}</td>"
-        for f in entity.fields[:6]
-    )
+
+    def _col_cell(f: IRField) -> str:
+        if f.type == AetherType.FK and f.ref_entity:
+            lookup_var = f.ref_entity[0].lower() + f.ref_entity[1:] + "Lookup"
+            return (
+                f"              <td className='px-4 py-2 text-sm text-gray-900'>"
+                f"{{{lookup_var}[row.{f.name}] ?? row.{f.name}}}</td>"
+            )
+        return f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{f.name} ?? '')}}</td>"
+
+    col_cells = "\n".join(_col_cell(f) for f in entity.fields[:6])
     form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in entity.fields)
 
     return f"""import React, {{ useState }} from 'react';
@@ -351,7 +379,7 @@ export default function {name}Page() {{
   const {{ data, isLoading }} = useQuery({{
     queryKey: ['{table}'],
     queryFn: () => api.get('/{table}').then(r => r.data),
-  }});{fk_hooks}
+  }});{fk_hooks}{fk_lookups}
 
   const save = useMutation({{
     mutationFn: (payload: Partial<{name}>) =>
