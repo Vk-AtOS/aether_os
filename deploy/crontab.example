@@ -1,0 +1,11 @@
+# AetherOS cron jobs
+# Install: crontab -e and paste these lines (adjust paths)
+# Verify with: crontab -l
+
+# ── Daily DB backup at 3am ────────────────────────────────────────────────────
+# Writes gzip-compressed SQL dumps to /var/backups/aetheros/
+# Retains the last 7 days by default (override with RETAIN_DAYS=14)
+0 3 * * * cd /home/aether_os && ./scripts/backup_db.sh >> /var/log/aetheros_backup.log 2>&1
+
+# ── Weekly log rotation: purge AetherOS logs older than 30 days ───────────────
+0 4 * * 0 find /var/log -name "aetheros_*.log" -mtime +30 -delete

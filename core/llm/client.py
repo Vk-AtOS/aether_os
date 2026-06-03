@@ -682,6 +682,25 @@ Task: {prompt[:200]}"""
 _instance: Optional[LLMClient] = None
 
 
+def reinitialize() -> None:
+    """
+    Reset the LLMClient singleton so the next call to get_llm_client()
+    returns a fresh instance.
+
+    Call this after updating API keys or LLM config at runtime (e.g. from
+    the PUT /settings/llm-config endpoint) to ensure the new configuration
+    is picked up without restarting the server.
+
+    Note: individual provider calls (Anthropic, Gemini, Bedrock) already
+    read API keys from os.environ at call time, so hot-reloading os.environ
+    alone is sufficient for key changes.  This function exists as an explicit
+    contract for callers that want to guarantee a clean slate.
+    """
+    global _instance
+    _instance = None
+    logger.info("LLMClient singleton reset — next call will use current env config")
+
+
 def get_llm_client(provider: Optional[str] = None) -> LLMClient:
     """Return the global singleton LLMClient.
 

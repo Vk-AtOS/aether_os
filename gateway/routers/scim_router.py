@@ -7,13 +7,14 @@ PUT    /scim/v2/Users/{user_id}
 DELETE /scim/v2/Users/{user_id}
 GET    /scim/v2/Groups
 
-Auth: if SCIM_BEARER_TOKEN env var is set, all SCIM endpoints require
-      `Authorization: Bearer <SCIM_BEARER_TOKEN>` (static token — IdP-compatible).
-      If SCIM_BEARER_TOKEN is not set, falls back to the standard JWT auth
-      (backward-compatible for development).
+Auth: dedicated SCIM Bearer token (NOT a user JWT).
+Priority:
+  1. SCIM_BEARER_TOKEN env var (static token — simplest for single-tenant)
+  2. Organisation.scim_token column (per-org DB token — for multi-tenant)
+  3. Fallback to standard JWT (dev/backward-compat mode only)
 
 IdP setup (Okta / Azure AD / Google):
-  - Bearer token: value of SCIM_BEARER_TOKEN
+  - Bearer token: value of SCIM_BEARER_TOKEN (or per-org token from /settings/scim)
   - Base URL: https://your-domain/api/scim/v2
   - Set SCIM_ORG_ID to the AetherOS org UUID that the IdP should provision into.
 """
@@ -21,39 +22,39 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["scim"])
 
-_http_bearer = HTTPBearer(auto_error=False)
 
-
-async def _scim_auth(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(_http_bearer),
-) -> Dict[str, Any]:
+async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
     """
-    SCIM authentication dependency.
+    Dedicated SCIM auth dependency — accepts a provisioning Bearer token,
+    NOT a user JWT.  This is required for real IdPs (Okta, Azure AD, etc.).
 
     Priority:
-    1. If SCIM_BEARER_TOKEN is configured → validate static token (IdP mode).
-    2. Otherwise → validate standard AetherOS JWT (dev/fallback mode).
+    1. SCIM_BEARER_TOKEN env var (static token — IdP mode, single-tenant).
+    2. Organisation.scim_token DB column (per-org token — multi-tenant / UI-managed).
+    3. Fallback: standard AetherOS JWT (dev / backward-compat).
     """
-    scim_token = os.getenv("SCIM_BEARER_TOKEN", "").strip()
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="SCIM: Bearer token required",
+            headers={"WWW-Authenticate": 'Bearer realm="SCIM"'},
+        )
+    token = auth_header[7:]
 
-    if scim_token:
-        # IdP-compatible static token mode
-        if not creds or creds.credentials != scim_token:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid SCIM Bearer token",
-                headers={"WWW-Authenticate": 'Bearer realm="SCIM"'},
-            )
+    # 1. Env-var static token (simplest setup — generate with secrets.token_urlsafe(32))
+    static = os.environ.get("SCIM_BEARER_TOKEN", "").strip()
+    if static and secrets.compare_digest(token, static):
         scim_org_id = os.getenv("SCIM_ORG_ID", "").strip()
         if not scim_org_id:
             raise HTTPException(
@@ -65,18 +66,34 @@ async def _scim_auth(
             )
         return {"org_id": scim_org_id, "role": "admin", "sub": "scim-provisioner"}
 
-    # Fallback: standard JWT (development / single-tenant mode)
-    if not creds:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # 2. Per-org DB token (rotatable via /settings/scim)
+    try:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
+        sf = get_session_factory()
+        async with sf() as session:
+            orgs = (await session.execute(
+                select(Organisation).where(Organisation.scim_token.isnot(None))
+            )).scalars().all()
+        for org in orgs:
+            if org.scim_token and secrets.compare_digest(token, org.scim_token):
+                return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
+    except Exception:
+        # scim_token column may not exist yet (pre-migration) — fall through
+        pass
+
+    # 3. Fallback: standard JWT (dev / backward-compat)
     from aether_os.gateway.auth import decode_access_token
-    payload = decode_access_token(creds.credentials)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return payload
+    payload = decode_access_token(token)
+    if payload:
+        return payload
+
+    raise HTTPException(
+        status_code=401,
+        detail="SCIM: invalid Bearer token",
+        headers={"WWW-Authenticate": 'Bearer realm="SCIM"'},
+    )
 
 
 def _scim_user(u) -> dict:
@@ -98,7 +115,7 @@ def _scim_user(u) -> dict:
 async def scim_list_users(
     startIndex: int = 1,
     count: int = 50,
-    user: Dict[str, Any] = Depends(_scim_auth),
+    user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403)
@@ -124,7 +141,7 @@ async def scim_list_users(
 @router.get("/scim/v2/Users/{user_id}")
 async def scim_get_user(
     user_id: str,
-    user: Dict[str, Any] = Depends(_scim_auth),
+    user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403)
@@ -141,7 +158,7 @@ async def scim_get_user(
 @router.post("/scim/v2/Users")
 async def scim_create_user(
     req: Dict[str, Any],
-    user: Dict[str, Any] = Depends(_scim_auth),
+    user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     """SCIM provision a new user into the org."""
     if user.get("role") not in ["owner", "admin"]:
@@ -177,7 +194,7 @@ async def scim_create_user(
 async def scim_update_user(
     user_id: str,
     req: Dict[str, Any],
-    user: Dict[str, Any] = Depends(_scim_auth),
+    user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403)
@@ -200,7 +217,7 @@ async def scim_update_user(
 @router.delete("/scim/v2/Users/{user_id}", status_code=204)
 async def scim_delete_user(
     user_id: str,
-    user: Dict[str, Any] = Depends(_scim_auth),
+    user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403)
@@ -219,7 +236,7 @@ async def scim_delete_user(
 
 @router.get("/scim/v2/Groups")
 async def scim_list_groups(
-    user: Dict[str, Any] = Depends(_scim_auth),
+    user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403)

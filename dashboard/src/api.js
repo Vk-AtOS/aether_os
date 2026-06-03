@@ -90,6 +90,16 @@ export const api = {
     localStorage.removeItem('aether_token');
     localStorage.removeItem('aether_refresh_token');
   },
+  getMyOrgs: () => client.get('/auth/my-orgs'),
+
+  // Org settings
+  getOrgSettings: () => client.get('/account/settings'),
+  updateOrgSettings: (data) => client.post('/account/settings', data),
+  deleteOrg: (orgId) => client.delete(`/account/org/${orgId}`),
+
+  // SCIM
+  getScimConfig: () => client.get('/settings/scim'),
+  rotateScimToken: () => client.post('/settings/scim/rotate'),
 
   // Factory
   startPipeline: (data) => client.post('/factory/start', data),

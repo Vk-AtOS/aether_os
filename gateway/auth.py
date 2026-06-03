@@ -88,7 +88,7 @@ def _load_rsa_keys() -> Tuple[Optional[Any], Optional[Any], str]:
     )
 
 
-# Lazy-loaded key cache — resolved once on first use
+# Lazy-loaded key cache — resolved once on first use (or on explicit reload)
 _signing_key: Any = None
 _verify_key: Any = None
 _algorithm: str = _ALG_RS256
@@ -108,6 +108,22 @@ def _get_verify_key() -> Any:
 
 def get_algorithm() -> str:
     _get_signing_key()  # ensure loaded
+    return _algorithm
+
+
+def reload_keys() -> str:
+    """
+    Force-reload JWT keys from current environment variables.
+
+    Clears the in-process key cache and re-runs _load_rsa_keys() so that any
+    keys set after process start (e.g. loaded from .env by dotenv) are picked
+    up immediately.  Returns the active algorithm string ('RS256' or 'HS256').
+
+    Raises RuntimeError if neither RS256 keys nor AETHER_SECRET_KEY is present
+    (fail-fast — a server without signing keys must not accept traffic).
+    """
+    global _signing_key, _verify_key, _algorithm
+    _signing_key, _verify_key, _algorithm = _load_rsa_keys()
     return _algorithm
 
 

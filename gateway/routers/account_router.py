@@ -320,3 +320,41 @@ async def update_settings(
         await session.execute(stmt)
         await session.commit()
         return {"status": "ok", "updated": list(payload.keys())}
+
+
+@router.get("/account/settings")
+async def get_org_settings(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return org-level settings (autonomous_mode, data_region, etc.)."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        org = await session.get(Organisation, user["org_id"])
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    return {
+        "autonomous_mode": org.autonomous_mode,
+        "data_region": org.data_region,
+        "plan": org.plan,
+        "name": org.name,
+    }
+
+
+@router.delete("/account/org", status_code=204)
+async def delete_organisation(
+    user: Dict[str, Any] = _current_user(),
+) -> None:
+    """Permanently delete the current organisation and all its data (owner only)."""
+    if user.get("role") != "owner":
+        raise HTTPException(status_code=403, detail="Only org owners can delete the organisation")
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        org = await session.get(Organisation, user["org_id"])
+        if not org:
+            raise HTTPException(status_code=404, detail="Organisation not found")
+        await session.delete(org)
+        await session.commit()

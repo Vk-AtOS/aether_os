@@ -31,8 +31,15 @@ class BaseConnector:
         self.config = config
 
     async def test(self) -> Dict[str, Any]:
-        """Validate credentials. Returns {"ok": bool, "message": str}."""
-        return {"ok": False, "message": "test() not implemented"}
+        """Validate credentials. Subclasses must override this method.
+
+        Returns {"ok": True, "latency_ms": float, "message": str} on success,
+        or raises an exception on failure.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement test(). "
+            "Return {'ok': True, 'latency_ms': float} on success or raise an exception."
+        )
 
     async def invoke(self, action: str, params: Dict[str, Any]) -> Any:
         """Generic dispatch to action methods."""

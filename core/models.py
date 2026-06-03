@@ -21,6 +21,7 @@ class Organisation(Base):
     storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
     autonomous_mode: Mapped[bool] = mapped_column(Boolean, default=False)
     data_region: Mapped[str] = mapped_column(String(20), default="global")
+    scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")

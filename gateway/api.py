@@ -334,11 +334,21 @@ def create_app() -> FastAPI:
         """Application startup/shutdown lifecycle."""
         logger.info("AetherOS API starting up...")
 
-        # ── JWT key validation — fail fast if no signing key is configured ─────
+        # ── JWT key validation — reload from env, fail fast if misconfigured ───
+        # reload_keys() clears the lazy cache and re-reads from the current
+        # environment so keys injected by dotenv AFTER import time are honoured.
         try:
-            from aether_os.gateway.auth import get_algorithm as _get_alg
-            _jwt_alg = _get_alg()
+            from aether_os.gateway.auth import reload_keys as _reload_jwt_keys
+            _jwt_alg = _reload_jwt_keys()
+            logger.info("JWT: algorithm=%s", _jwt_alg)
             if _jwt_alg == "HS256":
+                _hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
+                if not _hs_secret:
+                    raise RuntimeError(
+                        "HS256 is active but AETHER_SECRET_KEY is not set. "
+                        "Set AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 (RS256, recommended) "
+                        "or AETHER_SECRET_KEY (HS256, legacy) before starting the server."
+                    )
                 logger.warning(
                     "JWT: HS256 mode active (symmetric). "
                     "Set AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 to upgrade to RS256."
@@ -787,7 +797,6 @@ def create_app() -> FastAPI:
 
     # Routers with individual try/except (may be absent in some deployments)
     for _imp, _attr, _kw in [
-        ("aether_os.gateway.routers.factory",          "router",      {"prefix": "/v2"}),
         ("aether_os.gateway.routers.auth_router",      "router",      {}),
         ("aether_os.gateway.routers.plugins_router",   "router",      {"prefix": "/v2"}),
         ("aether_os.phases.p08_cicd.webhook",          "router",      {"tags": ["CI/CD"]}),
@@ -814,6 +823,7 @@ def create_app() -> FastAPI:
         ("workspaces",    "aether_os.gateway.routers.workspaces_router",    ""),
         ("marketplace",   "aether_os.gateway.routers.marketplace_router",   ""),
         ("billing",       "aether_os.gateway.routers.billing_router",       ""),
+        ("billing_stripe","aether_os.gateway.routers.billing_stripe_router", ""),
         ("account",       "aether_os.gateway.routers.account_router",       ""),
         ("admin",         "aether_os.gateway.routers.admin_router",         ""),
         ("settings",      "aether_os.gateway.routers.settings_router",      ""),

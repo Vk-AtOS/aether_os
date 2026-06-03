@@ -61,6 +61,7 @@ const Sidebar = () => {
     { name: 'Dashboard',     path: '/',            icon: LayoutDashboard },
     !isViewer && { name: 'New Project',   path: '/designer',    icon: Wand2 },
     { name: 'Projects',      path: '/projects',    icon: List },
+    { name: 'Workspaces',    path: '/workspaces',  icon: Building2 },
     { name: 'Search',        path: '/search',      icon: Search },
     { name: 'Deployments',   path: '/deployments', icon: Rocket },
     { name: 'Marketplace',   path: '/marketplace', icon: Store },
