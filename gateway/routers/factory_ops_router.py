@@ -477,6 +477,11 @@ async def start_factory_run(
     designer_spec = req.get("designer_spec")
     production_country = (req.get("production_country") or "").strip().upper() or None
     compliance_flags = req.get("compliance_flags") or {}
+    tech_preferences = req.get("tech_preferences") or {}
+    model_preference = (req.get("model_preference") or "").strip()
+    priority = (req.get("priority") or "normal").lower()
+    codebase_mode = (req.get("codebase_mode") or "new").lower()
+    existing_schema = req.get("existing_schema")
 
     if not raw_input:
         raise HTTPException(status_code=400, detail="raw_input or requirement is required")
@@ -517,6 +522,14 @@ async def start_factory_run(
                 f"  UI Theme: {ds.get('ui_theme','default')}\n"
                 "\n=== PROJECT REQUIREMENT ===\n"
             )
+            if existing_schema and isinstance(existing_schema, dict):
+                tables = existing_schema.get("tables", [])
+                if tables:
+                    schema_lines = ["", "=== EXISTING DATABASE SCHEMA (use this, do not invent tables) ==="]
+                    for t in tables[:20]:
+                        cols = ", ".join(c.get("name", c) if isinstance(c, dict) else c for c in t.get("columns", [])[:10])
+                        schema_lines.append(f"  Table: {t.get('name', '?')} — columns: {cols}")
+                    preamble += "\n".join(schema_lines) + "\n"
             raw_input = preamble + raw_input
         except Exception as _spec_exc:
             logger.warning("Failed to build designer_spec preamble: %s", _spec_exc)
@@ -671,6 +684,11 @@ async def start_factory_run(
                 council_preflight=_preflight,
                 github_url=github_url or None,
                 designer_spec=designer_spec or {},
+                tech_preferences=tech_preferences,
+                model_preference=model_preference,
+                priority=priority,
+                codebase_mode=codebase_mode,
+                existing_schema=existing_schema,
             )
         except Exception as exc:
             logger.error("Background factory run failed: %s", exc)

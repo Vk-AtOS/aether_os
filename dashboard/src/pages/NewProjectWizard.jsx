@@ -233,6 +233,11 @@ const NewProjectWizard = () => {
     setLoading(true);
     setError(null);
     try {
+      const designerSpec = {
+        frontend: { framework: frontendFw === 'React' ? 'React + Vite' : frontendFw, styling: 'Tailwind CSS' },
+        backend: { framework: backendFw, database: dbChoice },
+        design: { ui_theme: 'default' },
+      };
       const payload = {
         raw_input: prompt.trim() + (repoContext ? `\n\nExisting codebase context:\n${repoContext.slice(0, 3000)}` : ''),
         project_name: name.trim() || undefined,
@@ -242,6 +247,7 @@ const NewProjectWizard = () => {
         client_id: name.trim() ? name.trim().toLowerCase().replace(/\s+/g, '-') : 'client-001',
         tech_preferences: { backend: backendFw, frontend: frontendFw, database: dbChoice },
         codebase_mode: projectMode,
+        designer_spec: designerSpec,
         ...(importedSchema ? { existing_schema: importedSchema } : {}),
       };
       const res = await api.startPipeline(payload);
@@ -543,6 +549,11 @@ const NewProjectWizard = () => {
                 const params = new URLSearchParams();
                 if (name) params.set('name', name);
                 if (selectedTpl && selectedTpl !== 'custom') params.set('template', selectedTpl);
+                if (domain) params.set('domain', domain);
+                if (prompt.trim()) params.set('req', encodeURIComponent(prompt.trim().slice(0, 1000)));
+                params.set('backend', backendFw);
+                params.set('frontend', frontendFw);
+                params.set('db', dbChoice);
                 navigate(`/designer?${params.toString()}`);
               }}
               className="w-full flex items-center justify-center gap-2 py-2.5 border border-border text-muted hover:text-bright hover:border-accent/50 text-sm font-semibold rounded-xl transition-colors"

@@ -655,6 +655,10 @@ const ProjectDesigner = () => {
       const match = TEMPLATES.find(t => t.id === tpl || t.domain === tpl);
       if (match) applyTemplate(match);
     }
+    const reqParam = searchParams.get('req');
+    if (reqParam) setRequirement(decodeURIComponent(reqParam));
+    const domainParam = searchParams.get('domain');
+    if (domainParam) setDomain(domainParam);
   }, []); // eslint-disable-line
 
   // ── Fetch LLM models ───────────────────────────────────────────────────────
