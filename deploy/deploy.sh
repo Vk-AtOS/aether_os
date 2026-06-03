@@ -44,9 +44,21 @@ echo "→ Installing aether_os package (editable)..."
 "$VENV/pip" install -q -e "$INSTALL_DIR"
 
 # 4. Run database migrations
-echo "→ Running database migrations..."
+# AetherOS has two Alembic heads — do NOT use "alembic upgrade head" (fails with
+# "Multiple heads are present").  Run the main head first, then the field-
+# encryption head only when AETHER_FIELD_KEY is configured.
+echo "→ Running database migrations (main head)..."
 cd "$INSTALL_DIR"
-"$VENV/python" -m alembic upgrade head || echo "⚠ Alembic not configured yet — skipping migrations"
+"$VENV/python" -m alembic upgrade revision_merge_guardian_heads \
+    || echo "⚠ Alembic not configured yet — skipping migrations"
+
+if [[ -n "${AETHER_FIELD_KEY:-}" ]]; then
+    echo "→ Running field-encryption migration (AETHER_FIELD_KEY is set)..."
+    "$VENV/python" -m alembic upgrade encrypt_sensitive_columns \
+        || echo "⚠ Field-encryption migration failed — check AETHER_FIELD_KEY"
+else
+    echo "→ Skipping field-encryption migration (AETHER_FIELD_KEY not set)"
+fi
 
 # 5. Configure nginx domain (first deploy or when --domain is passed)
 if [[ -n "$DOMAIN" ]]; then

@@ -1,6 +1,7 @@
 # AetherOS Operational Runbook
 
 ## Table of Contents
+0. [Database Migrations](#0-database-migrations)
 1. [Database Failure](#1-database-failure)
 2. [Redis Outage](#2-redis-outage)
 3. [LLM Unavailability](#3-llm-unavailability)
@@ -11,6 +12,27 @@
 8. [Backup & Restore](#8-backup--restore)
 9. [SQLite → PostgreSQL Migration](#9-sqlite--postgresql-migration)
 10. [High Availability Architecture](#10-high-availability-architecture)
+
+---
+
+## 0. Database Migrations
+
+AetherOS has two Alembic migration heads:
+
+1. **Main head** (`revision_merge_guardian_heads`) — run always:
+   ```bash
+   alembic upgrade revision_merge_guardian_heads
+   ```
+
+2. **Field encryption head** (`encrypt_sensitive_columns`) — run only when `AETHER_FIELD_KEY` is set:
+   ```bash
+   # Only if AETHER_FIELD_KEY is configured:
+   alembic upgrade encrypt_sensitive_columns
+   ```
+
+**Do NOT run `alembic upgrade head`** — it will fail with "Multiple heads are present."
+
+The `deploy/deploy.sh` script handles this automatically. For manual deployments, run the commands above in order.
 
 ---
 
@@ -191,16 +213,36 @@ curl -s http://localhost:8000/api/v1/status
 
 ## 8. Backup & Restore
 
-### Manual Backup
+### Automated Backup (cron)
+
+The canonical backup script is `scripts/backup_db.sh`. It:
+- Runs `pg_dump | gzip` → `/var/backups/aetheros/aetheros_YYYYMMDD_HHMMSS.sql.gz`
+- Prunes files older than `RETAIN_DAYS` (default: 7 days)
+- Reads `DATABASE_URL` from `.env` automatically
+
+**Install the cron job** (copy from `deploy/crontab.example`):
 ```bash
-/home/aether_os/deploy/scripts/backup.sh
+crontab -e
+# Paste the contents of deploy/crontab.example, adjusting /home/aether_os to your install path
+```
+
+**Override retention period** (e.g. keep 14 days):
+```bash
+RETAIN_DAYS=14 ./scripts/backup_db.sh
+```
+
+### Manual On-Demand Backup
+```bash
+# Run directly from the repo root
+./scripts/backup_db.sh
+
 # Backups stored in /var/backups/aetheros/
 ls -lht /var/backups/aetheros/ | head -10
 ```
 
 ### Restore from Backup
 ```bash
-BACKUP_FILE=/var/backups/aetheros/aether_os_YYYYMMDD_HHMMSS.dump
+BACKUP_FILE=/var/backups/aetheros/aetheros_YYYYMMDD_HHMMSS.sql.gz
 
 # Stop the app
 systemctl stop aetheros
@@ -209,8 +251,8 @@ systemctl stop aetheros
 psql -U postgres -c "DROP DATABASE IF EXISTS aether_os;"
 psql -U postgres -c "CREATE DATABASE aether_os OWNER aether_user;"
 
-# Restore
-pg_restore -U postgres -d aether_os "$BACKUP_FILE"
+# Decompress and restore
+gunzip -c "$BACKUP_FILE" | psql -U postgres -d aether_os
 
 # Restart
 systemctl start aetheros
@@ -236,7 +278,7 @@ systemctl start aetheros
    json.dump(data, open('sqlite_export.json', 'w'))
    "
    ```
-2. Run Alembic migrations on PostgreSQL: `alembic upgrade head`
+2. Run Alembic migrations on PostgreSQL (see [Section 0](#0-database-migrations) — do NOT use `alembic upgrade head`):
 3. Import data using a script (available in `scripts/sqlite_to_pg.py` if present)
 4. Verify row counts match
 5. Update `DATABASE_URL` in `.env` to point to PostgreSQL
@@ -384,9 +426,12 @@ Use this procedure whenever deploying a new AetherOS build to a multi-node clust
 
 **Step-by-step**
 
-1. **Run database migrations once** (from any node, before touching the app):
+1. **Run database migrations once** (from any node, before touching the app; see [Section 0](#0-database-migrations)):
    ```bash
-   cd /home/aether_os && alembic upgrade head
+   cd /home/aether_os
+   alembic upgrade revision_merge_guardian_heads
+   # Only if AETHER_FIELD_KEY is set:
+   alembic upgrade encrypt_sensitive_columns
    ```
 
 2. **Rolling restart — one node at a time:**

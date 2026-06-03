@@ -37,6 +37,7 @@ import Pricing from './pages/Pricing';
 import Agents from './pages/Agents';
 import GlobalPatternsTuning from './pages/GlobalPatternsTuning';
 import ProjectDesigner from './pages/ProjectDesigner';
+import Workspaces from './pages/Workspaces';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -130,6 +131,7 @@ function App() {
         <Route path="agents" element={<ErrorBoundary><Agents /></ErrorBoundary>} />
         <Route path="designer" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
         <Route path="designer/:id" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
+        <Route path="workspaces" element={<ErrorBoundary><Workspaces /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

@@ -5,6 +5,7 @@ import Editor from '@monaco-editor/react';
 import { useRole } from '../hooks/useRole';
 import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
+import LogViewer from './LogViewer';
 import {
   Terminal,
   ExternalLink,
@@ -34,6 +35,7 @@ import {
   XCircle,
   Copy,
   Check,
+  List,
 } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -1876,6 +1878,7 @@ const ProjectView = () => {
               <div className="flex">
                 {[
                   { id: 'live',      label: 'Live',      icon: Radio,    showDot: isRunning },
+                  { id: 'logs',      label: 'Logs',      icon: List      },
                   { id: 'artifacts', label: 'Artifacts', icon: FileCode  },
                   { id: 'preview',   label: 'Preview',   icon: Monitor   },
                   ...(run?.live_url ? [{ id: 'iframe', label: 'App Preview', icon: OpenTab }] : []),
@@ -1964,6 +1967,15 @@ const ProjectView = () => {
                   <div ref={feedEndRef} />
                 </div>
               </div>
+            )}
+
+            {/* ── Logs tab ──────────────────────────────────────────────────── */}
+            {activeArtifactTab === 'logs' && (
+              <LogViewer
+                run={run}
+                feedLines={feedLines}
+                isRunning={isRunning}
+              />
             )}
 
             {/* ── Artifacts tab ─────────────────────────────────────────────── */}

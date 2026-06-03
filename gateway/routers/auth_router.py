@@ -410,3 +410,40 @@ async def change_password(req: Dict[str, Any], user: Dict[str, Any] = _auth()) -
         db_user.password_hash = await loop.run_in_executor(None, get_password_hash, new_pw)
         await session.commit()
     return {"message": "Password changed"}
+
+
+# ── Org switcher ──────────────────────────────────────────────────────────────
+
+def _current_user():
+    from aether_os.gateway.api import get_current_user
+    return Depends(get_current_user)
+
+
+@router.get("/my-orgs")
+async def get_my_orgs(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """Return all organisations the current user belongs to.
+    AetherOS is currently single-org per user; this returns the current org
+    so the TopBar org switcher can display it and future multi-org joins work.
+    """
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation, User as _User
+    from sqlalchemy import select
+    sf = get_session_factory()
+    async with sf() as session:
+        org = await session.get(Organisation, user["org_id"])
+        u = await session.get(_User, user.get("user_id", user.get("sub", "")))
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    return {
+        "current_org_id": org.id,
+        "orgs": [
+            {
+                "id": org.id,
+                "name": org.name,
+                "slug": org.slug,
+                "plan": org.plan,
+                "role": u.role if u else user.get("role", "member"),
+                "is_current": True,
+            }
+        ],
+    }

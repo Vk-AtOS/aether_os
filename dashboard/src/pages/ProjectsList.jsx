@@ -3,6 +3,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { SkeletonTable } from '../components/Skeleton';
@@ -112,6 +113,7 @@ const ProjectsList = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [domainFilter, setDomainFilter] = useState('');
   const [actionLoading, setActionLoading] = useState({}); // { [runId]: 'pause'|'resume'|'cancel' }
+  const [confirmCancel, setConfirmCancel] = useState(null); // run object pending cancel confirmation
   const navigate = useNavigate();
 
   const doAction = async (e, runId, action) => {
@@ -308,10 +310,11 @@ const ProjectsList = () => {
                               : <Pause className="w-4 h-4" />}
                           </button>
                           <button
-                            onClick={(e) => doAction(e, run.run_id || run.id, 'cancel')}
+                            onClick={(e) => { e.stopPropagation(); setConfirmCancel(run); }}
                             disabled={!!actionLoading[run.run_id || run.id]}
                             className="p-1.5 rounded text-red-400 hover:bg-red-400/10 transition-colors"
-                            title="Cancel"
+                            title="Cancel run"
+                            aria-label="Cancel run"
                           >
                             {actionLoading[run.run_id || run.id] === 'cancel'
                               ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -333,10 +336,11 @@ const ProjectsList = () => {
                               : <Play className="w-4 h-4" />}
                           </button>
                           <button
-                            onClick={(e) => doAction(e, run.run_id || run.id, 'cancel')}
+                            onClick={(e) => { e.stopPropagation(); setConfirmCancel(run); }}
                             disabled={!!actionLoading[run.run_id || run.id]}
                             className="p-1.5 rounded text-red-400 hover:bg-red-400/10 transition-colors"
-                            title="Cancel"
+                            title="Cancel run"
+                            aria-label="Cancel run"
                           >
                             {actionLoading[run.run_id || run.id] === 'cancel'
                               ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -406,6 +410,19 @@ const ProjectsList = () => {
           </button>
         </div>
       )}
+
+      {/* Cancel run confirmation */}
+      <ConfirmDialog
+        open={!!confirmCancel}
+        title="Cancel Run"
+        message={confirmCancel ? `Cancel "${confirmCancel.project_name || 'this run'}"? The run will stop and cannot be resumed from the current state.` : ''}
+        onConfirm={() => {
+          if (confirmCancel) doAction(null, confirmCancel.run_id || confirmCancel.id, 'cancel');
+          setConfirmCancel(null);
+        }}
+        onCancel={() => setConfirmCancel(null)}
+        danger
+      />
     </div>
   );
 };

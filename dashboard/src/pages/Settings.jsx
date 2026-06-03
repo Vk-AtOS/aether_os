@@ -149,6 +149,15 @@ const Settings = () => {
   const [ssoForm, setSsoForm] = useState({ idp_entity_id: '', idp_sso_url: '', idp_cert: '' });
   const [ssoStatus, setSsoStatus] = useState(null); // null | 'saving' | 'saved' | 'error' | 'deleting'
 
+  // Organisation settings
+  const [orgConfig, setOrgConfig] = useState({ autonomous_mode: false });
+  const [orgSaveStatus, setOrgSaveStatus] = useState(null); // null|'saving'|'saved'|'error'
+  const [scimConfig, setScimConfig] = useState({ configured: false, token_masked: null, token_source: 'none' });
+  const [scimRotateStatus, setScimRotateStatus] = useState(null); // null|'rotating'|'done'|'error'
+  const [scimNewToken, setScimNewToken] = useState(null); // shown once after rotate
+  const [deleteOrgStatus, setDeleteOrgStatus] = useState(null); // null|'confirming'|'deleting'|'error'
+  const [deleteOrgInput, setDeleteOrgInput] = useState('');
+
   // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (21 phases).
   const PHASES = [
     'p01_intake_requirements',
@@ -281,6 +290,20 @@ const Settings = () => {
         try {
           const compRes = await api.client.get('/compliance/org-report');
           if (compRes.data?.data_region) setDataRegion(compRes.data.data_region.toLowerCase());
+        } catch (_) {}
+
+        // Org settings (autonomous_mode)
+        try {
+          const orgRes = await api.client.get('/account/settings');
+          if (orgRes.data?.autonomous_mode !== undefined) {
+            setOrgConfig(c => ({ ...c, autonomous_mode: !!orgRes.data.autonomous_mode }));
+          }
+        } catch (_) {}
+
+        // SCIM config
+        try {
+          const scimRes = await api.client.get('/settings/scim');
+          setScimConfig(scimRes.data);
         } catch (_) {}
       } catch (err) {
         console.error('Settings fetch error', err);
@@ -468,6 +491,34 @@ const Settings = () => {
     } catch {
       setRegionSaveStatus('error');
       setTimeout(() => setRegionSaveStatus(null), 3000);
+    }
+  };
+
+  const handleSaveOrgConfig = async () => {
+    setOrgSaveStatus('saving');
+    try {
+      await api.updateOrgSettings({ autonomous_mode: orgConfig.autonomous_mode });
+      setOrgSaveStatus('saved');
+      setTimeout(() => setOrgSaveStatus(null), 2500);
+    } catch {
+      setOrgSaveStatus('error');
+      setTimeout(() => setOrgSaveStatus(null), 3000);
+    }
+  };
+
+  const handleRotateScimToken = async () => {
+    setScimRotateStatus('rotating');
+    setScimNewToken(null);
+    try {
+      const res = await api.rotateScimToken();
+      setScimNewToken(res.data.token);
+      // Refresh masked config
+      const cfgRes = await api.getScimConfig();
+      setScimConfig(cfgRes.data);
+      setScimRotateStatus('done');
+    } catch {
+      setScimRotateStatus('error');
+      setTimeout(() => setScimRotateStatus(null), 3000);
     }
   };
 
@@ -1261,14 +1312,19 @@ const Settings = () => {
 
           {/* SCIM 2.0 Provisioning */}
           <section className="panel overflow-hidden">
-            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
-              <Users className="w-4 h-4 mr-2 text-accent" />
-              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">SCIM 2.0 Provisioning</h3>
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center justify-between">
+              <div className="flex items-center">
+                <Users className="w-4 h-4 mr-2 text-accent" />
+                <h3 className="text-xs font-bold text-muted uppercase tracking-widest">SCIM 2.0 Provisioning</h3>
+              </div>
+              {scimConfig.configured && (
+                <span className="text-[10px] font-bold bg-success/20 text-success border border-success/30 px-2 py-0.5 rounded uppercase tracking-wider">Active</span>
+              )}
             </div>
             <div className="p-6 space-y-4">
               <p className="text-xs text-muted">
                 Use SCIM 2.0 to automatically provision and deprovision users from your Identity Provider (Okta, Azure AD, Google Workspace, etc.).
-                Authenticate requests with a Bearer JWT from an admin account.
+                Configure a dedicated provisioning Bearer token below — do not use your user JWT.
               </p>
               <div className="space-y-3">
                 <div>
@@ -1287,11 +1343,46 @@ const Settings = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Authentication</label>
-                  <p className="text-xs text-muted">
-                    Set <span className="font-mono text-bright">Authorization: Bearer &lt;token&gt;</span> on all SCIM requests.
-                    Use the JWT from an admin login, or create a dedicated service account and use its token for automation.
-                  </p>
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">
+                    Provisioning Token
+                    {scimConfig.token_source === 'env' && (
+                      <span className="ml-2 text-yellow-400 font-normal normal-case">— set via SCIM_BEARER_TOKEN env var</span>
+                    )}
+                    {scimConfig.token_source === 'database' && (
+                      <span className="ml-2 text-success font-normal normal-case">— managed in database</span>
+                    )}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-surface border border-border rounded px-3 py-2 text-xs font-mono text-muted">
+                      {scimConfig.token_masked || 'No token configured'}
+                    </code>
+                    <button
+                      onClick={handleRotateScimToken}
+                      disabled={scimRotateStatus === 'rotating'}
+                      className="shrink-0 flex items-center gap-1.5 text-[10px] font-bold px-3 py-2 rounded border border-border text-muted hover:text-bright hover:border-bright transition-colors disabled:opacity-50"
+                      title="Generate a new SCIM token"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${scimRotateStatus === 'rotating' ? 'animate-spin' : ''}`} />
+                      {scimRotateStatus === 'rotating' ? 'Rotating…' : scimRotateStatus === 'done' ? '✓ Rotated' : scimRotateStatus === 'error' ? '✗ Error' : 'Rotate'}
+                    </button>
+                  </div>
+                  {scimNewToken && (
+                    <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg space-y-2">
+                      <p className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider">New token — copy now, will not be shown again</p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 bg-surface border border-border rounded px-3 py-2 text-xs font-mono text-bright break-all">{scimNewToken}</code>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(scimNewToken); }}
+                          className="shrink-0 p-2 text-muted hover:text-bright transition-colors border border-border rounded"
+                          title="Copy token"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-muted">Paste this into your IdP provisioning settings, then dismiss.</p>
+                      <button onClick={() => setScimNewToken(null)} className="text-[10px] text-muted hover:text-bright underline">Dismiss</button>
+                    </div>
+                  )}
                 </div>
                 <div className="p-3 rounded-lg bg-surface border border-border text-xs text-muted space-y-1">
                   <p className="font-bold text-bright text-[10px] uppercase tracking-wider mb-2">Supported Endpoints</p>
@@ -1303,6 +1394,92 @@ const Settings = () => {
                     <div><span className="text-danger">DELETE</span> /api/scim/v2/Users/&#123;id&#125;</div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Organisation Settings */}
+          <section className="panel overflow-hidden">
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
+              <SettingsIcon className="w-4 h-4 mr-2 text-accent" />
+              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Organisation Settings</h3>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* Autonomous mode toggle */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Autonomous Mode</label>
+                <p className="text-xs text-muted">When enabled, AetherOS runs pipelines without requesting human approval gates.</p>
+                <div className="flex items-center gap-3 mt-1">
+                  <button
+                    onClick={() => setOrgConfig(c => ({ ...c, autonomous_mode: !c.autonomous_mode }))}
+                    role="switch"
+                    aria-checked={orgConfig.autonomous_mode}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${orgConfig.autonomous_mode ? 'bg-accent' : 'bg-border'}`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${orgConfig.autonomous_mode ? 'translate-x-[18px]' : 'translate-x-1'}`}
+                    />
+                  </button>
+                  <span className="text-xs text-bright">{orgConfig.autonomous_mode ? 'Enabled' : 'Disabled'}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleSaveOrgConfig}
+                disabled={orgSaveStatus === 'saving'}
+                className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-4 py-1.5 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors disabled:opacity-50"
+              >
+                {orgSaveStatus === 'saving' ? '…' : orgSaveStatus === 'saved' ? '✓ Saved' : orgSaveStatus === 'error' ? '✗ Error' : 'Save Organisation Settings'}
+              </button>
+
+              {/* Danger Zone */}
+              <div className="border border-danger/30 rounded-xl p-5 space-y-4 mt-4">
+                <h4 className="text-xs font-bold text-danger uppercase tracking-widest">Danger Zone</h4>
+                <p className="text-xs text-muted">Permanently delete this organisation and all associated data. This action cannot be undone.</p>
+                {deleteOrgStatus !== 'confirming' ? (
+                  <button
+                    onClick={() => setDeleteOrgStatus('confirming')}
+                    className="text-[10px] font-bold bg-danger/10 text-danger border border-danger/20 px-4 py-1.5 rounded uppercase tracking-wider hover:bg-danger/20 transition-colors"
+                  >
+                    Delete Organisation
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-danger font-bold">Type DELETE to confirm:</p>
+                    <input
+                      type="text"
+                      value={deleteOrgInput}
+                      onChange={e => setDeleteOrgInput(e.target.value)}
+                      placeholder="DELETE"
+                      className="w-full bg-surface border border-danger/30 rounded px-3 py-2 text-xs text-bright focus:outline-none focus:border-danger"
+                    />
+                    <div className="flex gap-3">
+                      <button
+                        disabled={deleteOrgInput !== 'DELETE' || deleteOrgStatus === 'deleting'}
+                        onClick={async () => {
+                          setDeleteOrgStatus('deleting');
+                          try {
+                            await api.client.delete('/account/org');
+                            api.clearToken();
+                            window.location.href = '/login';
+                          } catch {
+                            setDeleteOrgStatus('error');
+                            setTimeout(() => setDeleteOrgStatus(null), 3000);
+                          }
+                        }}
+                        className="text-[10px] font-bold bg-danger text-white px-4 py-1.5 rounded uppercase tracking-wider hover:bg-danger/90 transition-colors disabled:opacity-40"
+                      >
+                        {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'error' ? '✗ Error' : 'Permanently Delete'}
+                      </button>
+                      <button
+                        onClick={() => { setDeleteOrgStatus(null); setDeleteOrgInput(''); }}
+                        className="text-[10px] font-bold text-muted border border-border px-4 py-1.5 rounded uppercase tracking-wider hover:text-bright transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>

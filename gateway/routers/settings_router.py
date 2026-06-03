@@ -476,6 +476,13 @@ async def update_llm_config(
         if v:
             os.environ[k] = v
 
+    # Reset LLM client singleton so the next pipeline run picks up the new config
+    try:
+        from aether_os.core.llm.client import reinitialize as _reinit_llm
+        _reinit_llm()
+    except Exception as _exc:
+        logger.warning("LLM client reinitialize after config change: %s", _exc)
+
     return {"success": True, "message": "LLM config saved to database and applied immediately."}
 
 
@@ -869,3 +876,61 @@ async def delete_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str,
         await session.delete(cfg)
         await session.commit()
     return {"message": "SSO configuration removed"}
+
+
+# ── SCIM token management ─────────────────────────────────────────────────────
+
+@router.get("/settings/scim")
+async def get_scim_config(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """Return the current SCIM provisioning token (masked) and base URL."""
+    if user.get("role") not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only org owners/admins can view SCIM config")
+    import secrets as _sec
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation
+    org_id = user["org_id"]
+    sf = get_session_factory()
+    async with sf() as session:
+        org = await session.get(Organisation, org_id)
+
+    # Mask token: show first 8 + last 4 chars
+    raw_token = getattr(org, "scim_token", None) if org else None
+    env_token = os.environ.get("SCIM_BEARER_TOKEN", "").strip()
+    active_token = raw_token or env_token
+    if active_token and len(active_token) > 12:
+        masked = active_token[:8] + "…" + active_token[-4:]
+    elif active_token:
+        masked = "••••••••"
+    else:
+        masked = None
+
+    return {
+        "configured": bool(active_token),
+        "token_masked": masked,
+        "token_source": "database" if raw_token else ("env" if env_token else "none"),
+        "scim_base_url": "/api/scim/v2",
+    }
+
+
+@router.post("/settings/scim/rotate")
+async def rotate_scim_token(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """Generate a new SCIM provisioning token and store it in the DB for this org.
+    Returns the new token once in plaintext — store it securely in your IdP."""
+    if user.get("role") not in ("owner",):
+        raise HTTPException(status_code=403, detail="Only org owners can rotate the SCIM token")
+    import secrets as _sec
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation
+    from sqlalchemy import update
+    new_token = _sec.token_urlsafe(32)
+    org_id = user["org_id"]
+    sf = get_session_factory()
+    async with sf() as session:
+        await session.execute(
+            update(Organisation).where(Organisation.id == org_id).values(scim_token=new_token)
+        )
+        await session.commit()
+    return {
+        "token": new_token,
+        "message": "New SCIM token generated. Copy this token now — it will not be shown again.",
+    }

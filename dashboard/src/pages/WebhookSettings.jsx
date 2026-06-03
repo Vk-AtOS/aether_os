@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { Webhook, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const EVENT_OPTIONS = [
   'run.started', 'run.completed', 'run.failed', 'run.cancelled',
@@ -52,7 +53,6 @@ const WebhookSettings = () => {
   };
 
   const handleDelete = async (id) => {
-    if (confirmDelete !== id) { setConfirmDelete(id); return; }
     setConfirmDelete(null);
     setDeleteError(null);
     setDeleting(prev => ({ ...prev, [id]: true }));
@@ -196,27 +196,29 @@ const WebhookSettings = () => {
                     ))}
                   </div>
                 </div>
-                {confirmDelete === wh.id ? (
-                  <span className="ml-4 flex items-center gap-2 text-[10px]">
-                    <span className="text-danger font-bold">Delete?</span>
-                    <button onClick={() => handleDelete(wh.id)} className="text-danger font-bold underline">Yes</button>
-                    <button onClick={() => setConfirmDelete(null)} className="text-muted hover:text-bright">No</button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleDelete(wh.id)}
-                    disabled={deleting[wh.id]}
-                    className="ml-4 text-danger/50 hover:text-danger transition-colors disabled:opacity-30"
-                    title="Delete webhook"
-                  >
-                    {deleting[wh.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                  </button>
-                )}
+                <button
+                  onClick={() => setConfirmDelete(wh.id)}
+                  disabled={deleting[wh.id]}
+                  className="ml-4 text-danger/50 hover:text-danger transition-colors disabled:opacity-30"
+                  title="Delete webhook"
+                  aria-label={`Delete webhook ${wh.url}`}
+                >
+                  {deleting[wh.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                </button>
               </div>
             ))}
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="Delete Webhook"
+        message={confirmDelete ? `Are you sure you want to delete the webhook for "${webhooks.find(w => w.id === confirmDelete)?.url}"?` : ''}
+        onConfirm={() => confirmDelete && handleDelete(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+        danger
+      />
     </div>
   );
 };

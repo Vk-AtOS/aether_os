@@ -68,6 +68,22 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required - set to https://yourdomain.com/dashboard}
       SAML_SP_ENTITY_ID: ${SAML_SP_ENTITY_ID:-}
       SAML_SP_ACS_URL: ${SAML_SP_ACS_URL:-}
+      # OAuth2 Social Login (get credentials from Google/GitHub developer consoles)
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # SAML SSO IdP configuration (from your Okta/Azure AD app)
+      SAML_IDP_ENTITY_ID: ${SAML_IDP_ENTITY_ID:-}
+      SAML_IDP_SSO_URL: ${SAML_IDP_SSO_URL:-}
+      SAML_IDP_CERT: ${SAML_IDP_CERT:-}
+      # Field-level encryption key (generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+      AETHER_FIELD_KEY: ${AETHER_FIELD_KEY:-}
+      # Error tracking
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Admin account created on first startup
+      AETHER_ADMIN_USER: ${AETHER_ADMIN_USER:-admin@example.com}
+      AETHER_ADMIN_PASSWORD: ${AETHER_ADMIN_PASSWORD:-changeme}
     depends_on:
       db:
         condition: service_healthy
