@@ -132,14 +132,15 @@ class FactoryPipeline:
                   is_change_request: bool = False,
                   memory_context: Optional[str] = None,
                   council_preflight: Optional[Dict[str, Any]] = None,
-                  github_url: Optional[str] = None) -> dict:
+                  github_url: Optional[str] = None,
+                  designer_spec: Optional[Dict[str, Any]] = None) -> dict:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
         try:
             return await asyncio.wait_for(self._execute_pipeline(
                 client_id, raw_input, domain, project_name, start_phase,
                 run_id, org_id, org_slug, plan, is_change_request, memory_context,
-                council_preflight, github_url,
+                council_preflight, github_url, designer_spec or {},
             ), timeout=timeout)
         except asyncio.TimeoutError:
             logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
@@ -161,7 +162,8 @@ class FactoryPipeline:
                   is_change_request: bool = False,
                   memory_context: Optional[str] = None,
                   council_preflight: Optional[Dict[str, Any]] = None,
-                  github_url: Optional[str] = None) -> dict:
+                  github_url: Optional[str] = None,
+                  designer_spec: Optional[Dict[str, Any]] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
 
@@ -251,6 +253,8 @@ class FactoryPipeline:
             "github_url": github_url or "",
             # Pipeline flow control: "autonomous" skips human approval gates
             "decision_mode": "autonomous" if _org_autonomous else "approval_required",
+            # Designer panel selections — forwarded to p04b + p05 for theme/layout
+            "designer_spec": designer_spec or {},
         }
 
         # Inject per-user learning patterns so every phase can tailor its prompts
