@@ -222,7 +222,12 @@ def generate_schemas_py(ir: DomainIR) -> str:
 
         for f in entity.fields:
             ptype = _pydantic_type(f)
-            default = " = None" if f.nullable else ""
+            if f.nullable:
+                default = " = None"
+            elif f.default is not None and f.type == AetherType.BOOLEAN:
+                default = f" = {str(f.default).capitalize()}"
+            else:
+                default = ""
             optional_ptype = f"Optional[{ptype.replace('Optional[', '').rstrip(']')}]"
             fields_block_base.append(f"    {f.name}: {ptype}{default}")
             fields_block_update.append(f"    {f.name}: {optional_ptype} = None")
@@ -325,7 +330,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
     lines = [
         f"{router_var} = APIRouter(prefix='/{t}', tags=['{n}'])",
         "",
-        f"@{router_var}.get('/', response_model=dict)",
+        f"@{router_var}.get('', response_model=dict)",
         f"async def list_{t}(",
         f"    page: int = Query(1, ge=1),",
         f"    limit: int = Query(20, ge=1, le=100),",
@@ -340,7 +345,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"    items = result.scalars().all()",
         f"    return {{'items': [schemas.{n}Response.model_validate(i) for i in items], 'total': total, 'page': page, 'limit': limit}}",
         "",
-        f"@{router_var}.post('/', response_model=schemas.{n}Response, status_code=201)",
+        f"@{router_var}.post('', response_model=schemas.{n}Response, status_code=201)",
         f"async def create_{var}(",
         f"    payload: schemas.{n}Create,",
         f"    db: AsyncSession = Depends(get_db),",

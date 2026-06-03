@@ -346,6 +346,18 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _api_slash_redirect(request: Request, call_next):
+    """Redirect /api/{entity} → /api/{entity}/ for write methods (frontend compatibility)."""
+    from starlette.responses import RedirectResponse as _RR2
+    p = request.url.path
+    if (p.count("/") == 2 and p.startswith("/api/") and not p.endswith("/")
+            and request.method in ("POST", "PUT", "PATCH", "DELETE")):
+        qs = "?" + str(request.url.query) if request.url.query else ""
+        return _RR2(p + "/" + qs, status_code=307)
+    return await call_next(request)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled %s %s: %s", request.method, request.url.path, exc, exc_info=True)
