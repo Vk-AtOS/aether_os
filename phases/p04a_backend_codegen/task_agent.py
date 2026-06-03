@@ -334,6 +334,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     root_path=os.environ.get("ROOT_PATH", ""),
+    redirect_slashes=False,
 )
 
 _cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
@@ -344,18 +345,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
-
-
-@app.middleware("http")
-async def _api_slash_redirect(request: Request, call_next):
-    """Redirect /api/{entity} → /api/{entity}/ for write methods (frontend compatibility)."""
-    from starlette.responses import RedirectResponse as _RR2
-    p = request.url.path
-    if (p.count("/") == 2 and p.startswith("/api/") and not p.endswith("/")
-            and request.method in ("POST", "PUT", "PATCH", "DELETE")):
-        qs = "?" + str(request.url.query) if request.url.query else ""
-        return _RR2(p + "/" + qs, status_code=307)
-    return await call_next(request)
 
 
 @app.exception_handler(Exception)
@@ -1628,6 +1617,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
             seed_code = await _llm_seed_data(llm, project_name, domain, entities, models_code)
             seed_code = _fix_common_issues(seed_code)
+            # Strip any model names from the import that don't exist in models.py
+            _valid_models = set(re.findall(r'^class (\w+)\(Base\)', models_code, re.MULTILINE))
+            _valid_models.add("User")  # always include User
+            import re as _re_seed
+            def _fix_models_import(m):
+                _imported = [n.strip() for n in m.group(1).split(',')]
+                _filtered = [n for n in _imported if n in _valid_models]
+                if not _filtered:
+                    _filtered = ["User"]
+                return f"from .models import {', '.join(_filtered)}"
+            seed_code = _re_seed.sub(
+                r'from \.models import ([^\n]+)', _fix_models_import, seed_code
+            )
             # Validate: seed must import and use User model (auth requires it)
             if "from .models import User" not in seed_code and "from .models import" in seed_code:
                 logger.warning("[p04a] seed.py does not import User model — using fallback")

@@ -149,7 +149,7 @@ def generate_models_py(ir: DomainIR) -> str:
 _PYDANTIC_IMPORTS = """\
 from __future__ import annotations
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional, List, Any
 from pydantic import BaseModel, EmailStr, field_validator
 """
 
@@ -169,7 +169,7 @@ def _pydantic_type(field: IRField) -> str:
         AetherType.URL:      "str",
         AetherType.ENUM:     "str",
         AetherType.FK:       "int",
-        AetherType.JSON:     "dict",
+        AetherType.JSON:     "Any",
     }
     base = type_map.get(atype, "str")
     if field.nullable:
