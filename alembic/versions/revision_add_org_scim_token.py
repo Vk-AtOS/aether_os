@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = 'add_org_scim_token'
-down_revision = 'merge_guardian_heads'
+down_revision = 'revision_merge_guardian_heads'
 branch_labels = None
 depends_on = None
 
