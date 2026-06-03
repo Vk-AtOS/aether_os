@@ -133,7 +133,12 @@ class FactoryPipeline:
                   memory_context: Optional[str] = None,
                   council_preflight: Optional[Dict[str, Any]] = None,
                   github_url: Optional[str] = None,
-                  designer_spec: Optional[Dict[str, Any]] = None) -> dict:
+                  designer_spec: Optional[Dict[str, Any]] = None,
+                  tech_preferences: Optional[Dict[str, Any]] = None,
+                  model_preference: Optional[str] = None,
+                  priority: Optional[str] = None,
+                  codebase_mode: Optional[str] = None,
+                  existing_schema: Optional[Dict[str, Any]] = None) -> dict:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
         try:
@@ -141,6 +146,7 @@ class FactoryPipeline:
                 client_id, raw_input, domain, project_name, start_phase,
                 run_id, org_id, org_slug, plan, is_change_request, memory_context,
                 council_preflight, github_url, designer_spec or {},
+                tech_preferences, model_preference, priority, codebase_mode, existing_schema,
             ), timeout=timeout)
         except asyncio.TimeoutError:
             logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
@@ -163,7 +169,12 @@ class FactoryPipeline:
                   memory_context: Optional[str] = None,
                   council_preflight: Optional[Dict[str, Any]] = None,
                   github_url: Optional[str] = None,
-                  designer_spec: Optional[Dict[str, Any]] = None) -> dict:
+                  designer_spec: Optional[Dict[str, Any]] = None,
+                  tech_preferences: Optional[Dict[str, Any]] = None,
+                  model_preference: Optional[str] = None,
+                  priority: Optional[str] = None,
+                  codebase_mode: Optional[str] = None,
+                  existing_schema: Optional[Dict[str, Any]] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
 
@@ -254,8 +265,20 @@ class FactoryPipeline:
             # Pipeline flow control: "autonomous" skips human approval gates
             "decision_mode": "autonomous" if _org_autonomous else "approval_required",
             # Designer panel selections — forwarded to p04b + p05 for theme/layout
-            "designer_spec": designer_spec or {},
+            # Merge tech_preferences into designer_spec if designer_spec has no frontend framework set
+            "tech_preferences": tech_preferences or {},
+            "model_preference": model_preference or "",
+            "priority": priority or "normal",
+            "codebase_mode": codebase_mode or "new",
+            "existing_schema": existing_schema or {},
         }
+        _ds = dict(designer_spec or {})
+        _tp = tech_preferences or {}
+        if _tp and not _ds.get("frontend", {}).get("framework"):
+            _ds.setdefault("frontend", {})["framework"] = _tp.get("frontend", "")
+            _ds.setdefault("backend", {})["framework"] = _tp.get("backend", "")
+            _ds.setdefault("backend", {})["database"] = _tp.get("database", "")
+        accumulated_context["designer_spec"] = _ds
 
         # Inject per-user learning patterns so every phase can tailor its prompts
         if org_id and client_id:

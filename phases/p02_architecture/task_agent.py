@@ -454,6 +454,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                             data.get("structured_requirements", raw_input or str(data)))
     domain = data.get("domain", "general")
 
+    # Extract tech preferences from designer_spec and tech_preferences
+    _tp = data.get("tech_preferences") or {}
+    _ds = data.get("designer_spec") or {}
+    _be = _ds.get("backend") or {}
+    _fe = _ds.get("frontend") or {}
+    _preferred_backend = _be.get("framework") or _tp.get("backend") or ""
+    _preferred_frontend = _fe.get("framework") or _tp.get("frontend") or ""
+    _preferred_db = _be.get("database") or _tp.get("database") or ""
+    _existing_schema = data.get("existing_schema") or {}
+
     from aether_os.core.domain_engine import get_domain_profile
     profile = get_domain_profile(domain)
 
@@ -513,6 +523,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as e:
             logger.warning("[p02] Semantic search failed: %s", e)
 
+        _stack_hint = ""
+        if _preferred_backend: _stack_hint += f"\nPreferred backend: {_preferred_backend}"
+        if _preferred_frontend: _stack_hint += f"\nPreferred frontend: {_preferred_frontend}"
+        if _preferred_db: _stack_hint += f"\nPreferred database: {_preferred_db}"
+        if _existing_schema.get("tables"):
+            _table_names = [t.get("name", "?") for t in _existing_schema["tables"][:10]]
+            _stack_hint += f"\nExisting DB tables (use these): {', '.join(_table_names)}"
+
         prompt = (
             f"Design a complete software architecture for the following requirements:\n\n"
             f"{requirements}\n\n"
@@ -522,6 +540,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             f"Mandatory Patterns: {', '.join(profile.required_patterns)}\n"
             f"Security: {', '.join(profile.security_requirements)}\n"
             f"Example Entities to consider: {', '.join(profile.example_entities)}\n"
+            f"{_stack_hint}"
             f"{similar_context}"
             f"{mem}"
             f"\nFocus on: tech stack choices, database schema, API endpoints, security."
@@ -558,6 +577,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         used_fallback = True
 
     doc = fix_tech_stack(doc)
+
+    # Apply user-preferred tech stack overrides from designer_spec / tech_preferences
+    if _preferred_backend: doc.setdefault("tech_stack", {})["backend"] = _preferred_backend
+    if _preferred_frontend: doc.setdefault("tech_stack", {})["frontend"] = _preferred_frontend
+    if _preferred_db: doc.setdefault("tech_stack", {})["database"] = _preferred_db
 
     # G1 fix: LLM may reset domain to "general" — preserve the input domain
     input_domain = getattr(phase_input, 'domain', None) or phase_input.input_data.get('domain', '')
