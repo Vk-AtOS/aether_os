@@ -670,6 +670,7 @@ async def start_factory_run(
                 org_id=org_id,
                 council_preflight=_preflight,
                 github_url=github_url or None,
+                designer_spec=designer_spec or {},
             )
         except Exception as exc:
             logger.error("Background factory run failed: %s", exc)
