@@ -369,7 +369,7 @@ async def root():
     return {"message": "{PROJECT_NAME} API", "docs": "/docs"}
 '''
 
-_ROUTERS_INIT_PY = ""  # empty — routers are imported directly
+_ROUTERS_INIT_PY = "from .crud import all_routers\n\n__all__ = ['all_routers']\n"
 
 _REQUIREMENTS_TXT = """\
 fastapi>=0.111.0
