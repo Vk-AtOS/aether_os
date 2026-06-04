@@ -1,5 +1,6 @@
-"""P04a Gate — validates backend code was generated."""
+"""P04a Gate — validates backend code quality and production standards."""
 from __future__ import annotations
+import re
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
 
@@ -15,4 +16,38 @@ def validate(result: TaskResult) -> GateOutcome:
         return GateOutcome(passed=False, confidence=0.0,
                            issues=["No Python files found in backend output"])
 
-    return GateOutcome(passed=True, confidence=0.85, issues=[])
+    issues = []
+    warnings = []
+
+    # Check for /health endpoint
+    main_py = p / "src" / "main.py"
+    if main_py.exists():
+        content = main_py.read_text()
+        if "/health" not in content:
+            warnings.append("No /health endpoint in main.py — add for load balancer checks")
+        if "/ready" not in content:
+            warnings.append("No /ready endpoint — add for Kubernetes readiness probes")
+        if "X-Request-ID" not in content and "request_id" not in content:
+            warnings.append("No X-Request-ID middleware — add for distributed tracing")
+
+    # Check crud.py for pagination
+    crud_files = list(p.rglob("crud.py"))
+    for crud_file in crud_files:
+        crud_content = crud_file.read_text()
+        # List endpoints should have skip/limit or page/size
+        list_routes = re.findall(r'@\w+\.get\([^)]+\)[^@]+def \w+list[^(]*\([^)]*\)',
+                                  crud_content, re.IGNORECASE | re.DOTALL)
+        get_routes = re.findall(r'@\w+\.get\(["\'][^"\']*["\'][^)]*\)', crud_content)
+        if get_routes and "skip" not in crud_content and "limit" not in crud_content:
+            warnings.append(f"{crud_file.name}: list endpoints may lack pagination (skip/limit)")
+
+    # Check for connection pooling in database.py
+    db_py = p / "src" / "database.py"
+    if db_py.exists():
+        db_content = db_py.read_text()
+        if "pool_size" not in db_content:
+            warnings.append("database.py missing pool_size config — add for production")
+
+    passed = len(issues) == 0
+    confidence = 0.9 if (passed and not warnings) else (0.75 if passed else 0.3)
+    return GateOutcome(passed=passed, confidence=confidence, issues=issues + warnings)

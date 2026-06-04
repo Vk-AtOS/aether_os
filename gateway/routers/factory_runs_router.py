@@ -1687,6 +1687,25 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
     _env = {**os.environ}
     _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
 
+    # ── Run Alembic migrations before starting (best-effort) ─────────────────
+    _alembic_ini = backend_dir / "alembic.ini"
+    if _alembic_ini.exists():
+        with open(log_path, "a") as _lf:
+            _lf.write("[AetherOS] Running alembic upgrade head...\n")
+        _alembic_result = _sp.run(
+            [_sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=str(backend_dir),
+            capture_output=True,
+            timeout=60,
+            env=_env,
+        )
+        with open(log_path, "a") as _lf:
+            if _alembic_result.returncode == 0:
+                _lf.write("[AetherOS] Alembic migrations applied successfully.\n")
+            else:
+                _err = (_alembic_result.stderr or b"").decode(errors="replace")[-400:]
+                _lf.write(f"[AetherOS] Alembic migration failed (falling back to create_all): {_err}\n")
+
     def _try_start_backend() -> Optional[_sp.Popen]:
         """Attempt to start the generated backend. Returns process or None on immediate crash."""
         log_file = open(log_path, "a")

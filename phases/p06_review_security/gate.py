@@ -65,6 +65,29 @@ def validate(result: TaskResult) -> GateOutcome:
     n_medium   = severity_counts["medium"]
     n_low      = severity_counts["low"]
 
+    # ── 2b. Code-pattern security checks ─────────────────────────────────────
+    # Walk generated backend files and check for common anti-patterns
+    try:
+        import re as _re
+        # Try to find the generated backend from the output path
+        _out = Path(result.output_path)
+        _search_root = _out.parent.parent  # output is usually in p06_review_security/
+        _backend_dirs = list(_search_root.glob("p04*/backend_codegen/src"))
+        for _src_dir in _backend_dirs[:1]:  # check first found
+            for _py in list(_src_dir.rglob("*.py"))[:20]:
+                _code = _py.read_text(errors="replace")
+                # Raw SQL string construction (SQL injection risk)
+                if _re.search(r'f["\'].*SELECT.*\{', _code, _re.IGNORECASE):
+                    issues.append(f"POTENTIAL SQL INJECTION: f-string SQL in {_py.name}")
+                    n_high = max(n_high, 1)
+                # Hardcoded secrets patterns
+                if _re.search(r'(?i)(password|secret|api_key|token)\s*=\s*["\'][^"\']{8,}["\']', _code):
+                    if not _re.search(r'os\.environ|getenv|settings\.|config\.', _code):
+                        issues.append(f"POTENTIAL HARDCODED SECRET in {_py.name}")
+                        n_high = max(n_high, 1)
+    except Exception as _scan_exc:
+        logger.debug("P06 gate code-pattern scan failed: %s", _scan_exc)
+
     # ── 3. Blocking conditions ────────────────────────────────────────────────
     if n_critical >= _CRITICAL_THRESHOLD:
         issues.append(

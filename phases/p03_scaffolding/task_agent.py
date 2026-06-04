@@ -136,7 +136,30 @@ async def health():
     (project_dir / ".env.example").write_text(
         "DATABASE_URL=postgresql://localhost/db\n"
         f"SECRET_KEY={_example_key}\n")
-    
+
+    # Separate dev and prod env files
+    _dev_key = _sec.token_hex(32)
+    _prod_key = _sec.token_hex(32)
+    (project_dir / ".env.dev").write_text(
+        "DATABASE_URL=sqlite+aiosqlite:///./dev.db\n"
+        f"SECRET_KEY={_dev_key}\n"
+        "DEBUG=true\n"
+        "CORS_ORIGINS=http://localhost:3000,http://localhost:5173\n"
+    )
+    (project_dir / ".env.prod").write_text(
+        "# Production environment — fill all values before deploy\n"
+        "DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/appdb\n"
+        f"SECRET_KEY={_prod_key}\n"
+        "DEBUG=false\n"
+        "CORS_ORIGINS=https://yourdomain.com\n"
+        "ENVIRONMENT=production\n"
+    )
+    # .gitignore — never commit .env files with real secrets
+    (project_dir / ".gitignore").write_text(
+        ".env\n.env.prod\n.env.dev\n__pycache__/\n*.pyc\n.pytest_cache/\n"
+        "node_modules/\ndist/\nbuild/\n*.db\n*.log\n"
+    )
+
     # Create README.md
     _brand = os.environ.get("DEPLOYMENT_BRAND", "AetherOS Factory")
     (project_dir / "README.md").write_text(
@@ -151,6 +174,42 @@ async def health():
 
     # Write .devcontainer/devcontainer.json
     _write_devcontainer(project_dir, project_name)
+
+    # docker-compose with PostgreSQL (production-ready)
+    (project_dir / "docker-compose.yml").write_text(f"""\
+version: "3.9"
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://appuser:apppass@db:5432/{project_name.lower()}
+      SECRET_KEY: ${{SECRET_KEY}}
+      CORS_ORIGINS: http://localhost:3000
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppass
+      POSTGRES_DB: {project_name.lower()}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+""")
 
     return project_dir
 

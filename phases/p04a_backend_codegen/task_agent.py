@@ -41,11 +41,15 @@ from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")
 
+_is_sqlite = "sqlite" in DATABASE_URL
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+    pool_size=1 if _is_sqlite else 10,
+    max_overflow=0 if _is_sqlite else 20,
+    pool_recycle=300,
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
 )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -282,6 +286,8 @@ Production-ready FastAPI backend with async SQLAlchemy, JWT auth, CORS, structur
 from __future__ import annotations
 import logging
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -323,6 +329,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Seed skipped: %s", exc)
     yield
+    await engine.dispose()
     logger.info("{PROJECT_NAME} API shutting down")
 
 
@@ -345,6 +352,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    start = time.time()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    duration_ms = int((time.time() - start) * 1000)
+    logger.info(
+        "method=%s path=%s status=%d duration_ms=%d request_id=%s",
+        request.method, request.url.path, response.status_code, duration_ms, request_id,
+    )
+    return response
 
 
 @app.exception_handler(Exception)
@@ -372,6 +393,18 @@ async def health():
     return {"status": "ok", "version": "1.0.0", "service": "{PROJECT_NAME}"}
 
 
+@app.get("/ready", tags=["system"])
+async def ready():
+    try:
+        from .database import engine as _engine
+        async with _engine.connect() as conn:
+            await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        return {"status": "ready", "db": "ok"}
+    except Exception as exc:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content={{"status": "not_ready", "db": str(exc)}})
+
+
 @app.get("/", include_in_schema=False)
 async def root():
     return {"message": "{PROJECT_NAME} API", "docs": "/docs"}
@@ -384,6 +417,8 @@ fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.20.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.0
 alembic>=1.13.0
 pydantic[email]>=2.0.0
 PyJWT>=2.8.0
@@ -542,6 +577,13 @@ MODELS.PY requirements (file: src/models.py):
 5. Use `__tablename__` (snake_case plural)
 6. DateTime fields use `datetime.now(timezone.utc)` as default
 
+REQUIRED for every model (no exceptions):
+- created_at: DateTime = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+- updated_at: DateTime = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+- deleted_at: Optional[DateTime] = Column(DateTime(timezone=True), nullable=True)  # soft delete — never hard-delete rows
+- Every ForeignKey column MUST have a corresponding Index: e.g. Index('ix_order_user_id', 'user_id')
+- The User model MUST have: Index('ix_user_email', 'email', unique=True)
+
 SCHEMAS.PY requirements (file: src/schemas.py):
 1. Import: `from pydantic import BaseModel, EmailStr, Field, ConfigDict`
 2. For each entity create ALL of:
@@ -606,6 +648,11 @@ async def _llm_crud_routers(
     prompt = f"""\
 Generate production-quality FastAPI async CRUD routers for "{project_name}".
 {mem_hint}
+
+REQUIRED pagination rules (no exceptions):
+- Every GET list endpoint MUST accept query params: skip: int = 0, limit: int = Query(default=20, le=100)
+- Return format: {{"items": [...], "total": count, "skip": skip, "limit": limit}}
+- Never return unbounded lists — always apply .offset(skip).limit(limit)
 
 Entities and their fields:
 {entity_fields_summary}
