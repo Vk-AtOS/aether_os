@@ -44,7 +44,9 @@ docker-compose up -d db redis
 ### 4. Apply database migrations
 
 ```bash
-alembic upgrade head
+alembic upgrade add_pipeline_run_checkpoint
+# If AETHER_FIELD_KEY is configured (field-level encryption):
+alembic upgrade encrypt_sensitive_columns
 ```
 
 ### 5. Start the backend
@@ -143,7 +145,7 @@ npm test
 ```
 gateway/          FastAPI app, auth, routers
 orchestrator/     Pipeline orchestrator, MessageBus
-phases/           20 phase modules (p01–p14)
+phases/           21 phase modules (p01–p14, including p02b and p07b)
 core/             Shared business logic (billing, identity, LLM, compliance)
 dashboard/        React 18 frontend
 cli/              Typer CLI

@@ -50,10 +50,10 @@
           │  MessageBus (Redis RPUSH/BLPOP)
           │
 ┌─────────▼────────────────────────────────────────────────────────┐
-│                    20-Phase Execution Layer                       │
-│  p01 → p02 → p03 → p04 → p05 → p06 → p07 → p07b → p08 → p09   │
-│  → p10 → p11 → p11a → p11b → p11c → p11d → p12a → p12b → p13   │
-│  → p14                                                            │
+│                    21-Phase Execution Layer                       │
+│  p01 → p02 → p02b → p03 → p04 → p05 → p06 → p07 → p07b → p08  │
+│  → p09 → p10 → p11 → p11a → p11b → p11c → p11d → p12a → p12b  │
+│  → p13 → p14                                                      │
 │                                                                   │
 │  Each phase: SupervisorAgent → TaskAgent → GateValidator         │
 └─────────┬────────────────────────────────────────────────────────┘
@@ -71,7 +71,7 @@
 
 ---
 
-## The 20-Phase Pipeline — Detail
+## The 21-Phase Pipeline — Detail
 
 The pipeline is defined in `PHASE_SEQUENCE` in `orchestrator/factory_pipeline.py`. Each phase is mapped to a supervisor class via `PHASE_SUPERVISORS`. Phases are loaded dynamically at runtime via `importlib`; adding a new phase requires no changes to the orchestrator.
 
@@ -86,6 +86,12 @@ The pipeline is defined in `PHASE_SEQUENCE` in `orchestrator/factory_pipeline.py
 **p02 — Architecture**
 - Produces: architecture decision records (ADRs), entity-relationship model, technology stack selection, system context diagram
 - Gate: checks architecture doc is non-empty and references at least one data model
+
+**p02b — Domain IR**
+- Consumes: p02 architecture output + p01 domain detection result
+- Produces: `domain_ir.json` — a normalised intermediate representation of detected domain, entity graph, compliance annotations, and tech-stack constraints
+- Used by all downstream phases to avoid re-detecting domain context on each LLM call
+- Gate: validates that domain IR contains at least one entity and a non-empty compliance profile
 
 **p03 — Scaffolding**
 - Produces: full project directory tree, `pyproject.toml` / `package.json`, `Dockerfile`, `docker-compose.yml`, `.env.example`
@@ -111,7 +117,7 @@ The pipeline is defined in `PHASE_SEQUENCE` in `orchestrator/factory_pipeline.py
 
 **p07b — Self-Healing**
 - If p07 gate fails, this phase re-runs failing tests, identifies root causes, patches code, and re-validates
-- Maximum 3 healing iterations before escalating to human approval gate
+- Maximum 5 healing iterations before escalating to human approval gate
 
 **p08 — CI/CD & Deployment**
 - Produces: `ci.yml` (GitHub Actions), `devcontainer.json`, `Dockerfile` (if not already present)
@@ -263,6 +269,28 @@ The orchestrator (`factory_pipeline.py`) calls `supervisor.validate_gate()` afte
 
 ---
 
+## Pipeline Checkpoint & Resume
+
+Failed pipeline runs can be resumed from their last completed phase without restarting from p01. The mechanism works as follows:
+
+1. After each phase completes successfully, the orchestrator writes `checkpoint_data` to the `runs` table:
+   ```json
+   {
+     "last_completed_phase": "p06_review_security",
+     "accumulated_context": { "...phase output keys..." }
+   }
+   ```
+
+2. When a run is retried (via `POST /factory/runs/{id}/retry`), the orchestrator reads `checkpoint_data` and fast-forwards `PHASE_SEQUENCE` to the phase *after* `last_completed_phase`.
+
+3. The `accumulated_context` is injected into the new run's context dict before execution resumes, so later phases have access to all earlier outputs.
+
+4. The `checkpoint_data` column is stored as JSONB on PostgreSQL (efficient partial indexing) and as JSON on SQLite (dev/test).
+
+This eliminates the most expensive retry scenario — a transient LLM timeout in p09 no longer means regenerating backend, frontend, and tests from scratch.
+
+---
+
 ## Full Development Environment (FDE)
 
 The FDE turns the AetherOS dashboard into a lightweight IDE for the generated project:
@@ -290,6 +318,6 @@ Production deployment is handled by `deploy/deploy.sh` and `deploy/setup_vps.sh`
 3. **TLS**: certbot (`--nginx` plugin) obtains and auto-renews Let's Encrypt certificates
 4. **PostgreSQL**: installed on the VPS or connected as a managed service
 5. **Redis**: installed on the VPS (`redis-server`) or connected as a managed service (e.g. Redis Cloud)
-6. **Zero-downtime deploys**: `deploy.sh` pulls new code, runs `alembic upgrade head`, restarts systemd service with `--no-block` and a health-check loop
+6. **Zero-downtime deploys**: `deploy.sh` pulls new code, runs `alembic upgrade add_pipeline_run_checkpoint`, restarts systemd service with `--no-block` and a health-check loop
 
 The `docker-compose.yml` in the project root provides a local development stack (Postgres + Redis + app).

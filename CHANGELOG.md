@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pipeline checkpoint/resume**: Failed runs resume from last completed phase via `checkpoint_data` JSONB column on `runs` table; eliminates full restart on transient LLM failures
+- **Zero-trust identity module**: `core/identity/zero_trust.py` — HMAC-SHA256 signed tickets for agent-to-resource access authorisation
+- **Audit log hash-chaining**: `prev_hash` column on `audit_log` table; SOC 2 tamper evidence via SHA-256 chain
+- **Codebase import**: Settings page allows importing an existing GitHub repository; stack detection wires into pipeline as pre-populated scaffold
+- **Audit log CSV export**: Admin endpoint `GET /admin/audit/export.csv` for compliance downloads
+- **p02b domain IR phase**: Normalised intermediate representation emitted between architecture and scaffolding phases; consumed by all downstream LLM prompts to avoid redundant domain re-detection
+
+### Fixed
+- Council quality gate default changed from `True` to `False` — malformed LLM responses no longer silently pass gates
+- SSE stream now polls `_local_history` buffer when Redis is unavailable (was abandoning the stream entirely)
+- `asyncio.Lock()` lazy-init: `AuditLogger` defers lock creation to first use, fixing Python 3.9 event-loop-at-import error
+- Prometheus isolated `CollectorRegistry` in generated apps prevents `ValueError: Duplicated timeseries` on sequential pipeline runs
+- Stripe subscription cancellation now calls `stripe.Subscription.cancel()` before downgrading plan in DB (was only updating DB)
+- `stripe_customer_id` added to `Organisation` model and migration (was missing from schema)
+- Test suite singleton contamination fixed: `DecisionLedger._instance = None` in finally block; RS256 env vars cleared before JWT HS256 tests
+
+### Migrations (apply in order)
+```bash
+alembic upgrade add_stripe_customer_id
+alembic upgrade add_codebase_profiles
+alembic upgrade add_audit_log_prev_hash
+alembic upgrade add_pipeline_run_checkpoint
+```
+
 ---
 
 ## [1.0.0] — 2026-06-01
@@ -69,11 +94,11 @@ First stable release. All enterprise features complete, load-tested, and Playwri
 Initial public release of AetherOS — the autonomous, multi-tenant AI software factory.
 
 ### Added
-- 20-phase pipeline: intake → architecture → scaffolding → backend → frontend → review → testing → self-healing → CI/CD → observability → docs → deployment → monitoring → error tracking → analytics → alerting → feature flags → A/B testing → app memory → client portal
+- 21-phase pipeline: intake → architecture → domain IR → scaffolding → backend → frontend → review → testing → self-healing → CI/CD → observability → docs → deployment → monitoring → error tracking → analytics → alerting → feature flags → A/B testing → app memory → client portal
 - Multi-tenant platform with `org_id`-scoped isolation enforced at middleware level
 - Anthropic Claude Sonnet 4.6 as primary LLM; Google Gemini 2.5 Flash as secondary; Ollama as local fallback
 - Amazon Bedrock integration with cross-region inference profile support
-- React 18 / TypeScript / Vite / Tailwind CSS dashboard with 20+ navigation tabs
+- React 18 / TypeScript / Vite / Tailwind CSS dashboard with 21+ navigation tabs
 - Full Development Environment (FDE): Monaco editor in-browser, env-var management, run-app process manager
 - VS Code extension with live pipeline status and one-click project open
 - CLI (`aether` command) built with Typer + Rich for terminal-based pipeline management
@@ -118,5 +143,6 @@ Initial public release of AetherOS — the autonomous, multi-tenant AI software 
 - ARIA/WCAG 2.1 AA compliance applied to all dashboard components
 - Rate limiting hardened on all public auth endpoints
 
-[Unreleased]: https://github.com/AetherOS/aether_os/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/AetherOS/aether_os/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Vk-AtOS/aether_os/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Vk-AtOS/aether_os/compare/v0.1.0...v1.0.0
+[0.1.0]: https://github.com/Vk-AtOS/aether_os/releases/tag/v0.1.0

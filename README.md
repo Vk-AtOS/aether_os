@@ -1,10 +1,10 @@
 # AetherOS
 
-AetherOS is an autonomous, multi-tenant software factory that transforms a natural-language prompt into a fully scaffolded, tested, documented, and deployed application through a supervised 20-phase pipeline.
+AetherOS is an autonomous, multi-tenant software factory that transforms a natural-language prompt into a fully scaffolded, tested, documented, and deployed application through a supervised 21-phase pipeline.
 
 ---
 
-## The 20-Phase Pipeline
+## The 21-Phase Pipeline
 
 Each phase is an independent module. All inter-phase communication is routed exclusively through the MessageBus. The orchestrator never calls phase logic directly.
 
@@ -12,6 +12,7 @@ Each phase is an independent module. All inter-phase communication is routed exc
 |-------|------|-------------|
 | p01 | Intake & Requirements | Parses raw user input into a structured PRD; promotes raw text if LLM sub-task fails |
 | p02 | Architecture | Generates system architecture, entity-relationship diagrams, and technology decisions |
+| p02b | Domain IR | Emits an intermediate representation of the detected domain, compliance notes, and entity graph used by downstream phases |
 | p03 | Scaffolding | Creates project directory structure, cookiecutter templates, and boilerplate |
 | p04 | Backend | LLM-driven code generation for API routes, models, auth, and database layer |
 | p05 | Frontend | Generates React/TypeScript UI components, pages, and routing |
@@ -43,7 +44,7 @@ Each phase is an independent module. All inter-phase communication is routed exc
 - **Redis message bus**: RPUSH/BLPOP primary; asyncio.Queue fallback for single-process mode
 - **Intelligence engines**: Arch Governor, Truth Engine, Conflict Resolver, Tradeoff Engine, Improvement Loop, Maintenance Engine
 - **SCIM v2**: automated user provisioning for enterprise IdPs
-- **Billing**: Razorpay order/verify/webhook integration; plan-gated feature access
+- **Billing**: Razorpay (India) + Stripe (international) dual-provider; order creation, payment verification, subscription management, and webhook processing; plan-gated feature access
 - **Audit ledger**: append-only log of all pipeline events per org
 
 ---
@@ -95,7 +96,7 @@ cp .env.example .env
 #   ANTHROPIC_API_KEY=sk-ant-...
 
 # 3. Apply migrations
-alembic upgrade head
+alembic upgrade add_pipeline_run_checkpoint
 
 # 4. Start the server
 uvicorn gateway.api:app --host 0.0.0.0 --port 8000 --reload
@@ -120,9 +121,10 @@ aether_os/
 ├── gateway/           # FastAPI application, routers, auth, SAML, MFA
 │   └── routers/       # Modular route files (factory, auth, plugins)
 ├── orchestrator/      # Pipeline orchestrator, MessageBus, state machine, routing
-├── phases/            # 20 phase modules (supervisor + task agent + gate per phase)
+├── phases/            # 21 phase modules (supervisor + task agent + gate per phase)
 │   ├── p01_intake_requirements/
 │   ├── p02_architecture/
+│   ├── p02b_domain_ir/
 │   └── ... (p03–p14)
 ├── core/              # Shared business logic
 │   ├── compliance/    # Artifact generator (compliance_report.json)

@@ -18,14 +18,14 @@
 
 ## 0. Database Migrations
 
-AetherOS has two Alembic migration heads:
+AetherOS has two Alembic migration tracks:
 
-1. **Main head** (`revision_merge_guardian_heads`) — run always:
+1. **Main chain** (leaf: `add_pipeline_run_checkpoint`) — run always:
    ```bash
-   alembic upgrade revision_merge_guardian_heads
+   alembic upgrade add_pipeline_run_checkpoint
    ```
 
-2. **Field encryption head** (`encrypt_sensitive_columns`) — run only when `AETHER_FIELD_KEY` is set:
+2. **Field encryption branch** (`encrypt_sensitive_columns`) — run only when `AETHER_FIELD_KEY` is set:
    ```bash
    # Only if AETHER_FIELD_KEY is configured:
    alembic upgrade encrypt_sensitive_columns
@@ -34,6 +34,16 @@ AetherOS has two Alembic migration heads:
 **Do NOT run `alembic upgrade head`** — it will fail with "Multiple heads are present."
 
 The `deploy/deploy.sh` script handles this automatically. For manual deployments, run the commands above in order.
+
+### Current migration chain (main track, newest → oldest)
+```
+add_pipeline_run_checkpoint  ← current leaf
+add_audit_log_prev_hash
+add_codebase_profiles
+add_stripe_customer_id
+revision_merge_guardian_heads
+...
+```
 
 ---
 
