@@ -8,6 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
 
+# PostgreSQL columns are TIMESTAMP WITHOUT TIME ZONE — use naive UTC datetimes.
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 class Organisation(Base):
     __tablename__ = "organisations"
 
@@ -15,7 +19,7 @@ class Organisation(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     plan: Mapped[str] = mapped_column(String(50), default="trial")  # trial, pro, enterprise
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     trial_runs_used: Mapped[int] = mapped_column(default=0)
     trial_runs_limit: Mapped[int] = mapped_column(default=3)
     storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
@@ -40,7 +44,7 @@ class User(Base):
     user_preferences: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     mfa_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -55,7 +59,7 @@ class APIKey(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_used_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="api_keys")
 
@@ -161,7 +165,7 @@ class Decision(Base):
     status: Mapped[str] = mapped_column(String(50), default="pending")
     human_choice: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     timeout_seconds: Mapped[int] = mapped_column(default=300)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 class Webhook(Base):
@@ -173,7 +177,7 @@ class Webhook(Base):
     events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     secret: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 class Workspace(Base):
@@ -185,7 +189,7 @@ class Workspace(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str] = mapped_column(String(36), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class OrgApiKey(Base):
@@ -224,7 +228,7 @@ class SamlConfig(Base):
     idp_entity_id: Mapped[str] = mapped_column(String(512), nullable=False)
     idp_sso_url: Mapped[str] = mapped_column(String(512), nullable=False)
     idp_cert: Mapped[Text] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 class ArtifactEmbedding(Base):
     __tablename__ = "artifact_embeddings"
@@ -235,7 +239,7 @@ class ArtifactEmbedding(Base):
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     embedding: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 class MarketplaceProfile(Base):
     __tablename__ = "marketplace_profiles"
@@ -249,7 +253,7 @@ class MarketplaceProfile(Base):
     profile_yaml: Mapped[str] = mapped_column(Text, nullable=False)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
     usage_count: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 class GlobalPattern(Base):
     __tablename__ = "global_patterns"
@@ -261,7 +265,7 @@ class GlobalPattern(Base):
     success_rate: Mapped[float] = mapped_column(Float, default=0.0)
     usage_count: Mapped[int] = mapped_column(default=0)
     avg_quality_score: Mapped[float] = mapped_column(Float, default=0.0)
-    last_updated: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 # ── LLM Cache (replaces ~/.aether_os/llm_cache.db) ───────────────────────────
@@ -355,8 +359,8 @@ class UserLearningPattern(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     occurrence_count: Mapped[int] = mapped_column(default=1)
     source_run_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of run IDs
-    last_updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class LearningClarificationPending(Base):
@@ -372,7 +376,7 @@ class LearningClarificationPending(Base):
     context: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     answer: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
@@ -383,8 +387,8 @@ class RunSpec(Base):
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
     spec_type: Mapped[str] = mapped_column(String(32), primary_key=True)  # 'frontend' | 'backend'
     spec: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class Notification(Base):
