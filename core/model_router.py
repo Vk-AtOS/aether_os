@@ -105,8 +105,8 @@ def get_fallback_chain() -> List[ModelSpec]:
         defaults = [m.strip() for m in _DEFAULT_FALLBACK_MODELS.split(",")]
         openrouter_models = list(dict.fromkeys([heavy] + defaults))  # dedup, preserve order
 
-    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
-    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.anthropic.claude-3-5-haiku-20241022-v1:0")
+    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.amazon.nova-pro-v1:0")
+    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.amazon.nova-lite-v1:0")
     bedrock_model  = bedrock_heavy  # model_router uses heavy by default; light selected in client.py
     non_openrouter = {
         "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),

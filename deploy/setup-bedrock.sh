@@ -50,8 +50,8 @@ BEDROCK_ENABLED=true
 AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
 AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
 AWS_REGION=${AWS_REGION}
-BEDROCK_MODEL_HEAVY=us.anthropic.claude-3-5-sonnet-20241022-v2:0
-BEDROCK_MODEL_LIGHT=us.anthropic.claude-3-5-haiku-20241022-v1:0
+BEDROCK_MODEL_HEAVY=us.amazon.nova-pro-v1:0
+BEDROCK_MODEL_LIGHT=us.amazon.nova-lite-v1:0
 EOF
 
 echo "==> Pulling latest code..."
