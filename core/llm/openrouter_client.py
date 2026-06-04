@@ -73,12 +73,12 @@ OPENROUTER_MODELS = {
 # so council reviews are genuinely independent.  Ordered by preference; the
 # council tries each in turn, skipping any that return 429/404.
 COUNCIL_MODELS = [
-    "deepseek/deepseek-v4-flash:free",          # 1M ctx, fast reasoning
     "poolside/laguna-m.1:free",                 # 131K ctx, coding specialist
-    "qwen/qwen3-8b:free",                       # code-specialised, 8B Qwen3
-    "arcee-ai/trinity-large-thinking:free",     # 262K ctx, reasoning
+    "meta-llama/llama-3.3-70b-instruct:free",   # reliable, 128K ctx
     "google/gemma-4-31b-it:free",               # 262K ctx, balanced
-    "meta-llama/llama-3.3-70b-instruct:free",   # reliable fallback
+    "arcee-ai/trinity-large-thinking:free",     # 262K ctx, reasoning + agentic
+    "nousresearch/hermes-3-llama-3.1-405b:free", # 405B, highly capable
+    "minimax/minimax-m2.5:free",                # best free for code
 ]
 
 _DEFAULT_HEAVY = "minimax/minimax-m2.5:free"

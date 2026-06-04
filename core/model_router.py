@@ -63,14 +63,11 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
     if spec.provider == "openrouter":
         return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
     if spec.provider == "bedrock":
-        # BEDROCK_ENABLED must be explicitly set to "true" — payment instrument required
-        # for cross-region inference profiles. Credentials alone are not sufficient.
-        if os.environ.get("BEDROCK_ENABLED", "false").lower() != "true":
-            return False
-        # With BEDROCK_ENABLED=true, trust boto3 to find credentials automatically:
-        # explicit env vars → ~/.aws/credentials → EC2 instance profile → ECS task role.
-        # Do NOT require explicit AWS_ACCESS_KEY_ID here — that breaks IAM role auth.
-        return True
+        # Auto-enable when explicit credentials are provided (most common setup)
+        if os.environ.get("AWS_ACCESS_KEY_ID", "").strip():
+            return True
+        # Also enable if explicitly opted-in (for IAM role / EC2 instance profile auth)
+        return os.environ.get("BEDROCK_ENABLED", "false").lower() == "true"
     # Ollama: always attempt — will fail at call time if not running
     return True
 
@@ -108,8 +105,8 @@ def get_fallback_chain() -> List[ModelSpec]:
         defaults = [m.strip() for m in _DEFAULT_FALLBACK_MODELS.split(",")]
         openrouter_models = list(dict.fromkeys([heavy] + defaults))  # dedup, preserve order
 
-    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "au.anthropic.claude-sonnet-4-6")
-    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "au.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
+    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.anthropic.claude-3-5-haiku-20241022-v1:0")
     bedrock_model  = bedrock_heavy  # model_router uses heavy by default; light selected in client.py
     non_openrouter = {
         "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),
