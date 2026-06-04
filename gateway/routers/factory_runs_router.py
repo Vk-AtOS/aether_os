@@ -1358,7 +1358,7 @@ async def start_run_app(
                 # sees a real UI instead of a blank page or Swagger redirect.
                 frontend_dist = root_dir / "_preview_ui"
                 frontend_dist.mkdir(exist_ok=True)
-                _project_label = (project_name or f"project-{run_id[:8]}").replace("'", "\\'")
+                _project_label = (run_detail.get("project_name") or f"project-{run_id[:8]}").replace("'", "\\'")
                 (frontend_dist / "index.html").write_text(f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
