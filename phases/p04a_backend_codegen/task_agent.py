@@ -402,7 +402,7 @@ async def ready():
         return {"status": "ready", "db": "ok"}
     except Exception as exc:
         from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=503, content={{"status": "not_ready", "db": str(exc)}})
+        return JSONResponse(status_code=503, content={"status": "not_ready", "db": str(exc)})
 
 
 @app.get("/", include_in_schema=False)
