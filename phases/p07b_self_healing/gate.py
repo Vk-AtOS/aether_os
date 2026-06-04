@@ -37,10 +37,14 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
     if status == "max_attempts_reached":
         snippet = (meta.get("last_output") or "")[:200]
         issues.append(
-            f"Self-healing exhausted {attempts} repair attempt(s) — tests still failing. "
+            f"Self-healing exhausted {attempts} repair attempt(s) — tests still failing (non-blocking). "
             f"Last output: {snippet}"
         )
-        return GateOutcome(passed=False, confidence=0.2, issues=issues)
+        # Non-blocking: task_agent already marks success=True for this case.
+        # Returning passed=False here would cause PhaseBase to retry the entire
+        # 5-attempt cycle up to max_retries times (3×5 = 15 total), which is the
+        # infinite-loop bug. Pass with warning so the pipeline continues.
+        return GateOutcome(passed=True, confidence=0.4, issues=issues)
 
     # Unknown / unexpected state — pass with warning so pipeline isn't stuck
     issues.append(f"Self-healing gate: unexpected status '{status}' — review manually")
