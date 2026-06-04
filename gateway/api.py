@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -317,12 +317,13 @@ async def get_current_user(
     )
 
 
-# ── Module-level dicts for generated-app processes (shared with pipeline) ──────
-# _APP_PROCS: run_id → subprocess.Popen
-# _APP_PORTS: run_id → int  (ephemeral port the process listens on)
-_APP_PROCS: Dict[str, Any] = {}
-_APP_PORTS: Dict[str, int] = {}
-_APP_CURRENT_RUN: list = []  # single-element list; [run_id] of most-recent run-app start
+# ── Generated-app process state — delegated to core.app_state (Redis-backed) ──
+# These module-level names are kept for backwards compatibility with any code that
+# still imports them directly; they delegate to the canonical storage in core.app_state.
+from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports, _CURRENT_RUN_MEMORY as _APP_CURRENT_RUN  # noqa: E402
+
+_APP_PROCS: Dict[str, Any] = _get_all_procs()   # same dict object as core.app_state._PROCS
+_APP_PORTS: Dict[str, int] = _get_all_ports()   # same dict object as core.app_state._APP_PORTS
 
 # ── App factory ────────────────────────────────────────────────────────────────
 
@@ -509,14 +510,9 @@ def create_app() -> FastAPI:
                             pass
                         if _alive:
                             logger.info("run_app: port %d still alive for run %s — registering (no restart)", _rport, _rid)
-                            from aether_os.core.rate_limiter import run_app_port_set as _raps
-                            await _raps(_rid, _rport)
-                            from aether_os.gateway.api import _APP_PORTS, _APP_CURRENT_RUN
-                            _APP_PORTS[_rid] = _rport
-                            if not _APP_CURRENT_RUN:
-                                _APP_CURRENT_RUN.append(_rid)
-                            else:
-                                _APP_CURRENT_RUN[0] = _rid
+                            from aether_os.core.app_state import set_app_state as _sas_r
+                            await _sas_r(_rid, port=_rport, pid=_st.get("pid", 0),
+                                         mode=_st.get("mode", "backend"), app_dir=str(Path(_sf).parent))
                             return
                     except Exception:
                         continue
@@ -668,9 +664,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # C9: Prometheus metrics — /metrics endpoint for Prometheus scraping
-    # SEC: METRICS_API_KEY gates this endpoint; set the env var in production.
-    _metrics_api_key = os.environ.get("METRICS_API_KEY", "")
+    # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
         from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore
         instrumentator = Instrumentator(
@@ -678,22 +672,9 @@ def create_app() -> FastAPI:
             should_ignore_untemplated=True,
             excluded_handlers=["/health", "/metrics"],
         ).instrument(app)
-
-        if _metrics_api_key:
-            @app.get("/metrics", include_in_schema=False)
-            async def metrics_endpoint(request: Request):
-                provided = request.headers.get("X-Metrics-Key", "")
-                if provided != _metrics_api_key:
-                    from fastapi.responses import Response as _Resp
-                    return _Resp(status_code=401, content="Unauthorized")
-                from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-                from fastapi.responses import Response as _Resp
-                return _Resp(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-            instrumentator.expose(app, endpoint="/_metrics_internal", include_in_schema=False)
-            logger.info("Prometheus metrics enabled at /metrics (key-protected)")
-        else:
-            instrumentator.expose(app, endpoint="/metrics", include_in_schema=False)
-            logger.warning("METRICS_API_KEY not set — /metrics is unauthenticated. Set this in production.")
+        # Expose raw Prometheus data at an internal endpoint; metrics_router handles /metrics
+        instrumentator.expose(app, endpoint="/_metrics_internal", include_in_schema=False)
+        logger.info("Prometheus instrumentation enabled (handler: metrics_router)")
     except ImportError:
         logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
     except Exception as exc:
@@ -760,38 +741,6 @@ def create_app() -> FastAPI:
 
     api_router = APIRouter(prefix="/api")
 
-    @app.get("/")
-    async def root_landing():
-        """Serve the public landing page."""
-        _landing = os.path.join(
-            os.path.dirname(__file__), "../public/index.html"
-        )
-        if os.path.isfile(_landing):
-            return FileResponse(_landing, media_type="text/html")
-        return RedirectResponse(url="/dashboard/")
-
-    @app.get("/favicon.ico")
-    @app.get("/favicon.svg")
-    async def favicon():
-        """Serve the AetherOS favicon."""
-        _svg = os.path.join(os.path.dirname(__file__), "../public/favicon.svg")
-        if os.path.isfile(_svg):
-            return FileResponse(_svg, media_type="image/svg+xml")
-        from fastapi.responses import Response
-        return Response(status_code=204)
-
-    @app.get("/health")
-    @api_router.get("/health")
-    async def health() -> Dict[str, Any]:
-        """Health check endpoint."""
-        return {
-            "status": "ok",
-            "timestamp": time.time(),
-            "service": "AetherOS API",
-            "version": "1.0.0",
-        }
-
-
     # ── Mount all routers ─────────────────────────────────────────────────────
     app.include_router(api_router)
 
@@ -815,6 +764,9 @@ def create_app() -> FastAPI:
 
     # Domain routers — extracted from api.py (QUAL-002)
     for _rname, _rmod, _prefix in [
+        ("health",        "aether_os.gateway.routers.health_router",        ""),
+        ("metrics",       "aether_os.gateway.routers.metrics_router",       ""),
+        ("spa",           "aether_os.gateway.routers.spa_router",           ""),
         ("legal",         "aether_os.gateway.routers.legal_router",         ""),
         ("notifications", "aether_os.gateway.routers.notifications_router", ""),
         ("learning",      "aether_os.gateway.routers.learning_router",      ""),
@@ -845,34 +797,13 @@ def create_app() -> FastAPI:
         except Exception as _exc2:
             logger.critical("Failed to mount %s router: %s", _rname, _exc2)
 
-    # ── Dashboard static files — MUST be last, after all API routes ──────────
+    # ── Dashboard static files — served by spa_router (see gateway/routers/spa_router.py)
+    # Static asset mount: needed so /dashboard/assets/* are served directly by StaticFiles
     _dist = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "../dashboard/dist")
     )
     if os.path.isdir(_dist):
-        logger.info("Mounting dashboard SPA from %s", _dist)
-
-        _NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
-
-        @app.get("/dashboard", include_in_schema=False)
-        @app.get("/dashboard/{path:path}", include_in_schema=False)
-        async def _dashboard_spa(request: Request, path: str = ""):
-            _index = os.path.join(_dist, "index.html")
-            if path:
-                candidate = os.path.normpath(os.path.join(_dist, path))
-                if candidate.startswith(_dist) and os.path.isfile(candidate):
-                    return FileResponse(candidate)
-            # Inject CSP nonce into index.html <script> tags (M-10)
-            nonce = getattr(request.state, "csp_nonce", "")
-            try:
-                html = pathlib.Path(_index).read_text(encoding="utf-8")
-                if nonce:
-                    html = html.replace("<script ", f'<script nonce="{nonce}" ')
-                    html = html.replace("<script>", f'<script nonce="{nonce}">')
-                return HTMLResponse(html, headers=_NO_CACHE)
-            except Exception:
-                return FileResponse(_index, headers=_NO_CACHE)
-
+        logger.info("Mounting dashboard static assets from %s", _dist)
         app.mount("/dashboard", StaticFiles(directory=_dist, html=True), name="dashboard")
 
     return app
