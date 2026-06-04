@@ -158,27 +158,96 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
 
 @router.get("/billing/invoices")
 async def list_invoices(user: Dict[str, Any] = _current_user()):
-    """Return invoices for the authenticated org (stub — buyer wires real billing)."""
-    return {"invoices": [], "total": 0, "org_id": user["org_id"]}
+    """Return invoices for the authenticated org.
+
+    If Stripe is configured and the org has a stripe_customer_id, real invoices
+    are fetched from Stripe.  Otherwise returns an empty list (Razorpay orgs can
+    view payment history through the Razorpay dashboard).
+    """
+    org_id = user["org_id"]
+
+    stripe_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    if stripe_key:
+        try:
+            import stripe as _stripe  # type: ignore[import]
+            _stripe.api_key = stripe_key
+
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import Organisation
+            from sqlalchemy import select as _sel
+            sf = get_session_factory()
+            async with sf() as session:
+                row = (await session.execute(
+                    _sel(Organisation).where(Organisation.id == org_id)
+                )).scalar_one_or_none()
+            customer_id = getattr(row, "stripe_customer_id", None) if row else None
+
+            if customer_id:
+                raw = _stripe.Invoice.list(customer=customer_id, limit=50)
+                invoices = [
+                    {
+                        "id": inv.id,
+                        "number": inv.number,
+                        "status": inv.status,
+                        "amount_paid": inv.amount_paid,
+                        "currency": inv.currency,
+                        "period_start": inv.period_start,
+                        "period_end": inv.period_end,
+                        "hosted_invoice_url": inv.hosted_invoice_url,
+                        "invoice_pdf": inv.invoice_pdf,
+                        "created": inv.created,
+                    }
+                    for inv in raw.data
+                ]
+                return {"invoices": invoices, "total": len(invoices), "org_id": org_id}
+        except Exception as exc:
+            logger.warning("Stripe invoice fetch failed: %s", exc)
+
+    return {"invoices": [], "total": 0, "org_id": org_id, "note": "No billing provider configured or no invoices found."}
 
 
 @router.post("/billing/cancel")
 async def cancel_subscription(user: Dict[str, Any] = _current_user()):
-    """Cancel the subscription and downgrade org to free plan."""
+    """Cancel active subscription via Stripe (if configured) then downgrade org to free."""
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Organisation
-    from sqlalchemy import update as _upd_cancel
+    from sqlalchemy import select as _sel_cancel, update as _upd_cancel
+
+    org_id = user["org_id"]
+
+    # If Stripe is configured, cancel the active subscription there first
+    stripe_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    if stripe_key:
+        try:
+            import stripe as _stripe  # type: ignore[import]
+            _stripe.api_key = stripe_key
+            sf = get_session_factory()
+            async with sf() as session:
+                row = (await session.execute(
+                    _sel_cancel(Organisation).where(Organisation.id == org_id)
+                )).scalar_one_or_none()
+            customer_id = getattr(row, "stripe_customer_id", None) if row else None
+            if customer_id:
+                subs = _stripe.Subscription.list(customer=customer_id, status="active", limit=5)
+                for sub in subs.data:
+                    _stripe.Subscription.cancel(sub.id)
+                    logger.info("Cancelled Stripe subscription %s for org %s", sub.id, org_id)
+        except Exception as _stripe_err:
+            logger.warning("Stripe subscription cancel failed (proceeding with DB downgrade): %s", _stripe_err)
+
+    # Always update the plan in DB regardless of Stripe outcome
     try:
         session_factory = get_session_factory()
         async with session_factory() as session:
             await session.execute(
                 _upd_cancel(Organisation)
-                .where(Organisation.id == user["org_id"])
+                .where(Organisation.id == org_id)
                 .values(plan="free")
             )
             await session.commit()
     except Exception as _e:
         logger.warning("cancel_subscription DB update failed: %s", _e)
+
     return {"success": True, "plan": "free", "message": "Subscription cancelled. Plan downgraded to free."}
 
 

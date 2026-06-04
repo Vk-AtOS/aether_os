@@ -304,6 +304,42 @@ class FactoryPipeline:
             if start_phase in all_phases:
                 phases_to_run = all_phases[all_phases.index(start_phase):]
 
+        # ── Checkpoint restore — resume a failed run from the last completed phase ──
+        # If checkpoint_data exists on the Run record, we restore accumulated_context
+        # and skip phases that have already completed, so the pipeline continues from
+        # the next unfinished phase rather than restarting from p01.
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_ckpt
+            from aether_os.core.models import Run as _Run_ckpt
+            _sf_ckpt = _gsf_ckpt()
+            async with _sf_ckpt() as _sess_ckpt:
+                _run_rec = await _sess_ckpt.get(_Run_ckpt, run_id)
+                _ckpt = _run_rec.checkpoint_data if _run_rec else None
+            if _ckpt and _ckpt.get("last_completed_phase"):
+                _last_done = _ckpt["last_completed_phase"]
+                _saved_ctx = _ckpt.get("accumulated_context") or {}
+                if _last_done in PHASE_SEQUENCE and _saved_ctx:
+                    # Restore accumulated_context from checkpoint (overwrite the freshly-built one)
+                    accumulated_context.update(_saved_ctx)
+                    # Ensure mutable run-level keys stay current
+                    accumulated_context["run_id"] = run_id
+                    # Slice phases_to_run to start from the phase AFTER last_completed_phase
+                    _resume_idx = PHASE_SEQUENCE.index(_last_done) + 1
+                    phases_to_run = PHASE_SEQUENCE[_resume_idx:]
+                    logger.info(
+                        "[pipeline] Resuming run %s from checkpoint after phase %s (%d phases remaining)",
+                        run_id, _last_done, len(phases_to_run),
+                    )
+                    await emit(
+                        {"type": "pipeline_resumed", "resumed_after": _last_done,
+                         "phases_remaining": len(phases_to_run)},
+                        run_id=run_id,
+                    )
+                else:
+                    logger.debug("[pipeline] Checkpoint found but phase %r not in sequence — ignoring", _last_done)
+        except Exception as _ckpt_exc:
+            logger.warning("[pipeline] Checkpoint restore failed (non-fatal): %s", _ckpt_exc)
+
         # Aether2Bridge — optional DCSP integration (failure here never blocks pipeline)
         _bridge = None
         _dcsp_url = os.environ.get("DCSP_URL", "")
@@ -759,7 +795,7 @@ class FactoryPipeline:
                     timeout=120,
                 )
                 # Determine final status: completed or needs_review
-                _council_passed = _delivery.get("passed", True)
+                _council_passed = _delivery.get("passed", False)
                 _council_score = _delivery.get("score", 1.0)
                 _final_status = "completed" if _council_passed else "needs_review"
                 _sf = _gsf()
