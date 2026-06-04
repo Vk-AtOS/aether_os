@@ -625,9 +625,34 @@ class FactoryPipeline:
 
                     # Propagate api_routes.json path so p05 can wire real endpoints
                     _routes_candidate = project_dir / "p04_backend" / "backend_codegen" / "api_routes.json"
+                    if not _routes_candidate.exists():
+                        _routes_candidate = project_dir / "p04_backend" / "api_routes.json"
                     if _routes_candidate.exists():
                         accumulated_context["api_routes_path"] = str(_routes_candidate)
                         logger.info("[pipeline] api_routes_path → %s", _routes_candidate)
+
+                    # Pattern library injection — apply matching code patterns
+                    # (WebSocket, file upload, Stripe, RBAC) based on domain IR
+                    try:
+                        from aether_os.phases.patterns import PatternSelector as _PS
+                        _ir_for_patterns = accumulated_context.get("domain_ir", {})
+                        if not _ir_for_patterns:
+                            _ir_path_for_patterns = accumulated_context.get("domain_ir_path", "")
+                            if _ir_path_for_patterns:
+                                import json as _j
+                                from pathlib import Path as _P
+                                try:
+                                    _ir_for_patterns = _j.loads(_P(_ir_path_for_patterns).read_text())
+                                except Exception:
+                                    pass
+                        if _ir_for_patterns:
+                            _ps = _PS(_ir_for_patterns)
+                            _applied = _ps.apply_all(project_dir)
+                            if _applied:
+                                accumulated_context["applied_patterns"] = list(_applied.keys())
+                                logger.info("[pipeline] Pattern library: applied %s", list(_applied.keys()))
+                    except Exception as _pat_exc:
+                        logger.warning("[pipeline] Pattern library injection failed (non-fatal): %s", _pat_exc)
 
                     # BackendAuditCouncil — autonomous multi-model code review of generated main.py
                     async def _backend_audit_council():

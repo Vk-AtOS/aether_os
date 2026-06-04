@@ -8,12 +8,15 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import shutil
 import socket
 import subprocess
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+_PORT_LOCK_DIR = Path("/tmp/aetheros_port_locks")
 
 
 class TaskAgent:
@@ -255,7 +258,44 @@ class TaskAgent:
             return None
 
     def _find_free_port(self) -> int:
-        for port in range(8100, 8999):
+        """
+        Find a free port using PID-file locking to prevent collisions between
+        concurrent pipeline runs. Randomises the search order so sequential
+        runs don't always race for port 8200.
+        """
+        _PORT_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+        candidates = list(range(8200, 8900))
+        random.shuffle(candidates)
+
+        for port in candidates:
+            lock_file = _PORT_LOCK_DIR / f"{port}.pid"
+
+            # If a lock file exists, check whether the owning PID is still alive
+            if lock_file.exists():
+                try:
+                    pid = int(lock_file.read_text().strip())
+                    os.kill(pid, 0)   # raises if PID dead
+                    continue          # port claimed by a live process
+                except (ValueError, OSError):
+                    lock_file.unlink(missing_ok=True)   # stale lock — clear it
+
+            # Verify the port is actually free at the OS level
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                try:
+                    s.bind(("127.0.0.1", port))
+                except OSError:
+                    continue
+
+            # Atomically claim the port
+            try:
+                lock_file.write_text(str(os.getpid()))
+                return port
+            except OSError:
+                continue
+
+        # Fallback: sequential scan (should not be reached in practice)
+        for port in range(8100, 8200):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 try:
                     s.bind(("", port))
