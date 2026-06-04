@@ -194,24 +194,26 @@ async def _call_via_bedrock(code: str, domain: str, role_key: str) -> Optional[C
     """Call a model on Amazon Bedrock using the Converse API (works for Claude and Nova models)."""
     aws_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
     aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
-    if not aws_key or not aws_secret:
-        return None
+    bedrock_enabled = os.environ.get("BEDROCK_ENABLED", "false").lower() == "true"
+    if not (aws_key or bedrock_enabled):
+        return None  # no credentials and not explicitly enabled (e.g. IAM role)
     try:
         import boto3  # type: ignore
         spec = _PROMPTS[role_key]
         model_id = (
-            os.environ.get("BEDROCK_MODEL_HEAVY", "us.amazon.nova-pro-v1:0")
+            os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
             if role_key == "claude"
-            else os.environ.get("BEDROCK_MODEL_LIGHT", "us.amazon.nova-lite-v1:0")
+            else os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-3-5-haiku-20241022-v1:0")
         )
         region = os.environ.get("AWS_REGION", "us-east-1")
         full_prompt = spec["prompt_tmpl"].format(domain=domain, code=code[:_MAX_CODE_CHARS])
 
         def _invoke():
-            c = boto3.client(
-                "bedrock-runtime", region_name=region,
-                aws_access_key_id=aws_key, aws_secret_access_key=aws_secret,
-            )
+            _kwargs: dict = {"region_name": region}
+            if aws_key and aws_secret:
+                _kwargs["aws_access_key_id"] = aws_key
+                _kwargs["aws_secret_access_key"] = aws_secret
+            c = boto3.client("bedrock-runtime", **_kwargs)
             # Use Converse API — works for both Anthropic Claude and Amazon Nova models
             resp = c.converse(
                 modelId=model_id,

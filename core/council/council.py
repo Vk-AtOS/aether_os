@@ -323,8 +323,15 @@ class BackendAuditCouncil:
                     )
 
             if verdict_raw is None:
-                logger.warning("BackendAuditCouncil: check=%s — all models failed, skipping", check["id"])
-                continue
+                # All OpenRouter models failed — try Bedrock as last resort
+                try:
+                    from aether_os.core.llm.client import _call_bedrock
+                    verdict_raw = await _call_bedrock(prompt, "review", max_tokens=150)
+                    model = "bedrock-fallback"
+                    logger.info("BackendAuditCouncil: check=%s — Bedrock fallback succeeded", check["id"])
+                except Exception as _be:
+                    logger.warning("BackendAuditCouncil: check=%s — all models+Bedrock failed, skipping (%s)", check["id"], _be)
+                    continue
 
             lines = verdict_raw.strip().splitlines()
             verdict = lines[0].strip().upper()
@@ -444,7 +451,14 @@ class FrontendAuditCouncil:
                     )
 
             if verdict_raw is None:
-                continue
+                try:
+                    from aether_os.core.llm.client import _call_bedrock
+                    verdict_raw = await _call_bedrock(prompt, "review", max_tokens=150)
+                    model = "bedrock-fallback"
+                    logger.info("FrontendAuditCouncil: check=%s — Bedrock fallback succeeded", check["id"])
+                except Exception as _be:
+                    logger.warning("FrontendAuditCouncil: check=%s — all models+Bedrock failed, skipping (%s)", check["id"], _be)
+                    continue
 
             lines = verdict_raw.strip().splitlines()
             verdict = lines[0].strip().upper()

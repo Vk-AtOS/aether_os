@@ -1,16 +1,29 @@
 """
 AetherOS Load Test Suite — Locust
-Run: locust -f tests/load/locustfile.py --host=http://localhost:8001
 
-Pre-seed users before running (avoids hitting registration rate limits during test):
-  python3 tests/load/seed_load_users.py --host=http://localhost:8001 --count=60
+Quick start (interactive UI):
+  locust -f tests/load/locustfile.py --host=http://139.59.87.218
+
+Headless 200-user smoke test (CI/production verification):
+  python3 tests/load/seed_load_users.py --host=http://139.59.87.218 --count=220
+  locust -f tests/load/locustfile.py --host=http://139.59.87.218 \
+    --headless --users 200 --spawn-rate 10 --run-time 3m \
+    --csv=tests/load/results/load_200
+
+Headless 500-user stress test:
+  python3 tests/load/seed_load_users.py --host=http://139.59.87.218 --count=550
+  locust -f tests/load/locustfile.py --host=http://139.59.87.218 \
+    --headless --users 500 --spawn-rate 20 --run-time 5m \
+    --csv=tests/load/results/stress_500
 
 Scenarios:
-  BrowseUser   — read-only dashboard browsing (most common pattern)
-  ActiveUser   — login + browse + start a project run
-  AdminUser    — admin tasks: list users, audit logs, compliance report
+  BrowseUser   — read-only dashboard browsing (60% of traffic)
+  ActiveUser   — login + browse + occasional pipeline start (30%)
+  AdminUser    — admin management tasks (10%)
 
-Target baseline: 50 concurrent users, <500ms p95, <1% error rate
+Targets:
+  200 users:  p95 < 500ms, error rate < 1%
+  500 users:  p95 < 1500ms, error rate < 2%
 """
 from __future__ import annotations
 import random
