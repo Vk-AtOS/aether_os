@@ -22,7 +22,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "add_pipeline_run_checkpoint"
-down_revision: Union[str, tuple] = ("encrypt_sensitive_columns", "add_org_scim_token")
+down_revision: Union[str, tuple] = "add_stripe_customer_id"
 branch_labels = None
 depends_on = None
 
