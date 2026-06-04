@@ -191,11 +191,20 @@ async def _call_anthropic(
             return text
         except Exception as exc:
             last_exc = exc
+            exc_str = str(exc).lower()
+            # Rate limit (429) and overloaded (529) need a much longer backoff
+            is_rate_limit = (
+                "rate" in exc_str or "429" in exc_str
+                or "overloaded" in exc_str or "529" in exc_str
+                or "too many" in exc_str
+            )
+            wait = (60 + delay * (2 ** attempt)) if is_rate_limit else delay * (2 ** attempt)
             logger.warning(
-                "Anthropic call failed (attempt %d/%d): %s", attempt + 1, retries, exc
+                "Anthropic call failed (attempt %d/%d, rate_limit=%s, retry_in=%.0fs): %s",
+                attempt + 1, retries, is_rate_limit, wait, exc,
             )
             if attempt < retries - 1:
-                await asyncio.sleep(delay * (2 ** attempt))
+                await asyncio.sleep(wait)
 
     raise last_exc  # type: ignore
 
@@ -269,11 +278,15 @@ async def _call_gemini(
             return text
         except Exception as exc:
             last_exc = exc
+            exc_str = str(exc).lower()
+            is_rate_limit = "429" in exc_str or "quota" in exc_str or "rate" in exc_str or "resource_exhausted" in exc_str
+            wait = (60 + delay * (2 ** attempt)) if is_rate_limit else delay * (2 ** attempt)
             logger.warning(
-                "Gemini call failed (attempt %d/%d): %s", attempt + 1, retries, exc
+                "Gemini call failed (attempt %d/%d, rate_limit=%s, retry_in=%.0fs): %s",
+                attempt + 1, retries, is_rate_limit, wait, exc,
             )
             if attempt < retries - 1:
-                await asyncio.sleep(delay * (2 ** attempt))
+                await asyncio.sleep(wait)
 
     raise last_exc  # type: ignore
 

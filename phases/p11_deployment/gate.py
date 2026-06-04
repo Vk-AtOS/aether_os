@@ -1,13 +1,6 @@
-"""P11 Gate — validates deployment outcome.
-
-Semantics:
-  - skipped: no deployable artefact found → pass with notice
-  - success + health ready: full pass
-  - success + health timeout: pass with warning (app started but slow)
-  - failed: BLOCK — deployment failure must not be silently swallowed;
-    the pipeline escalates so the operator can inspect logs
-"""
+"""P11 Gate — validates deployment outcome, including live E2E smoke test."""
 from __future__ import annotations
+from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
 
 
@@ -38,11 +31,42 @@ def validate(result: TaskResult) -> GateOutcome:
     issues: list[str] = []
     confidence = 0.95
 
-    if not meta.get("ready"):
-        issues.append("Container started but /health endpoint did not respond within 30s — app may be slow to initialise")
-        confidence = 0.75
-
     url = meta.get("url") or meta.get("live_url")
+
+    if not meta.get("ready"):
+        issues.append(
+            "Container started but /health did not respond within 30s — "
+            "app may be slow to initialise; check docker logs"
+        )
+        confidence = 0.75
+    elif url:
+        # ── Live E2E smoke test ───────────────────────────────────────────────
+        # Find project_dir: output_path is <project_dir>/p11_deployment
+        try:
+            project_dir = Path(result.output_path or "").parent
+            from aether_os.phases.p11_deployment.smoke_test import run_smoke_sync
+            smoke = run_smoke_sync(url, project_dir)
+
+            if smoke.failures:
+                issues.extend([f"Smoke fail: {f}" for f in smoke.failures[:5]])
+                # Lower confidence proportional to failure count; don't hard-block
+                # — self-healing has specific errors now and can patch precisely
+                confidence = max(0.55, 0.95 - 0.12 * len(smoke.failures))
+            if smoke.warnings:
+                issues.extend([f"Smoke note: {w}" for w in smoke.warnings[:3]])
+            if smoke.entities_tested > 0 and not smoke.failures:
+                issues.insert(
+                    0,
+                    f"Smoke PASS — {smoke.entities_tested} entities CRUD-verified "
+                    f"in {smoke.duration_seconds}s",
+                )
+            elif smoke.entities_tested == 0 and not smoke.failures:
+                issues.append("Smoke: no entities in domain_ir to test — endpoint reachable")
+        except ImportError:
+            issues.append("aiohttp not installed — live smoke test skipped")
+        except Exception as exc:
+            issues.append(f"Smoke test error (non-fatal): {exc}")
+
     if url:
         issues.insert(0, f"Live at {url}")
 
