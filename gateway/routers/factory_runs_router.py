@@ -130,6 +130,13 @@ class _ExternalProcess:
         except (ProcessLookupError, PermissionError):
             pass
 
+    def kill(self):
+        try:
+            import signal as _sig
+            os.kill(self.pid, _sig.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
     def wait(self, timeout=None):
         pass
 
@@ -1293,17 +1300,139 @@ async def start_run_app(
                 _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
             _sp.run([npm_bin, "install", "--silent", "--prefer-offline"], cwd=str(frontend_dir),
                     capture_output=True, timeout=300)
-            # Use npx vite build directly — skips tsc type checking which fails on generated code
+
+            # Patch tsconfig.json to suppress type errors in generated code.
+            # Generated TypeScript often has minor type issues that block tsc but not vite.
+            import json as _json_ts
+            for _ts_name in ("tsconfig.json", "tsconfig.app.json"):
+                _ts_path = frontend_dir / _ts_name
+                if _ts_path.exists():
+                    try:
+                        _ts = _json_ts.loads(_ts_path.read_text())
+                        _co = _ts.setdefault("compilerOptions", {})
+                        _co.update({
+                            "skipLibCheck": True,
+                            "strict": False,
+                            "noImplicitAny": False,
+                            "allowSyntheticDefaultImports": True,
+                            "noUnusedLocals": False,
+                            "noUnusedParameters": False,
+                        })
+                        _ts_path.write_text(_json_ts.dumps(_ts, indent=2))
+                    except Exception:
+                        pass
+
+            # Patch vite.config: swap plugin-react-swc → plugin-react if swc not installed.
+            # Generated code often uses -swc but the preview environment may not have it.
+            for _vc_name in ("vite.config.ts", "vite.config.js"):
+                _vc_path = frontend_dir / _vc_name
+                if _vc_path.exists():
+                    _vc = _vc_path.read_text()
+                    if "plugin-react-swc" in _vc:
+                        _swc_installed = (frontend_dir / "node_modules" / "@vitejs" / "plugin-react-swc").is_dir()
+                        if not _swc_installed:
+                            _vc = _vc.replace("@vitejs/plugin-react-swc", "@vitejs/plugin-react")
+                            _vc_path.write_text(_vc)
+                    break
+
+            # Try vite build (skips tsc type checking by default)
             _npx_bin = _sh.which("npx") or "npx"
-            _vite_result = _sp.run([_npx_bin, "vite", "build"], cwd=str(frontend_dir),
-                                   capture_output=True, timeout=300)
+            _vite_result = _sp.run(
+                [_npx_bin, "vite", "build"],
+                cwd=str(frontend_dir), capture_output=True, timeout=300,
+            )
             if _vite_result.returncode != 0:
-                # Fallback: tsc --no-emit then vite build separately
-                _sp.run([npm_bin, "run", "build"], cwd=str(frontend_dir),
-                        capture_output=True, timeout=300)
-            if frontend_dist and frontend_dist.is_dir():
+                _err = (_vite_result.stderr or b"").decode(errors="replace")[-800:]
+                with open(log_path, "a") as _lf:
+                    _lf.write(f"[AetherOS] Vite build failed:\n{_err}\n")
+                # Second attempt: ensure @vitejs/plugin-react is installed then retry
+                _sp.run(
+                    [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent"],
+                    cwd=str(frontend_dir), capture_output=True, timeout=120,
+                )
+                _vite_result2 = _sp.run(
+                    [_npx_bin, "vite", "build"],
+                    cwd=str(frontend_dir), capture_output=True, timeout=300,
+                )
+                if _vite_result2.returncode != 0:
+                    with open(log_path, "a") as _lf:
+                        _lf.write("[AetherOS] Frontend build failed after retry — using API-explorer fallback\n")
+
+            if frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir()):
                 with open(log_path, "a") as _lf:
                     _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
+            else:
+                # Build failed: synthesise a lightweight API-explorer page so the user
+                # sees a real UI instead of a blank page or Swagger redirect.
+                frontend_dist = root_dir / "_preview_ui"
+                frontend_dist.mkdir(exist_ok=True)
+                _project_label = (project_name or f"project-{run_id[:8]}").replace("'", "\\'")
+                (frontend_dist / "index.html").write_text(f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{_project_label}</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:2rem}}
+  h1{{font-size:1.5rem;font-weight:700;color:#f1f5f9;margin-bottom:.25rem}}
+  .badge{{display:inline-block;padding:.2rem .6rem;border-radius:9999px;font-size:.7rem;font-weight:600;background:#1e3a5f;color:#60a5fa;margin-bottom:1.5rem}}
+  .card{{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem;margin-bottom:1rem}}
+  .card h2{{font-size:.85rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}}
+  .cred-row{{display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem;font-size:.875rem}}
+  .label{{color:#64748b;width:5rem;flex-shrink:0}}
+  code{{background:#0f172a;color:#34d399;padding:.15rem .4rem;border-radius:.3rem;font-size:.8rem;font-family:monospace}}
+  .btn{{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1rem;border-radius:.5rem;font-size:.8rem;font-weight:600;text-decoration:none;transition:opacity .15s}}
+  .btn-primary{{background:#6366f1;color:#fff}}.btn-primary:hover{{opacity:.85}}
+  .btn-outline{{background:transparent;border:1px solid #334155;color:#94a3b8}}.btn-outline:hover{{color:#f1f5f9;border-color:#6366f1}}
+  .btn-row{{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem}}
+  #endpoints{{font-size:.8rem;line-height:1.8}}
+  .method{{display:inline-block;width:3.5rem;text-align:center;border-radius:.25rem;padding:.05rem .3rem;font-size:.7rem;font-weight:700;margin-right:.4rem}}
+  .GET{{background:#065f46;color:#6ee7b7}}.POST{{background:#1e3a5f;color:#93c5fd}}
+  .PUT,.PATCH{{background:#44310a;color:#fcd34d}}.DELETE{{background:#4c1d24;color:#fca5a5}}
+  #status{{margin-top:.5rem;font-size:.75rem;color:#64748b}}
+</style>
+</head>
+<body>
+<h1>{_project_label}</h1>
+<div class="badge">AetherOS Generated App · Preview Mode</div>
+
+<div class="card">
+  <h2>Demo Credentials</h2>
+  <div class="cred-row"><span class="label">Email</span><code id="email">loading…</code></div>
+  <div class="cred-row"><span class="label">Password</span><code id="password">loading…</code></div>
+  <div class="btn-row">
+    <a href="/app-preview/docs" target="_blank" class="btn btn-primary">📖 API Docs (Swagger)</a>
+    <a href="/app-preview/openapi.json" target="_blank" class="btn btn-outline">JSON Schema</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>API Endpoints</h2>
+  <div id="endpoints"><span style="color:#475569">Loading…</span></div>
+  <div id="status"></div>
+</div>
+
+<script>
+const base='/app-preview';
+fetch('/api/factory/runs/{run_id}/preview-credentials',{{headers:{{'Authorization':'Bearer '+localStorage.getItem('token')||''}}  }})
+  .then(r=>r.ok?r.json():null).then(d=>{{
+    if(d){{document.getElementById('email').textContent=d.email||'admin@example.com';document.getElementById('password').textContent=d.password||'Admin1234!';}}
+  }}).catch(()=>{{}});
+
+fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
+  const paths=Object.entries(spec.paths||{{}});
+  const html=paths.slice(0,40).flatMap(([path,methods])=>
+    Object.entries(methods).filter(([m])=>['get','post','put','patch','delete'].includes(m)).map(([method,op])=>
+      `<div><span class="method ${{method.toUpperCase()}}">${{method.toUpperCase()}}</span><code>${{path}}</code> <span style="color:#475569">${{op.summary||''}}</span></div>`
+    )
+  ).join('');
+  document.getElementById('endpoints').innerHTML=html||'<span style="color:#475569">No endpoints found</span>';
+  document.getElementById('status').textContent=`${{paths.length}} endpoint group(s) available`;
+}}).catch(()=>{{document.getElementById('endpoints').textContent='Could not load API schema — ensure the backend is running.';}});
+</script>
+</body></html>""")
+                with open(log_path, "a") as _lf:
+                    _lf.write(f"[AetherOS] Using API-explorer fallback UI at {frontend_dist}\n")
         else:
             with open(log_path, "a") as _lf:
                 _lf.write(f"[AetherOS] Skipping frontend rebuild — dist already exists\n")
