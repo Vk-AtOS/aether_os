@@ -116,3 +116,12 @@ check_frontend.py
 
 # Claude Code agent worktrees
 .claude/
+
+# Sensitive acquisition/strategy documents — never commit to repo
+AETHEROS_ACQUISITION_DUE_DILIGENCE.md
+AETHEROS_MASTER_PLAN.md
+DEPLOYMENT_READINESS_REPORT.md
+ACQUISITION_EMAILS.md
+token.txt
+auth_res.json
+*.db.bak

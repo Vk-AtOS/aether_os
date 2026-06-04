@@ -12,6 +12,7 @@
 8. [Backup & Restore](#8-backup--restore)
 9. [SQLite → PostgreSQL Migration](#9-sqlite--postgresql-migration)
 10. [High Availability Architecture](#10-high-availability-architecture)
+11. [Staging Environment](#11-staging-environment)
 
 ---
 

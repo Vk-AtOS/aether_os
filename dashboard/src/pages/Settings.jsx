@@ -23,6 +23,8 @@ import {
   RefreshCw,
   Copy,
   Users,
+  Download,
+  FileText,
 } from 'lucide-react';
 import StorageWidget from '../components/StorageWidget';
 import { useSettings } from '../contexts/SettingsContext';
@@ -157,6 +159,12 @@ const Settings = () => {
   const [scimNewToken, setScimNewToken] = useState(null); // shown once after rotate
   const [deleteOrgStatus, setDeleteOrgStatus] = useState(null); // null|'confirming'|'deleting'|'error'
   const [deleteOrgInput, setDeleteOrgInput] = useState('');
+
+  // Audit log export
+  const [auditFromDate, setAuditFromDate] = useState('');
+  const [auditToDate, setAuditToDate] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('');
+  const [auditExportStatus, setAuditExportStatus] = useState(null); // null|'exporting'|'done'|'error'
 
   // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (21 phases).
   const PHASES = [
@@ -519,6 +527,40 @@ const Settings = () => {
     } catch {
       setScimRotateStatus('error');
       setTimeout(() => setScimRotateStatus(null), 3000);
+    }
+  };
+
+  const handleAuditExport = async () => {
+    setAuditExportStatus('exporting');
+    try {
+      const token = localStorage.getItem('aether_token');
+      const params = new URLSearchParams();
+      if (auditFromDate) params.set('from_date', auditFromDate);
+      if (auditToDate) params.set('to_date', auditToDate);
+      if (auditActionFilter.trim()) params.set('action', auditActionFilter.trim());
+      const url = `/api/admin/audit-logs/export?${params.toString()}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const datePart = `${auditFromDate || 'all'}_${auditToDate || 'now'}`;
+      a.download = `audit-logs_${datePart}.csv`;
+      a.href = objUrl;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(objUrl); a.remove(); }, 1000);
+      setAuditExportStatus('done');
+      setTimeout(() => setAuditExportStatus(null), 3000);
+    } catch (err) {
+      console.error('Audit export failed', err);
+      setAuditExportStatus('error');
+      setTimeout(() => setAuditExportStatus(null), 4000);
     }
   };
 
@@ -1394,6 +1436,68 @@ const Settings = () => {
                     <div><span className="text-danger">DELETE</span> /api/scim/v2/Users/&#123;id&#125;</div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Audit Log Export */}
+          <section className="panel overflow-hidden">
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
+              <FileText className="w-4 h-4 mr-2 text-accent" />
+              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Audit Log Export</h3>
+            </div>
+            <div className="p-6 space-y-5">
+              <p className="text-xs text-muted">Download a CSV of all organisation audit events. Filter by date range and action type.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">From Date</label>
+                  <input
+                    type="date"
+                    value={auditFromDate}
+                    onChange={e => setAuditFromDate(e.target.value)}
+                    className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent transition-colors"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">To Date</label>
+                  <input
+                    type="date"
+                    value={auditToDate}
+                    onChange={e => setAuditToDate(e.target.value)}
+                    className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent transition-colors"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted uppercase tracking-wider block">Action Filter <span className="normal-case font-normal text-muted">(optional, partial match)</span></label>
+                <select
+                  value={auditActionFilter}
+                  onChange={e => setAuditActionFilter(e.target.value)}
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent transition-colors"
+                >
+                  <option value="">All actions</option>
+                  <option value="login">login</option>
+                  <option value="logout">logout</option>
+                  <option value="create">create</option>
+                  <option value="update">update</option>
+                  <option value="delete">delete</option>
+                  <option value="invite">invite</option>
+                  <option value="role">role</option>
+                  <option value="export">export</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleAuditExport}
+                  disabled={auditExportStatus === 'exporting'}
+                  className="flex items-center gap-2 text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-4 py-2 rounded-lg uppercase tracking-wider hover:bg-accent/30 transition-colors disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {auditExportStatus === 'exporting' ? 'Exporting…' : auditExportStatus === 'done' ? '✓ Downloaded' : auditExportStatus === 'error' ? '✗ Export Failed' : 'Export CSV'}
+                </button>
+                {!auditFromDate && !auditToDate && (
+                  <span className="text-[10px] text-muted">No date range set — exports all records</span>
+                )}
               </div>
             </div>
           </section>

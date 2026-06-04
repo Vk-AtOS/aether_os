@@ -22,6 +22,8 @@ The top-level multi-tenant unit. Every resource in AetherOS is scoped to an orga
 | `storage_used_mb` | FLOAT DEFAULT 0.0 | Cumulative artifact storage used |
 | `autonomous_mode` | BOOLEAN DEFAULT false | Enables fully autonomous pipeline (no human gates) |
 | `data_region` | VARCHAR(20) DEFAULT 'global' | Data residency region |
+| `scim_token` | VARCHAR(128) nullable | Bearer token for IdP SCIM provisioning |
+| `stripe_customer_id` | VARCHAR(64) nullable | Stripe Customer ID for billing/invoice lookup |
 
 **Relationships**: has many `users`, `api_keys`, `runs`.
 

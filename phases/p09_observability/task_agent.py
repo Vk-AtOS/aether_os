@@ -48,13 +48,20 @@ def setup_logging(level: str = "INFO") -> None:
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 
 def add_prometheus_middleware(app) -> None:
-    """Expose /metrics endpoint with per-route latency histograms."""
+    """Expose /metrics endpoint with per-route latency histograms.
+
+    Uses an isolated CollectorRegistry so that multiple pipeline runs in the
+    same process don't collide on metric names (ValueError: Duplicated timeseries).
+    """
     try:
+        from prometheus_client import CollectorRegistry
         from prometheus_fastapi_instrumentator import Instrumentator
+        _registry = CollectorRegistry()
         Instrumentator(
             should_group_status_codes=True,
             should_ignore_untemplated=True,
             excluded_handlers=["/metrics", "/health"],
+            registry=_registry,
         ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
         logging.getLogger(__name__).info("Prometheus metrics at /metrics")
     except ImportError:

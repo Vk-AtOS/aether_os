@@ -1,0 +1,116 @@
+version: "3.9"
+
+# AetherOS — Staging stack
+# Runs alongside production on the same host using different ports and volumes.
+# Reads configuration from .env.staging (create from .env.staging.example).
+#
+# Start:  bash deploy/staging-deploy.sh
+# Stop:   docker-compose -f docker-compose.staging.yml down
+# Wipe:   docker-compose -f docker-compose.staging.yml down -v
+
+services:
+  # ── PostgreSQL (staging) ────────────────────────────────────────────────────
+  db_staging:
+    container_name: aetheros_db_staging
+    image: postgres:15-alpine
+    restart: unless-stopped
+    env_file: .env.staging
+    environment:
+      POSTGRES_DB: aether_os_staging
+      POSTGRES_USER: aether_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_dev_pass}
+    volumes:
+      - staging_pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aether_user -d aether_os_staging"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (staging) ─────────────────────────────────────────────────────────
+  redis_staging:
+    container_name: aetheros_redis_staging
+    image: redis:7-alpine
+    restart: unless-stopped
+    env_file: .env.staging
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required - set a strong random password}
+    volumes:
+      - staging_redis_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── AetherOS API (staging) ──────────────────────────────────────────────────
+  api_staging:
+    container_name: aetheros_api_staging
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env.staging
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:-aether_dev_pass}@db_staging:5432/aether_os_staging
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis_staging:6379/0
+      REQUIRE_REDIS: "true"
+      ENVIRONMENT: staging
+      # RS256 JWT keys (recommended) — set these to enable asymmetric signing
+      AETHER_JWT_PRIVATE_KEY_B64: ${AETHER_JWT_PRIVATE_KEY_B64:-}
+      AETHER_JWT_PUBLIC_KEY_B64: ${AETHER_JWT_PUBLIC_KEY_B64:-}
+      # HS256 fallback — used only if RS256 keys above are not set
+      AETHER_SECRET_KEY: ${AETHER_SECRET_KEY:-}
+      AETHER_ONE_ZT_SECRET: ${AETHER_ONE_ZT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      PRIMARY_LLM: ${PRIMARY_LLM:-anthropic}
+      BEDROCK_ENABLED: ${BEDROCK_ENABLED:-false}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      BEDROCK_MODEL_HEAVY: ${BEDROCK_MODEL_HEAVY:-au.anthropic.claude-sonnet-4-6}
+      BEDROCK_MODEL_LIGHT: ${BEDROCK_MODEL_LIGHT:-amazon.nova-lite-v1:0}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required - set to https://yourdomain.com}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required - set to https://yourdomain.com/dashboard}
+      SAML_SP_ENTITY_ID: ${SAML_SP_ENTITY_ID:-}
+      SAML_SP_ACS_URL: ${SAML_SP_ACS_URL:-}
+      # OAuth2 Social Login
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # SAML SSO IdP configuration
+      SAML_IDP_ENTITY_ID: ${SAML_IDP_ENTITY_ID:-}
+      SAML_IDP_SSO_URL: ${SAML_IDP_SSO_URL:-}
+      SAML_IDP_CERT: ${SAML_IDP_CERT:-}
+      # Field-level encryption key
+      AETHER_FIELD_KEY: ${AETHER_FIELD_KEY:-}
+      # Error tracking
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Admin account created on first startup
+      AETHER_ADMIN_USER: ${AETHER_ADMIN_USER:-admin@example.com}
+      AETHER_ADMIN_PASSWORD: ${AETHER_ADMIN_PASSWORD:-changeme}
+    depends_on:
+      db_staging:
+        condition: service_healthy
+      redis_staging:
+        condition: service_healthy
+    volumes:
+      - staging_aether_os_data:/root/.aether_os
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  staging_pg_data:
+  staging_redis_data:
+  staging_aether_os_data:

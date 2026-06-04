@@ -716,14 +716,30 @@ async def stream_run_events(
         return Response(status_code=404, content="Run not found or access denied")
 
     async def event_generator():
-        from aether_os.core.pipeline_state import get_redis, get_event_history
-        # First replay history so late-joining clients get full context
-        for past_event in await get_event_history(run_id):
+        from aether_os.core.pipeline_state import get_redis, get_event_history, _local_history
+
+        # Replay history first so late-joining clients get full context
+        history = await get_event_history(run_id)
+        for past_event in history:
             yield f"data: {json.dumps(past_event)}\n\n"
 
         r = await get_redis()
         if r is None:
-            yield f"data: {json.dumps({'type': 'no_stream', 'run_id': run_id, 'reason': 'redis_unavailable'})}\n\n"
+            # Redis unavailable — poll the in-process _local_history buffer.
+            # The pipeline writes to _local_history when Redis is down, so we
+            # tail it here rather than abandoning the stream.
+            seen = len(history)
+            while True:
+                buf = _local_history.get(run_id, [])
+                for raw in buf[seen:]:
+                    seen += 1
+                    yield f"data: {raw}\n\n"
+                    try:
+                        if json.loads(raw).get("type") == "pipeline_complete":
+                            return
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.5)
             return
 
         pubsub = r.pubsub()

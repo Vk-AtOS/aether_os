@@ -17,17 +17,37 @@ class PipelinePredictor:
     def record_stage_timing(self, run_id: str, stage: str, duration: float):
         self.ledger.log_event(run_id, "predictor", "stage_timing", {"stage": stage, "duration": duration})
 
+    def _fetch_timing_rows(self) -> list:
+        """Synchronous helper — runs in a thread via asyncio.to_thread or directly in sync contexts."""
+        from sqlalchemy import create_engine, text as _sa_text
+        query = "SELECT detail FROM events WHERE agent = 'predictor' AND action = 'stage_timing' ORDER BY timestamp DESC LIMIT 100"
+        _db_url = os.environ.get("DATABASE_URL", "sqlite:///aether_os.db")
+        # Strip async driver prefix so the sync engine works on both SQLite and PostgreSQL
+        _sync_url = _db_url.replace("postgresql+asyncpg://", "postgresql://").replace("sqlite+aiosqlite://", "sqlite://")
+        engine = create_engine(_sync_url)
+        with engine.connect() as conn:
+            return conn.execute(_sa_text(query)).fetchall()
+
     def get_stage_baseline(self, stage: str) -> Tuple[float, float]:
         """Returns (average, std_dev) for the given stage."""
-        # PIPELINE-049: use SQLAlchemy so PostgreSQL and SQLite both work
-        query = "SELECT detail FROM events WHERE agent = 'predictor' AND action = 'stage_timing' ORDER BY timestamp DESC LIMIT 100"
         rows = []
         try:
-            from sqlalchemy import create_engine, text as _sa_text
-            _db_url = os.environ.get("DATABASE_URL", f"sqlite:///{self.ledger.db_path}")
-            _engine = create_engine(_db_url)
-            with _engine.connect() as conn:
-                rows = conn.execute(_sa_text(query)).fetchall()
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # Inside an async context: push blocking DB call to a thread pool
+                import concurrent.futures
+                fut: concurrent.futures.Future = concurrent.futures.Future()
+                async def _run():
+                    try:
+                        fut.set_result(await asyncio.to_thread(self._fetch_timing_rows))
+                    except Exception as _e:
+                        fut.set_exception(_e)
+                asyncio.run_coroutine_threadsafe(_run(), loop)
+                rows = fut.result(timeout=5)
+            except RuntimeError:
+                # No running event loop — call synchronously
+                rows = self._fetch_timing_rows()
         except Exception as exc:
             logger.warning("[predictor] DB query failed: %s", exc)
             return (0.0, 0.0)
