@@ -111,6 +111,29 @@ def _get_app_procs() -> Dict[str, Any]:
     return _api._APP_PROCS
 
 
+class _ExternalProcess:
+    """Lightweight PID wrapper so recovered processes behave like Popen objects."""
+    def __init__(self, pid: int):
+        self.pid = pid
+
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+            return None  # alive
+        except (ProcessLookupError, PermissionError):
+            return 1  # dead
+
+    def terminate(self):
+        try:
+            import signal as _sig
+            os.kill(self.pid, _sig.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def wait(self, timeout=None):
+        pass
+
+
 def _get_sse_fns():
     from aether_os.core.rate_limiter import sse_token_set, sse_token_pop
     return sse_token_set, sse_token_pop
@@ -1712,6 +1735,13 @@ if _DIST.is_dir():
             }))
         except Exception:
             pass
+        # Persist live_url so the "LAUNCH APP" button shows the correct proxied URL,
+        # not a direct port that's blocked by the firewall.
+        try:
+            from aether_os.core.db_utils import async_update_run_live_url as _aulul
+            await _aulul(run_id, "/app-preview/")
+        except Exception:
+            pass
         return {"status": "started", "port": port, "pid": proc.pid,
                 "backend_dir": str(backend_dir),
                 "mode": mode,
@@ -1719,6 +1749,7 @@ if _DIST.is_dir():
                 "log": str(log_path),
                 "preview_email": _preview_email,
                 "preview_password": _PREVIEW_PASSWORD,
+                "live_url": "/app-preview/",
                 "preview_url": "/app-preview/"}
     except HTTPException:
         raise
@@ -1753,15 +1784,48 @@ async def run_app_status(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Return whether the generated app is currently running."""
+    import json as _json_s
+    from aether_os.core.projects import get_project_manager as _gpm_s
     _run_procs = _get_app_procs()
     _run_ports = _get_app_ports()
     proc = _run_procs.get(run_id)
     running = proc is not None and proc.poll() is None
     port = _run_ports.get(run_id, int(os.environ.get("RUN_APP_PORT", "8001")))
+    pid = proc.pid if running else None
+
+    # Recovery: in-memory state is lost after gateway restarts. Read the persisted
+    # run_app_state.json and confirm the PID is still alive before trusting it.
+    if not running:
+        try:
+            root_dir = _gpm_s().get_project_dir(run_id).resolve()
+            state_file = root_dir / "run_app_state.json"
+            if state_file.exists():
+                _s = _json_s.loads(state_file.read_text())
+                _pid = _s.get("pid")
+                _port = _s.get("port")
+                if _pid and _port:
+                    # Check if the process is still alive
+                    import signal as _sig
+                    try:
+                        os.kill(_pid, 0)  # signal 0 = existence check, no kill
+                        # PID is alive — restore in-memory state for this and future requests
+                        running = True
+                        port = _port
+                        pid = _pid
+                        _run_procs[run_id] = _ExternalProcess(_pid)
+                        _run_ports[run_id] = _port
+                        _set_current_run(run_id)
+                        _APP_DIRS[run_id] = str(root_dir)
+                        _APP_DIRS["__current__"] = str(root_dir)
+                    except (ProcessLookupError, PermissionError):
+                        pass  # PID is dead — ignore stale state
+        except Exception:
+            pass
+
     return {
         "running": running,
         "port": port,
-        "pid": proc.pid if running else None,
+        "pid": pid,
         "preview_url": "/app-preview/" if running else None,
     }
 

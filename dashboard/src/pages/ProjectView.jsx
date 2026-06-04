@@ -852,6 +852,30 @@ const ProjectView = () => {
       .catch(() => {});
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Poll app status after pipeline completes (SSE closes before auto-start fires) ──
+  // The pipeline auto-starts the app AFTER emitting status=completed, which means
+  // the SSE connection is already closed and app_started is never received.
+  // Polling fixes this without requiring a persistent WebSocket.
+  useEffect(() => {
+    if (!run || run.status !== 'completed' || appRunning) return;
+    let attempts = 0;
+    const iv = setInterval(() => {
+      attempts++;
+      api.getRunAppStatus(id)
+        .then(r => {
+          if (r.data?.running) {
+            setAppRunning(true);
+            setAppOutput(['[AetherOS] App auto-started — preview available at /app-preview/']);
+            api.getPreviewCredentials(id).then(r2 => setPreviewCreds(r2.data)).catch(() => {});
+            clearInterval(iv);
+          }
+        })
+        .catch(() => {});
+      if (attempts >= 20) clearInterval(iv); // stop after 60s
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [run?.status, appRunning]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── SSE live feed ─────────────────────────────────────────────────────────
 
   const appendLine = useCallback((line) => {
@@ -1454,16 +1478,21 @@ const ProjectView = () => {
                 >
                   <span>🚀</span>
                   <span>LAUNCH APP</span>
-                  {/* Guard: live_url may be a bare hostname without a port */}
-                  <span className="opacity-70">:{run.live_url?.split(':').pop() ?? ''}</span>
+                  {/* Only show port suffix for absolute URLs (Docker deploys), not for /app-preview/ */}
+                  {run.live_url && !run.live_url.startsWith('/') && (
+                    <span className="opacity-70">:{run.live_url?.split(':').pop() ?? ''}</span>
+                  )}
                 </a>
-                <button
-                  onClick={handleStopDeploy}
-                  className="px-3 py-2 bg-red-900/60 hover:bg-red-800 text-red-300 rounded-lg text-xs font-medium transition-colors"
-                  title="Stop container"
-                >
-                  Stop
-                </button>
+                {/* Only show Stop for Docker deploys (absolute URL), not for local preview */}
+                {run.live_url && !run.live_url.startsWith('/') && (
+                  <button
+                    onClick={handleStopDeploy}
+                    className="px-3 py-2 bg-red-900/60 hover:bg-red-800 text-red-300 rounded-lg text-xs font-medium transition-colors"
+                    title="Stop container"
+                  >
+                    Stop
+                  </button>
+                )}
               </>
             ) : run.status === 'completed' ? (
               <button
