@@ -53,11 +53,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     for key, r in results.items():
         if r.metadata:
-            total_tests += r.metadata.get("total_tests", 0)
-            passed_tests += r.metadata.get("passed_tests", 0)
+            # p07a writes "passed"/"failed"; p07b_perf/others may write "total_tests"/"passed_tests"
+            _passed = r.metadata.get("passed_tests", r.metadata.get("passed", 0))
+            _failed = r.metadata.get("failed_tests", r.metadata.get("failed", 0))
+            _total  = r.metadata.get("total_tests", _passed + _failed)
+            total_tests  += _total
+            passed_tests += _passed
             if r.metadata.get("test_code") or r.metadata.get("test_file"):
                 test_code_found = True
-            if r.metadata.get("pytest_passed"):
+            if r.metadata.get("pytest_passed") or (_total > 0 and _passed == _total):
                 pytest_actually_passed = True
 
     # Determine real quality outcome
