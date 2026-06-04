@@ -6,13 +6,13 @@ This document provides unit economics for operating AetherOS at various scales. 
 
 ## LLM Costs Per Pipeline Run
 
-A standard 20-phase pipeline makes approximately 20 LLM calls (one primary call per phase, with additional calls in self-healing and review phases). Average token consumption per call is roughly 2,000 tokens (input + output combined for short to medium complexity prompts).
+A standard 21-phase pipeline makes approximately 21 LLM calls (one primary call per phase, with additional calls in self-healing and review phases). Average token consumption per call is roughly 2,000 tokens (input + output combined for short to medium complexity prompts).
 
 | Provider / Model | Cost per run (est.) | Notes |
 |-----------------|---------------------|-------|
 | OpenRouter — deepseek/deepseek-prover-v2:free | $0.00 | Free-tier model; variable availability and rate limits; suitable for development and demos |
-| Anthropic — claude-sonnet-4-6 | $0.02 – $0.08 | 20 calls × avg 2K tokens × $0.003/1K input + $0.015/1K output; scales with prompt complexity |
-| Google — Gemini 2.5 Flash | $0.01 – $0.03 | Lowest cost among capable models; 20 calls × avg 2K tokens at Gemini Flash pricing |
+| Anthropic — claude-sonnet-4-6 | $0.02 – $0.08 | ~21 calls × avg 2K tokens × $0.003/1K input + $0.015/1K output; scales with prompt complexity |
+| Google — Gemini 2.5 Flash | $0.01 – $0.03 | Lowest cost among capable models; ~21 calls × avg 2K tokens at Gemini Flash pricing |
 | Ollama (self-hosted) | $0.00 (compute only) | Eliminates per-token cost; requires GPU server; latency higher than hosted APIs |
 
 ### Notes on Token Usage
@@ -103,7 +103,7 @@ The pipeline is horizontally scalable via the Redis MessageBus architecture:
 | Cost component | Low estimate | High estimate |
 |---------------|-------------|--------------|
 | Infrastructure (recommended tier) | $55 | $122 |
-| LLM — Claude Sonnet 4.6 (20 calls × 2K tokens avg) | $2 | $8 |
+| LLM — Claude Sonnet 4.6 (~21 calls × 2K tokens avg) | $2 | $8 |
 | LLM — Gemini 2.5 Flash (alternative) | $1 | $3 |
 | **Total (Claude)** | **$57** | **$130** |
 | **Total (Gemini)** | **$56** | **$125** |
