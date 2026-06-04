@@ -2,8 +2,8 @@
 AetherOS — App Preview Proxy Router
 
 Proxies /app-preview/* to the ephemeral port of the most-recently started
-generated-app process.  Port state lives in api._APP_PORTS / api._APP_CURRENT_RUN
-so it is shared with factory_runs_router without duplication.
+generated-app process.  Port state is read from core.app_state (Redis-backed,
+shared across workers and gateway restarts).
 """
 from __future__ import annotations
 
@@ -27,25 +27,27 @@ logger = logging.getLogger(__name__)
 async def _app_preview_proxy(request: Request, path: str = "") -> Response:
     """Reverse-proxy requests to the running generated app."""
     import httpx as _httpx
-    from aether_os.gateway import api as _api
+    from aether_os.core.app_state import (
+        get_current_run_id as _gcr,
+        get_all_ports as _gap,
+        get_app_state as _gas,
+    )
 
     # Resolve port: in-process cache first, then Redis (multi-worker safe)
     _port = int(os.environ.get("RUN_APP_PORT", "8001"))
-    if _api._APP_CURRENT_RUN:
-        _port = _api._APP_PORTS.get(_api._APP_CURRENT_RUN[0], _port)
-    else:
-        try:
-            from aether_os.core.rate_limiter import run_app_port_get as _rapg
-            _rid, _rport = await _rapg()
-            if _rport:
-                _port = _rport
-                _api._APP_PORTS[_rid] = _rport
-                if not _api._APP_CURRENT_RUN:
-                    _api._APP_CURRENT_RUN.append(_rid)
-                else:
-                    _api._APP_CURRENT_RUN[0] = _rid
-        except Exception:
-            pass
+    _current_rid = await _gcr()
+    if _current_rid:
+        _cached_port = _gap().get(_current_rid)
+        if _cached_port:
+            _port = _cached_port
+        else:
+            # Cross-worker: fetch full state from Redis
+            try:
+                _state = await _gas(_current_rid)
+                if _state and _state.get("port"):
+                    _port = _state["port"]
+            except Exception:
+                pass
 
     _qs = f"?{request.url.query}" if request.url.query else ""
     _target = f"http://127.0.0.1:{_port}/{path}{_qs}"
@@ -76,8 +78,8 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
     except _httpx.ConnectError:
         # App is down — try to auto-restart if we have a run_id
         _restart_triggered = False
-        if _api._APP_CURRENT_RUN:
-            _dead_run = _api._APP_CURRENT_RUN[0]
+        if _current_rid:
+            _dead_run = _current_rid
             try:
                 from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
                 _system_user = {"org_id": None, "user_id": "system", "role": "admin"}

@@ -107,8 +107,8 @@ def _get_background_tasks() -> set:
 
 
 def _get_app_procs() -> Dict[str, Any]:
-    from aether_os.gateway import api as _api
-    return _api._APP_PROCS
+    from aether_os.core.app_state import get_all_procs
+    return get_all_procs()
 
 
 class _ExternalProcess:
@@ -1154,16 +1154,8 @@ def _free_port() -> int:
 
 
 def _get_app_ports() -> Dict[str, int]:
-    from aether_os.gateway import api as _api
-    return _api._APP_PORTS
-
-
-def _set_current_run(run_id: str) -> None:
-    from aether_os.gateway import api as _api
-    if _api._APP_CURRENT_RUN:
-        _api._APP_CURRENT_RUN[0] = run_id
-    else:
-        _api._APP_CURRENT_RUN.append(run_id)
+    from aether_os.core.app_state import get_all_ports
+    return get_all_ports()
 
 
 @router.post("/factory/runs/{run_id}/run-app")
@@ -1845,13 +1837,13 @@ if _DIST.is_dir():
 
         _run_procs[run_id] = proc
         _run_ports[run_id] = port
-        _set_current_run(run_id)
         _APP_DIRS[run_id] = str(root_dir)
         _APP_DIRS["__current__"] = str(root_dir)
-        # Publish to Redis so all workers can proxy to this port
+        # Persist to Redis + in-memory state (cross-worker, survives restarts)
         try:
-            from aether_os.core.rate_limiter import run_app_port_set as _raps
-            await _raps(run_id, port)
+            from aether_os.core.app_state import set_app_state as _sas, set_proc as _sp_fn
+            _sp_fn(run_id, proc)
+            await _sas(run_id, port=port, pid=proc.pid, mode=mode, app_dir=str(root_dir))
         except Exception:
             pass
         # Persist state to disk so gateway restarts can recover without re-patching
@@ -1904,6 +1896,12 @@ async def stop_run_app(
         proc.kill()
     del _run_procs[run_id]
     _run_ports.pop(run_id, None)
+    try:
+        from aether_os.core.app_state import clear_app_state as _cas, del_proc as _dp
+        _dp(run_id)
+        await _cas(run_id)
+    except Exception:
+        pass
     return {"status": "stopped", "run_id": run_id}
 
 
@@ -1941,10 +1939,18 @@ async def run_app_status(
                         running = True
                         port = _port
                         pid = _pid
-                        _run_procs[run_id] = _ExternalProcess(_pid)
+                        _proc_obj = _ExternalProcess(_pid)
+                        _run_procs[run_id] = _proc_obj
                         _run_ports[run_id] = _port
-                        _set_current_run(run_id)
                         _APP_DIRS[run_id] = str(root_dir)
+                        # Re-publish to Redis + in-memory state
+                        try:
+                            from aether_os.core.app_state import set_app_state as _sas2, set_proc as _sp2
+                            _sp2(run_id, _proc_obj)
+                            await _sas2(run_id, port=_port, pid=_pid,
+                                        mode=_s.get("mode", "backend"), app_dir=str(root_dir))
+                        except Exception:
+                            pass
                         _APP_DIRS["__current__"] = str(root_dir)
                     except (ProcessLookupError, PermissionError):
                         pass  # PID is dead — ignore stale state
@@ -2313,11 +2319,22 @@ async def deploy_run(
 
     # Fast-fail Docker check — run in thread so we don't block the event loop
     def _docker_check():
-        return _sp.run(["docker", "info"], capture_output=True, timeout=10)
+        try:
+            return _sp.run(["docker", "info"], capture_output=True, timeout=10)
+        except Exception:
+            return None
 
     check = await _aio.to_thread(_docker_check)
-    if check.returncode != 0:
-        return {"success": False, "error": "Docker daemon not running."}
+    if check is None or check.returncode != 0:
+        # Docker unavailable — fall through to in-process preview
+        logger.warning("Docker unavailable for run %s — falling back to in-process preview", run_id)
+        await start_run_app(run_id=run_id, user=user)
+        return {
+            "success": True,
+            "live_url": "/app-preview/",
+            "mode": "preview",
+            "message": "Docker unavailable — using in-process preview",
+        }
 
     from types import SimpleNamespace
     from aether_os.phases.p11_deployment.task_agent import TaskAgent
@@ -2357,6 +2374,24 @@ async def stop_deployment(
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
     container_name = f"aetheros-app-{run_id[:8]}"
+
+    # Check whether Docker is available
+    def _docker_check_stop():
+        try:
+            return _sp.run(["docker", "info"], capture_output=True, timeout=10)
+        except Exception:
+            return None
+
+    docker_check = await _aio.to_thread(_docker_check_stop)
+    if docker_check is None or docker_check.returncode != 0:
+        # Docker unavailable — stop the in-process preview instead
+        logger.warning("Docker unavailable for stop of run %s — stopping in-process preview", run_id)
+        await stop_run_app(run_id=run_id, user=user)
+        try:
+            await async_update_run_live_url(run_id, None)
+        except Exception as _e:
+            logger.warning("Failed to clear live_url: %s", _e)
+        return {"stopped": True, "container": container_name, "mode": "preview"}
 
     def _stop():
         return _sp.run(["docker", "rm", "-f", container_name], capture_output=True)
