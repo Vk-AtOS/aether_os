@@ -87,7 +87,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 
         last_output = test_result["output"]
 
-        msg = f"🔧 [p07b_self_healing] Tests failing — asking Ollama for fix..."
+        msg = f"🔧 [p07b_self_healing] Tests failing — requesting LLM fix (attempt {attempt}/{MAX_ATTEMPTS})..."
         logger.info(msg)
         await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg})
 

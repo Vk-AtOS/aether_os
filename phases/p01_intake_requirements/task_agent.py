@@ -49,6 +49,71 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         logger.warning("[p01] intake LLM call failed: %s", exc)
         intake_record = {"project_name": "App", "domain": domain, "summary": raw_input[:200]}
 
+    # ── Step 1b: Extract scalability profile → project_contract.json ──────────
+    contract: dict = {
+        "project_name": intake_record.get("project_name", "App"),
+        "domain": intake_record.get("domain", domain),
+        "summary": intake_record.get("summary", ""),
+        "scalability": {
+            "user_count_tier": "small",   # small < 500, medium 500-50k, large > 50k
+            "data_sensitivity": "internal",  # none / internal / regulated
+            "availability_sla": "best-effort",  # best-effort / business-hours / 24x7
+            "needs_mobile": False,
+            "handles_money": False,
+            "geographic_scope": "single-region",
+        },
+        "commercial_defaults": {
+            "multi_tenancy": False,
+            "audit_log": False,
+            "soft_deletes": True,
+            "rate_limiting": True,
+            "pagination_required": True,
+        },
+    }
+    try:
+        from aether_os.core.llm.client import get_llm_client as _get_llm
+        _llm = _get_llm()
+        _contract_prompt = (
+            f"Project: {intake_record.get('project_name', 'App')}\n"
+            f"Domain: {intake_record.get('domain', domain)}\n"
+            f"Description: {raw_input[:2000]}\n\n"
+            "Infer the scalability profile. Return JSON:\n"
+            '{"user_count_tier": "small|medium|large", '
+            '"data_sensitivity": "none|internal|regulated", '
+            '"availability_sla": "best-effort|business-hours|24x7", '
+            '"needs_mobile": true|false, '
+            '"handles_money": true|false, '
+            '"geographic_scope": "single-region|multi-region", '
+            '"multi_tenancy": true|false, '
+            '"audit_log": true|false}'
+        )
+        _profile = await _llm.call_json(_contract_prompt, task_type="analysis")
+        if _profile:
+            contract["scalability"].update({
+                k: _profile[k] for k in ("user_count_tier", "data_sensitivity",
+                    "availability_sla", "needs_mobile", "handles_money", "geographic_scope")
+                if k in _profile
+            })
+            contract["commercial_defaults"].update({
+                k: _profile[k] for k in ("multi_tenancy", "audit_log")
+                if k in _profile
+            })
+            # audit_log auto-on for regulated/money
+            if _profile.get("data_sensitivity") == "regulated" or _profile.get("handles_money"):
+                contract["commercial_defaults"]["audit_log"] = True
+                contract["commercial_defaults"]["multi_tenancy"] = True
+        phase_input.input_data["project_contract"] = contract
+        logger.info("[p01] contract: tier=%s sensitivity=%s money=%s",
+                    contract["scalability"]["user_count_tier"],
+                    contract["scalability"]["data_sensitivity"],
+                    contract["scalability"]["handles_money"])
+    except Exception as exc:
+        logger.warning("[p01] contract inference failed: %s", exc)
+
+    (output_dir / "project_contract.json").write_text(
+        json.dumps(contract, indent=2, default=str)
+    )
+
     # ── Step 2: Generate structured requirements document ─────────────────────
     requirements_doc: dict = {}
     try:
@@ -88,6 +153,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     summary = {
         "intake": intake_record,
         "requirements": requirements_doc,
+        "contract": contract,
         "raw_input_length": len(raw_input),
     }
     summary_path = output_dir / "requirements.json"
