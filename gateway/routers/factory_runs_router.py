@@ -1953,11 +1953,14 @@ async def get_run_spec(
     """Return the parsed requirements spec produced by p01_intake_requirements."""
     from pathlib import Path
     project_dir = Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
+    # p01 writes requirements.json; fall back to legacy intake/intake.json
+    _req_path = project_dir / "p01_intake_requirements" / "requirements.json"
     _intake_path = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
-    if not _intake_path.exists():
+    spec_path = _req_path if _req_path.exists() else _intake_path
+    if not spec_path.exists():
         raise HTTPException(status_code=404, detail="Spec not ready — p01 has not completed yet")
     import json as _sj
-    spec = _sj.loads(_intake_path.read_text())
+    spec = _sj.loads(spec_path.read_text())
     # Also return run control state so the UI knows if spec review is pending
     from aether_os.core.pipeline_state import get_control as _gc
     control = await _gc(run_id)
