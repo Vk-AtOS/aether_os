@@ -83,10 +83,12 @@ class MessageBus:
                 redis = None
 
         if redis is None:
-            # In-process fallback
-            await self._queue.put(message)
+            # Redis unavailable — in-process only delivery
             if target and target in self._subscribers:
                 await self._subscribers[target].put(message)
+
+        # Always push to in-process queue for drain() and local monitoring
+        await self._queue.put(message)
 
         # Audit every message
         try:
@@ -139,7 +141,7 @@ class MessageBus:
         await self.publish(dummy)
 
     async def drain(self) -> list[PhaseMessage]:
-        """Drain in-process queue (for testing)."""
+        """Drain in-process queue. Always populated by publish() regardless of Redis."""
         msgs = []
         while not self._queue.empty():
             msgs.append(self._queue.get_nowait())

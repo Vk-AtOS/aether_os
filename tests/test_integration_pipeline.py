@@ -67,10 +67,10 @@ def _make_phase_input(run_id=None, project_id=None, domain="general", tmp_dir=No
 # 1. Phase mapping completeness
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_phase_sequence_is_20_phases():
+def test_phase_sequence_is_21_phases():
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
-    assert len(PHASE_SEQUENCE) == 20, (
-        f"Expected 20 phases, got {len(PHASE_SEQUENCE)}: {PHASE_SEQUENCE}"
+    assert len(PHASE_SEQUENCE) == 21, (
+        f"Expected 21 phases, got {len(PHASE_SEQUENCE)}: {PHASE_SEQUENCE}"
     )
 
 
@@ -406,13 +406,14 @@ async def test_full_pipeline_runs_all_20_phases(tmp_path, monkeypatch):
     """
     Runs the complete PHASE_SEQUENCE with every supervisor mocked.
     Verifies:
-      - All 20 phases are attempted
+      - All 21 phases are attempted
       - Accumulated context is passed to each phase
       - The pipeline returns a final result dict with run_id and status
     """
     import uuid as _uuid
 
     monkeypatch.setenv("PHASE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("SPEC_REVIEW_TIMEOUT", "0")
     monkeypatch.setenv("AETHER_SECRET_KEY", "test-secret-key-32-chars-minimum!!")
 
     phases_executed = []
@@ -485,7 +486,7 @@ async def test_full_pipeline_runs_all_20_phases(tmp_path, monkeypatch):
         f"Result missing run_id/status: {result}"
     )
 
-    # All 20 phases must have been attempted
+    # All 21 phases must have been attempted
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
     for phase in PHASE_SEQUENCE:
         assert phase in phases_executed, (
@@ -504,6 +505,7 @@ async def test_pipeline_accumulated_context_contains_domain(tmp_path, monkeypatc
     the domain and raw_input set by the caller.
     """
     monkeypatch.setenv("PHASE_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("SPEC_REVIEW_TIMEOUT", "0")
     monkeypatch.setenv("AETHER_SECRET_KEY", "test-secret-key-32-chars-minimum!!")
 
     received_contexts = []

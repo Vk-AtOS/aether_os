@@ -349,7 +349,8 @@ async def test_factory_pipeline_smoke(tmp_path):
 
     with patch("aether_os.orchestrator.factory_pipeline._load_supervisor",
                return_value=MockSupervisor()), \
-         patch("aether_os.core.audit.ledger.get_ledger") as mock_ledger:
+         patch("aether_os.core.audit.ledger.get_ledger") as mock_ledger, \
+         patch.dict("os.environ", {"SPEC_REVIEW_TIMEOUT": "0", "PHASE_TIMEOUT_SECONDS": "10"}):
 
         mock_ledger.return_value = MagicMock(
             save_run=MagicMock(),

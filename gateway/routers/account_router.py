@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 router = APIRouter(tags=["account"])
 
@@ -342,7 +342,7 @@ async def get_org_settings(
     }
 
 
-@router.delete("/account/org", status_code=204)
+@router.delete("/account/org", status_code=204, response_model=None)
 async def delete_organisation(
     user: Dict[str, Any] = _current_user(),
 ) -> None:

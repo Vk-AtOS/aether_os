@@ -25,11 +25,13 @@ def reset_router_state():
     _mod._active_model = None
     _mod._fallback_count_today = 0
     _mod._fallback_date = ""
+    _mod._DEAD_PROVIDERS.clear()
     yield
     _mod._router_instance = None
     _mod._active_model = None
     _mod._fallback_count_today = 0
     _mod._fallback_date = ""
+    _mod._DEAD_PROVIDERS.clear()
 
 
 @pytest.fixture(autouse=True)
