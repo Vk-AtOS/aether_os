@@ -324,3 +324,43 @@ async def export_audit_logs(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/admin/system/deploy")
+async def system_deploy(user: Dict[str, Any] = _current_user()):
+    """Pull latest code from git and restart the service. Owner/admin only."""
+    import subprocess as _sp
+    import sys as _sys
+    if user.get("role") not in ["owner", "admin"]:
+        raise HTTPException(status_code=403, detail="Owner or admin required")
+
+    install_dir = pathlib.Path(__file__).resolve().parents[2]
+    log: list[str] = []
+
+    # 1. git pull
+    pull = _sp.run(
+        ["git", "pull", "--ff-only"],
+        cwd=str(install_dir), capture_output=True, text=True, timeout=60,
+    )
+    log.append(f"git pull: rc={pull.returncode}")
+    if pull.stdout.strip():
+        log.append(pull.stdout.strip())
+    if pull.stderr.strip():
+        log.append(pull.stderr.strip())
+
+    # 2. pip install in case dependencies changed
+    venv_pip = install_dir / "venv" / "bin" / "pip"
+    pip_bin = str(venv_pip) if venv_pip.exists() else _sys.executable.replace("python", "pip").replace("python3", "pip3")
+    _sp.run(
+        [pip_bin, "install", "-q", "-e", str(install_dir)],
+        capture_output=True, timeout=120,
+    )
+
+    # 3. Restart systemd service (non-blocking — response sent before process dies)
+    restart = _sp.Popen(
+        ["systemctl", "restart", "aetheros"],
+        stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+    )
+    log.append(f"systemctl restart: pid={restart.pid}")
+
+    return {"ok": pull.returncode == 0, "log": log}
