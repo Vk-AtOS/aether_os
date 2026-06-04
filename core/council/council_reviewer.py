@@ -50,6 +50,11 @@ class CouncilReport:
     consensus_issues: List[str] = field(default_factory=list)
     created_at: str = ""
 
+    @property
+    def average_score(self) -> float:
+        scores = [r.score for r in self.reviews if r.score > 0]
+        return sum(scores) / len(scores) if scores else 0.0
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 

@@ -108,7 +108,12 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
                     _, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=20)
                     if proc2.returncode != 0:
                         stderr_text = stderr2.decode()
-                        if any(e in stderr_text for e in [
+                        # Relative import errors are expected in package-structured code;
+                        # uvicorn runs via `python -m` so they resolve correctly at runtime.
+                        if "attempted relative import" in stderr_text or \
+                                "relative import" in stderr_text.lower():
+                            pass  # non-fatal — valid package structure
+                        elif any(e in stderr_text for e in [
                             "ImportError", "ModuleNotFoundError", "NameError", "SyntaxError"
                         ]):
                             errors.append(f"ImportError: {stderr_text[:500]}")

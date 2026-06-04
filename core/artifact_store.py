@@ -219,11 +219,14 @@ class ArtifactStore:
     async def embed_run(self, run_id: str, org_id: str, project_dir: Path) -> int:
         """Embed all source files in project_dir and return the count stored."""
         extensions = {".py", ".js", ".ts", ".html", ".yml", ".json"}
+        _skip_dirs = {"node_modules", ".git", "__pycache__", "dist", "build", ".venv", "venv"}
         count = 0
         project_path = Path(project_dir)
         if not project_path.exists():
             return 0
         for f in project_path.rglob("*"):
+            if any(part in _skip_dirs for part in f.parts):
+                continue
             if f.is_file() and f.suffix in extensions:
                 try:
                     await self.store_artifact(
