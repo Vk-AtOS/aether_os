@@ -177,16 +177,21 @@ def test_ledger_save_and_retrieve(tmp_path):
         ledger.update_run_status("run-001", "completed")
 
         history = ledger.get_run_history("test-org")
-        assert len(history) >= 1
-        assert history[0]["id"] == "run-001"
-        assert history[0]["status"] == "completed"
+        # get_run_history returns {"items": [...], "total": N} — extract the list
+        items = history["items"] if isinstance(history, dict) else history
+        assert len(items) >= 1
+        assert items[0]["id"] == "run-001"
+        assert items[0]["status"] == "completed"
 
         detail = ledger.get_run_detail("run-001")
         assert detail["id"] == "run-001"
         assert len(detail["events"]) >= 1
     finally:
+        # Reset all shared singletons so subsequent tests start clean
         _db_mod._engine = None
         _db_mod._session_factory = None
+        from aether_os.core.audit.ledger import DecisionLedger
+        DecisionLedger._instance = None
         if old_db is not None:
             os.environ["DATABASE_URL"] = old_db
         else:

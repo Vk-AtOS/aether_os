@@ -26,13 +26,18 @@ class AuditLogger:
     def __init__(self, storage_path: Optional[Path] = None):
         self._storage_path = storage_path
         self._entries: List[Dict[str, Any]] = []
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # created lazily to avoid Python 3.9 event-loop requirement at init time
 
         import threading
         self._sync_lock = threading.Lock()
 
         if storage_path:
             storage_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     def _build_entry(
         self,
@@ -67,7 +72,7 @@ class AuditLogger:
     ) -> Dict[str, Any]:
         """Async-safe audit log entry."""
         entry = self._build_entry(actor, action, details, session_id)
-        async with self._lock:
+        async with self._get_lock():
             self._entries.append(entry)
             self._write_to_disk(entry)
         return entry

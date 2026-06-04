@@ -169,7 +169,14 @@ def test_cors_default_no_wildcard():
 # ── Auth module ───────────────────────────────────────────────────────────────
 
 def test_jwt_create_and_decode():
-    os.environ["AETHER_SECRET_KEY"] = "test-secret-key-32-chars"
+    import importlib
+    # Clear any RS256 key env vars so auth falls back to HS256 for this test
+    for _k in ("AETHER_JWT_PRIVATE_KEY_B64", "AETHER_JWT_PUBLIC_KEY_B64",
+                "AETHER_JWT_PRIVATE_KEY_PATH", "AETHER_JWT_PUBLIC_KEY_PATH"):
+        os.environ.pop(_k, None)
+    os.environ["AETHER_SECRET_KEY"] = "test-secret-key-32chars-padding!"
+    import aether_os.gateway.auth as _auth_mod
+    importlib.reload(_auth_mod)  # re-initialize with clean env to pick up HS256 fallback
     from aether_os.gateway.auth import create_access_token, decode_access_token
     token = create_access_token({"sub": "user123", "role": "admin"})
     payload = decode_access_token(token)
