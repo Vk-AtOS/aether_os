@@ -35,7 +35,7 @@ def _pluralise(word: str) -> str:
 def _detect_domain(phase_input: Any) -> str:
     """Detect application domain from project description and entity names."""
     # Only trust the pre-resolved domain if it's a specific domain, not the generic fallbacks.
-    _pre = getattr(phase_input, "domain", None) or ""
+    _pre = (getattr(phase_input, "domain", None) or "").lower().strip()
     if _pre and _pre not in ("", "unknown", "general", "saas"):
         return _pre
 
@@ -3755,15 +3755,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         layout_mode = designer_spec["layout_mode"]
     elif _layout_from_spec:
         layout_mode = _layout_from_spec
-    elif "dual portal" in _raw or "customer portal" in _raw or "admin portal" in _raw:
+    elif "dual portal" in _raw or "customer portal" in _raw or "member portal" in _raw:
         layout_mode = "dual"
-    elif "storefront" in _raw or "customer-facing" in _raw or "landing" in _raw:
+    elif "storefront" in _raw or "customer-facing" in _raw or "landing page" in _raw:
         layout_mode = "storefront"
-    elif "admin" in _raw or "management" in _raw or "panel" in _raw or "internal" in _raw:
-        layout_mode = "admin"
     elif _domain_val in _dual_portal_domains:
+        # Domain takes priority over loose keyword heuristics — "management" and "admin"
+        # appear naturally in almost every app description; trust the domain signal first.
         layout_mode = "dual"
     elif _domain_val in _internal_only_domains:
+        layout_mode = "admin"
+    elif "admin panel" in _raw or "internal tool" in _raw or "back office" in _raw or "back-office" in _raw:
         layout_mode = "admin"
     else:
         layout_mode = "dual"  # default: generate both portals
