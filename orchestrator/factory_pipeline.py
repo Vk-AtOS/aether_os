@@ -948,6 +948,71 @@ class FactoryPipeline:
             _background_tasks.add(_wh_t)
             _wh_t.add_done_callback(_background_tasks.discard)
 
+        # ── Extract and persist learning patterns (background, non-blocking) ────
+        async def _extract_learning():
+            if not org_id or not client_id:
+                return
+            try:
+                from aether_os.core.db import get_session_factory as _gsf_l
+                from aether_os.core.services import learning_service as _ls
+                from aether_os.core.models import GlobalPattern as _GP
+                from sqlalchemy import select as _sel_l
+                async with _gsf_l()() as _sl:
+                    # 1. Per-user patterns (tech stack + quality preferences)
+                    _run_tech = accumulated_context.get("architecture_json", {}).get("tech_stack", {})
+                    if _run_tech:
+                        await _ls.upsert_pattern(
+                            org_id, client_id, "tech_stack", "preferred_stack",
+                            {"stack": _run_tech, "domain": domain}, run_id, _sl,
+                        )
+                    if domain and domain != "general":
+                        await _ls.upsert_pattern(
+                            org_id, client_id, "domain_expertise", domain,
+                            {"domain": domain, "run_id": run_id}, run_id, _sl,
+                        )
+                    _q_flag = None
+                    for _ph in results.values():
+                        if isinstance(_ph, dict) and "test_quality_flag" in _ph:
+                            _q_flag = _ph["test_quality_flag"]
+                    if _q_flag:
+                        await _ls.upsert_pattern(
+                            org_id, client_id, "deployment_preference", "last_successful_deploy",
+                            {"status": "completed", "quality": _q_flag, "domain": domain}, run_id, _sl,
+                        )
+                    # 2. Global patterns table (shared intelligence across all users)
+                    _stack_key = str(_run_tech.get("backend", domain or "unknown"))
+                    _existing_gp = (await _sl.execute(
+                        _sel_l(_GP).where(_GP.domain == domain, _GP.pattern_name == _stack_key)
+                    )).scalar_one_or_none()
+                    _q_score = 0.7 if _q_flag == "pass" else (0.4 if _q_flag == "warn" else 0.2)
+                    if _existing_gp:
+                        _existing_gp.usage_count += 1
+                        _existing_gp.avg_quality_score = round(
+                            (_existing_gp.avg_quality_score * (_existing_gp.usage_count - 1) + _q_score)
+                            / _existing_gp.usage_count, 3
+                        )
+                        _existing_gp.success_rate = round(
+                            (_existing_gp.success_rate * (_existing_gp.usage_count - 1) + (1.0 if _q_flag == "pass" else 0.0))
+                            / _existing_gp.usage_count, 3
+                        )
+                    else:
+                        _sl.add(_GP(
+                            domain=domain or "general",
+                            pattern_name=_stack_key,
+                            pattern_type="tech_stack",
+                            success_rate=1.0 if _q_flag == "pass" else 0.5,
+                            usage_count=1,
+                            avg_quality_score=_q_score,
+                        ))
+                    await _sl.commit()
+                    logger.info("[pipeline] Learning patterns extracted for run %s (domain=%s)", run_id, domain)
+            except Exception as _le:
+                logger.debug("[pipeline] Learning extraction skipped: %s", _le)
+
+        _lt = asyncio.create_task(_extract_learning())
+        _background_tasks.add(_lt)
+        _lt.add_done_callback(_background_tasks.discard)
+
         # D6: Finalize project living memory
         _pm_update(project_dir, {"tech_stack": accumulated_context.get("architecture_json", {}).get("tech_stack", {})})
         _pm_changelog(project_dir, f"Pipeline completed in {round(duration, 1)}s — {len(phases_to_run)} phases", author="system")

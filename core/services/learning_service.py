@@ -136,10 +136,10 @@ async def extract_patterns_from_run(
             {"stack": run.tech_stack}, run_id, session,
         )
 
-    if run.status == "complete":
+    if run.status in ("complete", "completed", "council_review"):
         await upsert_pattern(
             org_id, user_id, "deployment_preference", "last_successful_deploy",
-            {"status": "complete", "live_url": run.live_url}, run_id, session,
+            {"status": run.status, "live_url": run.live_url}, run_id, session,
         )
 
 
