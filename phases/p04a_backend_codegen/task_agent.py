@@ -593,7 +593,9 @@ MODELS.PY requirements (file: src/models.py):
    - created_at, updated_at (DateTime timezone=True, with defaults)
 3. For each entity: add domain-appropriate fields with proper SQLAlchemy types
 4. Add ForeignKey relationships where logical (e.g. user_id references users.id)
-5. Use `__tablename__` (snake_case plural)
+   CRITICAL: ForeignKey string MUST match the actual __tablename__ of the referenced model exactly.
+   Example: if Category.__tablename__ = 'categories', then use ForeignKey('categories.id') — never 'categorys.id' or 'category.id'.
+5. Use `__tablename__` (snake_case plural) — derive using standard English pluralisation rules (category→categories, status→statuses, person→people)
 6. DateTime fields use `datetime.now(timezone.utc)` as default
 
 REQUIRED for every model (no exceptions):
@@ -1239,6 +1241,44 @@ def _fix_common_issues(code: str) -> str:
         code = "from datetime import datetime, timezone\n" + code
     if "timezone.utc" in code and "from datetime import" in code:
         code = code.replace("from datetime import datetime\n", "from datetime import datetime, timezone\n")
+
+    # Fix: LLM sometimes emits `import timezone` (not a stdlib module) instead of
+    # `from datetime import timezone`. Remove the bare import; ensure the correct one is present.
+    if re.search(r'^import timezone\b', code, re.MULTILINE):
+        code = re.sub(r'^import timezone\b[^\n]*\n?', '', code, flags=re.MULTILINE)
+        if "from datetime import" in code:
+            code = re.sub(
+                r'from datetime import ([^\n]+)',
+                lambda m: m.group(0) if "timezone" in m.group(1)
+                else m.group(0).rstrip() + ", timezone",
+                code, count=1,
+            )
+        else:
+            code = "from datetime import timezone\n" + code
+
+    # Fix: ForeignKey references must match actual __tablename__ values in the same file.
+    # Collect declared table names, then verify FK strings against them.
+    _tablenames = dict(re.findall(r"__tablename__\s*=\s*['\"](\w+)['\"]", code))
+    # Build a map: class_name → tablename (lower)
+    _class_to_table: dict = {}
+    for _cls, _tbl in re.findall(r'class\s+(\w+)\s*\(Base\)[^:]*:.*?__tablename__\s*=\s*[\'"](\w+)[\'"]', code, re.DOTALL):
+        _class_to_table[_cls.lower()] = _tbl
+    # For each ForeignKey string, check if the referenced table exists; if not, try to find the right name
+    def _fix_fk(m: re.Match) -> str:
+        fk_str = m.group(1)
+        table_part = fk_str.split(".")[0]
+        if table_part in _tablenames.values():
+            return m.group(0)  # already correct
+        # Try to find a close match among known table names
+        import difflib as _dl
+        close = _dl.get_close_matches(table_part, list(_tablenames.values()), n=1, cutoff=0.6)
+        if close:
+            return m.group(0).replace(f"'{fk_str}'", f"'{fk_str.replace(table_part, close[0])}'").replace(
+                f'"{fk_str}"', f'"{fk_str.replace(table_part, close[0])}"'
+            )
+        return m.group(0)
+    if _class_to_table:
+        code = re.sub(r"ForeignKey\(['\"]([^'\"]+)['\"]\)", _fix_fk, code)
 
     # Fix missing typing imports (Optional, List, Dict, Any, Union, Tuple)
     _typing_needed = []
