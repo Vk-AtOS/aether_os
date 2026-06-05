@@ -63,7 +63,10 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
         for _sf in _state_files:
             try:
                 _st = _j.loads(_Pth(_sf).read_text())
-                _rid, _rport = _st.get("run_id"), int(_st.get("port", 0))
+                # run_id may be omitted if the state file was written manually;
+                # fall back to the parent directory name (project dir == run_id)
+                _rid = _st.get("run_id") or _Pth(_sf).parent.name
+                _rport = int(_st.get("port", 0))
                 if not _rid or not _rport:
                     continue
                 _alive = False
