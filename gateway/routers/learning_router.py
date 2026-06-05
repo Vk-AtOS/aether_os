@@ -44,14 +44,17 @@ async def get_learning_context(user: Dict[str, Any] = _current_user()):
 @router.get("/learning/clarifications")
 async def get_clarifications(user: Dict[str, Any] = _current_user()):
     """Return pending project-scoped clarification questions for the current user."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.services import learning_service
-    sf = get_session_factory()
-    async with sf() as session:
-        questions = await learning_service.get_pending_clarifications(
-            org_id=user["org_id"], user_id=user["user_id"], session=session
-        )
-    return {"clarifications": questions}
+    try:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.services import learning_service
+        sf = get_session_factory()
+        async with sf() as session:
+            questions = await learning_service.get_pending_clarifications(
+                org_id=user["org_id"], user_id=user["user_id"], session=session
+            )
+        return {"clarifications": questions}
+    except Exception:
+        return {"clarifications": []}
 
 
 @router.post("/learning/clarifications/{clarification_id}/answer")
