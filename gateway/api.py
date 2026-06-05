@@ -499,7 +499,8 @@ def create_app() -> FastAPI:
                 for _sf in _state_files:
                     try:
                         _st = _rjson.loads(Path(_sf).read_text())
-                        _rid, _rport = _st.get("run_id"), int(_st.get("port", 0))
+                        _rid = _st.get("run_id") or Path(_sf).parent.name
+                        _rport = int(_st.get("port", 0))
                         if not _rid or not _rport:
                             continue
                         _alive = False
