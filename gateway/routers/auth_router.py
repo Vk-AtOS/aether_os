@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -60,7 +61,6 @@ class ApiKeyCreateRequest(BaseModel):
 
 
 def _auth():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 
@@ -415,7 +415,6 @@ async def change_password(req: Dict[str, Any], user: Dict[str, Any] = _auth()) -
 # ── Org switcher ──────────────────────────────────────────────────────────────
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 

@@ -27,13 +27,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File as FastAPIFile
 from pydantic import BaseModel
+from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["factory"])
 
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 

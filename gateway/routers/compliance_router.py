@@ -15,13 +15,13 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["compliance", "audit"])
 
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 

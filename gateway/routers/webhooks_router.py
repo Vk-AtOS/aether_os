@@ -9,12 +9,12 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from aether_os.gateway.dependencies import get_current_user
 
 router = APIRouter(tags=["webhooks"])
 
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 
