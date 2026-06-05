@@ -73,9 +73,12 @@ def _detect_domain(phase_input: Any) -> str:
         "crm":                 [("crm", 3), ("lead", 2), ("deal", 2), ("opportunity", 2),
                                 ("prospect", 2), ("sales pipeline", 3), ("funnel", 2),
                                 ("contact", 1), ("sales", 1)],
-        "ecommerce":           [("cart", 3), ("checkout", 3), ("sku", 3), ("ecommerce", 3),
-                                ("shop", 2), ("store", 2), ("inventory", 2), ("order", 2),
+        "ecommerce":           [("cart", 3), ("sku", 3), ("ecommerce", 3), ("storefront", 3),
+                                ("add to cart", 3), ("shop", 2), ("store", 2), ("order", 2),
                                 ("product", 1), ("payment", 1), ("purchase", 1)],
+        "library":             [("library", 3), ("isbn", 3), ("librarian", 3), ("borrow", 3),
+                                ("overdue", 3), ("book tracking", 3), ("catalog", 2), ("book", 2),
+                                ("reading", 2), ("shelf", 2), ("member", 1)],
         "hrm":                 [("employee", 3), ("payroll", 3), ("attendance", 3), ("leave request", 3),
                                 ("department", 2), ("salary", 3), ("human resources", 3),
                                 ("workforce", 3), ("hrm", 3), ("hr platform", 3),
@@ -117,6 +120,7 @@ _DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
     "healthcare":         ["Patients Today", "Appointments", "Avg Wait Time", "Staff On Duty"],
     "crm":                ["New Leads", "Open Deals", "Revenue This Month", "Conversion Rate"],
     "ecommerce":          ["Orders Today", "Revenue", "Items in Stock", "Cart Abandonment"],
+    "library":            ["Books in Catalog", "Active Members", "Active Checkouts", "Overdue Items"],
     "hrm":                ["Headcount", "On Leave Today", "Open Positions", "Avg Tenure (yrs)"],
     "finance":            ["Invoices Due", "Revenue MTD", "Overdue Payments", "Burn Rate"],
     "project_management": ["Open Tasks", "Sprints Active", "PRs Merged", "Bugs Open"],
@@ -799,11 +803,16 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      '/app-preview/api': {
+        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\\/app-preview\\/api/, ''),
+      },
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\\/api/, ''),
-      }
+      },
     }
   }
 })
@@ -1281,9 +1290,9 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
     lines.append("")
     lines.append("// When VITE_API_URL is set: direct calls to backend URL (prod/Docker)")
-    lines.append("// When unset: served under /app-preview/ so API calls must use that sub-path prefix")
+    lines.append("// When unset: Vite dev proxy rewrites /api/* → backend; nginx does the same in prod")
     lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
-    lines.append("const API_PREFIX = BASE ? '' : '/app-preview/api'")
+    lines.append("const API_PREFIX = BASE ? '' : '/api'")
     lines.append("")
     lines.append("export const apiClient = axios.create({ baseURL: BASE + API_PREFIX })")
     lines.append("export const api = apiClient  // alias used by IR-generated components")
@@ -1307,7 +1316,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("      _sessionExpired = true")
     lines.append("      clearToken()")
     lines.append("      // Use replace (not href=) so the browser back-button still works after re-login")
-    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace('/app-preview/login') }, 80)")
+    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace('/login') }, 80)")
     lines.append("    }")
     lines.append("    return Promise.reject(err)")
     lines.append("  },")
@@ -1339,15 +1348,23 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _generate_app(entities: List[dict]) -> str:
-    """Generate src/App.tsx with TanStack Router."""
+def _generate_app(entities: List[dict], dual_portal: bool = False) -> str:
+    """Generate src/App.tsx with TanStack Router.
+
+    When dual_portal=True, generates two route trees:
+      - Customer portal at /  (browsing, self-service)
+      - Admin portal at /admin (full CRUD management)
+    Login page reads JWT role and redirects accordingly.
+    """
+    if dual_portal:
+        return _generate_dual_app(entities)
+
     entity_imports: List[str] = []
     entity_routes: List[str] = []
     entity_route_children: List[str] = []
 
     for ent in entities:
         table = ent["table"]
-        # Use entity name (singular) if available — matches IR fast-path page filenames
         pascal = ent.get("name") or _to_pascal_case(table)
         route_path = f"/{table.replace('_', '-')}"
         route_var = f"{table}Route"
@@ -1415,10 +1432,404 @@ declare module '@tanstack/react-router' {{
 """
 
 
+def _generate_dual_app(entities: List[dict]) -> str:
+    """Generate App.tsx with two portals: /  (customer) and /admin (owner/operator)."""
+    entity_imports: List[str] = []
+    admin_routes: List[str] = []
+    admin_children: List[str] = []
+    customer_routes: List[str] = []
+    customer_children: List[str] = []
+
+    # Customer-facing entities: product-like browsable items
+    _customer_kws = ("product", "item", "listing", "service", "book", "course", "event",
+                     "article", "post", "property", "menu", "catalog")
+
+    for ent in entities:
+        table = ent["table"]
+        pascal = ent.get("name") or _to_pascal_case(table)
+        route_var = f"{table}Route"
+        admin_route_var = f"admin{pascal}Route"
+
+        entity_imports.append(f"import {pascal}Page from './pages/{pascal}Page'")
+
+        # Every entity goes to admin
+        admin_routes.append(
+            f"const {admin_route_var} = createRoute({{\n"
+            f"  getParentRoute: () => adminLayoutRoute,\n"
+            f"  path: '/admin/{table.replace('_', '-')}',\n"
+            f"  component: {pascal}Page,\n"
+            f"}})"
+        )
+        admin_children.append(f"    {admin_route_var},")
+
+        # Customer-like entities also appear in the customer portal (read-oriented)
+        is_customer_entity = any(k in table.lower() for k in _customer_kws)
+        if is_customer_entity:
+            customer_routes.append(
+                f"const {route_var} = createRoute({{\n"
+                f"  getParentRoute: () => customerLayoutRoute,\n"
+                f"  path: '/{table.replace('_', '-')}',\n"
+                f"  component: {pascal}Page,\n"
+                f"}})"
+            )
+            customer_children.append(f"    {route_var},")
+
+    imports_str = "\n".join(entity_imports)
+    admin_routes_str = "\n\n".join(admin_routes)
+    customer_routes_str = "\n\n".join(customer_routes)
+    admin_children_str = "\n".join(admin_children)
+    customer_children_str = "\n".join(customer_children)
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend — dual portal (customer + admin)
+import {{ createRootRoute, createRoute, createRouter, Outlet, redirect }} from '@tanstack/react-router'
+import {{ CustomerLayout }} from './components/CustomerLayout'
+import {{ AdminLayout }} from './components/AdminLayout'
+import {{ LoginPage }} from './pages/LoginPage'
+import CustomerHome from './pages/CustomerHome'
+import AdminDashboard from './pages/Dashboard'
+{imports_str}
+
+function _getRole(): string | null {{
+  try {{
+    const t = localStorage.getItem('token')
+    if (!t) return null
+    return JSON.parse(atob(t.split('.')[1]))?.role ?? 'user'
+  }} catch {{ return null }}
+}}
+
+const rootRoute = createRootRoute({{ component: () => <Outlet /> }})
+
+// ── Customer portal ───────────────────────────────────────────────────────────
+const customerLayoutRoute = createRoute({{
+  getParentRoute: () => rootRoute,
+  id: 'customer',
+  component: CustomerLayout,
+  beforeLoad: () => {{
+    if (!localStorage.getItem('token')) throw redirect({{ to: '/login' }})
+  }},
+}})
+
+const customerHomeRoute = createRoute({{
+  getParentRoute: () => customerLayoutRoute,
+  path: '/',
+  component: CustomerHome,
+}})
+
+{customer_routes_str}
+
+// ── Admin portal ──────────────────────────────────────────────────────────────
+const adminLayoutRoute = createRoute({{
+  getParentRoute: () => rootRoute,
+  id: 'admin',
+  component: AdminLayout,
+  beforeLoad: () => {{
+    const role = _getRole()
+    if (!role) throw redirect({{ to: '/login' }})
+    if (role !== 'admin') throw redirect({{ to: '/' }})
+  }},
+}})
+
+const adminDashboardRoute = createRoute({{
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin',
+  component: AdminDashboard,
+}})
+
+{admin_routes_str}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+const loginRoute = createRoute({{
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
+}})
+
+const routeTree = rootRoute.addChildren([
+  loginRoute,
+  customerLayoutRoute.addChildren([
+    customerHomeRoute,
+{customer_children_str}
+  ]),
+  adminLayoutRoute.addChildren([
+    adminDashboardRoute,
+{admin_children_str}
+  ]),
+])
+
+export const router = createRouter({{ routeTree, basepath: '/app-preview' }})
+
+declare module '@tanstack/react-router' {{
+  interface Register {{ router: typeof router }}
+}}
+"""
+
+
+def _generate_admin_layout(entities: List[dict], project_name: str) -> str:
+    """Generate AdminLayout.tsx — dark sidebar for the owner/operator portal."""
+    nav_items: List[str] = [f"  {{ to: '/admin' as const, label: 'Dashboard', icon: 'LayoutDashboard' }},"]
+    for ent in entities:
+        table = ent["table"]
+        label = _to_label(table)
+        icon = _entity_icon(table)
+        nav_items.append(f"  {{ to: '/admin/{table.replace('_', '-')}' as const, label: '{label}', icon: '{icon}' }},")
+    nav_str = "\n".join(nav_items)
+    icons_needed = sorted({"LayoutDashboard", "LogOut"} | {_entity_icon(e["table"]) for e in entities})
+    icons_import = ", ".join(icons_needed)
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend — admin/owner portal layout
+import {{ Outlet, Link, useRouter }} from '@tanstack/react-router'
+import {{ {icons_import} }} from 'lucide-react'
+import {{ clearToken }} from '../lib/auth'
+
+const _ICON_MAP: Record<string, React.FC<any>> = {{ {", ".join(f"'{i}': {i}" for i in icons_needed)} }}
+
+const NAV = [
+{nav_str}
+]
+
+export function AdminLayout() {{
+  const router = useRouter()
+  const handleLogout = () => {{ clearToken(); router.navigate({{ to: '/login' }}) }}
+  return (
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      <aside className="w-64 bg-gray-900 text-white flex flex-col shrink-0">
+        <div className="px-6 py-5 border-b border-gray-700">
+          <span className="text-lg font-bold text-white">{project_name}</span>
+          <span className="ml-2 text-xs bg-brand-600 text-white px-2 py-0.5 rounded-full font-semibold">Admin</span>
+        </div>
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {{NAV.map(item => {{
+            const Icon = _ICON_MAP[item.icon]
+            return (
+              <Link key={{item.to}} to={{item.to}}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors [&.active]:bg-brand-600 [&.active]:text-white text-sm font-medium">
+                {{Icon && <Icon size={{16}} />}} {{item.label}}
+              </Link>
+            )
+          }})}}
+        </nav>
+        <div className="px-3 py-4 border-t border-gray-700 space-y-1">
+          <a href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white text-sm transition-colors">
+            <span className="text-xs">🌐</span> Customer View
+          </a>
+          <button onClick={{handleLogout}}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white text-sm transition-colors">
+            <LogOut size={{16}} /> Logout
+          </button>
+        </div>
+      </aside>
+      <main className="flex-1 overflow-y-auto">
+        <Outlet />
+      </main>
+    </div>
+  )
+}}
+"""
+
+
+def _generate_customer_layout(entities: List[dict], project_name: str) -> str:
+    """Generate CustomerLayout.tsx — clean top-nav for the end-user/customer portal."""
+    # Customer nav items: only browsable entity pages
+    _customer_kws = ("product", "item", "listing", "service", "book", "course", "event",
+                     "article", "post", "property", "menu", "catalog")
+    nav_items: List[str] = [f"  {{ to: '/' as const, label: 'Home' }},"]
+    for ent in entities:
+        table = ent["table"]
+        if any(k in table.lower() for k in _customer_kws):
+            label = _to_label(table)
+            nav_items.append(f"  {{ to: '/{table.replace('_', '-')}' as const, label: '{label}' }},")
+    nav_str = "\n".join(nav_items)
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend — customer-facing portal layout
+import {{ Outlet, Link, useRouter }} from '@tanstack/react-router'
+import {{ LogOut, User }} from 'lucide-react'
+import {{ clearToken, getToken }} from '../lib/auth'
+
+const NAV = [
+{nav_str}
+]
+
+export function CustomerLayout() {{
+  const router = useRouter()
+  const handleLogout = () => {{ clearToken(); router.navigate({{ to: '/login' }}) }}
+  const isLoggedIn = !!getToken()
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <Link to="/" className="text-xl font-extrabold text-gray-900 hover:text-brand-600 transition-colors">
+            {project_name}
+          </Link>
+          <nav className="hidden md:flex items-center gap-1">
+            {{NAV.map(item => (
+              <Link key={{item.to}} to={{item.to}}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors [&.active]:text-brand-600 [&.active]:bg-brand-50">
+                {{item.label}}
+              </Link>
+            ))}}
+          </nav>
+          <div className="flex items-center gap-2">
+            {{isLoggedIn ? (
+              <button onClick={{handleLogout}}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                <LogOut size={{15}} /> Sign out
+              </button>
+            ) : (
+              <Link to="/login"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-lg hover:bg-brand-700 transition-colors">
+                <User size={{15}} /> Sign in
+              </Link>
+            )}}
+          </div>
+        </div>
+      </header>
+      <main className="flex-1">
+        <Outlet />
+      </main>
+      <footer className="bg-gray-50 border-t border-gray-100 py-8 mt-12">
+        <div className="max-w-7xl mx-auto px-4 text-center text-sm text-gray-400">
+          © {{new Date().getFullYear()}} {project_name}
+        </div>
+      </footer>
+    </div>
+  )
+}}
+"""
+
+
+def _generate_customer_home(
+    entities: List[dict], route_map: Dict[str, str], project_name: str, domain: str
+) -> str:
+    """Generate CustomerHome.tsx — public-facing landing page for the customer portal."""
+    # Pick the most browsable entity (product-like items)
+    _browse_kws = ("product", "item", "listing", "book", "service", "course", "event",
+                   "article", "menu", "property", "catalog")
+    primary = next(
+        (e for e in entities if any(k in e["table"].lower() for k in _browse_kws)),
+        entities[0] if entities else {"table": "items", "columns": []}
+    )
+    primary_table = primary["table"]
+    primary_label = _to_label(primary_table)
+    primary_endpoint = route_map.get(primary_table, f"/{primary_table}")
+    primary_route = f"/{primary_table.replace('_', '-')}"
+
+    # Domain-specific hero copy
+    _hero_copy = {
+        "ecommerce":   ("Shop the Collection", "Handcrafted products built to last. Free shipping on orders over $50."),
+        "marketplace": ("Discover Unique Finds", "Connect with sellers and discover products you'll love."),
+        "library":     ("Explore Our Collection", "Browse thousands of books. Reserve online, pick up in-store."),
+        "healthcare":  ("Your Health, Your Way", "Book appointments and manage your health records online."),
+        "education":   ("Learn Something New", "Explore courses from expert instructors at your own pace."),
+        "hospitality": ("Book Your Stay", "Discover beautiful rooms and seamless experiences."),
+        "events":      ("Find Your Next Event", "Concerts, workshops, and experiences near you."),
+        "food":        ("Order Fresh, Eat Well", "Restaurant-quality meals delivered to your door."),
+        "saas":        ("Start Building Today", "Powerful tools to grow your business faster."),
+    }
+    hero_title, hero_sub = _hero_copy.get(domain, (f"Welcome to {project_name}", "Explore what we have to offer."))
+
+    return f"""\
+// Auto-generated by AetherOS p05_frontend — customer home
+import React from 'react'
+import {{ useQuery }} from '@tanstack/react-query'
+import {{ Link }} from '@tanstack/react-router'
+import {{ apiClient }} from '../lib/api'
+import {{ ArrowRight, Star }} from 'lucide-react'
+
+export default function CustomerHome() {{
+  const {{ data: raw, isLoading }} = useQuery({{
+    queryKey: ['{primary_table}'],
+    queryFn: () => apiClient.get('{primary_endpoint}').then(r => r.data),
+    staleTime: 60_000,
+  }})
+  const items: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.data ?? [])
+  const featured = items.slice(0, 8)
+
+  return (
+    <div className="min-h-screen bg-white">
+      {{/* Hero */}}
+      <section className="bg-gradient-to-br from-gray-900 via-brand-900 to-brand-700 text-white py-24 md:py-36 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-[0.06]"
+          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)' }}}} />
+        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h1 className="text-5xl md:text-7xl font-extrabold leading-none tracking-tight mb-6">
+            {hero_title}
+          </h1>
+          <p className="text-lg md:text-xl text-gray-300 mb-10 max-w-2xl mx-auto">{hero_sub}</p>
+          <Link to="{primary_route}"
+            className="inline-flex items-center gap-2 bg-white text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl">
+            Browse {primary_label} <ArrowRight size={{18}} />
+          </Link>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0">
+          <svg viewBox="0 0 1440 40" fill="white" preserveAspectRatio="none" className="w-full h-8">
+            <path d="M0,40 C360,0 1080,40 1440,10 L1440,40 Z" />
+          </svg>
+        </div>
+      </section>
+
+      {{/* Featured items */}}
+      <section className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-end justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-900">Featured {primary_label}</h2>
+            <p className="text-gray-500 mt-1 text-sm">Handpicked just for you</p>
+          </div>
+          <Link to="{primary_route}" className="text-sm font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1">
+            View all <ArrowRight size={{14}} />
+          </Link>
+        </div>
+        {{isLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {{[...Array(8)].map((_,i) => (
+              <div key={{i}} className="rounded-2xl bg-gray-100 h-64 animate-pulse" />
+            ))}}
+          </div>
+        ) : featured.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">No items found.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {{featured.map((item: any, i: number) => {{
+              const seed = item.id ?? i + 1
+              const name = item.name ?? item.title ?? item.label ?? `Item ${{item.id}}`
+              const price = item.price ?? item.unit_price ?? item.fee ?? null
+              return (
+                <Link key={{item.id ?? i}} to="{primary_route}"
+                  className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden flex flex-col">
+                  <div className="aspect-square bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
+                    <img src={{`https://picsum.photos/seed/${{seed}}/400/400`}} alt={{name}}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy" onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}} />
+                  </div>
+                  <div className="p-4 flex flex-col flex-1">
+                    <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2">{{name}}</h3>
+                    <div className="flex items-center gap-1 mb-3">
+                      {{[1,2,3,4,5].map(s => <Star key={{s}} size={{11}} className="fill-amber-400 text-amber-400" />)}}
+                    </div>
+                    {{price != null && (
+                      <p className="text-lg font-bold text-gray-900 mt-auto">${{typeof price === 'number' ? price.toFixed(2) : price}}</p>
+                    )}}
+                  </div>
+                </Link>
+              )
+            }})}}
+          </div>
+        )}}
+      </section>
+    </div>
+  )
+}}
+"""
+
+
 def _generate_layout(entities: List[dict], project_name: str, layout_mode: str = "admin") -> str:
     """Generate src/components/Layout.tsx."""
     # Collect icons needed
     icons_needed = {"LayoutDashboard", "LogOut"}
+    for ent in entities:
+        icons_needed.add(_entity_icon(ent["table"]))
     for ent in entities:
         icons_needed.add(_entity_icon(ent["table"]))
 
@@ -2222,6 +2633,79 @@ Copy `.env.example` to `.env` and set:
 
 
 def _generate_login_page(project_name: str, layout_mode: str = "admin") -> str:
+    if layout_mode == "dual":
+        return f"""\
+// Auto-generated by AetherOS p05_frontend — dual portal login
+import {{ useState }} from 'react'
+import {{ useNavigate }} from '@tanstack/react-router'
+import {{ authApi }} from '../lib/api'
+import {{ setToken }} from '../lib/auth'
+
+function _getRole(token: string): string {{
+  try {{ return JSON.parse(atob(token.split('.')[1]))?.role ?? 'user' }}
+  catch {{ return 'user' }}
+}}
+
+export function LoginPage() {{
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
+
+  const handleSubmit = async (e: React.FormEvent) => {{
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    try {{
+      const {{ access_token }} = await authApi.login(email, password)
+      setToken(access_token)
+      const role = _getRole(access_token)
+      // Route admins to the management portal, everyone else to the customer portal
+      navigate({{ to: role === 'admin' ? '/admin' : '/' }})
+    }} catch {{
+      setError('Invalid email or password')
+    }} finally {{
+      setLoading(false)
+    }}
+  }}
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-extrabold text-gray-900">{project_name}</h1>
+          <p className="text-gray-500 mt-1 text-sm">Sign in to your account</p>
+        </div>
+        <form onSubmit={{handleSubmit}} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" value={{email}} onChange={{e => setEmail(e.target.value)}} required
+              placeholder="you@example.com"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <input type="password" value={{password}} onChange={{e => setPassword(e.target.value)}} required
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+          </div>
+          {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
+          <button type="submit" disabled={{loading}}
+            className="w-full py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-50 font-semibold text-sm transition-colors">
+            {{loading ? 'Signing in…' : 'Sign in'}}
+          </button>
+        </form>
+        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
+          <p className="font-semibold text-amber-800">Demo credentials</p>
+          <p className="text-amber-700">Admin: <span className="font-mono">admin@example.com</span> / <span className="font-mono">Admin1234!</span></p>
+          <p className="text-amber-700">User: <span className="font-mono">user@example.com</span> / <span className="font-mono">User1234!</span></p>
+        </div>
+      </div>
+    </div>
+  )
+}}
+"""
+
     if layout_mode == "storefront":
         return f"""\
 // Auto-generated by AetherOS p05_frontend (storefront login)
@@ -3259,20 +3743,30 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _raw = data.get("raw_input", "").lower()
     _domain_val = domain  # already detected above
 
+    # Domains that benefit from dual portal (customer-facing + owner/admin split)
+    _dual_portal_domains = ("ecommerce", "marketplace", "library", "healthcare",
+                             "hospitality", "education", "events", "real_estate",
+                             "fitness", "food", "saas")
+    # Domains that are purely internal management tools
+    _internal_only_domains = ("crm", "hrm", "analytics", "fintech", "iot",
+                               "security", "logistics")
+
     if "layout_mode" in (designer_spec or {}):
         layout_mode = designer_spec["layout_mode"]
     elif _layout_from_spec:
         layout_mode = _layout_from_spec
-    elif "storefront" in _raw or "customer-facing" in _raw or "marketing" in _raw or "landing" in _raw or "shop" in _raw:
+    elif "dual portal" in _raw or "customer portal" in _raw or "admin portal" in _raw:
+        layout_mode = "dual"
+    elif "storefront" in _raw or "customer-facing" in _raw or "landing" in _raw:
         layout_mode = "storefront"
-    elif "admin" in _raw or "dashboard" in _raw or "management" in _raw or "panel" in _raw:
+    elif "admin" in _raw or "management" in _raw or "panel" in _raw or "internal" in _raw:
         layout_mode = "admin"
-    elif _domain_val in ("ecommerce", "marketplace"):
-        layout_mode = "storefront"
-    elif _domain_val in ("analytics", "saas", "fintech", "healthcare"):
-        layout_mode = "dashboard"
+    elif _domain_val in _dual_portal_domains:
+        layout_mode = "dual"
+    elif _domain_val in _internal_only_domains:
+        layout_mode = "admin"
     else:
-        layout_mode = "admin"
+        layout_mode = "dual"  # default: generate both portals
     logger.info("p05_frontend: layout_mode=%s", layout_mode)
 
     # 3. Build frontend/ directory
@@ -3314,15 +3808,37 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "types" / "index.ts").write_text(_generate_types(entities))
 
     # ── components/ ───────────────────────────────────────────────────────────
-    (src_dir / "components" / "Layout.tsx").write_text(_generate_layout(entities, project_name, layout_mode=layout_mode))
+    if layout_mode == "dual":
+        # Dual portal: separate customer-facing and admin layouts
+        (src_dir / "components" / "CustomerLayout.tsx").write_text(
+            _generate_customer_layout(entities, project_name)
+        )
+        (src_dir / "components" / "AdminLayout.tsx").write_text(
+            _generate_admin_layout(entities, project_name)
+        )
+        # Keep Layout.tsx as alias pointing to AdminLayout for backwards compat
+        (src_dir / "components" / "Layout.tsx").write_text(
+            "export { AdminLayout as Layout } from './AdminLayout'\n"
+        )
+    else:
+        (src_dir / "components" / "Layout.tsx").write_text(
+            _generate_layout(entities, project_name, layout_mode=layout_mode)
+        )
     (src_dir / "components" / "DataTable.tsx").write_text(_generate_data_table())
     (src_dir / "components" / "CrudModal.tsx").write_text(_generate_crud_modal())
     (src_dir / "components" / "Toaster.tsx").write_text(_generate_toaster())
     (src_dir / "components" / "ErrorBoundary.tsx").write_text(_generate_error_boundary())
 
     # ── pages/ ────────────────────────────────────────────────────────────────
-    (src_dir / "pages" / "LoginPage.tsx").write_text(_generate_login_page(project_name, layout_mode=layout_mode))
+    (src_dir / "pages" / "LoginPage.tsx").write_text(
+        _generate_login_page(project_name, layout_mode=layout_mode)
+    )
     (src_dir / "pages" / "NotFoundPage.tsx").write_text(_generate_not_found_page())
+    if layout_mode == "dual":
+        # Generate customer-facing home page (browsing/self-service)
+        (src_dir / "pages" / "CustomerHome.tsx").write_text(
+            _generate_customer_home(entities, route_map, project_name, domain)
+        )
 
     if _domain_ir and _domain_ir.entities:
         # IR fast-path: dashboard with real KPI cards, entity pages with typed forms
@@ -3386,7 +3902,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 )
 
     # ── App.tsx ───────────────────────────────────────────────────────────────
-    (src_dir / "App.tsx").write_text(_generate_app(entities))
+    (src_dir / "App.tsx").write_text(_generate_app(entities, dual_portal=(layout_mode == "dual")))
 
     # ── Tests ─────────────────────────────────────────────────────────────────
     tests_dir = src_dir / "__tests__"
