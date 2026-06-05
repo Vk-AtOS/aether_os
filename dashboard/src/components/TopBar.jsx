@@ -95,7 +95,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const [fetchError, setFetchError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
-  const isOnWizard = location.pathname === '/new-project';
+  const isOnWizard = location.pathname === '/new';
 
   // Live settings from context — updates instantly when settings are saved
   const { activeProvider, activeModel } = useSettings();
@@ -263,7 +263,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
           </div>
 
           <button
-            onClick={() => isOnWizard ? null : navigate('/new-project')}
+            onClick={() => isOnWizard ? null : navigate('/new')}
             disabled={isOnWizard}
             aria-label="Create new project"
             aria-disabled={isOnWizard}

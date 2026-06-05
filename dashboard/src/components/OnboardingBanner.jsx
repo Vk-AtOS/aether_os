@@ -54,7 +54,7 @@ const OnboardingBanner = ({ hasRuns, hasApiKey }) => {
       icon: Rocket,
       title: 'Run your first pipeline',
       desc: 'Describe your project and AetherOS will generate production-ready code.',
-      action: () => navigate('/new-project'),
+      action: () => navigate('/new'),
       actionLabel: 'Start Project',
     },
   ];
