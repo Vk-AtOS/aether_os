@@ -17,13 +17,13 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/guardian", tags=["Guardian"])
 
 
 def _get_current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 
@@ -39,7 +39,6 @@ async def guardian_status(
     user: Dict[str, Any] = Depends(lambda: None),
 ) -> Dict[str, Any]:
     """Current threat level, last snapshot, and live service health."""
-    from aether_os.gateway.api import get_current_user
     from fastapi import Request
 
     # Soft auth — return public-safe data without blocking unauthenticated callers

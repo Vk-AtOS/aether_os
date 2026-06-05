@@ -35,7 +35,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -79,7 +78,9 @@ _init_sentry()
 # B5: Strong references prevent GC from silently killing in-flight background tasks.
 _background_tasks: set = set()
 
-security_scheme = HTTPBearer(auto_error=False)
+# Auth dependency — defined in gateway/dependencies.py to avoid circular imports.
+# Re-exported here for any code that imports it from api directly.
+from aether_os.gateway.dependencies import security_scheme, get_current_user  # noqa: E402
 
 
 # ── CORS configuration (Bug 3 fix) ────────────────────────────────────────────
@@ -247,74 +248,7 @@ class HttpsRedirectMiddleware(BaseHTTPMiddleware):
 # SecurityHeadersMiddleware and HttpsRedirectMiddleware are always-on in production.
 # HttpsRedirectMiddleware is gated by FORCE_HTTPS env var so local dev still works.
 
-async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
-) -> Dict[str, Any]:
-    """FastAPI dependency: validates JWT token or API Key, returns user claims."""
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        )
-    
-    token = credentials.credentials
-    from aether_os.gateway.auth import decode_access_token, hash_api_key, verify_api_key
-    
-    # 1. Try JWT
-    payload = decode_access_token(token)
-    if payload:
-        # Reject partial MFA tokens — these may only be used at /auth/mfa/confirm
-        if payload.get("mfa_pending"):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="MFA verification required. Complete sign-in at /auth/mfa/confirm.",
-            )
-        jti = payload.get("jti")
-        if jti:
-            try:
-                from aether_os.core.pipeline_state import get_redis
-                r = await get_redis()
-                if r and await r.exists(f"jwt:blacklist:{jti}"):
-                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
-            except HTTPException:
-                raise
-            except Exception:
-                pass
-        return payload
-    
-    # 2. Try API Key
-    if token.startswith("aesk_"):
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import APIKey, Organisation
-        from sqlalchemy import select
-        
-        hashed = hash_api_key(token)
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            stmt = select(APIKey, Organisation).join(Organisation).where(
-                APIKey.key_hash == hashed,
-                APIKey.is_active == True
-            )
-            result = await session.execute(stmt)
-            row = result.fetchone()
-            if row:
-                api_key, org = row
-                # Update last_used_at (optional, but good for UX)
-                api_key.last_used_at = time.time()
-                await session.commit()
-                
-                return {
-                    "sub": "api_key",
-                    "org_id": org.id,
-                    "org_slug": org.slug,
-                    "plan": org.plan,
-                    "role": "api"
-                }
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token",
-    )
+# get_current_user is now defined in gateway/dependencies.py and re-exported above.
 
 
 # ── Generated-app process state — delegated to core.app_state (Redis-backed) ──
@@ -599,11 +533,14 @@ def create_app() -> FastAPI:
 
         # ── Guardian Watchdog ─────────────────────────────────────────────────
         # Autonomous self-monitoring: threat detection, snapshots, auto-recovery.
+        # Strong reference kept in _background_tasks WITHOUT a discard callback so
+        # the task is never GC'd if it exits early (bug [16]).
         try:
             from aether_os.core.guardian.watchdog import get_watchdog as _get_guardian
             _guardian_task = asyncio.create_task(_get_guardian().start())
             _background_tasks.add(_guardian_task)
-            _guardian_task.add_done_callback(_background_tasks.discard)
+            # Do NOT add a discard callback — the task must stay referenced even if
+            # it finishes/crashes so Python's GC cannot collect it silently.
             logger.info("Guardian watchdog started")
         except Exception as _gw_exc:
             logger.warning("Guardian watchdog failed to start: %s", _gw_exc)
@@ -743,60 +680,61 @@ def create_app() -> FastAPI:
     api_router = APIRouter(prefix="/api")
 
     # ── Mount all routers ─────────────────────────────────────────────────────
+    # Each entry: (name, module, attr_name, extra_kwargs, required)
+    # required=True  → startup aborts if the router cannot be imported (fail-fast)
+    # required=False → logs a warning and continues (optional / deployment-specific)
     app.include_router(api_router)
 
-    # Routers with individual try/except (may be absent in some deployments)
-    for _imp, _attr, _kw in [
-        ("aether_os.gateway.routers.auth_router",      "router",      {}),
-        ("aether_os.gateway.routers.plugins_router",   "router",      {"prefix": "/v2"}),
-        ("aether_os.phases.p08_cicd.webhook",          "router",      {"tags": ["CI/CD"]}),
-        ("aether_os.gateway.client_portal.routes",     "router",      {}),
-        ("aether_os.gateway.mcp_router",               "router",      {}),
-        ("aether_os.gateway.auth_saml",                "saml_router", {}),
-        ("aether_os.gateway.auth_oauth",               "oauth_router",{}),
-        ("aether_os.gateway.auth_mfa",                 "mfa_router",  {}),
-    ]:
-        try:
-            import importlib as _il
-            _m = _il.import_module(_imp)
-            app.include_router(getattr(_m, _attr), **_kw)
-        except Exception as _exc:
-            logger.warning("Router %s not loaded: %s", _imp, _exc)
+    _ROUTERS = [
+        # --- Required: core auth & user-facing API ---
+        ("auth",          "aether_os.gateway.routers.auth_router",          "router",       {},                        True),
+        ("health",        "aether_os.gateway.routers.health_router",        "router",       {},                        True),
+        ("admin",         "aether_os.gateway.routers.admin_router",         "router",       {},                        True),
+        ("factory_runs",  "aether_os.gateway.routers.factory_runs_router",  "router",       {},                        True),
+        ("factory_ops",   "aether_os.gateway.routers.factory_ops_router",   "router",       {},                        True),
+        ("account",       "aether_os.gateway.routers.account_router",       "router",       {},                        True),
+        ("billing",       "aether_os.gateway.routers.billing_router",       "router",       {},                        True),
+        ("settings",      "aether_os.gateway.routers.settings_router",      "router",       {},                        True),
+        # --- Optional: present in most deployments but non-critical ---
+        ("metrics",       "aether_os.gateway.routers.metrics_router",       "router",       {},                        False),
+        ("spa",           "aether_os.gateway.routers.spa_router",           "router",       {},                        False),
+        ("legal",         "aether_os.gateway.routers.legal_router",         "router",       {},                        False),
+        ("notifications", "aether_os.gateway.routers.notifications_router", "router",       {},                        False),
+        ("learning",      "aether_os.gateway.routers.learning_router",      "router",       {},                        False),
+        ("memory",        "aether_os.gateway.routers.memory_router",        "router",       {},                        False),
+        ("webhooks",      "aether_os.gateway.routers.webhooks_router",      "router",       {},                        False),
+        ("workspaces",    "aether_os.gateway.routers.workspaces_router",    "router",       {},                        False),
+        ("marketplace",   "aether_os.gateway.routers.marketplace_router",   "router",       {},                        False),
+        ("billing_stripe","aether_os.gateway.routers.billing_stripe_router","router",       {},                        False),
+        ("system",        "aether_os.gateway.routers.system_router",        "router",       {},                        False),
+        ("intelligence",  "aether_os.gateway.routers.intelligence_router",  "router",       {},                        False),
+        ("compliance",    "aether_os.gateway.routers.compliance_router",    "router",       {},                        False),
+        ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),
+        ("agents",        "aether_os.gateway.routers.agents_router",        "router",       {},                        False),
+        ("guardian",      "aether_os.gateway.routers.guardian_router",      "router",       {},                        False),
+        ("app_preview",   "aether_os.gateway.routers.app_preview_router",   "router",       {},                        False),
+        # --- Plugin / optional integrations ---
+        ("plugins",       "aether_os.gateway.routers.plugins_router",       "router",       {"prefix": "/v2"},         False),
+        ("cicd_webhook",  "aether_os.phases.p08_cicd.webhook",              "router",       {"tags": ["CI/CD"]},       False),
+        ("client_portal", "aether_os.gateway.client_portal.routes",         "router",       {},                        False),
+        ("mcp",           "aether_os.gateway.mcp_router",                   "router",       {},                        False),
+        ("saml",          "aether_os.gateway.auth_saml",                    "saml_router",  {},                        False),
+        ("oauth",         "aether_os.gateway.auth_oauth",                   "oauth_router", {},                        False),
+        ("mfa",           "aether_os.gateway.auth_mfa",                     "mfa_router",   {},                        False),
+    ]
 
-    # Domain routers — extracted from api.py (QUAL-002)
-    for _rname, _rmod, _prefix in [
-        ("health",        "aether_os.gateway.routers.health_router",        ""),
-        ("metrics",       "aether_os.gateway.routers.metrics_router",       ""),
-        ("spa",           "aether_os.gateway.routers.spa_router",           ""),
-        ("legal",         "aether_os.gateway.routers.legal_router",         ""),
-        ("notifications", "aether_os.gateway.routers.notifications_router", ""),
-        ("learning",      "aether_os.gateway.routers.learning_router",      ""),
-        ("memory",        "aether_os.gateway.routers.memory_router",        ""),
-        ("webhooks",      "aether_os.gateway.routers.webhooks_router",      ""),
-        ("workspaces",    "aether_os.gateway.routers.workspaces_router",    ""),
-        ("marketplace",   "aether_os.gateway.routers.marketplace_router",   ""),
-        ("billing",       "aether_os.gateway.routers.billing_router",       ""),
-        ("billing_stripe","aether_os.gateway.routers.billing_stripe_router", ""),
-        ("account",       "aether_os.gateway.routers.account_router",       ""),
-        ("admin",         "aether_os.gateway.routers.admin_router",         ""),
-        ("settings",      "aether_os.gateway.routers.settings_router",      ""),
-        ("system",        "aether_os.gateway.routers.system_router",        ""),
-        ("intelligence",  "aether_os.gateway.routers.intelligence_router",  ""),
-        ("compliance",    "aether_os.gateway.routers.compliance_router",    ""),
-        ("scim",          "aether_os.gateway.routers.scim_router",          ""),
-        ("agents",        "aether_os.gateway.routers.agents_router",        ""),
-        ("factory_ops",   "aether_os.gateway.routers.factory_ops_router",   ""),
-        ("factory_runs",  "aether_os.gateway.routers.factory_runs_router",  ""),
-        ("guardian",      "aether_os.gateway.routers.guardian_router",      ""),
-        ("app_preview",   "aether_os.gateway.routers.app_preview_router",   ""),
-    ]:
+    import importlib as _importlib
+    for _rname, _rmod, _rattr, _rkw, _required in _ROUTERS:
         try:
-            import importlib as _il2
-            _m2 = _il2.import_module(_rmod)
-            app.include_router(_m2.router, prefix=_prefix)
+            _m = _importlib.import_module(_rmod)
+            app.include_router(getattr(_m, _rattr), **_rkw)
             logger.info("Mounted router: %s", _rname)
-        except Exception as _exc2:
-            logger.critical("Failed to mount %s router: %s", _rname, _exc2)
+        except Exception as _exc:
+            if _required:
+                raise RuntimeError(
+                    f"Critical router {_rname!r} ({_rmod}) failed to load — aborting startup: {_exc}"
+                ) from _exc
+            logger.warning("Optional router %s not loaded (non-fatal): %s", _rname, _exc)
 
     # ── Dashboard static files — served by spa_router (see gateway/routers/spa_router.py)
     # Static asset mount: needed so /dashboard/assets/* are served directly by StaticFiles

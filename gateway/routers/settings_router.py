@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from aether_os.gateway.dependencies import get_current_user
 
 router = APIRouter(tags=["settings"])
 
@@ -39,7 +40,6 @@ logger = logging.getLogger(__name__)
 
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 

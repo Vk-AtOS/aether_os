@@ -45,6 +45,22 @@ CRITICAL_PHASES = frozenset({
     "p04_backend",              # no backend → p05 integration fails completely
 })
 
+# Phase directories that exist on disk but are NOT registered in PHASE_SUPERVISORS
+# and are therefore never executed by the active pipeline.  These are legacy
+# validator / gate-testing utilities from a v1→v2 consolidation.  Do not add
+# them to PHASE_SEQUENCE or PHASE_SUPERVISORS without implementing the
+# corresponding *Supervisor class.
+INACTIVE_PHASE_DIRS = frozenset({
+    "p00_intake",
+    "p01_requirements",
+    "p04a_backend_codegen",
+    "p04b_uiux_design",
+    "p07a_unit_testing",
+    "p07b_performance_testing",
+    "p07c_accessibility_testing",
+    "p07d_e2e_testing",
+})
+
 # Ordered 20-phase sequence (12 core + 8 post-deployment)
 PHASE_SEQUENCE = [
     "p01_intake_requirements",
@@ -103,9 +119,20 @@ def _load_supervisor(phase_name: str):
     if not class_path:
         return None
     module_path, class_name = class_path.rsplit(".", 1)
-    import importlib
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)()
+    try:
+        import importlib
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name)
+        if not callable(cls):
+            raise TypeError(f"{class_path} is not callable — expected a Supervisor class")
+        return cls()
+    except (ImportError, AttributeError, TypeError) as exc:
+        logger.error(
+            "[pipeline] Cannot load supervisor %r for phase %r: %s — "
+            "phase will be skipped. Fix PHASE_SUPERVISORS or the module.",
+            class_path, phase_name, exc,
+        )
+        raise
 
 
 class FactoryPipeline:
@@ -200,12 +227,16 @@ class FactoryPipeline:
             run_id=run_id,
         )
 
+        if not org_id:
+            logger.error("[pipeline] org_id is required to create a run — aborting (run=%s)", run_id)
+            raise ValueError("org_id is required: runs without an org bypass quota tracking and billing")
+
         try:
             from aether_os.core.db_utils import create_run as _create_run
             await _create_run(
                 run_id=run_id,
                 command=f"factory: {raw_input[:60]}",
-                org_id=org_id or "",
+                org_id=org_id,
                 project_name=project_name or f"project-{run_id[:8]}",
                 domain=domain,
                 client_id=client_id,
@@ -293,7 +324,7 @@ class FactoryPipeline:
                     logger.info("Injected %d learning pattern type(s) for %s",
                                 len(_learned), client_id)
             except Exception as _le:
-                logger.debug("Learning context unavailable (non-fatal): %s", _le)
+                logger.warning("Learning context unavailable — phases will run without personalisation (run=%s): %s", run_id, _le)
         
         # 10-phase consolidated pipeline
         ACTIVE_PHASES = PHASE_SEQUENCE  # All 10 consolidated phases
@@ -315,6 +346,18 @@ class FactoryPipeline:
             async with _sf_ckpt() as _sess_ckpt:
                 _run_rec = await _sess_ckpt.get(_Run_ckpt, run_id)
                 _ckpt = _run_rec.checkpoint_data if _run_rec else None
+            # Schema validation: checkpoint must have both required keys or we ignore it
+            # to prevent silent resume-logic breakage on schema drift ([21]).
+            if _ckpt and not isinstance(_ckpt, dict):
+                logger.warning("[pipeline] Ignoring malformed checkpoint_data (not a dict) for run %s", run_id)
+                _ckpt = None
+            if _ckpt and not ("last_completed_phase" in _ckpt and "accumulated_context" in _ckpt):
+                logger.warning(
+                    "[pipeline] Ignoring checkpoint_data with unexpected schema for run %s "
+                    "(got keys: %s — expected last_completed_phase + accumulated_context)",
+                    run_id, list(_ckpt.keys()),
+                )
+                _ckpt = None
             if _ckpt and _ckpt.get("last_completed_phase"):
                 _last_done = _ckpt["last_completed_phase"]
                 _saved_ctx = _ckpt.get("accumulated_context") or {}
@@ -351,7 +394,7 @@ class FactoryPipeline:
                 _bridge.register_pipeline(run_id, list(phases_to_run))
                 logger.info("Aether2Bridge connected to %s, monitoring %d phases", _dcsp_url, len(phases_to_run))
             except Exception as _br_exc:
-                logger.debug("Aether2Bridge init non-fatal: %s", _br_exc)
+                logger.warning("Aether2Bridge init failed — DCSP callbacks will be dropped for run %s: %s", run_id, _br_exc)
                 _bridge = None
 
         results = {}
@@ -503,9 +546,15 @@ class FactoryPipeline:
                                 await asyncio.sleep(3)
                                 _spec_waited += 3
                             else:
-                                # Timeout: auto-approve so the pipeline isn't blocked forever
-                                logger.warning("[pipeline] Spec review timeout — auto-approving (run=%s)", run_id)
-                                await set_control(run_id, "running")
+                                # Timeout: abort instead of silently approving an unreviewed spec
+                                logger.warning("[pipeline] Spec review timed out after %ds — aborting run %s (user must re-submit with autonomous_mode=true to skip review)", _spec_timeout, run_id)
+                                await set_control(run_id, "cancel")
+                                await publish_event(run_id, {
+                                    "type": "spec_review_timeout",
+                                    "run_id": run_id,
+                                    "message": f"Spec review timed out after {_spec_timeout}s. Pipeline aborted. Re-submit with autonomous mode enabled to skip review.",
+                                })
+                                raise RuntimeError(f"Pipeline aborted: spec review timeout after {_spec_timeout}s")
                         except RuntimeError:
                             raise
                         except Exception as _sr_exc:
@@ -780,13 +829,14 @@ class FactoryPipeline:
         await self._update_state(run_id, "pipeline", "complete")
         await self.ledger.async_update_run_status(run_id, "council_review")
 
-        # Auto-start the generated app via the proper run_app logic
-        # (builds frontend, patches SQLite, handles crash fallback)
+        # Auto-start the generated app via the HTTP layer.
+        # Import the router function via a service shim so the orchestrator does not
+        # directly depend on the HTTP router module (architectural fix [14]).
         async def _auto_start_app():
             try:
-                from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
+                from aether_os.core.services.run_app_service import _launch_generated_app
                 _system_user = {"org_id": org_id, "user_id": "system", "role": "admin", "email": "system@aetheros.internal"}
-                result = await _sar(run_id=run_id, user=_system_user)
+                result = await _launch_generated_app(run_id=run_id, user=_system_user)
                 logger.info("Auto-started generated app for run %s: %s", run_id, result)
                 await publish_event(run_id, {
                     "type": "app_started",
@@ -858,6 +908,13 @@ class FactoryPipeline:
                     logger.info(
                         "DeliveryCouncil: run %s passed (score=%.2f)", run_id, _council_score
                     )
+                    # Notify frontend so it doesn't stay stuck in "council_review" state
+                    await publish_event(run_id, {
+                        "type": "council_delivery_passed",
+                        "passed": True,
+                        "score": _council_score,
+                        "status": "completed",
+                    })
             except asyncio.TimeoutError:
                 logger.warning(
                     "DeliveryCouncil timed out after 120s for run %s — marking completed", run_id
@@ -874,6 +931,7 @@ class FactoryPipeline:
                         await _s2t.commit()
                 except Exception:
                     pass
+                await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_timeout"})
             except Exception as _exc:
                 logger.warning("DeliveryCouncil check failed: %s", _exc)
                 # Council unavailable — promote to completed so run is not stuck in council_review
@@ -889,6 +947,7 @@ class FactoryPipeline:
                         await _s2.commit()
                 except Exception:
                     pass
+                await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_error"})
 
         _dc_task = asyncio.create_task(_delivery_council_check())
         _background_tasks.add(_dc_task)
@@ -1076,6 +1135,18 @@ class FactoryPipeline:
                                     continue
                     if _count >= _MAX_ARTIFACTS:
                         break
+                if _count >= _MAX_ARTIFACTS:
+                    logger.warning(
+                        "[pipeline] Artifact embedding truncated at %d (ARTIFACT_EMBED_LIMIT). "
+                        "Some files were not indexed — semantic search will be incomplete for run %s.",
+                        _MAX_ARTIFACTS, run_id,
+                    )
+                    await publish_event(run_id, {
+                        "type": "artifact_embed_truncated",
+                        "limit": _MAX_ARTIFACTS,
+                        "run_id": run_id,
+                        "message": f"Semantic search indexed only the first {_MAX_ARTIFACTS} files. Set ARTIFACT_EMBED_LIMIT to index more.",
+                    })
                 if _errors:
                     logger.warning("[pipeline] Embedded %d artifacts (%d failed) for run %s", _count, _errors, run_id)
                 else:

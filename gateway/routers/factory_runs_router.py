@@ -61,6 +61,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel
+from aether_os.gateway.dependencies import get_current_user
 
 # EventSourceResponse imported lazily inside the stream endpoint to avoid hard dep at module load
 
@@ -95,7 +96,6 @@ class EnvVarsBody(BaseModel):
 # ── Auth helper ────────────────────────────────────────────────────────────────
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 
@@ -1146,11 +1146,12 @@ def get_active_preview_dir() -> Optional[str]:
 
 
 def _free_port() -> int:
-    """Return an unused TCP port on localhost."""
-    import socket as _sock
-    with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    """Return an unused TCP port on localhost.
+
+    For concurrent-safe allocation use core.services.run_app_service.acquire_free_port().
+    """
+    from aether_os.core.services.run_app_service import _free_port as _svc_free_port
+    return _svc_free_port()
 
 
 def _get_app_ports() -> Dict[str, int]:
@@ -1187,7 +1188,8 @@ async def start_run_app(
         project_id = run_detail["project_id"]
 
     root_dir = get_project_manager().get_project_dir(project_id).resolve()
-    port = _free_port()
+    from aether_os.core.services.run_app_service import acquire_free_port
+    port = await acquire_free_port()
 
     # ── Locate backend entry point ────────────────────────────────────────────
     # Prefer the merged/scaffolded version (p03 wrote the full app); fall back to p04 codegen.

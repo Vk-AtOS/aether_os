@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from aether_os.gateway.dependencies import get_current_user
 
 router = APIRouter(tags=["learning"])
 
@@ -24,7 +25,6 @@ class FeedbackBody(BaseModel):
 
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 

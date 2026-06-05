@@ -16,12 +16,12 @@ import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from aether_os.gateway.dependencies import get_current_user
 
 router = APIRouter(tags=["account"])
 
 
 def _current_user():
-    from aether_os.gateway.api import get_current_user
     return Depends(get_current_user)
 
 
