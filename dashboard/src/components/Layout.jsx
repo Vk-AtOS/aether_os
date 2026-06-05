@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -6,6 +6,19 @@ import NewProjectModal from './NewProjectModal';
 import { RunsProvider, useRuns } from '../contexts/RunsContext';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { Menu, X } from 'lucide-react';
+
+const PageSkeleton = () => (
+  <div className="p-6 space-y-4 animate-pulse">
+    <div className="h-7 w-48 bg-border/40 rounded-lg" />
+    <div className="grid grid-cols-3 gap-4">
+      {[1,2,3].map(i => <div key={i} className="h-24 bg-border/30 rounded-xl" />)}
+    </div>
+    <div className="h-64 bg-border/20 rounded-xl" />
+    <div className="space-y-2">
+      {[1,2,3,4].map(i => <div key={i} className="h-12 bg-border/20 rounded-lg" style={{width:`${70+i*5}%`}} />)}
+    </div>
+  </div>
+);
 
 function LayoutInner() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -48,7 +61,9 @@ function LayoutInner() {
           />
         </div>
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-6 custom-scrollbar pb-12" role="main">
-          <Outlet context={{ openNewProject: () => setModalOpen(true) }} />
+          <Suspense fallback={<PageSkeleton />}>
+            <Outlet context={{ openNewProject: () => setModalOpen(true) }} />
+          </Suspense>
         </main>
         <footer className="shrink-0 py-2 border-t border-border bg-panel text-center">
           <p className="text-xs text-muted/50">
