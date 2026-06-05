@@ -192,10 +192,20 @@ async def _generate_domain_component(
     component_desc = _DOMAIN_COMPONENT_DESC.get(domain, _DOMAIN_COMPONENT_DESC["saas"])
     entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []
 
+    # Inject golden few-shot examples for this domain
+    golden_hint = ""
+    try:
+        from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p05
+        _examples = await get_golden_examples(domain, limit=2)
+        golden_hint = format_golden_hint_p05(_examples)
+    except Exception:
+        pass
+
     prompt = (
         f'Generate a React functional component for a {domain} application called "{project_name}".\n\n'
         f"The component should render: {component_desc}\n\n"
         f"{mem_hint}"
+        f"{golden_hint}"
         "Hard requirements:\n"
         "- Tailwind CSS only (dark theme: bg-gray-900, bg-gray-800, text-white, etc.)\n"
         "- Use lucide-react icons (import at top: import {{ ... }} from 'lucide-react')\n"

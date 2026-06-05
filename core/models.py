@@ -418,3 +418,37 @@ class CodebaseProfile(Base):
     file_tree: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # {"dirs": [...], "key_files": [...]}
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # one-paragraph description
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class BuildFeedback(Base):
+    """User star-rating and tag feedback on a completed pipeline run."""
+    __tablename__ = "build_feedback"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
+    tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # e.g. ["great-ui", "fast-api", "clean-models"]
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class GoldenBuild(Base):
+    """Curated best-in-class build examples used as few-shot context for LLM prompts."""
+    __tablename__ = "golden_builds"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    domain: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    project_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    prompt_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # first 500 chars of original prompt
+    quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # auto-scored 0-100
+    user_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # avg of BuildFeedback.rating
+    p04_sample: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # excerpt of generated models.py
+    p05_sample: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # excerpt of generated Dashboard.tsx
+    entity_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    domain_ir_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # entity names + fields summary
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

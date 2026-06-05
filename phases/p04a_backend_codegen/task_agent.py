@@ -562,9 +562,19 @@ async def _llm_models_and_schemas(
     """One LLM call → (models.py, schemas.py)."""
     entities_json = json.dumps(entities[:12], indent=2)
 
+    # Inject golden few-shot examples for this domain
+    golden_hint = ""
+    try:
+        from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p04
+        examples = await get_golden_examples(domain, limit=2)
+        golden_hint = format_golden_hint_p04(examples)
+    except Exception:
+        pass
+
     prompt = f"""\
 You are a senior backend engineer. Generate SQLAlchemy async ORM models and Pydantic v2 schemas \
 for a {domain} application called "{project_name}".
+{golden_hint}
 
 Project requirements:
 {raw_input[:3000]}
