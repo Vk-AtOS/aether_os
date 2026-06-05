@@ -1213,6 +1213,7 @@ async def start_run_app(
         raise HTTPException(status_code=422, detail="Could not locate backend src/main.py in generated project.")
 
     import sys as _sys
+    import os as _os
     log_path = root_dir / "run_app.log"
 
     # ── Install Python dependencies ───────────────────────────────────────────
@@ -1346,17 +1347,23 @@ async def start_run_app(
                             _vc_path.write_text(_vc)
                     break
 
-            # Try vite build (skips tsc type checking by default)
+            # Try vite build (skips tsc type checking by default).
+            # NODE_OPTIONS caps the V8 heap so esbuild doesn't OOM on memory-constrained hosts.
             _npx_bin = _sh.which("npx") or "npx"
+            _node_env = {**_os.environ, "NODE_OPTIONS": "--max-old-space-size=512"}
             _vite_result = _sp.run(
                 [_npx_bin, "vite", "build"],
                 cwd=str(frontend_dir), capture_output=True, timeout=300,
+                env=_node_env,
             )
             if _vite_result.returncode != 0:
                 _err = (_vite_result.stderr or b"").decode(errors="replace")[-800:]
                 with open(log_path, "a") as _lf:
-                    _lf.write(f"[AetherOS] Vite build failed:\n{_err}\n")
-                # Second attempt: ensure @vitejs/plugin-react is installed then retry
+                    _lf.write(f"[AetherOS] Vite build failed (rc={_vite_result.returncode}):\n{_err}\n")
+                # Second attempt: ensure @vitejs/plugin-react is installed then retry.
+                # Also lower heap further on suspected OOM (signal -9 / rc 137).
+                _oom = _vite_result.returncode in (-9, 137) or "Killed" in _err
+                _node_env2 = {**_node_env, "NODE_OPTIONS": "--max-old-space-size=384"} if _oom else _node_env
                 _sp.run(
                     [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent"],
                     cwd=str(frontend_dir), capture_output=True, timeout=120,
@@ -1364,6 +1371,7 @@ async def start_run_app(
                 _vite_result2 = _sp.run(
                     [_npx_bin, "vite", "build"],
                     cwd=str(frontend_dir), capture_output=True, timeout=300,
+                    env=_node_env2,
                 )
                 if _vite_result2.returncode != 0:
                     with open(log_path, "a") as _lf:
@@ -1456,6 +1464,20 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
 
         # Fix: typing.AsyncSession → AsyncSession (sqlalchemy bug in codegen)
         content = content.replace("class_=typing.AsyncSession", "class_=AsyncSession")
+
+        # Fix: `import timezone` is not a valid stdlib import — timezone is a class inside datetime.
+        # Remove the bare import and ensure `from datetime import ..., timezone` is present.
+        if _re.search(r'^import timezone\b', content, _re.MULTILINE):
+            content = _re.sub(r'^import timezone\b[^\n]*\n?', '', content, flags=_re.MULTILINE)
+            if "from datetime import" in content:
+                content = _re.sub(
+                    r'from datetime import ([^\n]+)',
+                    lambda m: m.group(0) if "timezone" in m.group(1)
+                    else m.group(0).rstrip() + ", timezone",
+                    content, count=1,
+                )
+            else:
+                content = "from datetime import timezone\n" + content
 
         # Fix: add missing SQLAlchemy column type imports (Float, JSON, ARRAY, etc.)
         _sa_import_line = _re.search(
