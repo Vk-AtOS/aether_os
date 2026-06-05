@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Layout from './components/Layout';
 // Static (auth-critical — must not lazy-load)
@@ -83,11 +83,11 @@ function App() {
   return (
     <Routes>
       <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
-      <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={<PageSkeleton />}><Signup /></Suspense></ErrorBoundary>} />
-      <Route path="/pricing" element={<ErrorBoundary><Suspense fallback={<PageSkeleton />}><Pricing /></Suspense></ErrorBoundary>} />
-      <Route path="/legal"   element={<ErrorBoundary><Suspense fallback={<PageSkeleton />}><Legal /></Suspense></ErrorBoundary>} />
+      <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={null}><Signup /></Suspense></ErrorBoundary>} />
+      <Route path="/pricing" element={<ErrorBoundary><Suspense fallback={null}><Pricing /></Suspense></ErrorBoundary>} />
+      <Route path="/legal"   element={<ErrorBoundary><Suspense fallback={null}><Legal /></Suspense></ErrorBoundary>} />
       <Route path="/auth/callback" element={<OAuthCallback />} />
-      <Route path="/portal/:id" element={<ErrorBoundary><Suspense fallback={<PageSkeleton />}><ClientPortal /></Suspense></ErrorBoundary>} />
+      <Route path="/portal/:id" element={<ErrorBoundary><Suspense fallback={null}><ClientPortal /></Suspense></ErrorBoundary>} />
 
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
