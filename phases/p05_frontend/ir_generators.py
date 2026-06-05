@@ -116,14 +116,15 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
     """
     Generate Dashboard.tsx — storefront homepage for ecommerce, rich KPI dashboard for others.
     """
-    # ── Ecommerce: delegate to the storefront home generator ────────────────────
+    # ── Ecommerce storefront: only for genuine commerce domains ─────────────────
+    # Note: domain detection uses keyword scoring; ecommerce requires explicit
+    # commerce signals (cart, sku, storefront) not just "checkout" (library false positive).
     if domain in ("ecommerce", "marketplace"):
         from aether_os.phases.p05_frontend.task_agent import _generate_storefront_home
-        # Build a route_map from entities
         route_map = {e["table"]: f"/{e['table']}" for e in entities}
         return _generate_storefront_home(entities, route_map)
 
-    # ── Non-ecommerce: rich KPI dashboard ───────────────────────────────────────
+    # ── All other domains: rich KPI admin dashboard ─────────────────────────────
     _colors6 = ["blue", "green", "purple", "orange", "red", "teal"]
     _color_cls = {
         "blue":   "bg-blue-50   text-blue-700   border-blue-100",
@@ -327,17 +328,33 @@ def generate_ir_entity_page(entity: IREntity) -> str:
         for f in entity.fields[:6]
     )
 
+    _DATE_SUFFIXES = ("_date", "_at", "_time", "_on", "date", "time")
+    _URL_SUFFIXES = ("_url", "_image", "_photo", "_avatar", "_cover", "_thumbnail", "_logo")
+
     def _col_cell(f: IRField) -> str:
+        fname = f.name
         if f.type == AetherType.FK and f.ref_entity:
             lookup_var = f.ref_entity[0].lower() + f.ref_entity[1:] + "Lookup"
             return (
                 f"              <td className='px-4 py-2 text-sm text-gray-900'>"
-                f"{{{lookup_var}[row.{f.name}] ?? row.{f.name}}}</td>"
+                f"{{{lookup_var}[row.{fname}] ?? row.{fname}}}</td>"
             )
-        return f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{f.name} ?? '')}}</td>"
+        if any(fname.endswith(s) or fname == s.lstrip("_") for s in _DATE_SUFFIXES):
+            return (
+                f"              <td className='px-4 py-2 text-sm text-gray-600'>"
+                f"{{row.{fname} ? new Date(row.{fname}).toLocaleDateString(undefined, {{year:'numeric',month:'short',day:'numeric'}}) : '—'}}</td>"
+            )
+        if any(fname.endswith(s) for s in _URL_SUFFIXES):
+            return (
+                f"              <td className='px-4 py-2'>"
+                f"{{row.{fname} ? <img src={{String(row.{fname})}} alt='' className='w-10 h-10 object-cover rounded shadow-sm' onError={{(e)=>{{(e.target as HTMLImageElement).style.display='none'}}}} /> : <span className='text-gray-300 text-xs'>—</span>}}</td>"
+            )
+        return f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{fname} ?? '')}}</td>"
 
     col_cells = "\n".join(_col_cell(f) for f in entity.fields[:6])
     form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in entity.fields)
+
+    plural_label = label + ("s" if not label.endswith("s") else "")
 
     return f"""import React, {{ useState }} from 'react';
 import {{ useQuery, useMutation, useQueryClient }} from '@tanstack/react-query';
@@ -378,7 +395,7 @@ export default function {name}Page() {{
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">{label}</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{plural_label}</h1>
         <button onClick={{() => setEditing('new')}}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
           + New {label}
