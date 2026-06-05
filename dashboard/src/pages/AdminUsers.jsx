@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Users, Shield, CheckCircle2, XCircle, Search, UserPlus, RefreshCw, Copy, ChevronLeft, ChevronRight, Upload, Trash2, Loader2 } from 'lucide-react';
+import { TableSkeleton } from '../components/PageLoader';
 
 const ROLES = ['owner', 'admin', 'member', 'viewer'];
 
@@ -406,8 +407,8 @@ const AdminUsers = () => {
         </div>
 
         {loading ? (
-          <div className="p-12 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+          <div className="p-6">
+            <TableSkeleton rows={6} />
           </div>
         ) : error ? (
           <div className="p-8">

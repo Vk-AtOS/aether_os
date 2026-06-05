@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
+import { useToast } from '../contexts/ToastContext';
 import {
   Brain, CheckCircle, HelpCircle, Loader2, Star, Trophy,
   TrendingUp, Layers, Sparkles, RefreshCw, ChevronRight,
@@ -52,9 +53,9 @@ const Learning = () => {
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState({});
-  const [toast, setToast] = useState('');
+  const toast = useToast();
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
+  const showToast = (msg, type = 'info') => toast(msg, type);
 
   const load = async () => {
     setLoading(true);
@@ -79,14 +80,14 @@ const Learning = () => {
 
   const handleAnswer = async (id) => {
     const answer = answers[id];
-    if (!answer?.trim()) return showToast('Please enter an answer');
+    if (!answer?.trim()) return showToast('Please enter an answer', 'error');
     setSubmitting(s => ({ ...s, [id]: true }));
     try {
       await api.client.post(`/learning/clarifications/${id}/answer`, { answer });
-      showToast('Answer saved');
+      showToast('Answer saved', 'success');
       setClarifications(c => c.filter(q => q.id !== id));
     } catch (e) {
-      showToast('Failed: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed: ' + (e.response?.data?.detail || e.message), 'error');
     } finally {
       setSubmitting(s => ({ ...s, [id]: false }));
     }
@@ -107,10 +108,6 @@ const Learning = () => {
 
   return (
     <div className="max-w-5xl mx-auto py-6 space-y-6">
-      {toast && (
-        <div className="fixed top-4 right-4 bg-panel border border-border rounded-lg px-4 py-2 text-sm text-bright shadow-xl z-50">{toast}</div>
-      )}
-
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

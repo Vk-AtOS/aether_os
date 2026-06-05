@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import Editor from '@monaco-editor/react';
@@ -6,6 +6,9 @@ import { useRole } from '../hooks/useRole';
 import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
 import LogViewer from './LogViewer';
+import AppPreviewPanel from '../components/project/AppPreviewPanel';
+import QualityPanel from '../components/project/QualityPanel';
+import FeedbackPanel from '../components/project/FeedbackPanel';
 import {
   Terminal,
   ExternalLink,
@@ -697,6 +700,10 @@ const ProjectView = () => {
   const [previewLoading, setPreviewLoading]       = useState(false);
   const [previewFile, setPreviewFile]             = useState(null);
 
+  // App Preview iframe device toggle + refresh
+  const [iframeDevice, setIframeDevice]           = useState('desktop');
+  const [iframeKey, setIframeKey]                 = useState(0);
+
   // Live feed
   const [feedLines, setFeedLines]   = useState([]);
   const [feedDone, setFeedDone]     = useState(false);
@@ -724,14 +731,7 @@ const ProjectView = () => {
   const [qualityData, setQualityData]       = useState(null);
   const [complianceData, setComplianceData] = useState(null);
 
-  // Build feedback (star rating)
-  const [feedbackRating, setFeedbackRating]   = useState(0);
-  const [feedbackHover, setFeedbackHover]     = useState(0);
-  const [feedbackTags, setFeedbackTags]       = useState([]);
-  const [feedbackComment, setFeedbackComment] = useState('');
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
-  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
-  const FEEDBACK_TAGS = ['great-ui', 'clean-models', 'fast-api', 'good-seed-data', 'production-ready', 'needs-work'];
+  // Build feedback state is now managed inside FeedbackPanel component
 
   // Council review
   const [councilReport, setCouncilReport]       = useState(null);
@@ -1023,9 +1023,9 @@ const ProjectView = () => {
 
   // ── Controls ───────────────────────────────────────────────────────────────
 
-  const showToast = (msg) => setToast(msg);
+  const showToast = useCallback((msg) => setToast(msg), []);
 
-  const handlePause = async () => {
+  const handlePause = useCallback(async () => {
     setControlLoading('pause');
     try {
       await api.pauseRun(id);
@@ -1037,9 +1037,9 @@ const ProjectView = () => {
     } finally {
       setControlLoading(null);
     }
-  };
+  }, [id, fetchRunDetail, showToast]);
 
-  const handleResume = async () => {
+  const handleResume = useCallback(async () => {
     setControlLoading('resume');
     try {
       await api.resumeRun(id);
@@ -1051,9 +1051,9 @@ const ProjectView = () => {
     } finally {
       setControlLoading(null);
     }
-  };
+  }, [id, fetchRunDetail, showToast]);
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
     if (!window.confirm('Cancel this run? This cannot be undone.')) return;
     setControlLoading('cancel');
     try {
@@ -1066,7 +1066,7 @@ const ProjectView = () => {
     } finally {
       setControlLoading(null);
     }
-  };
+  }, [id, fetchRunDetail, showToast]);
 
   const handlePriorityCycle = async () => {
     const next = PRIORITY_CYCLE[(PRIORITY_CYCLE.indexOf(priority) + 1) % PRIORITY_CYCLE.length];
@@ -1228,6 +1228,21 @@ const ProjectView = () => {
     ['passed', 'completed', 'timeout'].includes(getPhaseStatus(p))
   ).length;
   const progressPercent  = (completedPhases / PHASES.length) * 100;
+
+  // useMemo for ETA computation and other expensive derivations
+  const phasesCompleted = useMemo(() =>
+    Object.values(run?.phases || {}).filter(p => p.status === 'completed' || p.status === 'pass').length,
+    [run?.phases]
+  );
+  const totalPhases = useMemo(() => Object.keys(run?.phases || {}).length || PHASES.length, [run?.phases]);
+
+  const eta = useMemo(() => {
+    const running = run?.status === 'running';
+    if (!running || phasesCompleted <= 0 || elapsed <= 0) return null;
+    const estimatedTotal = (elapsed / phasesCompleted) * totalPhases;
+    const remaining = Math.max(0, estimatedTotal - elapsed);
+    return remaining;
+  }, [run?.status, phasesCompleted, totalPhases, elapsed]);
 
   // ── Loading / error states ─────────────────────────────────────────────────
 
@@ -1612,6 +1627,9 @@ const ProjectView = () => {
             <div>
               <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Duration</div>
               <div className="text-lg font-bold text-bright font-mono">{formatTime(elapsed)}</div>
+              {eta !== null && (
+                <div className="text-[10px] text-muted mt-0.5">ETA ~{formatTime(Math.round(eta))}</div>
+              )}
             </div>
             <div>
               <div className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Artifacts</div>
@@ -1708,53 +1726,7 @@ const ProjectView = () => {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
             {/* Quality Score Panel */}
-            {qualityData && qualityData !== false && (
-              <section className="panel p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Star className="w-4 h-4 text-accent" />
-                    <span className="text-xs font-bold text-muted uppercase tracking-wider">Quality Score</span>
-                  </div>
-                  {/* Circular badge */}
-                  <div className={`flex items-center justify-center w-14 h-14 rounded-full border-4 font-black text-lg ${
-                    qualityData.total >= 80
-                      ? 'border-emerald-500 text-emerald-400 bg-emerald-900/20'
-                      : qualityData.total >= 60
-                      ? 'border-yellow-500 text-yellow-400 bg-yellow-900/20'
-                      : 'border-red-500 text-red-400 bg-red-900/20'
-                  }`}>
-                    {qualityData.total}
-                  </div>
-                </div>
-                {/* Progress bar */}
-                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ${
-                      qualityData.total >= 80 ? 'bg-emerald-500' : qualityData.total >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                    }`}
-                    style={{ width: `${qualityData.total}%` }}
-                  />
-                </div>
-                {/* Dimensions breakdown */}
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { label: 'Auth Coverage',  value: qualityData.auth_coverage,   unit: '%' },
-                    { label: 'Input Validation', value: qualityData.input_validation, unit: '%' },
-                    { label: 'Test Coverage',  value: qualityData.test_coverage,   unit: '%' },
-                    { label: 'Docker',         value: qualityData.has_docker ? 100 : 0, unit: qualityData.has_docker ? '✓' : '✗', binary: true },
-                  ].map(({ label, value, unit, binary }) => (
-                    <div key={label} className="bg-border/10 rounded-lg p-3">
-                      <div className="text-[9px] font-bold text-muted uppercase tracking-wider mb-1">{label}</div>
-                      <div className={`text-sm font-bold ${
-                        value >= 80 ? 'text-emerald-400' : value >= 60 ? 'text-yellow-400' : 'text-red-400'
-                      }`}>
-                        {binary ? unit : `${value}${unit}`}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            <QualityPanel qualityData={qualityData} />
 
             {/* Compliance Score Panel */}
             {complianceData && complianceData !== false && complianceData.status !== 'not_available' && (
@@ -1826,99 +1798,7 @@ const ProjectView = () => {
         )}
 
         {/* ── Build Feedback Rating ─────────────────────────────────────────── */}
-        {run?.status === 'completed' && !feedbackSubmitted && (
-          <section className="panel p-5 space-y-4">
-            <div className="flex items-center space-x-2">
-              <Star className="w-4 h-4 text-yellow-400" />
-              <span className="text-xs font-bold text-muted uppercase tracking-wider">Rate This Build</span>
-            </div>
-            <p className="text-xs text-muted">Your rating teaches AetherOS to generate better apps over time. 4★+ builds become golden examples.</p>
-            {/* Stars */}
-            <div className="flex items-center gap-1">
-              {[1,2,3,4,5].map(n => (
-                <button
-                  key={n}
-                  onMouseEnter={() => setFeedbackHover(n)}
-                  onMouseLeave={() => setFeedbackHover(0)}
-                  onClick={() => setFeedbackRating(n)}
-                  className="p-0.5 transition-transform hover:scale-110"
-                  aria-label={`Rate ${n} star${n !== 1 ? 's' : ''}`}
-                >
-                  <Star
-                    className={`w-7 h-7 transition-colors ${
-                      n <= (feedbackHover || feedbackRating) ? 'text-yellow-400 fill-yellow-400' : 'text-slate-600'
-                    }`}
-                  />
-                </button>
-              ))}
-              {feedbackRating > 0 && (
-                <span className="ml-2 text-sm font-bold text-yellow-400">
-                  {['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent'][feedbackRating]}
-                </span>
-              )}
-            </div>
-            {/* Tags */}
-            {feedbackRating > 0 && (
-              <>
-                <div className="flex flex-wrap gap-2">
-                  {FEEDBACK_TAGS.map(tag => (
-                    <button
-                      key={tag}
-                      onClick={() => setFeedbackTags(ts => ts.includes(tag) ? ts.filter(t => t !== tag) : [...ts, tag])}
-                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                        feedbackTags.includes(tag)
-                          ? 'bg-accent/20 border-accent text-accent'
-                          : 'bg-surface border-border text-muted hover:border-accent/40'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  value={feedbackComment}
-                  onChange={e => setFeedbackComment(e.target.value)}
-                  placeholder="Optional comment…"
-                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent"
-                />
-                <button
-                  disabled={feedbackSubmitting}
-                  onClick={async () => {
-                    setFeedbackSubmitting(true);
-                    try {
-                      await api.client.post(`/factory/runs/${run.id}/feedback`, {
-                        rating: feedbackRating,
-                        tags: feedbackTags,
-                        comment: feedbackComment || null,
-                      });
-                      setFeedbackSubmitted(true);
-                    } catch (e) {
-                      console.error('feedback error', e);
-                    } finally {
-                      setFeedbackSubmitting(false);
-                    }
-                  }}
-                  className="flex items-center gap-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors"
-                >
-                  <Star className="w-3.5 h-3.5" />
-                  {feedbackSubmitting ? 'Saving…' : 'Submit Rating'}
-                </button>
-              </>
-            )}
-          </section>
-        )}
-        {run?.status === 'completed' && feedbackSubmitted && (
-          <section className="panel p-4 flex items-center gap-3">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            <div>
-              <p className="text-sm font-bold text-bright">Thanks for your rating!</p>
-              <p className="text-xs text-muted">
-                {feedbackRating >= 4 ? 'This build may be promoted to a golden example to improve future generations.' : 'Your feedback helps AetherOS learn.'}
-              </p>
-            </div>
-          </section>
-        )}
+        <FeedbackPanel run={run} />
 
         {/* Currently running indicator */}
         {isRunning && (
@@ -2310,49 +2190,14 @@ const ProjectView = () => {
             )}
           {/* ── App Preview ───────────────────────────────────────────────── */}
           {activeArtifactTab === 'iframe' && (
-            <div className="flex flex-col" style={{ height: '480px' }}>
-              <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-border/10 shrink-0">
-                <span className="text-[10px] font-mono text-muted truncate">
-                  {appRunning ? 'Generated app running — live preview' : (run?.live_url || 'Start the app to see live preview')}
-                </span>
-                <div className="flex items-center gap-2">
-                  {appRunning && (
-                    <a href="/app-preview/" target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0">
-                      <OpenTab className="w-3 h-3" /> Open in tab
-                    </a>
-                  )}
-                  {!appRunning && run?.live_url && (
-                    <a href={run.live_url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0 ml-2">
-                      <OpenTab className="w-3 h-3" /> Open
-                    </a>
-                  )}
-                </div>
-              </div>
-              {appRunning ? (
-                <iframe
-                  key="app-preview-live"
-                  src="/app-preview/"
-                  className="flex-1 w-full border-0 bg-white"
-                  title="Live App Preview"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                />
-              ) : run?.live_url ? (
-                <iframe
-                  key="app-preview-url"
-                  src={run.live_url}
-                  className="flex-1 w-full border-0 bg-white"
-                  title="Deployed App Preview"
-                  sandbox="allow-scripts allow-same-origin allow-forms"
-                />
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted text-sm">
-                  <span className="text-4xl opacity-30">▶</span>
-                  <p>Click <strong className="text-bright">RUN APP</strong> to start the generated app and see a live preview here.</p>
-                </div>
-              )}
-            </div>
+            <AppPreviewPanel
+              appRunning={appRunning}
+              run={run}
+              iframeDevice={iframeDevice}
+              setIframeDevice={setIframeDevice}
+              iframeKey={iframeKey}
+              setIframeKey={setIframeKey}
+            />
           )}
 
           {/* ── Env Vars tab ─────────────────────────────────────────────── */}

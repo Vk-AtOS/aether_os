@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
@@ -160,15 +160,20 @@ const ProjectsList = () => {
     }
   };
 
-  const domains = [...new Set(runs.map(r => r.domain).filter(Boolean))].sort();
+  const domains = useMemo(
+    () => [...new Set(runs.map(r => r.domain).filter(Boolean))].sort(),
+    [runs]
+  );
 
-  const filtered = runs.filter((run) => {
+  const filtered = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    const matchText = run.project_name?.toLowerCase().includes(term) || (run.run_id || run.id)?.toLowerCase().includes(term);
-    const matchStatus = !statusFilter || run.status === statusFilter;
-    const matchDomain = !domainFilter || run.domain === domainFilter;
-    return matchText && matchStatus && matchDomain;
-  });
+    return runs.filter((run) => {
+      const matchText = run.project_name?.toLowerCase().includes(term) || (run.run_id || run.id)?.toLowerCase().includes(term);
+      const matchStatus = !statusFilter || run.status === statusFilter;
+      const matchDomain = !domainFilter || run.domain === domainFilter;
+      return matchText && matchStatus && matchDomain;
+    });
+  }, [runs, searchTerm, statusFilter, domainFilter]);
 
   const truncate = (str, n) =>
     str && str.length > n ? str.slice(0, n) + '…' : (str || '');
@@ -258,7 +263,16 @@ const ProjectsList = () => {
                 <tr
                   key={run.run_id || run.id}
                   onClick={() => navigate(`/project/${run.run_id || run.id}`)}
-                  className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/project/${run.run_id || run.id}`);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={run.project_name || 'Untitled Project'}
+                  className="hover:bg-white/[0.02] transition-colors cursor-pointer group focus:outline-none focus:bg-accent/5"
                 >
                   {/* Project name */}
                   <td className="px-6 py-4">

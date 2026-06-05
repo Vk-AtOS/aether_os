@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff, ShieldCheck, QrCode, Trash2, AlertTriangle } from 'lucide-react';
+import { PageLoader } from '../components/PageLoader';
 
 const Profile = () => {
   const [userData, setUserData] = useState(null);
@@ -173,8 +174,8 @@ const Profile = () => {
   };
 
   if (loading) return (
-    <div className="p-8 flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+    <div className="p-6 max-w-3xl mx-auto">
+      <PageLoader />
     </div>
   );
 

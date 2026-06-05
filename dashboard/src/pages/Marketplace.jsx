@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Search, Package, Star, Zap, Shield, Database, Cpu, Globe, PlusCircle, X, Loader2, CheckCircle2 } from 'lucide-react';
+import EmptyState from '../components/EmptyState';
 
 const CATEGORY_ICONS = {
   auth: Shield,
@@ -201,11 +202,11 @@ const Marketplace = () => {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-16 text-muted">
-          <Package className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="font-medium">No items found{search ? ` for "${search}"` : ''}.</p>
-          <p className="text-sm mt-1">Publish a skill above — it will appear here once added.</p>
-        </div>
+        <EmptyState
+          icon={Package}
+          title={`No items found${search ? ` for "${search}"` : ''}`}
+          description="Publish a skill above — it will appear here once added."
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(p => {
