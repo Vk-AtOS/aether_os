@@ -112,99 +112,71 @@ def generate_ir_dashboard_stats(ir: DomainIR) -> str:
     return "\n".join(cards)
 
 
-def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: str) -> str:
+def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: str, domain: str = "saas") -> str:
     """
-    Generate a complete Dashboard.tsx with real KPI cards from IR metrics.
-    Falls back gracefully if no metrics defined.
+    Generate Dashboard.tsx — storefront homepage for ecommerce, rich KPI dashboard for others.
     """
-    metric_imports = "import { Users, DollarSign, TrendingUp, BarChart2, ArrowUp, ArrowDown } from 'lucide-react';"
+    # ── Ecommerce: delegate to the storefront home generator ────────────────────
+    if domain in ("ecommerce", "marketplace"):
+        from aether_os.phases.p05_frontend.task_agent import _generate_storefront_home
+        # Build a route_map from entities
+        route_map = {e["table"]: f"/{e['table']}" for e in entities}
+        return _generate_storefront_home(entities, route_map)
 
-    # Build entity table links section
-    entity_links = "\n".join([
-        f"          <Link to='/{e['table']}' className='block p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors'>"
-        f"\n            <div className='font-medium text-gray-900'>{e.get('name', e['table'].title())}</div>"
-        f"\n            <div className='text-sm text-gray-500'>{e.get('description', 'Manage ' + e['table'])}</div>"
-        f"\n          </Link>"
-        for e in entities
-    ])
-
-    # Build stat cards from IR metrics or fallback to entity counts
-    if ir.dashboard_metrics:
-        stat_cards_jsx = "\n".join([
-            f"        <StatCard key='{m.name}' title='{m.label}' "
-            f"endpoint='/{m.entity.lower()}s' aggregation='{m.aggregation}' "
-            f"color='{['blue','green','purple','orange','red','teal'][i % 6]}' />"
-            for i, m in enumerate(ir.dashboard_metrics)
-        ])
-    else:
-        cards2 = []
-        for e in entities[:6]:
-            tbl = e['table']
-            ename = e.get('name', tbl.title())
-            cards2.append(f"        <StatCard key='{tbl}' title='Total {ename}' endpoint='/{tbl}' aggregation='count' color='blue' />")
-        stat_cards_jsx = "\n".join(cards2)
-
-    # Build count cards from entity list as fallback
+    # ── Non-ecommerce: rich KPI dashboard ───────────────────────────────────────
     _colors6 = ["blue", "green", "purple", "orange", "red", "teal"]
+    _color_cls = {
+        "blue":   "bg-blue-50   text-blue-700   border-blue-100",
+        "green":  "bg-green-50  text-green-700  border-green-100",
+        "purple": "bg-purple-50 text-purple-700 border-purple-100",
+        "orange": "bg-orange-50 text-orange-700 border-orange-100",
+        "red":    "bg-red-50    text-red-700    border-red-100",
+        "teal":   "bg-teal-50   text-teal-700   border-teal-100",
+    }
+
     count_cards_jsx = "\n".join([
-        f"        <StatCard title='Total {e.get('name', e['table'].title())}' "
-        f"value={{{{stats?.total_{e['table']} ?? '…'}}}} color='{_colors6[i % 6]}' />"
+        f"        <div className='rounded-2xl border p-6 shadow-sm hover:shadow-md transition-shadow {_color_cls[_colors6[i % 6]]}'>\n"
+        f"          <div className='text-xs font-bold uppercase tracking-widest opacity-60 mb-2'>Total {e.get('name', e['table'].title())}</div>\n"
+        f"          <div className='text-4xl font-extrabold'>{{stats?.total_{e['table']} ?? '…'}}</div>\n"
+        f"        </div>"
         for i, e in enumerate(entities[:6])
     ])
 
+    entity_links = "\n".join([
+        f"          <a href='/{e['table']}' className='flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 hover:border-brand-300 hover:shadow-sm transition-all group'>"
+        f"\n            <div>"
+        f"\n              <div className='font-semibold text-gray-900 group-hover:text-brand-700'>{e.get('name', e['table'].title())}</div>"
+        f"\n              <div className='text-xs text-gray-500 mt-0.5'>{e.get('description', 'Manage ' + e['table'])}</div>"
+        f"\n            </div>"
+        f"\n            <span className='text-brand-400 group-hover:translate-x-0.5 transition-transform text-lg'>→</span>"
+        f"\n          </a>"
+        for e in entities
+    ])
+
     return f"""import React from 'react';
-import {{ Link }} from 'react-router-dom';
 import {{ useQuery }} from '@tanstack/react-query';
 import {{ api }} from '../lib/api';
-
-interface StatCardProps {{
-  title: string;
-  value: string | number;
-  color?: string;
-  sub?: string;
-}}
-
-function StatCard({{ title, value, color = 'blue', sub }}: StatCardProps) {{
-  const colors: Record<string, string> = {{
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
-    orange: 'bg-orange-50 text-orange-700 border-orange-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-    teal: 'bg-teal-50 text-teal-700 border-teal-200',
-  }};
-  return (
-    <div className={{`rounded-xl border p-5 ${{colors[color] ?? colors.blue}}`}}>
-      <div className="text-sm font-medium opacity-70">{{title}}</div>
-      <div className="mt-1 text-3xl font-bold">{{value}}</div>
-      {{sub && <div className="mt-1 text-xs opacity-60">{{sub}}</div>}}
-    </div>
-  );
-}}
 
 export default function Dashboard() {{
   const {{ data: stats }} = useQuery({{
     queryKey: ['stats'],
-    queryFn: () => api.get('/stats').then(r => r.data),
+    queryFn: () => api.get('/stats').then(r => r.data).catch(() => ({{}})),
     staleTime: 30_000,
   }});
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">{project_name}</h1>
+    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
+      <div>
+        <h1 className="text-3xl font-extrabold text-gray-900">{project_name}</h1>
+        <p className="text-gray-500 mt-1 text-sm">Welcome back. Here's what's happening.</p>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
 {count_cards_jsx}
-        {{stats?.success_rate !== undefined && (
-          <StatCard title="Success Rate" value={{stats.success_rate + '%'}} color="green" />
-        )}}
-        {{stats?.total_cost !== undefined && (
-          <StatCard title="Total Cost" value={{'$' + Number(stats.total_cost).toFixed(2)}} color="purple" />
-        )}}
       </div>
 
-      <div className="mt-6">
-        <h2 className="text-lg font-semibold text-gray-700 mb-3">Quick Access</h2>
+      <div>
+        <h2 className="text-base font-bold text-gray-700 uppercase tracking-wide mb-4">Quick Access</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
 {entity_links}
         </div>
