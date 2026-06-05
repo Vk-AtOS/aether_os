@@ -1264,11 +1264,29 @@ async def start_run_app(
                     )
                     _cfg_path.write_text(_cfg)
                 break
-        # Write .env.production: VITE_API_URL points to the gateway proxy path + /api prefix
-        # Gateway strips /app-preview/, so /app-preview/api → port 8001 /api → matches backend routes
+        # Write .env.production: VITE_API_URL points to the gateway proxy path + /api prefix.
+        # Always overwrite — the pipeline build may have used a different (wrong) URL.
         _env_prod = frontend_dir / ".env.production"
-        if not _env_prod.exists() or "VITE_API_URL" not in _env_prod.read_text():
-            _env_prod.write_text("VITE_API_URL=/app-preview/api\n")
+        _correct_env = "VITE_API_URL=/app-preview/api\n"
+        _env_changed = not _env_prod.exists() or _env_prod.read_text() != _correct_env
+        _env_prod.write_text(_correct_env)
+
+        # Patch src/lib/api.ts: replace any hardcoded /api base URL with /app-preview/api.
+        # LLM-generated API clients often use axios.create({baseURL:'/api'}) instead of the env var.
+        for _api_src in ("src/lib/api.ts", "src/lib/api.tsx", "src/api.ts", "src/api.js"):
+            _api_path = frontend_dir / _api_src
+            if _api_path.exists():
+                _api_code = _api_path.read_text()
+                _patched = False
+                for _wrong in ("baseURL: '/api'", 'baseURL: "/api"', "baseURL:'/api'", 'baseURL:"/api"'):
+                    if _wrong in _api_code:
+                        _api_code = _api_code.replace(_wrong, "baseURL: '/app-preview/api'")
+                        _patched = True
+                if _patched:
+                    _api_path.write_text(_api_code)
+                    _env_changed = True  # source changed → force rebuild
+                break
+
         # Patch TanStack Router / React Router basename so routes resolve under /app-preview/
         for _src_name in ("src/App.tsx", "src/App.jsx", "src/main.tsx", "src/main.jsx"):
             _src_path = frontend_dir / _src_name
@@ -1285,8 +1303,9 @@ async def start_run_app(
                     _src = _src.replace("BrowserRouter />", "BrowserRouter basename='/app-preview' />")
                     _src_path.write_text(_src)
 
-        # Skip rebuild if dist already exists — avoids 30-60s rebuild on restart
-        _dist_already_built = frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir())
+        # Rebuild if dist doesn't exist OR if env/source changed (ensures correct API URL).
+        _dist_already_built = (not _env_changed and frontend_dist
+                               and frontend_dist.is_dir() and any(frontend_dist.iterdir()))
         if not _dist_already_built:
             with open(log_path, "a") as _lf:
                 _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
