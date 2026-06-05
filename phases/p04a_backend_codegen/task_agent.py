@@ -42,15 +42,24 @@ from sqlalchemy.orm import DeclarativeBase
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")
 
 _is_sqlite = "sqlite" in DATABASE_URL
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
-    pool_size=1 if _is_sqlite else 10,
-    max_overflow=0 if _is_sqlite else 20,
-    pool_recycle=300,
-    connect_args={"check_same_thread": False} if _is_sqlite else {},
-)
+if _is_sqlite:
+    from sqlalchemy.pool import NullPool as _NullPool
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_pre_ping=True,
+        connect_args={"check_same_thread": False},
+        poolclass=_NullPool,
+    )
+else:
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_recycle=300,
+    )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
