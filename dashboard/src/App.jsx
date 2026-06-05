@@ -87,7 +87,7 @@ function App() {
 
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
-        <Route path="new" element={<ErrorBoundary><NewProject /></ErrorBoundary>} />
+        <Route path="new" element={<ErrorBoundary><NewProjectWizard /></ErrorBoundary>} />
         <Route path="projects" element={<ErrorBoundary><ProjectsList /></ErrorBoundary>} />
         <Route path="project/:id" element={<ErrorBoundary><ProjectView /></ErrorBoundary>} />
         <Route path="project/:id/phase/:name" element={<ErrorBoundary><PhaseDetail /></ErrorBoundary>} />

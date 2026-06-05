@@ -59,7 +59,7 @@ const Sidebar = () => {
 
   const staticItems = [
     { name: 'Dashboard',     path: '/',            icon: LayoutDashboard },
-    !isViewer && { name: 'New Project',   path: '/designer',    icon: Wand2 },
+    !isViewer && { name: 'New Project',   path: '/new',         icon: Wand2 },
     { name: 'Projects',      path: '/projects',    icon: List },
     { name: 'Workspaces',    path: '/workspaces',  icon: Building2 },
     { name: 'Search',        path: '/search',      icon: Search },
