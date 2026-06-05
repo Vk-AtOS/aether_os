@@ -4,6 +4,7 @@ import {
   CreditCard, TrendingUp, RefreshCw, AlertTriangle, CheckCircle2,
   Zap, Star, Building2, Loader2, ExternalLink,
 } from 'lucide-react';
+import { PageLoader } from '../components/PageLoader';
 
 const PLAN_ICONS  = { trial: Zap, pro: Star, enterprise: Building2 };
 const PLAN_COLORS = { trial: 'text-yellow-400', pro: 'text-accent', enterprise: 'text-purple-400' };
@@ -223,8 +224,8 @@ const Billing = () => {
       )}
 
       {loading ? (
-        <div className="p-12 flex justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+        <div className="p-6">
+          <PageLoader />
         </div>
       ) : (
         <>
