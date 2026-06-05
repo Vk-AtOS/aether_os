@@ -33,8 +33,8 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
         get_app_state as _gas,
     )
 
-    # Resolve port: in-process cache first, then Redis (multi-worker safe)
-    _port = int(os.environ.get("RUN_APP_PORT", "8001"))
+    # Resolve port: in-process cache first, then Redis, then disk state files
+    _port = None
     _current_rid = await _gcr()
     if _current_rid:
         _cached_port = _gap().get(_current_rid)
@@ -48,6 +48,55 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
                     _port = _state["port"]
             except Exception:
                 pass
+
+    # Fallback: scan run_app_state.json files on disk (handles gateway restarts
+    # and multi-worker deployments where only one worker ran auto-restore)
+    if _port is None:
+        import glob as _g, json as _j, socket as _sk
+        from pathlib import Path as _Pth
+        from aether_os.core.app_state import set_app_state as _sas_fb, set_current_run_id as _scr_fb
+        _state_files = sorted(
+            _g.glob(str(_Pth.home() / ".aether_os" / "projects" / "*" / "run_app_state.json")),
+            key=lambda p: _Pth(p).stat().st_mtime,
+            reverse=True,
+        )
+        for _sf in _state_files:
+            try:
+                _st = _j.loads(_Pth(_sf).read_text())
+                _rid, _rport = _st.get("run_id"), int(_st.get("port", 0))
+                if not _rid or not _rport:
+                    continue
+                _alive = False
+                try:
+                    with _sk.create_connection(("127.0.0.1", _rport), timeout=0.5):
+                        _alive = True
+                except OSError:
+                    pass
+                if _alive:
+                    _port = _rport
+                    _current_rid = _rid
+                    # Register in Redis + memory so subsequent requests in any worker hit cache
+                    try:
+                        await _sas_fb(_rid, port=_rport, pid=_st.get("pid", 0),
+                                      mode=_st.get("mode", "backend"),
+                                      app_dir=str(_Pth(_sf).parent))
+                        await _scr_fb(_rid)
+                    except Exception:
+                        pass
+                    logger.info("app-preview: resolved port %d for run %s from disk", _rport, _rid)
+                    break
+            except Exception:
+                continue
+
+    if _port is None:
+        return Response(
+            content="""<!DOCTYPE html><html><head><meta charset="utf-8"><title>AetherOS — No App Running</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px}
+p{color:#94a3b8;font-size:14px;text-align:center}a{color:#6366f1}</style>
+</head><body><p>No generated app is currently running.<br><small>Go to your project and click <strong>Run App</strong> to start one.</small></p></body></html>""",
+            status_code=503,
+            media_type="text/html",
+        )
 
     _qs = f"?{request.url.query}" if request.url.query else ""
     _target = f"http://127.0.0.1:{_port}/{path}{_qs}"
