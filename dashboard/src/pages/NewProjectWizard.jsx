@@ -28,7 +28,7 @@ const DEFAULT_MODELS = [
 ];
 
 const StepIndicator = ({ step }) => {
-  const steps = ['Template', 'Customize', 'Configure', 'Launch'];
+  const steps = ['Template', 'Describe', 'Configure', 'Launch'];
   return (
     <div className="flex items-center justify-center mb-8 gap-0">
       {steps.map((label, i) => {
@@ -62,21 +62,37 @@ const TemplateCard = ({ tpl, selected, onClick }) => (
   </button>
 );
 
+const PillGroup = ({ options, value, onChange, multi = false }) => (
+  <div className="flex gap-2 flex-wrap">
+    {options.map(([val, label]) => {
+      const active = multi ? value.includes(val) : value === val;
+      return (
+        <button key={String(val)} type="button"
+          onClick={() => onChange(val)}
+          className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+            active
+              ? 'border-accent bg-accent/15 text-accent'
+              : 'border-border text-muted hover:border-accent/40 hover:text-bright'
+          }`}>
+          {label}
+        </button>
+      );
+    })}
+  </div>
+);
+
 const NewProjectWizard = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
-  // Step state
   const [step, setStep] = useState(1);
 
-  // Template
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
   const [selectedTpl, setSelectedTpl] = useState(null);
 
-  // Project mode: 'new' | 'existing'
   const [projectMode, setProjectMode] = useState('new');
 
-  // Step 2 — customize
+  // Step 2 — core fields
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [domain, setDomain] = useState('general');
@@ -85,16 +101,20 @@ const NewProjectWizard = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
+  // Step 2 — guided questionnaire
+  const [wizardAnswers, setWizardAnswers] = useState({
+    who: '', scale: '', money: null, industry: 'general', mobile: '', problem: '', features: '',
+  });
+
   // Repo / existing codebase
   const [repoUrl, setRepoUrl] = useState('');
-  const [repoType, setRepoType] = useState('github'); // github | gitlab | ssh
+  const [repoType, setRepoType] = useState('github');
   const [repoToken, setRepoToken] = useState('');
   const [repoSshKey, setRepoSshKey] = useState('');
   const [gitlabUrl, setGitlabUrl] = useState('https://gitlab.com');
   const [fetchingRepo, setFetchingRepo] = useState(false);
   const [repoContext, setRepoContext] = useState('');
   const [repoFetched, setRepoFetched] = useState('');
-  // keep old names for compatibility
   const githubUrl = repoUrl; const setGithubUrl = setRepoUrl;
   const githubToken = repoToken; const setGithubToken = setRepoToken;
 
@@ -118,7 +138,6 @@ const NewProjectWizard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch templates from API
   useEffect(() => {
     api.getTemplates().then(res => {
       if (res.data?.templates?.length) {
@@ -129,7 +148,6 @@ const NewProjectWizard = () => {
     }).catch(() => {});
   }, []);
 
-  // Fetch LLM config
   useEffect(() => {
     api.getLlmConfig().then(res => {
       const d = res.data || {};
@@ -146,7 +164,6 @@ const NewProjectWizard = () => {
     }).catch(() => {});
   }, []);
 
-  // Fetch cost estimate when entering step 4
   useEffect(() => {
     if (step === 4) {
       api.estimateCost({ domain, backend: backendFw, database: dbChoice, scale: 'small' })
@@ -154,6 +171,34 @@ const NewProjectWizard = () => {
         .catch(() => {});
     }
   }, [step, domain, backendFw, dbChoice]);
+
+  // Compile wizard answers → prompt + auto-detect domain
+  useEffect(() => {
+    const { who, scale, money, industry, mobile, problem, features } = wizardAnswers;
+    if (!problem.trim()) return;
+    const lines = [];
+    const tpl = templates.find(t => t.id === selectedTpl);
+    if (tpl && tpl.id !== 'custom') lines.push(`Build a ${tpl.label} application.`);
+    lines.push(`Main goal: ${problem.trim()}`);
+    const whoMap = { internal: 'Internal team only', customers: 'Customers / end-users', both: 'Both internal team and customers' };
+    if (who) lines.push(`Users: ${whoMap[who]}`);
+    const scaleMap = { small: 'Under 100 users (small team)', medium: '100–10,000 users', large: '10,000+ users (must scale to high traffic)' };
+    if (scale) lines.push(`Scale: ${scaleMap[scale]}`);
+    if (money === true) lines.push('Handles money: Yes — integrate payment processing with PCI security.');
+    const industryMap = {
+      healthcare: 'Healthcare — HIPAA compliance required',
+      finance: 'Finance — SOC2/PCI-DSS compliance required',
+      government: 'Government / public sector',
+      education: 'Education',
+    };
+    if (industry && industry !== 'general') lines.push(`Industry: ${industryMap[industry]}`);
+    const mobileMap = { desktop: 'Desktop web only', responsive: 'Responsive web (mobile-friendly)', mobile: 'Mobile-first (optimized for phones)' };
+    if (mobile) lines.push(`Platform: ${mobileMap[mobile]}`);
+    if (features.trim()) lines.push(`Must-have features: ${features.trim()}`);
+    setPrompt(lines.join('\n'));
+    const domainMap = { healthcare: 'healthcare', finance: 'fintech', education: 'education' };
+    if (domainMap[industry]) setDomain(domainMap[industry]);
+  }, [wizardAnswers, selectedTpl, templates]);
 
   const selectTemplate = (tpl) => {
     setSelectedTpl(tpl.id);
@@ -175,7 +220,7 @@ const NewProjectWizard = () => {
       const text = res.data?.text || '';
       setUploadedText(text);
       setUploadFilename(file.name);
-      if (text) setPrompt(prev => prev ? prev + '\n\n' + text : text);
+      if (text) setWizardAnswers(a => ({ ...a, features: a.features ? a.features + '\n\n' + text : text }));
     } catch (e) {
       setUploadError('Upload failed: ' + (e.message || 'unknown'));
     } finally {
@@ -270,7 +315,6 @@ const NewProjectWizard = () => {
       {/* ── Step 1: Template + Mode ─── */}
       {step === 1 && (
         <div className="space-y-6">
-          {/* Mode toggle */}
           <div className="flex gap-3">
             {[['new', '✨', 'Start fresh'], ['existing', '🔗', 'Improve existing codebase']].map(([mode, icon, label]) => (
               <button key={mode} onClick={() => setProjectMode(mode)}
@@ -295,41 +339,123 @@ const NewProjectWizard = () => {
         </div>
       )}
 
-      {/* ── Step 2: Customize ─── */}
+      {/* ── Step 2: Guided questionnaire ─── */}
       {step === 2 && (
-        <div className="space-y-5">
-          <h2 className="text-base font-semibold text-bright">Customize your requirement</h2>
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-base font-semibold text-bright">Tell us about your project</h2>
+            <p className="text-xs text-muted mt-1">Answer a few questions so AetherOS can build exactly what you need.</p>
+          </div>
 
+          {/* Project name */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted uppercase tracking-wider">Project Name <span className="text-slate-600 font-normal normal-case">(optional)</span></label>
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+              Project Name <span className="text-slate-500 font-normal normal-case">(optional)</span>
+            </label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. TaskFlow"
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-bright placeholder:text-muted/50 focus:outline-none focus:border-accent" />
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Requirement <span className="text-danger">*</span></label>
-              <div className="flex items-center gap-2">
-                {uploadFilename && <span className="text-[10px] text-emerald-400">📎 {uploadFilename}</span>}
-                <button onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="text-[10px] px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-bright rounded-md transition-colors disabled:opacity-50">
-                  {uploading ? 'Reading…' : '📄 Import file'}
-                </button>
-                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,.docx,.rst" className="hidden" onChange={handleFileUpload} />
-              </div>
-            </div>
-            <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={8}
-              placeholder="Describe what you want to build… or import a file above"
-              className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-sm text-bright placeholder:text-muted/50 focus:outline-none focus:border-accent resize-none" />
-            {uploadError && <p className="text-xs text-danger">{uploadError}</p>}
+          {/* Q1: Who uses it */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">1. Who uses this app?</label>
+            <PillGroup
+              options={[['internal', '👥 Internal team'], ['customers', '🌐 Our customers'], ['both', '🔀 Both']]}
+              value={wizardAnswers.who}
+              onChange={val => setWizardAnswers(a => ({ ...a, who: a.who === val ? '' : val }))}
+            />
           </div>
 
-          {/* Existing codebase section — GitHub / GitLab / SSH */}
+          {/* Q2: Scale */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">2. Expected scale</label>
+            <PillGroup
+              options={[['small', '🏠 Under 100 users'], ['medium', '🏢 100–10,000 users'], ['large', '🏙️ 10,000+ users']]}
+              value={wizardAnswers.scale}
+              onChange={val => setWizardAnswers(a => ({ ...a, scale: a.scale === val ? '' : val }))}
+            />
+          </div>
+
+          {/* Q3: Handles payments */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">3. Handles payments?</label>
+            <PillGroup
+              options={[[true, '💳 Yes'], [false, '✕ No']]}
+              value={wizardAnswers.money}
+              onChange={val => setWizardAnswers(a => ({ ...a, money: val }))}
+            />
+          </div>
+
+          {/* Q4: Industry */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">4. Industry / Compliance</label>
+            <PillGroup
+              options={[
+                ['general', '🌐 General'],
+                ['healthcare', '🏥 Healthcare (HIPAA)'],
+                ['finance', '💳 Finance (PCI/SOC2)'],
+                ['government', '🏛️ Government'],
+                ['education', '🎓 Education'],
+              ]}
+              value={wizardAnswers.industry}
+              onChange={val => setWizardAnswers(a => ({ ...a, industry: val }))}
+            />
+          </div>
+
+          {/* Q5: Platform */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">5. Platform / Device</label>
+            <PillGroup
+              options={[['desktop', '🖥️ Desktop only'], ['responsive', '📱 Responsive web'], ['mobile', '📲 Mobile-first']]}
+              value={wizardAnswers.mobile}
+              onChange={val => setWizardAnswers(a => ({ ...a, mobile: a.mobile === val ? '' : val }))}
+            />
+          </div>
+
+          {/* Q6: Main problem (required) */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+              6. What problem does this solve? <span className="text-danger">*</span>
+            </label>
+            <textarea
+              value={wizardAnswers.problem}
+              onChange={e => setWizardAnswers(a => ({ ...a, problem: e.target.value }))}
+              rows={3}
+              placeholder="e.g. Our sales team tracks leads in spreadsheets — we need a CRM to manage pipeline, contacts, and follow-ups."
+              className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-sm text-bright placeholder:text-muted/50 focus:outline-none focus:border-accent resize-none"
+            />
+          </div>
+
+          {/* Q7: Must-have features (optional) */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+              7. Must-have features <span className="text-slate-500 font-normal normal-case">(optional)</span>
+            </label>
+            <textarea
+              value={wizardAnswers.features}
+              onChange={e => setWizardAnswers(a => ({ ...a, features: e.target.value }))}
+              rows={2}
+              placeholder="e.g. CSV import, email notifications, role-based access, PDF exports, mobile app…"
+              className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-sm text-bright placeholder:text-muted/50 focus:outline-none focus:border-accent resize-none"
+            />
+          </div>
+
+          {/* File import */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted">Have a requirements doc?</span>
+            <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+              className="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-bright rounded-md transition-colors disabled:opacity-50">
+              {uploading ? 'Reading…' : '📄 Import file'}
+            </button>
+            {uploadFilename && <span className="text-[10px] text-emerald-400">📎 {uploadFilename}</span>}
+            <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,.docx,.rst" className="hidden" onChange={handleFileUpload} />
+          </div>
+          {uploadError && <p className="text-xs text-danger">{uploadError}</p>}
+
+          {/* Existing codebase section */}
           {projectMode === 'existing' && (
             <div className="space-y-3 bg-surface border border-border rounded-xl p-4">
               <p className="text-xs font-semibold text-muted uppercase tracking-wider">Connect Existing Codebase</p>
-              {/* Repo type tabs */}
               <div className="flex gap-2">
                 {[['github','GitHub'],['gitlab','GitLab'],['ssh','SSH']].map(([t,label]) => (
                   <button key={t} onClick={() => setRepoType(t)}
@@ -363,8 +489,11 @@ const NewProjectWizard = () => {
             </div>
           )}
 
+          {/* Domain — auto-set but still editable */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted uppercase tracking-wider">Domain</label>
+            <label className="text-xs font-semibold text-muted uppercase tracking-wider">
+              Domain <span className="text-slate-500 font-normal normal-case">(auto-detected from industry)</span>
+            </label>
             <select value={domain} onChange={e => setDomain(e.target.value)}
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-bright focus:outline-none focus:border-accent">
               {['general','saas','fintech','healthcare','ecommerce','analytics','education','iot','marketplace','social','api','cms','erp'].map(d => (
@@ -373,13 +502,10 @@ const NewProjectWizard = () => {
             </select>
           </div>
 
-          {/* Import existing schema — collapsible */}
+          {/* Import existing schema */}
           <div className="border border-border rounded-xl overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setSchemaOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-surface hover:bg-surface/80 transition-colors text-left"
-            >
+            <button type="button" onClick={() => setSchemaOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-surface hover:bg-surface/80 transition-colors text-left">
               <span className="text-xs font-semibold text-muted uppercase tracking-wider">
                 Import existing schema
                 {importedSchema && (
@@ -396,20 +522,12 @@ const NewProjectWizard = () => {
                   Point at an existing PostgreSQL, MySQL, or SQLite database. AetherOS will read its schema
                   and feed it into the architecture phase instead of generating one from scratch.
                 </p>
-                <input
-                  type="password"
-                  value={schemaConnStr}
-                  onChange={e => setSchemaConnStr(e.target.value)}
+                <input type="password" value={schemaConnStr} onChange={e => setSchemaConnStr(e.target.value)}
                   placeholder="postgresql://user:pass@host:5432/dbname"
-                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright font-mono placeholder:text-muted/50 focus:outline-none focus:border-accent"
-                />
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright font-mono placeholder:text-muted/50 focus:outline-none focus:border-accent" />
                 <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleImportSchema}
-                    disabled={importingSchema || !schemaConnStr.trim()}
-                    className="px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
-                  >
+                  <button type="button" onClick={handleImportSchema} disabled={importingSchema || !schemaConnStr.trim()}
+                    className="px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors">
                     {importingSchema ? 'Connecting…' : 'Test & Import'}
                   </button>
                   {importedSchema && !schemaError && (
@@ -498,6 +616,24 @@ const NewProjectWizard = () => {
                 <span className="text-sm text-bright font-medium">{v}</span>
               </div>
             ))}
+            {wizardAnswers.who && (
+              <div className="flex justify-between">
+                <span className="text-xs text-muted uppercase font-semibold tracking-wider">Users</span>
+                <span className="text-sm text-bright font-medium">{{ internal: 'Internal team', customers: 'Customers', both: 'Both' }[wizardAnswers.who]}</span>
+              </div>
+            )}
+            {wizardAnswers.scale && (
+              <div className="flex justify-between">
+                <span className="text-xs text-muted uppercase font-semibold tracking-wider">Scale</span>
+                <span className="text-sm text-bright font-medium">{{ small: 'Under 100', medium: '100–10K', large: '10K+' }[wizardAnswers.scale]}</span>
+              </div>
+            )}
+            {wizardAnswers.money === true && (
+              <div className="flex justify-between">
+                <span className="text-xs text-muted uppercase font-semibold tracking-wider">Payments</span>
+                <span className="text-sm text-emerald-400 font-medium">Yes</span>
+              </div>
+            )}
             {repoFetched && (
               <div className="flex justify-between">
                 <span className="text-xs text-muted uppercase font-semibold tracking-wider">Repo</span>
@@ -512,11 +648,10 @@ const NewProjectWizard = () => {
             )}
             <div className="border-t border-border pt-3">
               <span className="text-xs text-muted uppercase font-semibold tracking-wider">Requirement</span>
-              <p className="text-sm text-bright mt-1 line-clamp-4 leading-relaxed">{prompt}</p>
+              <p className="text-sm text-bright mt-1 line-clamp-4 leading-relaxed whitespace-pre-line">{prompt}</p>
             </div>
           </div>
 
-          {/* Cost Estimate */}
           {estimate && (
             <div className="bg-emerald-950/40 border border-emerald-800/40 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
@@ -543,8 +678,7 @@ const NewProjectWizard = () => {
                 <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Starting Factory Run…</>
               ) : '🚀 Start Factory Run'}
             </button>
-            <button
-              type="button"
+            <button type="button"
               onClick={() => {
                 const params = new URLSearchParams();
                 if (name) params.set('name', name);
@@ -556,8 +690,7 @@ const NewProjectWizard = () => {
                 params.set('db', dbChoice);
                 navigate(`/designer?${params.toString()}`);
               }}
-              className="w-full flex items-center justify-center gap-2 py-2.5 border border-border text-muted hover:text-bright hover:border-accent/50 text-sm font-semibold rounded-xl transition-colors"
-            >
+              className="w-full flex items-center justify-center gap-2 py-2.5 border border-border text-muted hover:text-bright hover:border-accent/50 text-sm font-semibold rounded-xl transition-colors">
               🎨 Configure in Designer
             </button>
           </div>
