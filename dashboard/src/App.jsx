@@ -1,4 +1,4 @@
-import React, { useEffect, Suspense } from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Layout from './components/Layout';
 // Static (auth-critical — must not lazy-load)
@@ -45,19 +45,6 @@ const GlobalPatternsTuning = React.lazy(() => import('./pages/GlobalPatternsTuni
 const ProjectDesigner   = React.lazy(() => import('./pages/ProjectDesigner'));
 const Workspaces        = React.lazy(() => import('./pages/Workspaces'));
 
-// Page skeleton shown while lazy chunks load
-const PageSkeleton = () => (
-  <div className="p-6 space-y-4 animate-pulse">
-    <div className="h-7 w-48 bg-border/40 rounded-lg" />
-    <div className="grid grid-cols-3 gap-4">
-      {[1,2,3].map(i => <div key={i} className="h-24 bg-border/30 rounded-xl" />)}
-    </div>
-    <div className="h-64 bg-border/20 rounded-xl" />
-    <div className="space-y-2">
-      {[1,2,3,4].map(i => <div key={i} className="h-12 bg-border/20 rounded-lg" style={{width: `${70 + i*5}%`}} />)}
-    </div>
-  </div>
-);
 
 const ProtectedRoute = ({ children }) => {
   const token = api.getToken();
@@ -103,55 +90,53 @@ function App() {
       <Route path="/portal/:id" element={<ErrorBoundary><Suspense fallback={<PageSkeleton />}><ClientPortal /></Suspense></ErrorBoundary>} />
 
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Suspense fallback={<PageSkeleton />}>
-          <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
-          <Route path="new" element={<ErrorBoundary><NewProjectWizard /></ErrorBoundary>} />
-          <Route path="projects" element={<ErrorBoundary><ProjectsList /></ErrorBoundary>} />
-          <Route path="project/:id" element={<ErrorBoundary><ProjectView /></ErrorBoundary>} />
-          <Route path="project/:id/phase/:name" element={<ErrorBoundary><PhaseDetail /></ErrorBoundary>} />
-          <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-          <Route path="settings/sso" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-          <Route path="compliance" element={<ErrorBoundary><Compliance /></ErrorBoundary>} />
-          <Route path="marketplace" element={<ErrorBoundary><Marketplace /></ErrorBoundary>} />
-          <Route path="new-project" element={<Navigate to="/designer" replace />} />
-          <Route path="connectors" element={<ErrorBoundary><ConnectorHub /></ErrorBoundary>} />
-          <Route path="dashboard/tools/connectors" element={<Navigate to="/connectors" replace />} />
-          <Route path="skills" element={<ErrorBoundary><PluginManager /></ErrorBoundary>} />
-          <Route path="dashboard/tools/skills" element={<Navigate to="/skills" replace />} />
-          <Route path="memory" element={<ErrorBoundary><MemoryInspector /></ErrorBoundary>} />
-          <Route path="dashboard/tools/memory" element={<Navigate to="/memory" replace />} />
-          <Route path="costs" element={<ErrorBoundary><CostDashboard /></ErrorBoundary>} />
-          <Route path="dashboard/tools/costs" element={<Navigate to="/costs" replace />} />
-          <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
-          <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
-          <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
-          <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
-          <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
-          <Route path="webhooks" element={<Navigate to="/settings/webhooks" replace />} />
-          <Route path="dashboard/tools/webhooks" element={<Navigate to="/settings/webhooks" replace />} />
-          <Route path="frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
-          <Route path="dashboard/tools/frontend-builder" element={<Navigate to="/frontend-builder" replace />} />
-          <Route path="project/:id/frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
-          <Route path="backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
-          <Route path="dashboard/tools/backend-builder" element={<Navigate to="/backend-builder" replace />} />
-          <Route path="project/:id/backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
-          <Route path="prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
-          <Route path="dashboard/tools/prompt" element={<Navigate to="/prompt" replace />} />
-          <Route path="project/:id/prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
-          <Route path="audit" element={<AdminRoute><ErrorBoundary><AuditLogs /></ErrorBoundary></AdminRoute>} />
-          <Route path="learning" element={<ErrorBoundary><Learning /></ErrorBoundary>} />
-          <Route path="dashboard/tools/learning" element={<Navigate to="/learning" replace />} />
-          <Route path="intelligence" element={<ErrorBoundary><IntelligenceHub /></ErrorBoundary>} />
-          <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
-          <Route path="deployments" element={<ErrorBoundary><Deployments /></ErrorBoundary>} />
-          <Route path="health" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
-          <Route path="guardian" element={<ErrorBoundary><Guardian /></ErrorBoundary>} />
-          <Route path="agents" element={<ErrorBoundary><Agents /></ErrorBoundary>} />
-          <Route path="designer" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
-          <Route path="designer/:id" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
-          <Route path="workspaces" element={<ErrorBoundary><Workspaces /></ErrorBoundary>} />
-          <Route path="*" element={<NotFound />} />
-        </Suspense>
+        <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+        <Route path="new" element={<ErrorBoundary><NewProjectWizard /></ErrorBoundary>} />
+        <Route path="projects" element={<ErrorBoundary><ProjectsList /></ErrorBoundary>} />
+        <Route path="project/:id" element={<ErrorBoundary><ProjectView /></ErrorBoundary>} />
+        <Route path="project/:id/phase/:name" element={<ErrorBoundary><PhaseDetail /></ErrorBoundary>} />
+        <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+        <Route path="settings/sso" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+        <Route path="compliance" element={<ErrorBoundary><Compliance /></ErrorBoundary>} />
+        <Route path="marketplace" element={<ErrorBoundary><Marketplace /></ErrorBoundary>} />
+        <Route path="new-project" element={<Navigate to="/designer" replace />} />
+        <Route path="connectors" element={<ErrorBoundary><ConnectorHub /></ErrorBoundary>} />
+        <Route path="dashboard/tools/connectors" element={<Navigate to="/connectors" replace />} />
+        <Route path="skills" element={<ErrorBoundary><PluginManager /></ErrorBoundary>} />
+        <Route path="dashboard/tools/skills" element={<Navigate to="/skills" replace />} />
+        <Route path="memory" element={<ErrorBoundary><MemoryInspector /></ErrorBoundary>} />
+        <Route path="dashboard/tools/memory" element={<Navigate to="/memory" replace />} />
+        <Route path="costs" element={<ErrorBoundary><CostDashboard /></ErrorBoundary>} />
+        <Route path="dashboard/tools/costs" element={<Navigate to="/costs" replace />} />
+        <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
+        <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
+        <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
+        <Route path="webhooks" element={<Navigate to="/settings/webhooks" replace />} />
+        <Route path="dashboard/tools/webhooks" element={<Navigate to="/settings/webhooks" replace />} />
+        <Route path="frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
+        <Route path="dashboard/tools/frontend-builder" element={<Navigate to="/frontend-builder" replace />} />
+        <Route path="project/:id/frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
+        <Route path="backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
+        <Route path="dashboard/tools/backend-builder" element={<Navigate to="/backend-builder" replace />} />
+        <Route path="project/:id/backend-builder" element={<ErrorBoundary><BackendBuilder /></ErrorBoundary>} />
+        <Route path="prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
+        <Route path="dashboard/tools/prompt" element={<Navigate to="/prompt" replace />} />
+        <Route path="project/:id/prompt" element={<ErrorBoundary><PromptInput /></ErrorBoundary>} />
+        <Route path="audit" element={<AdminRoute><ErrorBoundary><AuditLogs /></ErrorBoundary></AdminRoute>} />
+        <Route path="learning" element={<ErrorBoundary><Learning /></ErrorBoundary>} />
+        <Route path="dashboard/tools/learning" element={<Navigate to="/learning" replace />} />
+        <Route path="intelligence" element={<ErrorBoundary><IntelligenceHub /></ErrorBoundary>} />
+        <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
+        <Route path="deployments" element={<ErrorBoundary><Deployments /></ErrorBoundary>} />
+        <Route path="health" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
+        <Route path="guardian" element={<ErrorBoundary><Guardian /></ErrorBoundary>} />
+        <Route path="agents" element={<ErrorBoundary><Agents /></ErrorBoundary>} />
+        <Route path="designer" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
+        <Route path="designer/:id" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
+        <Route path="workspaces" element={<ErrorBoundary><Workspaces /></ErrorBoundary>} />
+        <Route path="*" element={<NotFound />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />
