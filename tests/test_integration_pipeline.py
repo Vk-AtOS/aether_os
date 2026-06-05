@@ -413,7 +413,6 @@ async def test_full_pipeline_runs_all_20_phases(tmp_path, monkeypatch):
     import uuid as _uuid
 
     monkeypatch.setenv("PHASE_TIMEOUT_SECONDS", "10")
-    monkeypatch.setenv("SPEC_REVIEW_TIMEOUT", "0")
     monkeypatch.setenv("AETHER_SECRET_KEY", "test-secret-key-32-chars-minimum!!")
 
     phases_executed = []
@@ -450,6 +449,10 @@ async def test_full_pipeline_runs_all_20_phases(tmp_path, monkeypatch):
         patch("aether_os.orchestrator.factory_pipeline.publish_event",
               new_callable=AsyncMock),
         patch("aether_os.orchestrator.factory_pipeline.emit",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.get_control",
+              new_callable=AsyncMock, return_value="spec_approved"),
+        patch("aether_os.orchestrator.factory_pipeline.set_control",
               new_callable=AsyncMock),
     ):
         # Mock ledger — ALL async methods must be AsyncMock

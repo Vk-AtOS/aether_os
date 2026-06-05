@@ -350,7 +350,11 @@ async def test_factory_pipeline_smoke(tmp_path):
     with patch("aether_os.orchestrator.factory_pipeline._load_supervisor",
                return_value=MockSupervisor()), \
          patch("aether_os.core.audit.ledger.get_ledger") as mock_ledger, \
-         patch.dict("os.environ", {"SPEC_REVIEW_TIMEOUT": "0", "PHASE_TIMEOUT_SECONDS": "10"}):
+         patch("aether_os.orchestrator.factory_pipeline.get_control",
+               new_callable=AsyncMock, return_value="spec_approved"), \
+         patch("aether_os.orchestrator.factory_pipeline.set_control",
+               new_callable=AsyncMock), \
+         patch.dict("os.environ", {"PHASE_TIMEOUT_SECONDS": "10"}):
 
         mock_ledger.return_value = MagicMock(
             save_run=MagicMock(),
@@ -371,6 +375,7 @@ async def test_factory_pipeline_smoke(tmp_path):
                 client_id="client-test",
                 raw_input="Build a task management app with user authentication",
                 domain="saas",
+                org_id="test-org",
             )
 
     assert result["status"] == "complete"
@@ -417,6 +422,7 @@ async def test_factory_pipeline_start_phase(tmp_path):
                 client_id="c1",
                 raw_input="Build app",
                 start_phase="p08_cicd_deployment",
+                org_id="test-org",
             )
 
     # Starting at p08 (index 8 of 20) means 12 phases run

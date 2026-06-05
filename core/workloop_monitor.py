@@ -143,6 +143,8 @@ class WorkloopMonitor:
                     }
                     for r in rows
                 ]
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.warning("WorkloopMonitor: failed to fetch runs: %s", exc)
             return []
