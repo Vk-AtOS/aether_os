@@ -419,6 +419,17 @@ def _current_user():
     return Depends(get_current_user)
 
 
+@router.get("/mfa/status")
+async def mfa_status(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """Return whether MFA is enabled for the current user."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import User as _User
+    sf = get_session_factory()
+    async with sf() as session:
+        u = await session.get(_User, user.get("user_id", user.get("sub", "")))
+    return {"enabled": bool(u.mfa_enabled) if u else False}
+
+
 @router.get("/my-orgs")
 async def get_my_orgs(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
     """Return all organisations the current user belongs to.

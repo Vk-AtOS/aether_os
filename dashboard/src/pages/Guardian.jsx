@@ -36,7 +36,14 @@ const EVENT_ICONS = {
 
 function fmt(iso) {
   if (!iso) return '—';
-  const d = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+  let d;
+  if (typeof iso === 'number') {
+    d = new Date(iso < 1e10 ? iso * 1000 : iso);
+  } else {
+    const s = String(iso).replace(' ', 'T').replace(/\+00:00$/, 'Z');
+    d = new Date(s.endsWith('Z') ? s : s + 'Z');
+  }
+  if (isNaN(d.getTime())) return String(iso);
   return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
 }
 
