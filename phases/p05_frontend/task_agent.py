@@ -21,12 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 def _pluralise(word: str) -> str:
-    """Basic English pluralisation for FK endpoint derivation."""
-    w = word.lower().rstrip("s")  # normalise first
+    """English pluralisation for FK endpoint derivation."""
+    w = word.lower()
+    if w.endswith("ies") or w.endswith("ses") or w.endswith("xes") or w.endswith("ches") or w.endswith("shes"):
+        return w  # already plural
     if w.endswith("y") and len(w) > 1 and w[-2] not in "aeiou":
         return w[:-1] + "ies"
-    if w.endswith(("s", "sh", "ch", "x", "z")):
+    if w.endswith("ss") or w.endswith("sh") or w.endswith("ch") or w.endswith("x") or w.endswith("z"):
         return w + "es"
+    if w.endswith("s"):
+        return w  # already plural
     return w + "s"
 
 
