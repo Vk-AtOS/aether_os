@@ -253,19 +253,45 @@ async def _generate_domain_component(
     except Exception:
         pass
 
+    # Domain-appropriate colour palette hints so the LLM picks scheme-consistent colours
+    _domain_color_hints: Dict[str, str] = {
+        "healthcare":   "teal palette: bg-teal-50/100, text-teal-800/900, borders teal-200, accents teal-600",
+        "fintech":      "dark navy-gold: bg-slate-900, text-yellow-300, cards bg-slate-800, accents yellow-400",
+        "ecommerce":    "rose-pink: bg-rose-50, text-rose-900, cards bg-white border-rose-100, accents rose-600",
+        "marketplace":  "violet: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
+        "education":    "sky-cyan: bg-sky-50, text-sky-900, cards bg-white border-sky-100, accents sky-600",
+        "gym_fitness":  "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
+        "fitness":      "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
+        "real_estate":  "emerald: bg-emerald-50, text-emerald-900, cards bg-white border-emerald-100, accents emerald-600",
+        "hospitality":  "amber-warm: bg-amber-50, text-amber-900, cards bg-white border-amber-100, accents amber-600",
+        "restaurant":   "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
+        "food":         "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
+        "logistics":    "slate-blue: bg-slate-50, text-slate-900, cards bg-white border-slate-200, accents slate-600",
+        "iot":          "slate-blue: bg-slate-900, text-cyan-300, cards bg-slate-800, accents cyan-400",
+        "hrm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
+        "crm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
+        "analytics":    "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
+        "saas":         "violet-purple: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
+        "security":     "slate-red: bg-slate-900, text-red-300, cards bg-slate-800 border-slate-700, accents red-500",
+        "sports":       "green-energy: bg-green-50, text-green-900, cards bg-white border-green-100, accents green-600",
+        "library":      "stone: bg-stone-50, text-stone-900, cards bg-white border-stone-200, accents amber-700",
+    }
+    _color_hint = _domain_color_hints.get(domain, "white/gray neutral: bg-white, text-gray-900, cards bg-white border-gray-100")
+
     prompt = (
         f'Generate a React functional component for a {domain} application called "{project_name}".\n\n'
         f"The component should render: {component_desc}\n\n"
         f"{mem_hint}"
         f"{golden_hint}"
         "Hard requirements:\n"
-        "- Tailwind CSS only (dark theme: bg-gray-900, bg-gray-800, text-white, etc.)\n"
+        f"- Tailwind CSS only — use the domain colour scheme: {_color_hint}\n"
         "- Use lucide-react icons (import at top: import {{ ... }} from 'lucide-react')\n"
         "- ALL data is static/mock — zero API calls, zero props, zero useState hooks for fetching\n"
         "- Export: export default function DomainWidget() {{}}\n"
-        "- Maximum 120 lines\n"
-        "- Visual polish: rounded-2xl, shadows, colour badges, proper spacing\n"
-        f"- Entities available in this app (for label inspiration): {', '.join(entity_names)}\n\n"
+        "- Maximum 250 lines — use the space for rich, domain-appropriate visuals\n"
+        "- Visual polish: rounded-2xl, shadows, colour badges, proper spacing — make it look like a real product\n"
+        f"- Entities available in this app (for label inspiration): {', '.join(entity_names)}\n"
+        f"- Design personality: {domain} apps should feel visually distinct — avoid generic grey/white Bootstrap-style layouts\n\n"
         "Return ONLY the React component code. No markdown fences, no explanation."
     )
 
@@ -3189,10 +3215,85 @@ export function LoginPage() {{
 """
 
 
-def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain: str = "saas") -> str:
+def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain: str = "saas", ui_theme: str = "default") -> str:
     """Generate src/pages/Dashboard.tsx — storefront homepage for ecommerce, stat cards for others."""
     if domain in ("ecommerce", "marketplace"):
         return _generate_storefront_home(entities, route_map, domain=domain)
+
+    # Domain-appropriate page background and text colours
+    _theme_bg: Dict[str, str] = {
+        "healthcare":  "bg-teal-50",
+        "fintech":     "bg-slate-900",
+        "education":   "bg-sky-50",
+        "gym_fitness": "bg-red-50",
+        "fitness":     "bg-red-50",
+        "real_estate": "bg-emerald-50",
+        "hospitality": "bg-amber-50",
+        "restaurant":  "bg-orange-50",
+        "food":        "bg-orange-50",
+        "logistics":   "bg-slate-50",
+        "iot":         "bg-slate-900",
+        "security":    "bg-slate-900",
+        "hrm":         "bg-indigo-50",
+        "crm":         "bg-indigo-50",
+        "analytics":   "bg-indigo-50",
+        "saas":        "bg-violet-50",
+        "sports":      "bg-green-50",
+        "library":     "bg-stone-50",
+    }
+    _theme_heading: Dict[str, str] = {
+        "healthcare":  "text-teal-900",
+        "fintech":     "text-yellow-300",
+        "education":   "text-sky-900",
+        "gym_fitness": "text-red-900",
+        "fitness":     "text-red-900",
+        "real_estate": "text-emerald-900",
+        "hospitality": "text-amber-900",
+        "restaurant":  "text-orange-900",
+        "food":        "text-orange-900",
+        "logistics":   "text-slate-900",
+        "iot":         "text-cyan-300",
+        "security":    "text-red-300",
+        "hrm":         "text-indigo-900",
+        "crm":         "text-indigo-900",
+        "analytics":   "text-indigo-900",
+        "saas":        "text-violet-900",
+        "sports":      "text-green-900",
+        "library":     "text-stone-900",
+    }
+    _theme_sub: Dict[str, str] = {
+        "fintech": "text-slate-400", "iot": "text-slate-400", "security": "text-slate-400",
+    }
+    _theme_card: Dict[str, str] = {
+        "healthcare":  "bg-white border-teal-100",
+        "fintech":     "bg-slate-800 border-slate-700",
+        "education":   "bg-white border-sky-100",
+        "gym_fitness": "bg-white border-red-100",
+        "fitness":     "bg-white border-red-100",
+        "real_estate": "bg-white border-emerald-100",
+        "hospitality": "bg-white border-amber-100",
+        "restaurant":  "bg-white border-orange-100",
+        "food":        "bg-white border-orange-100",
+        "logistics":   "bg-white border-slate-200",
+        "iot":         "bg-slate-800 border-slate-700",
+        "security":    "bg-slate-800 border-slate-700",
+        "hrm":         "bg-white border-indigo-100",
+        "crm":         "bg-white border-indigo-100",
+        "analytics":   "bg-white border-indigo-100",
+        "saas":        "bg-white border-violet-100",
+        "sports":      "bg-white border-green-100",
+        "library":     "bg-white border-stone-200",
+    }
+    _theme_stat_text: Dict[str, str] = {
+        "fintech": "text-yellow-200", "iot": "text-cyan-200", "security": "text-red-200",
+    }
+
+    _eff_theme = ui_theme if ui_theme and ui_theme != "default" else domain
+    page_bg    = _theme_bg.get(_eff_theme, "bg-gray-50")
+    heading_cl = _theme_heading.get(_eff_theme, "text-gray-900")
+    sub_cl     = _theme_sub.get(_eff_theme, "text-gray-500")
+    card_cl    = _theme_card.get(_eff_theme, "bg-white border-gray-100")
+    stat_cl    = _theme_stat_text.get(_eff_theme, "text-gray-900")
 
     query_lines: List[str] = []
     stat_cards: List[str] = []
@@ -3214,15 +3315,15 @@ def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain:
             f"  }})"
         )
         stat_cards.append(
-            f"        <div className=\"bg-white rounded-2xl border border-gray-100 p-6 shadow-sm hover:shadow-md transition-shadow\">\n"
+            f"        <div className=\"{card_cl} rounded-2xl border p-6 shadow-sm hover:shadow-md transition-shadow\">\n"
             f"          <div className=\"flex items-center justify-between mb-3\">\n"
-            f"            <p className=\"text-sm font-semibold text-gray-500 uppercase tracking-wide\">{label}</p>\n"
+            f"            <p className=\"text-sm font-semibold text-brand-600 uppercase tracking-wide\">{label}</p>\n"
             f"            <div className=\"p-2 bg-brand-50 rounded-lg\">\n"
             f"              <{icon} size={{18}} className=\"text-brand-600\" />\n"
             f"            </div>\n"
             f"          </div>\n"
-            f"          <p className=\"text-4xl font-bold text-gray-900\">{{{camel}Data?.length ?? '—'}}</p>\n"
-            f"          <p className=\"text-xs text-gray-400 mt-2\">Total {label.lower()}</p>\n"
+            f"          <p className=\"text-4xl font-bold {stat_cl}\">{{{camel}Data?.length ?? '—'}}</p>\n"
+            f"          <p className=\"text-xs text-brand-400 mt-2\">Total {label.lower()}</p>\n"
             f"        </div>"
         )
 
@@ -3232,7 +3333,7 @@ def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain:
     icons_import = ", ".join(used_icons) if used_icons else "BarChart3"
 
     return f"""\
-// Auto-generated by AetherOS p05_frontend  (domain: {domain})
+// Auto-generated by AetherOS p05_frontend  (domain: {domain}, theme: {_eff_theme})
 import {{ useQuery }} from '@tanstack/react-query'
 import {{ {icons_import} }} from 'lucide-react'
 import {{ apiClient }} from '../lib/api'
@@ -3241,15 +3342,17 @@ export function Dashboard() {{
 {queries_str}
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-extrabold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Welcome back. Here's what's happening today.</p>
-      </div>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="{page_bg} min-h-screen p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-extrabold {heading_cl}">Dashboard</h1>
+          <p className="{sub_cl} mt-1">Welcome back. Here's what's happening today.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
 {cards_str}
+        </div>
+        {{/* DOMAIN_WIDGET_SLOT */}}
       </div>
-      {{/* DOMAIN_WIDGET_SLOT */}}
     </div>
   )
 }}
@@ -4190,7 +4293,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         (src_dir / "types" / "index.ts").write_text(_gen_types(_domain_ir))
         logger.info("p05: IR fast-path — dashboard + %d typed entity pages written", len(_domain_ir.entities))
     else:
-        (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain))
+        (src_dir / "pages" / "Dashboard.tsx").write_text(_generate_dashboard(entities, route_map, domain, ui_theme))
 
         # Build a global FK refs map from domain_ir (if partially loaded) so fallback
         # entity pages get correct FK endpoints and label keys instead of pure heuristics.
