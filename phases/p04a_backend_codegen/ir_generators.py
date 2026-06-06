@@ -29,6 +29,30 @@ from .database import Base
 """
 
 
+def _pluralise(word: str) -> str:
+    """English pluralisation for SQLAlchemy table names."""
+    w = word.lower()
+    if w.endswith("ies") or w.endswith("ses") or w.endswith("xes") or w.endswith("ches") or w.endswith("shes"):
+        return w  # already plural
+    if w.endswith("y") and len(w) > 1 and w[-2] not in "aeiou":
+        return w[:-1] + "ies"
+    if w.endswith("ss") or w.endswith("sh") or w.endswith("ch") or w.endswith("x") or w.endswith("z"):
+        return w + "es"
+    if w.endswith("s"):
+        return w  # already plural
+    return w + "s"
+
+
+def _ref_to_table_name(ref: str) -> str:
+    """Convert PascalCase entity ref to snake_case plural table name.
+    'Class' → 'classes', 'MembershipPlan' → 'membership_plans'
+    """
+    snake = "".join(
+        ["_" + c.lower() if c.isupper() else c for c in ref]
+    ).lstrip("_")
+    return _pluralise(snake)
+
+
 def _sa_column(field: IRField) -> str:
     """Return SQLAlchemy Column(...) definition for one IRField."""
     atype = field.type
@@ -36,9 +60,7 @@ def _sa_column(field: IRField) -> str:
     # Build column type string
     if atype == AetherType.FK:
         ref = field.ref_entity or "users"
-        table_name = "".join(
-            ["_" + c.lower() if c.isupper() else c for c in ref]
-        ).lstrip("_") + "s"
+        table_name = _ref_to_table_name(ref)
         col_type = f"Integer, ForeignKey('{table_name}.id')"
     elif atype == AetherType.EMAIL:
         col_type = "String(320)"
