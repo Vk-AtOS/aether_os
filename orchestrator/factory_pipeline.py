@@ -484,6 +484,41 @@ class FactoryPipeline:
                     "confidence": _meta.get("confidence", phase_result.get("confidence")),
                 })
 
+                # Persist checkpoint after every phase so a crashed run can resume
+                try:
+                    import json as _json_ckpt
+                    from aether_os.core.db import get_session_factory as _gsf_ckpt_w
+                    from aether_os.core.models import Run as _Run_ckpt_w
+                    from sqlalchemy import update as _sa_upd_ckpt_w
+
+                    def _serialisable(v: object) -> object:
+                        if isinstance(v, dict):
+                            return {k2: _serialisable(v2) for k2, v2 in v.items()}
+                        if isinstance(v, list):
+                            return [_serialisable(i) for i in v]
+                        if isinstance(v, (str, int, float, bool)) or v is None:
+                            return v
+                        return str(v)
+
+                    _ckpt_ctx = {
+                        k: _serialisable(v)
+                        for k, v in accumulated_context.items()
+                        if k not in ("phase_summaries",)
+                    }
+                    _ckpt_payload = {
+                        "last_completed_phase": phase_name,
+                        "accumulated_context": _ckpt_ctx,
+                    }
+                    async with _gsf_ckpt_w()() as _sess_ckpt_w:
+                        await _sess_ckpt_w.execute(
+                            _sa_upd_ckpt_w(_Run_ckpt_w)
+                            .where(_Run_ckpt_w.id == run_id)
+                            .values(checkpoint_data=_ckpt_payload)
+                        )
+                        await _sess_ckpt_w.commit()
+                except Exception as _ckpt_w_exc:
+                    logger.debug("[pipeline] checkpoint save failed (non-fatal): %s", _ckpt_w_exc)
+
                 # If p11_deployment produced a live_url, persist it to the runs table
                 if phase_name == "p11_deployment":
                     _live_url = phase_result.get("metadata", {}).get("live_url")
