@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,11 @@ except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
+
+_S3_BUCKET = os.environ.get("S3_BUCKET", "")
+_S3_PREFIX = "runs"
+_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "dist", "build", ".venv", "venv"}
+_UPLOAD_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".md", ".sql", ".yml", ".yaml", ".sh", ".txt"}
 
 
 class ArtifactStore:
@@ -193,7 +199,7 @@ class ArtifactStore:
             return []
 
     async def get_artifact(self, run_id: str, file_path: str) -> Optional[str]:
-        """Retrieve artifact content from DB snapshots or filesystem."""
+        """Retrieve artifact content from DB snapshots, filesystem, or S3."""
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import Snapshot
@@ -214,7 +220,68 @@ class ArtifactStore:
                 return full_path.read_text()
         except Exception as exc:
             logger.debug("Failed to get artifact from filesystem: %s", exc)
+
+        # Fall back to S3 if configured
+        if _S3_BUCKET:
+            try:
+                content = await asyncio.to_thread(self._s3_download_text, run_id, file_path)
+                if content is not None:
+                    return content
+            except Exception as exc:
+                logger.debug("Failed to get artifact from S3: %s", exc)
         return None
+
+    def _s3_client(self):
+        import boto3
+        return boto3.client(
+            "s3",
+            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        )
+
+    def _s3_key(self, run_id: str, relative_path: str) -> str:
+        return f"{_S3_PREFIX}/{run_id}/{relative_path}"
+
+    def _s3_download_text(self, run_id: str, file_path: str) -> Optional[str]:
+        try:
+            import boto3
+            s3 = self._s3_client()
+            obj = s3.get_object(Bucket=_S3_BUCKET, Key=self._s3_key(run_id, file_path))
+            return obj["Body"].read().decode("utf-8", errors="replace")
+        except Exception:
+            return None
+
+    async def upload_run_to_s3(self, run_id: str, project_dir: Path) -> int:
+        """Upload all text artifacts from project_dir to S3. Returns count uploaded."""
+        if not _S3_BUCKET:
+            logger.debug("[s3] S3_BUCKET not set — skipping upload for run %s", run_id)
+            return 0
+        return await asyncio.to_thread(self._upload_run_sync, run_id, project_dir)
+
+    def _upload_run_sync(self, run_id: str, project_dir: Path) -> int:
+        try:
+            import boto3
+            s3 = self._s3_client()
+            count = 0
+            for f in Path(project_dir).rglob("*"):
+                if any(part in _SKIP_DIRS for part in f.parts):
+                    continue
+                if not f.is_file() or f.suffix not in _UPLOAD_EXTS:
+                    continue
+                if f.stat().st_size > 5 * 1024 * 1024:  # skip files > 5 MB
+                    continue
+                rel = str(f.relative_to(project_dir))
+                key = self._s3_key(run_id, rel)
+                try:
+                    s3.upload_file(str(f), _S3_BUCKET, key)
+                    count += 1
+                except Exception as exc:
+                    logger.debug("[s3] upload failed for %s: %s", rel, exc)
+            logger.info("[s3] Uploaded %d artifacts for run %s to s3://%s/%s/%s/",
+                        count, run_id, _S3_BUCKET, _S3_PREFIX, run_id)
+            return count
+        except Exception as exc:
+            logger.warning("[s3] upload_run_sync failed for run %s: %s", run_id, exc)
+            return 0
 
     async def embed_run(self, run_id: str, org_id: str, project_dir: Path) -> int:
         """Embed all source files in project_dir and return the count stored."""

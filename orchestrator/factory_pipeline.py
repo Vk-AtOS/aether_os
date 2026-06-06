@@ -1192,6 +1192,25 @@ class FactoryPipeline:
         _background_tasks.add(_t3)
         _t3.add_done_callback(_background_tasks.discard)
 
+        # ── PART 3: Upload artifacts to S3 (background, non-blocking)
+        async def _upload_to_s3():
+            if await get_control(run_id) == "cancel":
+                return
+            try:
+                from aether_os.core.artifact_store import get_artifact_store as _gas_s3
+                _s3_count = await _gas_s3().upload_run_to_s3(run_id, project_dir)
+                if _s3_count:
+                    await publish_event(run_id, {
+                        "type": "s3_upload_complete",
+                        "run_id": run_id,
+                        "count": _s3_count,
+                    })
+            except Exception as _s3_exc:
+                logger.warning("[pipeline] S3 upload skipped: %s", _s3_exc)
+        _t4 = asyncio.create_task(_upload_to_s3())
+        _background_tasks.add(_t4)
+        _t4.add_done_callback(_background_tasks.discard)
+
         return {
             "run_id": run_id,
             "project_id": run_id,  # In this refactored version, run_id is used for project_dir
