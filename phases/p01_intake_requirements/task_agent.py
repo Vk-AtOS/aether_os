@@ -32,7 +32,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             + mem +
             "Return JSON with these fields:\n"
             '{"project_name": "short CamelCase name", '
-            '"domain": "one of: saas, ecommerce, healthcare, fintech, logistics, education, general", '
+            '"domain": "one of: saas, ecommerce, healthcare, fintech, logistics, education, gym_fitness, sports, hospitality, hrm, crm, restaurant, real_estate, general", '
             '"summary": "2-3 sentence summary", '
             '"key_features": ["feature1", "feature2", ...], '
             '"target_users": "description of end users", '

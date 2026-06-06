@@ -35,8 +35,10 @@ def _pluralise(word: str) -> str:
 def _detect_domain(phase_input: Any) -> str:
     """Detect application domain from project description and entity names."""
     # Only trust the pre-resolved domain if it's a specific domain, not the generic fallbacks.
+    # Exclude "ecommerce" from blind trust — it's the LLM's default guess for any app that
+    # involves payments/memberships, so re-verify it against keyword scoring below.
     _pre = (getattr(phase_input, "domain", None) or "").lower().strip()
-    if _pre and _pre not in ("", "unknown", "general", "saas"):
+    if _pre and _pre not in ("", "unknown", "general", "saas", "ecommerce"):
         return _pre
 
     data = (
@@ -92,6 +94,20 @@ def _detect_domain(phase_input: Any) -> str:
                                 ("kitchen", 2), ("waiter", 2), ("dish", 2), ("pos", 2)],
         "education":           [("student", 3), ("enrollment", 3), ("grade", 2), ("teacher", 2),
                                 ("course", 2), ("lesson", 2), ("school", 2), ("class", 1)],
+        "gym_fitness":         [("gym", 3), ("fitness", 3), ("workout", 3), ("trainer", 2),
+                                ("membership", 2), ("exercise", 2), ("class schedule", 3),
+                                ("weight", 1), ("cardio", 2), ("strength", 1), ("bench", 1),
+                                ("locker", 2), ("personal trainer", 3), ("crossfit", 3),
+                                ("yoga", 2), ("pilates", 2), ("sports club", 3)],
+        "sports":              [("team", 2), ("match", 2), ("tournament", 3), ("season", 2),
+                                ("league", 3), ("player", 2), ("score", 2), ("stadium", 3),
+                                ("fixture", 3), ("referee", 2), ("coach", 2), ("sport", 1)],
+        "hospitality":         [("hotel", 3), ("room", 2), ("booking", 2), ("checkin", 3),
+                                ("checkout", 2), ("guest", 2), ("hostel", 3), ("resort", 3),
+                                ("concierge", 3), ("housekeeping", 3), ("amenity", 2)],
+        "real_estate":         [("property", 3), ("listing", 2), ("tenant", 3), ("lease", 3),
+                                ("landlord", 3), ("rent", 2), ("mortgage", 3), ("agent", 2),
+                                ("unit", 1), ("floor plan", 3), ("vacancy", 2)],
     }
 
     scores: Dict[str, int] = {}
@@ -127,6 +143,10 @@ _DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
     "restaurant":         ["Tables Occupied", "Orders in Queue", "Avg Order Value", "Covers Today"],
     "education":          ["Enrolled Students", "Courses Active", "Avg Grade", "Attendance %"],
     "saas":               ["Active Users", "MRR", "Churn Rate", "NPS Score"],
+    "gym_fitness":        ["Active Members", "Classes Today", "Check-ins Today", "Revenue MTD"],
+    "sports":             ["Active Players", "Matches Today", "Teams Registered", "Tournaments"],
+    "hospitality":        ["Rooms Occupied", "Check-ins Today", "Check-outs Today", "Revenue Today"],
+    "real_estate":        ["Active Listings", "Vacant Units", "Leases Expiring", "Revenue MTD"],
 }
 
 # ── LLM-powered domain component generation ──────────────────────────────────
@@ -178,6 +198,30 @@ _DOMAIN_COMPONENT_DESC: Dict[str, str] = {
     "saas": (
         "a MetricsDashboard showing 4 KPI tiles (Active Users, MRR, Churn Rate, NPS) "
         "each with a trend arrow (up/down) and a sparkline-style indicator row"
+    ),
+    "gym_fitness": (
+        "a GymDashboard showing today's class schedule (4 classes with time, name, trainer, "
+        "and slots-remaining badge), a member check-in counter, and a 7-day attendance sparkline"
+    ),
+    "sports": (
+        "a MatchDayPanel showing today's fixtures (3 matches with home/away team, time, venue) "
+        "and a standings mini-table with position, played, won, lost, points columns"
+    ),
+    "hospitality": (
+        "a RoomStatusGrid showing 12 room cards in a 4×3 grid colour-coded by status "
+        "(Available=green, Occupied=blue, Cleaning=yellow, Maintenance=red) with room number and type"
+    ),
+    "real_estate": (
+        "a PropertyMap showing 6 listing cards with address, type badge (Apartment/House/Commercial), "
+        "price, status pill (Available/Under Offer/Leased), and a thumbnail placeholder"
+    ),
+    "crm": (
+        "a DealPipeline kanban-style row with 4 columns (New, Contacted, Proposal, Closed) "
+        "showing deal count and total value badges per column"
+    ),
+    "restaurant": (
+        "a TableMap showing a 3×4 grid of table circles colour-coded by status "
+        "(Free=green, Occupied=red, Reserved=yellow) with table numbers"
     ),
 }
 
@@ -1727,6 +1771,13 @@ def _generate_customer_home(
         "events":      ("Find Your Next Event", "Concerts, workshops, and experiences near you."),
         "food":        ("Order Fresh, Eat Well", "Restaurant-quality meals delivered to your door."),
         "saas":        ("Start Building Today", "Powerful tools to grow your business faster."),
+        "gym_fitness": ("Train Smarter, Live Better", "Book classes, track progress, and manage your membership — all in one place."),
+        "sports":      ("Play Your Best Game", "Schedules, standings, and stats for your league — all in one place."),
+        "hospitality": ("Your Perfect Stay Awaits", "Browse rooms, check availability, and book in seconds."),
+        "real_estate": ("Find Your Next Property", "Browse listings, schedule viewings, and manage your lease online."),
+        "hrm":         ("Your Workforce, Simplified", "Manage teams, track attendance, and run payroll with ease."),
+        "crm":         ("Close More Deals", "Track leads, manage pipelines, and grow your revenue."),
+        "restaurant":  ("Great Food, Great Experience", "Reserve a table, browse the menu, and order online."),
     }
     hero_title, hero_sub = _hero_copy.get(domain, (f"Welcome to {project_name}", "Explore what we have to offer."))
 
