@@ -1484,9 +1484,12 @@ def _generate_dual_app(entities: List[dict]) -> str:
     customer_routes: List[str] = []
     customer_children: List[str] = []
 
-    # Customer-facing entities: product-like browsable items
+    # Customer-facing entities: product-like browsable items and member-self-service entities
     _customer_kws = ("product", "item", "listing", "service", "book", "course", "event",
-                     "article", "post", "property", "menu", "catalog")
+                     "article", "post", "property", "menu", "catalog",
+                     "class", "schedule", "trainer", "workout", "session", "plan",
+                     "member", "booking", "reservation", "room", "team", "player",
+                     "match", "fixture", "table", "dish")
 
     for ent in entities:
         table = ent["table"]
@@ -1675,9 +1678,12 @@ export function AdminLayout() {{
 
 def _generate_customer_layout(entities: List[dict], project_name: str) -> str:
     """Generate CustomerLayout.tsx — clean top-nav for the end-user/customer portal."""
-    # Customer nav items: only browsable entity pages
+    # Customer nav items: only browsable entity pages and member-self-service entities
     _customer_kws = ("product", "item", "listing", "service", "book", "course", "event",
-                     "article", "post", "property", "menu", "catalog")
+                     "article", "post", "property", "menu", "catalog",
+                     "class", "schedule", "trainer", "workout", "session", "plan",
+                     "member", "booking", "reservation", "room", "team", "player",
+                     "match", "fixture", "table", "dish")
     nav_items: List[str] = [f"  {{ to: '/' as const, label: 'Home' }},"]
     for ent in entities:
         table = ent["table"]
@@ -2722,34 +2728,57 @@ export function LoginPage() {{
   }}
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-extrabold text-gray-900">{project_name}</h1>
-          <p className="text-gray-500 mt-1 text-sm">Sign in to your account</p>
+    <div className="min-h-screen flex">
+      {{/* Hero / branding panel — hidden on mobile */}}
+      <div className="hidden lg:flex lg:w-1/2 bg-brand-600 flex-col items-center justify-center p-12 text-white">
+        <div className="max-w-md text-center space-y-6">
+          <h1 className="text-4xl font-extrabold">{project_name}</h1>
+          <p className="text-brand-100 text-lg">
+            Sign in to access your account and everything {project_name} has to offer.
+          </p>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="bg-brand-700/50 rounded-xl p-4">
+              <p className="font-bold text-white text-base mb-1">Members</p>
+              <p className="text-brand-200">Book, manage and track — all in one place.</p>
+            </div>
+            <div className="bg-brand-700/50 rounded-xl p-4">
+              <p className="font-bold text-white text-base mb-1">Admins</p>
+              <p className="text-brand-200">Full management portal with analytics.</p>
+            </div>
+          </div>
         </div>
-        <form onSubmit={{handleSubmit}} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input type="email" value={{email}} onChange={{e => setEmail(e.target.value)}} required
-              placeholder="you@example.com"
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+      </div>
+      {{/* Login form panel */}}
+      <div className="flex-1 flex items-center justify-center bg-gray-50 p-8">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+          <div className="lg:hidden mb-6 text-center">
+            <h1 className="text-2xl font-bold text-brand-600">{project_name}</h1>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input type="password" value={{password}} onChange={{e => setPassword(e.target.value)}} required
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Welcome back</h2>
+          <p className="text-gray-500 mb-8 text-sm">Sign in to your account to continue.</p>
+          <form onSubmit={{handleSubmit}} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+              <input type="email" value={{email}} onChange={{e => setEmail(e.target.value)}} required
+                placeholder="you@example.com"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input type="password" value={{password}} onChange={{e => setPassword(e.target.value)}} required
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+            </div>
+            {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
+            <button type="submit" disabled={{loading}}
+              className="w-full py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-50 font-semibold text-sm transition-colors">
+              {{loading ? 'Signing in…' : 'Sign in'}}
+            </button>
+          </form>
+          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
+            <p className="font-semibold text-amber-800">Demo credentials</p>
+            <p className="text-amber-700">Admin: <span className="font-mono">admin@example.com</span> / <span className="font-mono">Admin1234!</span></p>
+            <p className="text-amber-700">User: <span className="font-mono">user@example.com</span> / <span className="font-mono">User1234!</span></p>
           </div>
-          {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
-          <button type="submit" disabled={{loading}}
-            className="w-full py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-50 font-semibold text-sm transition-colors">
-            {{loading ? 'Signing in…' : 'Sign in'}}
-          </button>
-        </form>
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
-          <p className="font-semibold text-amber-800">Demo credentials</p>
-          <p className="text-amber-700">Admin: <span className="font-mono">admin@example.com</span> / <span className="font-mono">Admin1234!</span></p>
-          <p className="text-amber-700">User: <span className="font-mono">user@example.com</span> / <span className="font-mono">User1234!</span></p>
         </div>
       </div>
     </div>
@@ -2894,19 +2923,25 @@ export function LoginPage() {{
   }}
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">{project_name}</h1>
-        <p className="text-gray-500 mb-8">Sign in to your account</p>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-brand-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-600 rounded-xl mb-4">
+            <span className="text-white font-extrabold text-xl">{project_name[0] if project_name else 'A'}</span>
+          </div>
+          <h1 className="text-2xl font-extrabold text-gray-900">{project_name}</h1>
+          <p className="text-gray-500 mt-1 text-sm">Sign in to your admin account</p>
+        </div>
         <form onSubmit={{handleSubmit}} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
             <input
               type="email"
               value={{email}}
               onChange={{e => setEmail(e.target.value)}}
               required
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              placeholder="admin@example.com"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
           </div>
           <div>
@@ -2916,20 +2951,20 @@ export function LoginPage() {{
               value={{password}}
               onChange={{e => setPassword(e.target.value)}}
               required
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
           </div>
-          {{error && <p className="text-sm text-red-500">{{error}}</p>}}
+          {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
           <button
             type="submit"
             disabled={{loading}}
-            className="w-full py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium"
+            className="w-full py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-50 font-semibold text-sm transition-colors"
           >
-            {{loading ? 'Signing in...' : 'Sign in'}}
+            {{loading ? 'Signing in…' : 'Sign in'}}
           </button>
         </form>
-        <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-          <p className="font-medium text-amber-800 mb-1">Demo credentials</p>
+        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
+          <p className="font-semibold text-amber-800">Demo credentials</p>
           <p className="text-amber-700">Email: <span className="font-mono">admin@example.com</span></p>
           <p className="text-amber-700">Password: <span className="font-mono">Admin1234!</span></p>
         </div>
@@ -3797,7 +3832,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Domains that benefit from dual portal (customer-facing + owner/admin split)
     _dual_portal_domains = ("ecommerce", "marketplace", "library", "healthcare",
                              "hospitality", "education", "events", "real_estate",
-                             "fitness", "food", "saas")
+                             "fitness", "food", "saas", "gym_fitness", "sports",
+                             "restaurant")
     # Domains that are purely internal management tools
     _internal_only_domains = ("crm", "hrm", "analytics", "fintech", "iot",
                                "security", "logistics")
