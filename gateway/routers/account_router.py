@@ -12,6 +12,7 @@ POST /account/settings
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List
 
@@ -50,6 +51,8 @@ async def get_usage(
             "runs_used": org.trial_runs_used,
             "runs_limit": org.trial_runs_limit if org.plan == "trial" else None,
             "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used) if org.plan == "trial" else None,
+            "country": os.environ.get("ORG_COUNTRY", "IN"),
+            "org_country": os.environ.get("ORG_COUNTRY", "IN"),
         }
 
 
