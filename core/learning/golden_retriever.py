@@ -180,15 +180,41 @@ def format_golden_hint_p04(examples: List[Dict]) -> str:
 
 
 def format_golden_hint_p05(examples: List[Dict]) -> str:
-    """Format golden examples as a few-shot hint for p05 frontend generation."""
+    """Format golden examples as a few-shot hint for p05 frontend generation.
+
+    Only injects examples that have a domain-specific feel (not generic white/gray defaults).
+    The hint explicitly instructs the LLM to adapt — not copy — the style.
+    """
     if not examples:
         return ""
-    parts = ["\n=== GOLDEN UI EXAMPLES (high-rated past builds — use as visual style reference) ==="]
+    # Filter out examples that look like the generic default blue template
+    _generic_signals = ("bg-white", "text-gray-900", "border-gray-100", "bg-gray-50")
+    filtered = []
     for ex in examples:
-        parts.append(f"\n--- Example: {ex['project_name']} ({ex['domain']}) ---")
+        sample = ex.get("p05_sample") or ""
+        # Skip if >70% of colour classes are generic grey/white
+        generic_hits = sum(1 for s in _generic_signals if s in sample)
+        if generic_hits < 3:  # has distinct domain colours
+            filtered.append(ex)
+
+    if not filtered:
+        return ""
+
+    parts = [
+        "\n=== STYLE REFERENCE (high-rated builds — ADAPT the domain colour scheme, do NOT copy code) ===",
+        "Important: these are style references only. Use the domain colour palette from the requirements above.",
+    ]
+    for ex in filtered:
+        parts.append(f"\n--- Reference: {ex['project_name']} ({ex['domain']}) ---")
         if ex.get("p05_sample"):
-            parts.append("Dashboard.tsx excerpt:\n" + ex["p05_sample"][:1200])
-    parts.append("=== END GOLDEN UI EXAMPLES ===\n")
+            # Only show the colour-related lines to avoid copying structure
+            colour_lines = [
+                ln for ln in ex["p05_sample"].splitlines()
+                if any(kw in ln for kw in ("className", "bg-", "text-", "border-", "from-", "to-", "via-"))
+            ][:30]
+            if colour_lines:
+                parts.append("Colour classes used:\n" + "\n".join(colour_lines))
+    parts.append("=== END STYLE REFERENCE ===\n")
     return "\n".join(parts)
 
 
