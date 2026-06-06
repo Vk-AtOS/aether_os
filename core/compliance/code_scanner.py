@@ -85,22 +85,26 @@ def scan_file(
     source = main_py_path.read_text(encoding="utf-8", errors="replace")
     routes = _extract_routes(source)
 
-    # Also scan routers/ directory — CRUD routes live there, not in main.py
-    routers_dir = main_py_path.parent / "routers"
-    if routers_dir.is_dir():
-        for _router_file in routers_dir.glob("*.py"):
-            try:
-                _router_src = _router_file.read_text(encoding="utf-8", errors="replace")
-                # Expand router decorator pattern to match named routers (e.g. @employees_router.delete)
-                _expanded = re.sub(
-                    r'@(\w+_router)\.(get|post|put|delete|patch)',
-                    r'@router.\2',
-                    _router_src,
-                )
-                routes.extend(_extract_routes(_expanded))
-                source += "\n" + _router_src
-            except Exception:
-                pass
+    # Collect all sibling *.py files in the same src/ directory (recursively),
+    # including routers/crud.py and any other modules — CRUD routes live there,
+    # not in main.py.
+    src_dir = main_py_path.parent
+    for _router_file in sorted(src_dir.rglob("*.py")):
+        if _router_file == main_py_path or "__pycache__" in str(_router_file):
+            continue
+        try:
+            _router_src = _router_file.read_text(encoding="utf-8", errors="replace")
+            # Expand named-router decorator patterns (e.g. @employees_router.delete)
+            # so _extract_routes() matches them via the @router.<method> pattern.
+            _expanded = re.sub(
+                r'@(\w+_router)\.(get|post|put|delete|patch)',
+                r'@router.\2',
+                _router_src,
+            )
+            routes.extend(_extract_routes(_expanded))
+            source += "\n" + _router_src
+        except Exception:
+            pass
 
     findings = _run_compliance_checks(routes, source, domain)
     score = _calculate_score(routes, findings)
