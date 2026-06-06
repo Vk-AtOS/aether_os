@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Integer, JSON
 from sqlalchemy import Numeric, String, Text
 from sqlalchemy.orm import relationship
-from .database import Base
+from database import Base
 """
 
 
