@@ -295,10 +295,17 @@ Production-ready FastAPI backend with async SQLAlchemy, JWT auth, CORS, structur
 from __future__ import annotations
 import logging
 import os
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Ensure this file's directory is on sys.path so absolute imports work whether
+# uvicorn is invoked as "main:app" (cwd=src/) or "src.main:app" (cwd=parent/).
+_self_dir = Path(__file__).resolve().parent
+if str(_self_dir) not in sys.path:
+    sys.path.insert(0, str(_self_dir))
 
 # Load .env before importing anything that reads os.environ
 try:
