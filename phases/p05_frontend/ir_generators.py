@@ -137,7 +137,7 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
 
     count_cards_jsx = "\n".join([
         f"        <div className='rounded-2xl border p-6 shadow-sm hover:shadow-md transition-shadow {_color_cls[_colors6[i % 6]]}'>\n"
-        f"          <div className='text-xs font-bold uppercase tracking-widest opacity-60 mb-2'>Total {e.get('name', e['table'].title())}</div>\n"
+        f"          <div className='text-xs font-bold uppercase tracking-widest opacity-60 mb-2'>{e['table'].replace('_', ' ').title()}</div>\n"
         f"          <div className='text-4xl font-extrabold'>{{stats?.total_{e['table']} ?? '…'}}</div>\n"
         f"        </div>"
         for i, e in enumerate(entities[:6])
@@ -146,8 +146,8 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
     entity_links = "\n".join([
         f"          <a href='/{e['table']}' className='flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 hover:border-brand-300 hover:shadow-sm transition-all group'>"
         f"\n            <div>"
-        f"\n              <div className='font-semibold text-gray-900 group-hover:text-brand-700'>{e.get('name', e['table'].title())}</div>"
-        f"\n              <div className='text-xs text-gray-500 mt-0.5'>{e.get('description', 'Manage ' + e['table'])}</div>"
+        f"\n              <div className='font-semibold text-gray-900 group-hover:text-brand-700'>{e['table'].replace('_', ' ').title()}</div>"
+        f"\n              <div className='text-xs text-gray-500 mt-0.5'>Manage {e['table'].replace('_', ' ')}</div>"
         f"\n            </div>"
         f"\n            <span className='text-brand-400 group-hover:translate-x-0.5 transition-transform text-lg'>→</span>"
         f"\n          </a>"
