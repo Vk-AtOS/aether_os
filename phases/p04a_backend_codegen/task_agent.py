@@ -178,8 +178,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from ..database import get_db
-from ..auth import (
+from database import get_db
+from auth import (
     verify_password,
     get_password_hash,
     create_access_token,
@@ -190,7 +190,7 @@ from ..auth import (
 )
 
 try:
-    from ..models import User
+    from models import User
 except ImportError:
     User = None  # type: ignore[assignment,misc]
 
@@ -315,8 +315,8 @@ except ImportError:
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from .database import engine, Base
-from .routers.auth import router as auth_router
+from database import engine, Base
+from routers.auth import router as auth_router
 {ROUTER_IMPORTS}
 
 logging.basicConfig(
@@ -332,7 +332,7 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     try:
-        from .seed import seed_database
+        from seed import seed_database
         await seed_database()
         logger.info("Database seeding complete")
     except Exception as exc:
@@ -391,7 +391,7 @@ app.include_router(auth_router, prefix="/api")
 
 # Stats router (generated when Domain IR is available)
 try:
-    from .routers.stats import router as _stats_router
+    from routers.stats import router as _stats_router
     app.include_router(_stats_router, prefix="/api")
 except ImportError:
     pass
@@ -405,7 +405,7 @@ async def health():
 @app.get("/ready", tags=["system"])
 async def ready():
     try:
-        from .database import engine as _engine
+        from database import engine as _engine
         async with _engine.connect() as conn:
             await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
         return {"status": "ready", "db": "ok"}
@@ -419,7 +419,7 @@ async def root():
     return {"message": "{PROJECT_NAME} API", "docs": "/docs"}
 '''
 
-_ROUTERS_INIT_PY = "from .crud import all_routers\n\n__all__ = ['all_routers']\n"
+_ROUTERS_INIT_PY = "from crud import all_routers\n\n__all__ = ['all_routers']\n"
 
 _REQUIREMENTS_TXT = """\
 fastapi>=0.111.0
@@ -696,10 +696,10 @@ STRICT REQUIREMENTS — every violation causes runtime errors:
    - `from fastapi import APIRouter, Depends, HTTPException, status, Query`
    - `from sqlalchemy.ext.asyncio import AsyncSession`
    - `from sqlalchemy import select, func`
-   - `from ..database import get_db`
-   - `from ..auth import get_current_user, require_admin`
-   - Import EVERY model class from `..models` that you reference
-   - Import EVERY schema class from `..schemas` that you reference
+   - `from database import get_db`
+   - `from auth import get_current_user, require_admin`
+   - Import EVERY model class from `models` that you reference
+   - Import EVERY schema class from `schemas` that you reference
 
 2. For EACH domain entity (NOT User — User is handled by auth router):
    Create `APIRouter(prefix="/{'{entity_plural}'}", tags=["{'{Entity Label}'}"]):
@@ -757,8 +757,8 @@ Complete src/models.py (use EXACT class names from here):
 FILE: src/seed.py
 
 REQUIREMENTS:
-1. Import: `from .database import AsyncSessionLocal`, `from .auth import get_password_hash`
-2. Import all models from `.models`
+1. Import: `from database import AsyncSessionLocal`, `from auth import get_password_hash`
+2. Import all models from `models`
 3. `async def seed_database()` — called on every startup
 4. Check if already seeded: `result = await db.execute(select(func.count()).select_from(User))`
    If count > 0, return early (idempotent)
@@ -912,8 +912,8 @@ def _fallback_crud_routers(entities: list) -> str:
         "from fastapi import APIRouter, Depends, HTTPException, Query, status",
         "from sqlalchemy.ext.asyncio import AsyncSession",
         "from sqlalchemy import select, func",
-        "from ..database import get_db",
-        "from ..auth import get_current_user, require_admin",
+        "from database import get_db",
+        "from auth import get_current_user, require_admin",
         "",
     ]
     router_vars = []
@@ -925,7 +925,7 @@ def _fallback_crud_routers(entities: list) -> str:
         lines += [
             f"# Import {name} model lazily to avoid circular imports",
             f"def _get_{table}_model():",
-            f"    from ..models import {name}",
+            f"    from models import {name}",
             f"    return {name}",
             "",
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
@@ -999,9 +999,9 @@ def _fallback_seed(project_name: str, entities: list) -> str:
         from __future__ import annotations
         import os, logging
         from sqlalchemy import select, func
-        from .database import AsyncSessionLocal
-        from .auth import get_password_hash
-        from .models import User
+        from database import AsyncSessionLocal
+        from auth import get_password_hash
+        from models import User
 
         _logger = logging.getLogger(__name__)
         _ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin1234!")
@@ -1066,7 +1066,7 @@ def _fallback_service_layer(entities: list) -> str:
             f"    @staticmethod",
             f"    async def get_all(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Any]:",
             f"        try:",
-            f"            from ..models import {name}",
+            f"            from models import {name}",
             f"            result = await db.execute(select({name}).offset(skip).limit(limit))",
             f"            return list(result.scalars().all())",
             f"        except Exception:",
@@ -1075,7 +1075,7 @@ def _fallback_service_layer(entities: list) -> str:
             f"    @staticmethod",
             f"    async def get_by_id(db: AsyncSession, id: int) -> Optional[Any]:",
             f"        try:",
-            f"            from ..models import {name}",
+            f"            from models import {name}",
             f"            result = await db.execute(select({name}).where({name}.id == id))",
             f"            return result.scalar_one_or_none()",
             f"        except Exception:",
@@ -1084,7 +1084,7 @@ def _fallback_service_layer(entities: list) -> str:
             f"    @staticmethod",
             f"    async def create(db: AsyncSession, data: Dict[str, Any]) -> Optional[Any]:",
             f"        try:",
-            f"            from ..models import {name}",
+            f"            from models import {name}",
             f"            obj = {name}(**data)",
             f"            db.add(obj)",
             f"            await db.flush()",
@@ -1096,7 +1096,7 @@ def _fallback_service_layer(entities: list) -> str:
             f"    @staticmethod",
             f"    async def update(db: AsyncSession, id: int, data: Dict[str, Any]) -> Optional[Any]:",
             f"        try:",
-            f"            from ..models import {name}",
+            f"            from models import {name}",
             f"            result = await db.execute(select({name}).where({name}.id == id))",
             f"            obj = result.scalar_one_or_none()",
             f"            if obj is None:",
@@ -1112,7 +1112,7 @@ def _fallback_service_layer(entities: list) -> str:
             f"    @staticmethod",
             f"    async def delete(db: AsyncSession, id: int) -> bool:",
             f"        try:",
-            f"            from ..models import {name}",
+            f"            from models import {name}",
             f"            result = await db.execute(select({name}).where({name}.id == id))",
             f"            obj = result.scalar_one_or_none()",
             f"            if obj is None:",
@@ -1316,7 +1316,7 @@ def _fix_common_issues(code: str) -> str:
 
 def _build_main_py(project_name: str, routers_have_all_routers: bool) -> str:
     if routers_have_all_routers:
-        router_imports = "from .routers.crud import all_routers"
+        router_imports = "from routers.crud import all_routers"
         router_includes = "for _router in all_routers:\n    app.include_router(_router, prefix='/api')"
     else:
         router_imports = "# No CRUD routers"
@@ -1732,12 +1732,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 _filtered = [n for n in _imported if n in _valid_models]
                 if not _filtered:
                     _filtered = ["User"]
-                return f"from .models import {', '.join(_filtered)}"
+                return f"from models import {', '.join(_filtered)}"
             seed_code = _re_seed.sub(
-                r'from \.models import ([^\n]+)', _fix_models_import, seed_code
+                r'from (?:\.)?models import ([^\n]+)', _fix_models_import, seed_code
             )
             # Validate: seed must import and use User model (auth requires it)
-            if "from .models import User" not in seed_code and "from .models import" in seed_code:
+            if "from models import User" not in seed_code and "from models import" in seed_code:
                 logger.warning("[p04a] seed.py does not import User model — using fallback")
                 seed_code = _fallback_seed(project_name, entities)
             (src_dir / "seed.py").write_text(seed_code)

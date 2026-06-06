@@ -303,9 +303,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from ..database import get_db
-from ..auth import get_current_user
-from .. import models, schemas
+from database import get_db
+from auth import get_current_user
+import models, schemas
 """
 
 
@@ -535,12 +535,12 @@ def generate_seed_py(ir: DomainIR) -> str:
         "import os",
         "from datetime import date, datetime, timezone",
         "from sqlalchemy import select, func",
-        "from .database import AsyncSessionLocal",
-        "from .auth import get_password_hash",
-        "from .models import User",
+        "from database import AsyncSessionLocal",
+        "from auth import get_password_hash",
+        "from models import User",
     ]
     if entity_names:
-        lines.append(f"from .models import {', '.join(entity_names)}")
+        lines.append(f"from models import {', '.join(entity_names)}")
     lines += [
         "",
         "_logger = logging.getLogger(__name__)",
@@ -599,9 +599,9 @@ def generate_stats_router(ir: DomainIR) -> str:
         "from fastapi import APIRouter, Depends",
         "from sqlalchemy.ext.asyncio import AsyncSession",
         "from sqlalchemy import select, func",
-        "from ..database import get_db",
-        "from ..auth import get_current_user",
-        "from .. import models",
+        "from database import get_db",
+        "from auth import get_current_user",
+        "import models",
         "",
         "router = APIRouter(prefix='/stats', tags=['Stats'])",
         "",
