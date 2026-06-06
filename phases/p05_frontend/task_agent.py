@@ -3848,14 +3848,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         layout_mode = _layout_from_spec
     elif "dual portal" in _raw or "customer portal" in _raw or "member portal" in _raw:
         layout_mode = "dual"
-    elif "storefront" in _raw or "customer-facing" in _raw or "landing page" in _raw:
-        layout_mode = "storefront"
     elif _domain_val in _dual_portal_domains:
-        # Domain takes priority over loose keyword heuristics — "management" and "admin"
-        # appear naturally in almost every app description; trust the domain signal first.
+        # Domain takes priority over loose keyword heuristics — phrases like "customer-facing"
+        # appear naturally in many app descriptions but the domain signal is more reliable.
         layout_mode = "dual"
     elif _domain_val in _internal_only_domains:
         layout_mode = "admin"
+    elif "storefront" in _raw or "customer-facing" in _raw or "landing page" in _raw:
+        layout_mode = "storefront"
     elif "admin panel" in _raw or "internal tool" in _raw or "back office" in _raw or "back-office" in _raw:
         layout_mode = "admin"
     else:
