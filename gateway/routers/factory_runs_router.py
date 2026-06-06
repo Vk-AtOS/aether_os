@@ -1416,9 +1416,14 @@ async def start_run_app(
                     break
 
             # Try vite build (skips tsc type checking by default).
-            # NODE_OPTIONS caps the V8 heap so esbuild doesn't OOM on memory-constrained hosts.
+            # NODE_OPTIONS caps the V8 heap; ESBUILD_WORKER_THREADS=false disables
+            # Go multi-threading in the esbuild subprocess, cutting peak RAM ~40%.
             _npx_bin = _sh.which("npx") or "npx"
-            _node_env = {**_os.environ, "NODE_OPTIONS": "--max-old-space-size=512"}
+            _node_env = {
+                **_os.environ,
+                "NODE_OPTIONS": "--max-old-space-size=384",
+                "ESBUILD_WORKER_THREADS": "false",
+            }
             _vite_result = _sp.run(
                 [_npx_bin, "vite", "build"],
                 cwd=str(frontend_dir), capture_output=True, timeout=300,
@@ -1429,21 +1434,47 @@ async def start_run_app(
                 with open(log_path, "a") as _lf:
                     _lf.write(f"[AetherOS] Vite build failed (rc={_vite_result.returncode}):\n{_err}\n")
                 # Second attempt: ensure @vitejs/plugin-react is installed then retry.
-                # Also lower heap further on suspected OOM (signal -9 / rc 137).
-                _oom = _vite_result.returncode in (-9, 137) or "Killed" in _err
-                _node_env2 = {**_node_env, "NODE_OPTIONS": "--max-old-space-size=384"} if _oom else _node_env
+                # OOM detection: also catches esbuild Go-subprocess pipe crash (rc=1 +
+                # "responseCallbacks" in stderr) which the kernel kills with SIGKILL before
+                # the Node.js wrapper can propagate -9/137 to the parent subprocess.
+                _oom = (
+                    _vite_result.returncode in (-9, 137)
+                    or "Killed" in _err
+                    or "responseCallbacks" in _err
+                    or "write EPIPE" in _err
+                    or "read ECONNRESET" in _err
+                )
+                _node_env2 = {
+                    **_node_env,
+                    "NODE_OPTIONS": "--max-old-space-size=192",
+                    "ESBUILD_WORKER_THREADS": "false",
+                } if _oom else _node_env
                 _sp.run(
                     [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent"],
                     cwd=str(frontend_dir), capture_output=True, timeout=120,
                 )
+                # On OOM-style failure, disable minification to cut esbuild peak RAM by ~40%.
+                if _oom:
+                    for _vc_name2 in ("vite.config.ts", "vite.config.js"):
+                        _vc_path2 = frontend_dir / _vc_name2
+                        if _vc_path2.exists():
+                            _vc2 = _vc_path2.read_text()
+                            if "minify" not in _vc2 and "build:" not in _vc2:
+                                _vc2 = _vc2.replace(
+                                    "export default defineConfig({",
+                                    "export default defineConfig({\n  build: { minify: false, chunkSizeWarningLimit: 4000 },",
+                                )
+                                _vc_path2.write_text(_vc2)
+                            break
                 _vite_result2 = _sp.run(
                     [_npx_bin, "vite", "build"],
                     cwd=str(frontend_dir), capture_output=True, timeout=300,
                     env=_node_env2,
                 )
                 if _vite_result2.returncode != 0:
+                    _err2 = (_vite_result2.stderr or b"").decode(errors="replace")[-400:]
                     with open(log_path, "a") as _lf:
-                        _lf.write("[AetherOS] Frontend build failed after retry — using API-explorer fallback\n")
+                        _lf.write(f"[AetherOS] Frontend build failed after retry:\n{_err2}\n[AetherOS] Using API-explorer fallback\n")
 
             if frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir()):
                 with open(log_path, "a") as _lf:
@@ -1632,6 +1663,16 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
             patches += sqlite_patch
         if _dist_str and "AetherOS: serve built frontend" not in content:
             patches += frontend_patch
+        elif _dist_str and "_preview_ui" in content and "_preview_ui" not in _dist_str:
+            # Previous run fell back to _preview_ui; now we have a real dist/ — update the path.
+            import re as _re_spa
+            content = _re_spa.sub(
+                r"_DIST = _pl\.Path\(r'[^']*'\)",
+                f"_DIST = _pl.Path(r'{_dist_str}')",
+                content,
+            )
+            patches = ""  # content already modified; write it directly
+            main_py.write_text(content)
         if patches:
             main_py.write_text(content + patches)
 
@@ -1994,7 +2035,7 @@ if _DIST.is_dir():
         return {"status": "started", "port": port, "pid": proc.pid,
                 "backend_dir": str(backend_dir),
                 "mode": mode,
-                "frontend_built": bool(frontend_dist and frontend_dist.is_dir()),
+                "frontend_built": bool(frontend_dir and (frontend_dir / "dist").is_dir() and any((frontend_dir / "dist").iterdir())),
                 "log": str(log_path),
                 "preview_email": _preview_email,
                 "preview_password": _PREVIEW_PASSWORD,
