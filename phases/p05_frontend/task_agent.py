@@ -939,13 +939,202 @@ def _generate_tailwind_config(ui_theme: str = "default") -> str:
           700: '#1d4ed8',
           900: '#1e3a8a',
         },"""
+    # Domain-specific palettes — each domain gets a distinct visual identity
+    _domain_palettes = {
+        # Healthcare: clinical teal — trust, cleanliness, calm
+        "healthcare": ("""\
+        brand: {
+          50:  '#f0fdfa',
+          100: '#ccfbf1',
+          200: '#99f6e4',
+          500: '#14b8a6',
+          600: '#0d9488',
+          700: '#0f766e',
+          900: '#134e4a',
+        },""", None),
+        # FinTech: deep navy + gold — wealth, authority, precision
+        "fintech": ("""\
+        brand: {
+          50:  '#fefce8',
+          100: '#fef9c3',
+          200: '#fef08a',
+          500: '#eab308',
+          600: '#ca8a04',
+          700: '#1e3a5f',
+          900: '#0f172a',
+        },""", None),
+        # Restaurant / Food: warm amber/orange — appetite, warmth
+        "restaurant": ("""\
+        brand: {
+          50:  '#fff7ed',
+          100: '#ffedd5',
+          200: '#fed7aa',
+          500: '#f97316',
+          600: '#ea580c',
+          700: '#c2410c',
+          900: '#7c2d12',
+        },""", None),
+        # E-commerce / Marketplace: vibrant rose-pink — energy, deals
+        "ecommerce": ("""\
+        brand: {
+          50:  '#fdf2f8',
+          100: '#fce7f3',
+          200: '#fbcfe8',
+          500: '#ec4899',
+          600: '#db2777',
+          700: '#be185d',
+          900: '#831843',
+        },""", None),
+        "marketplace": ("""\
+        brand: {
+          50:  '#fdf2f8',
+          100: '#fce7f3',
+          200: '#fbcfe8',
+          500: '#ec4899',
+          600: '#db2777',
+          700: '#be185d',
+          900: '#831843',
+        },""", None),
+        # Education: friendly cyan-sky — openness, learning
+        "education": ("""\
+        brand: {
+          50:  '#ecfeff',
+          100: '#cffafe',
+          200: '#a5f3fc',
+          500: '#06b6d4',
+          600: '#0891b2',
+          700: '#0e7490',
+          900: '#164e63',
+        },""", None),
+        # Fitness / Gym: energetic red-orange — power, action
+        "fitness": ("""\
+        brand: {
+          50:  '#fff1f2',
+          100: '#ffe4e6',
+          200: '#fecdd3',
+          500: '#f43f5e',
+          600: '#e11d48',
+          700: '#be123c',
+          900: '#881337',
+        },""", None),
+        "gym_fitness": ("""\
+        brand: {
+          50:  '#fff1f2',
+          100: '#ffe4e6',
+          200: '#fecdd3',
+          500: '#f43f5e',
+          600: '#e11d48',
+          700: '#be123c',
+          900: '#881337',
+        },""", None),
+        # Real Estate: earthy green — stability, growth, trust
+        "real_estate": ("""\
+        brand: {
+          50:  '#f0fdf4',
+          100: '#dcfce7',
+          200: '#bbf7d0',
+          500: '#22c55e',
+          600: '#16a34a',
+          700: '#15803d',
+          900: '#14532d',
+        },""", None),
+        # Hospitality: warm golden — luxury, welcome
+        "hospitality": ("""\
+        brand: {
+          50:  '#fffbeb',
+          100: '#fef3c7',
+          200: '#fde68a',
+          500: '#f59e0b',
+          600: '#d97706',
+          700: '#b45309',
+          900: '#78350f',
+        },""", None),
+        # Logistics / IoT: slate-blue — reliability, technology
+        "logistics": ("""\
+        brand: {
+          50:  '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          900: '#0f172a',
+        },""", None),
+        "iot": ("""\
+        brand: {
+          50:  '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          900: '#0f172a',
+        },""", None),
+        # HRM / CRM / Analytics: professional indigo
+        "hrm": ("""\
+        brand: {
+          50:  '#eef2ff',
+          100: '#e0e7ff',
+          200: '#c7d2fe',
+          500: '#6366f1',
+          600: '#4f46e5',
+          700: '#4338ca',
+          900: '#312e81',
+        },""", None),
+        "crm": ("""\
+        brand: {
+          50:  '#eef2ff',
+          100: '#e0e7ff',
+          200: '#c7d2fe',
+          500: '#6366f1',
+          600: '#4f46e5',
+          700: '#4338ca',
+          900: '#312e81',
+        },""", None),
+        "analytics": ("""\
+        brand: {
+          50:  '#eef2ff',
+          100: '#e0e7ff',
+          200: '#c7d2fe',
+          500: '#6366f1',
+          600: '#4f46e5',
+          700: '#4338ca',
+          900: '#312e81',
+        },""", None),
+        # SaaS: modern violet — innovation, product
+        "saas": ("""\
+        brand: {
+          50:  '#faf5ff',
+          100: '#f3e8ff',
+          200: '#e9d5ff',
+          500: '#a855f7',
+          600: '#9333ea',
+          700: '#7e22ce',
+          900: '#581c87',
+        },""", None),
+        # Food delivery: deep orange
+        "food": ("""\
+        brand: {
+          50:  '#fff7ed',
+          100: '#ffedd5',
+          200: '#fed7aa',
+          500: '#f97316',
+          600: '#ea580c',
+          700: '#c2410c',
+          900: '#7c2d12',
+        },""", None),
+    }
 
     _theme_palettes = {
         "neon_cyberpunk": (_neon_palette, "'Share Tech Mono', 'Courier New', monospace"),
         "glassmorphism":  (_glass_palette, None),
         "brutalist":      (_default_palette, "'Courier New', monospace"),
     }
-    _palette, _font = _theme_palettes.get(ui_theme, (_default_palette, None))
+    # Domain themes override the ui_theme name when it's still "default"
+    if ui_theme in _domain_palettes:
+        _palette, _font = _domain_palettes[ui_theme]
+    else:
+        _palette, _font = _theme_palettes.get(ui_theme, (_default_palette, None))
     _dark = "darkMode: 'class'," if ui_theme in ("neon_cyberpunk", "glassmorphism") else ""
     _font_block = f"""
       fontFamily: {{
@@ -1758,6 +1947,27 @@ def _generate_customer_home(
     entities: List[dict], route_map: Dict[str, str], project_name: str, domain: str
 ) -> str:
     """Generate CustomerHome.tsx — public-facing landing page for the customer portal."""
+    # Domain-specific hero gradient (pairs with the brand palette in tailwind.config.js)
+    _domain_hero_gradient = {
+        "healthcare":  "from-teal-900 via-teal-800 to-teal-600",
+        "fintech":     "from-slate-900 via-slate-800 to-yellow-700",
+        "restaurant":  "from-orange-900 via-orange-800 to-amber-600",
+        "food":        "from-orange-900 via-orange-800 to-amber-600",
+        "ecommerce":   "from-rose-900 via-pink-800 to-pink-600",
+        "marketplace": "from-rose-900 via-pink-800 to-pink-600",
+        "education":   "from-cyan-900 via-sky-800 to-cyan-600",
+        "fitness":     "from-red-900 via-rose-800 to-red-600",
+        "gym_fitness": "from-red-900 via-rose-800 to-red-600",
+        "real_estate": "from-green-900 via-emerald-800 to-green-600",
+        "hospitality": "from-amber-900 via-yellow-800 to-amber-600",
+        "logistics":   "from-slate-900 via-gray-800 to-slate-600",
+        "iot":         "from-slate-900 via-gray-800 to-slate-600",
+        "hrm":         "from-indigo-900 via-indigo-800 to-violet-600",
+        "crm":         "from-indigo-900 via-indigo-800 to-violet-600",
+        "analytics":   "from-indigo-900 via-purple-800 to-indigo-600",
+        "saas":        "from-violet-900 via-purple-800 to-violet-600",
+    }
+    _hero_gradient = _domain_hero_gradient.get(domain, "from-gray-900 via-brand-900 to-brand-700")
     # Pick the most browsable entity (product-like items)
     _browse_kws = ("product", "item", "listing", "book", "service", "course", "event",
                    "article", "menu", "property", "catalog")
@@ -1811,7 +2021,7 @@ export default function CustomerHome() {{
   return (
     <div className="min-h-screen bg-white">
       {{/* Hero */}}
-      <section className="bg-gradient-to-br from-gray-900 via-brand-900 to-brand-700 text-white py-24 md:py-36 relative overflow-hidden">
+      <section className="bg-gradient-to-br {_hero_gradient} text-white py-24 md:py-36 relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.06]"
           style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)' }}}} />
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -2982,7 +3192,7 @@ export function LoginPage() {{
 def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain: str = "saas") -> str:
     """Generate src/pages/Dashboard.tsx — storefront homepage for ecommerce, stat cards for others."""
     if domain in ("ecommerce", "marketplace"):
-        return _generate_storefront_home(entities, route_map)
+        return _generate_storefront_home(entities, route_map, domain=domain)
 
     query_lines: List[str] = []
     stat_cards: List[str] = []
@@ -3046,8 +3256,13 @@ export function Dashboard() {{
 """
 
 
-def _generate_storefront_home(entities: List[dict], route_map: Dict[str, str]) -> str:
+def _generate_storefront_home(entities: List[dict], route_map: Dict[str, str], domain: str = "ecommerce") -> str:
     """Generate a full storefront homepage: hero, trust badges, live product grid."""
+    _domain_hero_gradient = {
+        "ecommerce":   "from-rose-900 via-pink-800 to-pink-600",
+        "marketplace": "from-violet-900 via-purple-800 to-violet-600",
+    }
+    _hero_gradient = _domain_hero_gradient.get(domain, "from-gray-900 via-brand-900 to-brand-700")
     # Pick the most product-like entity as the primary showcase
     _product_keywords = ("product", "item", "goods", "service", "listing", "sku", "artifact", "piece")
     primary_entity = next(
@@ -3168,7 +3383,7 @@ export function Dashboard() {{
   return (
     <div className="min-h-screen bg-white">
       {{/* ── Hero Section ── */}}
-      <section className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-brand-900 to-brand-700 text-white">
+      <section className="relative overflow-hidden bg-gradient-to-br {_hero_gradient} text-white">
         {{/* Subtle grid overlay */}}
         <div className="absolute inset-0 opacity-[0.07]"
           style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)' }}}} />
@@ -3819,13 +4034,26 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Extract designer spec settings
     designer_spec = data.get("designer_spec") or {}
     _design = designer_spec.get("design") or {}
-    ui_theme: str = _design.get("ui_theme", "default") or "default"
+    ui_theme: str = _design.get("ui_theme", "") or ""
     page_transition: str = _design.get("page_transition", "fade") or "fade"
     animation_speed: str = _design.get("animation_speed", "normal") or "normal"
     micro_interactions: bool = bool(_design.get("micro_interactions", True))
     scroll_reveal: bool = bool(_design.get("scroll_reveal", True))
     loading_style: str = _design.get("loading_style", "shimmer") or "shimmer"
     hover_lift: bool = bool(_design.get("hover_lift", True))
+    # If no explicit theme was chosen via the Designer, derive one from the domain
+    # so every build gets a distinct visual identity instead of always the default blue.
+    _domain_theme_map = {
+        "healthcare": "healthcare", "fintech": "fintech", "ecommerce": "ecommerce",
+        "marketplace": "marketplace", "education": "education", "fitness": "fitness",
+        "gym_fitness": "gym_fitness", "real_estate": "real_estate",
+        "hospitality": "hospitality", "restaurant": "restaurant", "food": "food",
+        "logistics": "logistics", "iot": "iot", "hrm": "hrm", "crm": "crm",
+        "analytics": "analytics", "saas": "saas",
+    }
+    if not ui_theme or ui_theme == "default":
+        _detected_domain = data.get("domain", "") or domain or ""
+        ui_theme = _domain_theme_map.get(_detected_domain.lower(), "default")
     logger.info("p05_frontend: ui_theme=%s transition=%s speed=%s", ui_theme, page_transition, animation_speed)
 
     # Detect layout mode from designer_spec, domain, or raw_input keywords
