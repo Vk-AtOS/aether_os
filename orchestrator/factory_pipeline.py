@@ -724,14 +724,10 @@ class FactoryPipeline:
                         _scaffold_root = _scaffold_dirs[0]
                         _dest_src = _scaffold_root / "src"
                         _dest_src.mkdir(parents=True, exist_ok=True)
-                        for _f in _p04_src.glob("*.py"):
-                            _dest = _dest_src / _f.name
-                            # Only overwrite if generated file is non-trivial
-                            if _f.stat().st_size > 50:
-                                _shutil.copy2(_f, _dest)
-                                logger.info("[pipeline] S11: merged %s → %s", _f.name, _dest)
-                            else:
-                                logger.debug("[pipeline] S11: skipped trivial %s (%d bytes)", _f.name, _f.stat().st_size)
+                        # Copy entire tree (including routers/, middleware/ subdirs)
+                        _shutil.copytree(str(_p04_src), str(_dest_src), dirs_exist_ok=True,
+                                         ignore=_shutil.ignore_patterns("__pycache__", "*.pyc"))
+                        logger.info("[pipeline] S11: merged p04 src tree → %s", _dest_src)
                         # Also expose the merged src path for downstream phases
                         accumulated_context["backend_src_dir"] = str(_dest_src)
                         accumulated_context["backend_main_py"] = str(_dest_src / "main.py")
