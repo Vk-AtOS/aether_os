@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.errors import PipelineBlockedError
 
 logger = logging.getLogger(__name__)
 
@@ -1571,25 +1572,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _ir = _DomainIR.load(Path(_ir_path_str))
             if _ir.entities:
                 from aether_os.phases.p04a_backend_codegen.ir_generators import (
-                    generate_seed_py as _gen_seed,
+                    ir_to_models as _ir_to_models,
+                    ir_to_schemas as _ir_to_schemas,
                     generate_stats_router as _gen_stats,
                 )
-                models_code = _gen_models(_ir)
-                schemas_code = _gen_schemas(_ir)
-                crud_code = _gen_crud(_ir)
-                seed_code = _gen_seed(_ir)
+                models_code = _ir_to_models(_ir)
+                schemas_code = _ir_to_schemas(_ir)
                 stats_code = _gen_stats(_ir)
                 (src_dir / "models.py").write_text(models_code)
                 (src_dir / "schemas.py").write_text(schemas_code)
-                (routers_dir / "crud.py").write_text(crud_code)
-                (src_dir / "seed.py").write_text(seed_code)
                 (routers_dir / "stats.py").write_text(stats_code)
-                generated_via = "deterministic+ir"
+                generated_via = "ir-driven+llm"
                 logger.info(
-                    "[p04a] IR fast-path: %d entities → models/schemas/crud/seed/stats generated deterministically",
+                    "[p04a] IR-driven models/schemas: %d entities generated deterministically",
                     len(_ir.entities),
                 )
-                # Update entities list from IR so LLM seed (if used) is accurate
+                # Update entities list from IR so LLM CRUD/seed is accurate
                 entities = [{"name": e.name, "table": e.table,
                              "fields": [{"name": f.name, "type": f.type} for f in e.fields]}
                             for e in _ir.entities]
@@ -1719,38 +1717,49 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         service_code = _fallback_service_layer(entities)
         (services_dir / "entity_services.py").write_text(service_code)
 
-    # ── Step 4: Seed data — IR-generated (fast-path) or LLM ──────────────────
+    # ── Step 4: Seed data — Template, IR-generated, or LLM ──────────────────
     if seed_code:
         # IR fast-path already wrote seed.py; just log it
         logger.info("[p04a] IR fast-path: seed.py already generated (%d chars)", len(seed_code))
     else:
-        try:
-            await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
-            seed_code = await _llm_seed_data(llm, project_name, domain, entities, models_code)
-            seed_code = _fix_common_issues(seed_code)
-            # Strip any model names from the import that don't exist in models.py
-            _valid_models = set(re.findall(r'^class (\w+)\(Base\)', models_code, re.MULTILINE))
-            _valid_models.add("User")  # always include User
-            import re as _re_seed
-            def _fix_models_import(m):
-                _imported = [n.strip() for n in m.group(1).split(',')]
-                _filtered = [n for n in _imported if n in _valid_models]
-                if not _filtered:
-                    _filtered = ["User"]
-                return f"from models import {', '.join(_filtered)}"
-            seed_code = _re_seed.sub(
-                r'from (?:\.)?models import ([^\n]+)', _fix_models_import, seed_code
-            )
-            # Validate: seed must import and use User model (auth requires it)
-            if "from models import User" not in seed_code and "from models import" in seed_code:
-                logger.warning("[p04a] seed.py does not import User model — using fallback")
+        # Try domain-specific template first
+        template_path = Path(__file__).parent / "seed_templates" / f"{domain}.py"
+        if template_path.exists():
+            logger.info("[p04a] using domain seed template: %s", domain)
+            seed_code = template_path.read_text()
+            # Wrap template into a full seed.py with imports and seed_database wrapper
+            # (assuming templates provide the seed_{domain} function)
+            if f"async def seed_{domain}" in seed_code:
+                seed_code += f"\n\nasync def seed_database():\n    from database import AsyncSessionLocal\n    async with AsyncSessionLocal() as db:\n        await seed_{domain}(db)\n"
+        
+        if not seed_code:
+            try:
+                await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating seed data…"})
+                seed_code = await _llm_seed_data(llm, project_name, domain, entities, models_code)
+                seed_code = _fix_common_issues(seed_code)
+                # Strip any model names from the import that don't exist in models.py
+                _valid_models = set(re.findall(r'^class (\w+)\(Base\)', models_code, re.MULTILINE))
+                _valid_models.add("User")  # always include User
+                import re as _re_seed
+                def _fix_models_import(m):
+                    _imported = [n.strip() for n in m.group(1).split(',')]
+                    _filtered = [n for n in _imported if n in _valid_models]
+                    if not _filtered:
+                        _filtered = ["User"]
+                    return f"from models import {', '.join(_filtered)}"
+                seed_code = _re_seed.sub(
+                    r'from (?:\.)?models import ([^\n]+)', _fix_models_import, seed_code
+                )
+                # Validate: seed must import and use User model (auth requires it)
+                if "from models import User" not in seed_code and "from models import" in seed_code:
+                    logger.warning("[p04a] seed.py does not import User model — using fallback")
+                    seed_code = _fallback_seed(project_name, entities)
+                (src_dir / "seed.py").write_text(seed_code)
+                logger.info("[p04a] seed.py %d chars (LLM)", len(seed_code))
+            except Exception as exc:
+                logger.warning("[p04a] LLM seed failed (%s), using fallback", exc)
                 seed_code = _fallback_seed(project_name, entities)
-            (src_dir / "seed.py").write_text(seed_code)
-            logger.info("[p04a] seed.py %d chars (LLM)", len(seed_code))
-        except Exception as exc:
-            logger.warning("[p04a] LLM seed failed (%s), using fallback", exc)
-            seed_code = _fallback_seed(project_name, entities)
-            (src_dir / "seed.py").write_text(seed_code)
+                (src_dir / "seed.py").write_text(seed_code)
 
     # ── Step 5: Generate main.py from template ────────────────────────────────
     main_py = _build_main_py(project_name, routers_have_all_routers=True)
@@ -1794,7 +1803,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     try:
         smoke = await _smoke_test(src_dir, _emit)
         if not smoke["passed"]:
-            logger.warning("[p04a] smoke test failed: %s", smoke["errors"])
+            raise PipelineBlockedError(
+                f"P04a smoke test failed: {smoke.get('errors')}. "
+                "Cannot proceed to frontend generation against a broken backend."
+            )
+    except PipelineBlockedError:
+        raise
     except Exception as exc:
         logger.debug("[p04a] smoke test error (non-fatal): %s", exc)
 

@@ -30,6 +30,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.errors import LLMCallError
+
 logger = logging.getLogger(__name__)
 
 # ── Per-request org context ───────────────────────────────────────────────────
@@ -475,6 +477,72 @@ async def _call_bedrock(
     raise last_exc  # type: ignore
 
 
+async def _call_bedrock_vision(
+    prompt: str,
+    image_bytes: bytes,
+    task_type: str = "analysis",
+    system: Optional[str] = None,
+    max_tokens: int = 4096,
+) -> str:
+    """Call Claude on Amazon Bedrock with an image using the Converse API."""
+    import boto3
+    model_id = _select_bedrock_model(task_type)
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    system_prompt = system or "You are a design expert analyzing web application screenshots."
+
+    logger.info("LLM Vision call: provider=bedrock model=%s task=%s region=%s", model_id, task_type, region)
+
+    def _invoke():
+        _bdr_kwargs: dict = {"region_name": region}
+        _key_id = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+        _secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        if _key_id and _secret:
+            _bdr_kwargs["aws_access_key_id"] = _key_id
+            _bdr_kwargs["aws_secret_access_key"] = _secret
+            
+        client = boto3.client("bedrock-runtime", **_bdr_kwargs)
+        
+        # Detect image format (simple)
+        img_format = "png"
+        if image_bytes.startswith(b"\xff\xd8"):
+            img_format = "jpeg"
+        elif image_bytes.startswith(b"\x47\x49\x46\x38"):
+            img_format = "gif"
+        elif image_bytes.startswith(b"\x89\x50\x4e\x47"):
+            img_format = "png"
+            
+        resp = client.converse(
+            modelId=model_id,
+            system=[{"text": system_prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"image": {"format": img_format, "source": {"bytes": image_bytes}}},
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            inferenceConfig={"maxTokens": max_tokens},
+        )
+        return resp["output"]["message"]["content"][0]["text"]
+
+    loop = asyncio.get_running_loop()
+    retries = 3
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return await loop.run_in_executor(None, _invoke)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Bedrock vision call failed (attempt %d/%d): %s", attempt, retries, exc)
+            if attempt < retries:
+                # Exponential backoff: 2s, 4s, 8s...
+                await asyncio.sleep(attempt * 2)
+
+    raise LLMCallError(f"LLM call_vision failed after {retries} attempts: {last_exc}")
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def is_local_llm() -> bool:
@@ -647,13 +715,39 @@ Task: {prompt[:200]}"""
         task_type: str = "code_generation",
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Call LLM and parse JSON response. Returns empty dict on parse failure."""
-        raw = await self.call(
-            prompt + "\n\nReturn ONLY valid JSON, no markdown fences.",
-            task_type=task_type,
-            context=context,
-        )
-        return safe_parse_json(raw)
+        """Call LLM and parse JSON response. Raises LLMCallError after 3 failures."""
+        for attempt in range(1, 4):
+            try:
+                raw = await self.call(
+                    prompt + "\n\nReturn ONLY valid JSON, no markdown fences.",
+                    task_type=task_type,
+                    context=context,
+                )
+                result = safe_parse_json(raw)
+                if not result.get("parse_error"):
+                    return result
+                
+                logger.error("LLM call failed [task=%s attempt=%d]: JSON parse error", task_type, attempt)
+            except Exception as exc:
+                logger.error("LLM call failed [task=%s attempt=%d]: %s", task_type, attempt, exc)
+                if attempt == 3:
+                    raise LLMCallError(f"LLM call_json failed after 3 attempts: {exc}") from exc
+            
+            if attempt < 3:
+                await asyncio.sleep(attempt * 2)
+
+        raise LLMCallError(f"LLM call_json failed to return valid JSON after 3 attempts")
+
+    async def call_vision(
+        self,
+        prompt: str,
+        image_bytes: bytes,
+        task_type: str = "analysis",
+        system: Optional[str] = None,
+        max_tokens: int = 4096,
+    ) -> str:
+        """Call LLM with vision capabilities. Currently defaults to Bedrock/Claude."""
+        return await _call_bedrock_vision(prompt, image_bytes, task_type, system, max_tokens)
 
     async def embed(self, text: str) -> List[float]:
         """

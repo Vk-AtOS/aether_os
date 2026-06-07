@@ -80,6 +80,14 @@ class PipelineError(AetherError):
     """Pipeline execution error (phase failure, max retries, etc.)."""
 
 
+class PipelineBlockedError(PipelineError):
+    """A critical phase failure has blocked the pipeline from continuing."""
+
+
+class LLMCallError(AetherError):
+    """A structured LLM call failed after all retries."""
+
+
 class GateFailure(AetherError):
     """Phase gate validation failed and could not be recovered."""
 

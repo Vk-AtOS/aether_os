@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import os
+import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -230,16 +232,36 @@ _DOMAIN_COMPONENT_DESC: Dict[str, str] = {
 }
 
 
+_DOMAIN_FALLBACK_WIDGETS = {
+    "restaurant": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Table Map</h3><div className='grid grid-cols-4 gap-2 mt-2'>{[1,2,3,4,5,6,7,8].map(i => <div key={i} className='w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs'>{i}</div>)}</div></div> }",
+    "healthcare": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Today's Appointments</h3><ul className='mt-2 text-sm space-y-1'><li>9:00 AM - John Doe</li><li>10:30 AM - Jane Smith</li></ul></div> }",
+    "ecommerce": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Sales Overview</h3><div className='mt-2 text-2xl font-bold'>$4,250.00</div><div className='text-xs text-green-600'>+12% from yesterday</div></div> }",
+    "hrm": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Team Attendance</h3><div className='mt-2 flex gap-1'>{[1,2,3,4,5].map(i => <div key={i} className='w-2 h-8 bg-blue-500 rounded'></div>)}</div></div> }",
+    "real_estate": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Property Map</h3><div className='aspect-video bg-gray-100 rounded mt-2 flex items-center justify-center text-gray-400'>Map View</div></div> }",
+    "education": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Class Schedule</h3><div className='mt-2 space-y-2'><div className='h-2 bg-gray-100 rounded w-full'></div><div className='h-2 bg-gray-100 rounded w-3/4'></div></div></div> }",
+    "gym_fitness": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Active Members</h3><div className='mt-2 text-3xl font-bold'>124</div></div> }",
+    "crm": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Pipeline</h3><div className='flex mt-2 gap-1'><div className='h-8 bg-blue-100 w-full'></div><div className='h-8 bg-blue-300 w-full'></div><div className='h-8 bg-blue-500 w-full'></div></div></div> }",
+    "hospitality": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Room Status</h3><div className='grid grid-cols-5 gap-1 mt-2'>{[1,2,3,4,5].map(i => <div key={i} className='h-4 bg-green-500 rounded'></div>)}</div></div> }",
+    "logistics": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Fleet Tracking</h3><div className='mt-2 space-y-1 text-xs'><div>Truck 01: En Route</div><div>Truck 02: Loading</div></div></div> }",
+    "marketplace": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Top Sellers</h3><div className='mt-2 space-y-2'>{[1,2,3].map(i => <div key={i} className='h-4 bg-gray-50 rounded'></div>)}</div></div> }",
+    "saas": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>MRR Trend</h3><div className='mt-2 h-16 flex items-end gap-1'>{[4,6,5,8,7].map(i => <div key={i} style={{height: `${i*10}%`}} className='bg-indigo-500 w-full rounded-t'></div>)}</div></div> }",
+    "fintech": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Cash Flow</h3><div className='mt-2 text-xl font-mono'>$128,450.00</div></div> }",
+    "library": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Checked Out</h3><div className='mt-2 text-2xl font-bold'>42 Books</div></div> }",
+    "security": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>System Health</h3><div className='mt-2 text-green-600 font-bold'>ALL SYSTEMS NOMINAL</div></div> }",
+    "iot": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Device Feed</h3><div className='mt-2 space-y-1'>{[1,2].map(i => <div key={i} className='h-2 bg-blue-400 rounded'></div>)}</div></div> }",
+    "events": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Ticket Sales</h3><div className='mt-2 text-lg font-bold'>85% Capacity</div></div> }",
+    "sports": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Latest Scores</h3><div className='mt-2 text-sm'>Team A 2 - 1 Team B</div></div> }",
+}
+
+
 async def _generate_domain_component(
     domain: str, entities: List[dict], project_name: str, mem_hint: str = ""
 ) -> Optional[str]:
-    """Generate a domain-specific React component via one LLM call.
-
-    Returns JSX source (str) on success, or None when the call fails or the
-    response looks invalid. This is always wrapped in a try/except at the call
-    site so failures are non-fatal.
-    """
-    from aether_os.core.llm.client import get_llm_client  # lazy import
+    """Generate a domain-specific React component via one LLM call with hardcoded fallback."""
+    from aether_os.core.llm.client import get_llm_client
+    
+    # Check fallback first to ensure we have one
+    fallback = _DOMAIN_FALLBACK_WIDGETS.get(domain, "export default function DomainWidget() { return <div>Domain Overview</div> }")
 
     component_desc = _DOMAIN_COMPONENT_DESC.get(domain, _DOMAIN_COMPONENT_DESC["saas"])
     entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []
@@ -296,19 +318,24 @@ async def _generate_domain_component(
     )
 
     client = get_llm_client()
-    result = await client.call(prompt, task_type="ui_component", max_tokens=2000)
-    if (
-        result
-        and "export default" in result
-        and "function" in result
-        and "return" in result
-        and len(result) > 200
-    ):
-        # Strip accidental markdown fences
-        result = re.sub(r"^```[a-z]*\n?", "", result.strip())
-        result = re.sub(r"\n?```$", "", result.strip())
-        return result
-    return None
+    try:
+        result = await client.call(prompt, task_type="ui_component", max_tokens=2000)
+        if (
+            result
+            and "export default" in result
+            and "function" in result
+            and "return" in result
+            and len(result) > 200
+        ):
+            # Strip accidental markdown fences
+            result = re.sub(r"^```[a-z]*\n?", "", result.strip())
+            result = re.sub(r"\n?```$", "", result.strip())
+            return result
+    except Exception as exc:
+        logger.warning(f"p05: LLM DomainWidget generation failed: {exc}")
+
+    logger.info(f"p05: Using hardcoded DomainWidget fallback for {domain}")
+    return fallback
 
 
 # ── Columns to exclude from display and forms ─────────────────────────────────
@@ -3825,17 +3852,39 @@ export function {pascal}Page() {{
     }},
   ]
 
+  const handleExport = () => {{
+    const headers = columns.map(c => c.header).filter(h => h).join(',')
+    const rows = all.map(item => columns.map(c => item[c.id] ?? '').join(',')).join('\\n')
+    const blob = new Blob([headers + '\\n' + rows], {{ type: 'text/csv' }})
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `{table}_export.csv`
+    a.click()
+  }}
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{label}</h1>
-        <button
-          onClick={{() => {{ setEditing(null); setModalOpen(true) }}}}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
-        >
-          <Plus size={{16}} />
-          Add {singular}
-        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{label}</h1>
+          <p className="text-sm text-gray-500 mt-1">Manage your {label.lower()} and track changes</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={{handleExport}}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-all"
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={{() => {{ setEditing(null); setModalOpen(true) }}}}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium shadow-sm"
+          >
+            <Plus size={{16}} />
+            Add {singular}
+          </button>
+        </div>
       </div>
 
       <DataTable data={{data}} columns={{columns}} isLoading={{isLoading}} />
@@ -4081,7 +4130,250 @@ volumes:
 """
 
 
+# ── Admin Derivation ─────────────────────────────────────────────────────────
+
+CUSTOMER_TO_ADMIN_MAP = {
+    "browse products":           ["product catalog CRUD", "category management", "inventory tracking"],
+    "place orders":              ["order management", "order status updates", "fulfillment workflow"],
+    "book appointments":         ["appointment calendar", "availability management", "provider schedules"],
+    "register/enroll":           ["member/student management", "enrollment approval"],
+    "make payments":             ["billing dashboard", "payment history", "refund management"],
+    "leave reviews":             ["review moderation queue", "response management"],
+    "upload documents":          ["document review", "approval workflow"],
+    "track deliveries":          ["driver management", "route tracking", "delivery status"],
+    "book rooms/tables":         ["availability calendar", "booking management", "check-in/out"],
+}
+
+def _derive_admin_features(customer_flows: List[str]) -> List[str]:
+    """Derive list of admin management sections based on customer actions."""
+    admin_features = ["User Management", "Settings", "Analytics"]
+    for flow in customer_flows:
+        for action, features in CUSTOMER_TO_ADMIN_MAP.items():
+            if action in flow.lower():
+                admin_features.extend(features)
+    return sorted(list(set(admin_features)))
+
+
+# ── Customer Portal Generation ────────────────────────────────────────────────
+
+async def _generate_customer_portal(domain: str, design_brief: dict, route_map: dict, target_dir: Path) -> Dict[str, str]:
+    """Generate rich customer-facing portal pages based on design brief and domain."""
+    (target_dir / "customer").mkdir(parents=True, exist_ok=True)
+    pages = {}
+    
+    # Layout and design tokens from brief
+    layout = design_brief.get("layout_patterns", {}).get("navigation", "sticky")
+    primary_color = design_brief.get("color_scheme", {}).get("primary", "indigo-600")
+    
+    # 1. Home Page (Rich Hero + Features)
+    home_code = f"""
+import React from 'react';
+import {{ ArrowRight, Star, Shield, Zap }} from 'lucide-react';
+
+export default function Home() {{
+  return (
+    <div className="min-h-screen bg-white">
+      {{/* Hero Section */}}
+      <div className="relative pt-16 pb-32 flex content-center items-center justify-center min-h-[75vh]">
+        <div className="container relative mx-auto">
+          <div className="items-center flex flex-wrap">
+            <div className="w-full lg:w-6/12 px-4 ml-auto mr-auto text-center">
+              <h1 className="text-5xl font-semibold text-gray-900 leading-tight">
+                Premium {domain.replace('_', ' ').capitalize()} Solutions for Your Business
+              </h1>
+              <p className="mt-4 text-lg text-gray-600">
+                Experience the next generation of {domain.replace('_', ' ')} management. 
+                Built for scale, speed, and reliability.
+              </p>
+              <div className="mt-10 flex justify-center gap-x-6">
+                <a href="/browse" className="rounded-md bg-{primary_color} px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
+                  Get Started <ArrowRight size={{16}} />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {{/* Features Section */}}
+      <div className="py-24 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <h2 className="text-3xl font-bold text-gray-900">Why Choose Us?</h2>
+          </div>
+          <div className="mt-20 grid grid-cols-1 gap-12 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+              <Zap className="text-{primary_color} mb-4" size={{32}} />
+              <h3 className="text-xl font-bold mb-2">Lightning Fast</h3>
+              <p className="text-gray-600">Optimized performance for the best user experience in the {domain} industry.</p>
+            </div>
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+              <Shield className="text-{primary_color} mb-4" size={{32}} />
+              <h3 className="text-xl font-bold mb-2">Secure by Design</h3>
+              <p className="text-gray-600">Enterprise-grade security protecting your sensitive {domain} data.</p>
+            </div>
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+              <Star className="text-{primary_color} mb-4" size={{32}} />
+              <h3 className="text-xl font-bold mb-2">Top Rated</h3>
+              <p className="text-gray-600">Trusted by thousands of businesses worldwide for their daily operations.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}}
+"""
+    (target_dir / "customer" / "Home.tsx").write_text(home_code)
+    pages["Home.tsx"] = home_code
+    
+    # 2. About Page
+    about_code = f"""
+export default function About() {{
+  return (
+    <div className="max-w-4xl mx-auto py-20 px-4">
+      <h1 className="text-4xl font-bold mb-8">About Our {domain.capitalize()} Platform</h1>
+      <p className="text-lg text-gray-600 mb-4">
+        We are dedicated to providing the best {domain.replace('_', ' ')} management experience.
+        Our mission is to empower business owners with the tools they need to succeed in a digital world.
+      </p>
+    </div>
+  );
+}}
+"""
+    (target_dir / "customer" / "AboutPage.tsx").write_text(about_code)
+    pages["AboutPage.tsx"] = about_code
+    
+    return pages
+
+
 # ── Main entry point ───────────────────────────────────────────────────────────
+
+async def _take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool:
+    """Attempt to capture a real screenshot of the generated frontend."""
+    import subprocess
+    import socket
+    import time
+    
+    # 1. Ensure Playwright browsers are installed
+    try:
+        subprocess.run(["python3", "-m", "playwright", "install", "chromium"], capture_output=True, timeout=120)
+    except Exception:
+        pass
+
+    dist_dir = frontend_dir / "dist"
+    # 2. Try building it if not already built
+    if not dist_dir.exists():
+        try:
+            logger.info("p05: Building frontend for screenshot...")
+            subprocess.run(["npm", "install"], cwd=str(frontend_dir), capture_output=True, timeout=180)
+            subprocess.run(["npm", "run", "build"], cwd=str(frontend_dir), capture_output=True, timeout=180)
+        except Exception as build_err:
+            logger.warning(f"p05: Build failed before screenshot: {build_err}")
+    
+    if not dist_dir.exists():
+        logger.warning("p05: dist/ directory not found, cannot take real screenshot")
+        return False
+
+    # 3. Find a free port dynamically
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            port = s.getsockname()[1]
+    except Exception:
+        port = 8888 # fallback
+
+    # 4. Start a temporary local server to serve the build
+    server_process = subprocess.Popen(
+        ["python3", "-m", "http.server", str(port), "--directory", str(dist_dir)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(viewport={"width": 1280, "height": 800})
+            
+            # 5. Navigate to the local server
+            try:
+                # Wait for server to start
+                await asyncio.sleep(2)
+                await page.goto(f"http://localhost:{port}", wait_until="networkidle", timeout=20000)
+                # Wait for any async React hydration/animations
+                await asyncio.sleep(3)
+                await page.screenshot(path=str(output_path), full_page=True)
+                logger.info(f"p05: Successfully captured preview screenshot at {output_path}")
+                return True
+            except Exception as e:
+                logger.warning(f"p05: Playwright navigation/capture failed: {e}")
+                return False
+            finally:
+                await browser.close()
+    except Exception as e:
+        logger.warning(f"p05: Playwright engine failed: {e}")
+        return False
+    finally:
+        server_process.terminate()
+
+
+async def _apply_gate2_revisions(
+    instructions: str,
+    frontend_dir: Path,
+    domain: str,
+    project_name: str
+) -> None:
+    """Use LLM to refine the customer portal based on user feedback."""
+    from aether_os.core.llm.client import get_llm_client
+    
+    # Identify files to refine (focus on the most visible ones)
+    src_dir = frontend_dir / "src"
+    candidates = [
+        src_dir / "pages" / "Dashboard.tsx",
+        src_dir / "components" / "DomainWidget.jsx",
+        src_dir / "components" / "Layout.tsx",
+    ]
+    
+    # Also include all pages in customer portal subdirectory
+    customer_dir = src_dir / "pages" / "customer"
+    if customer_dir.exists():
+        candidates.extend(customer_dir.glob("*.tsx"))
+    
+    files_to_edit = [f for f in candidates if f.exists()]
+    if not files_to_edit:
+        return
+
+    client = get_llm_client()
+    for fpath in files_to_edit:
+        try:
+            current_code = fpath.read_text()
+            prompt = f"""You are a senior React developer. Refine the following component based on user feedback.
+Feedback: {instructions}
+Project: {project_name}
+Domain: {domain}
+
+Current Code:
+{current_code}
+
+Rules:
+- Keep the overall structure.
+- Only change visual styling (Tailwind classes) or wording to match feedback.
+- Return ONLY the updated code. No explanation. No markdown fences.
+"""
+            new_code = await client.call(prompt, task_type="code_refinement")
+            if new_code and ("export" in new_code or "function" in new_code):
+                # Clean up markdown fences
+                new_code = new_code.strip()
+                if new_code.startswith("```"):
+                    lines = new_code.splitlines()
+                    if lines[0].startswith("```"): lines = lines[1:]
+                    if lines and lines[-1].startswith("```"): lines = lines[:-1]
+                    new_code = "\n".join(lines)
+                fpath.write_text(new_code)
+                logger.info(f"p05: Refined {fpath.name} based on user feedback")
+        except Exception as e:
+            logger.warning(f"p05: Failed to refine {fpath.name}: {e}")
+
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -4130,6 +4422,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # 2b. Detect application domain (used for stat labels + LLM widget)
     domain = _detect_domain(phase_input)
     logger.info("p05_frontend: detected domain=%s for project=%s", domain, project_name)
+
+    design_brief = data.get("design_brief", {})
 
     from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
@@ -4200,6 +4494,59 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "types").mkdir(parents=True, exist_ok=True)
     (src_dir / "components").mkdir(parents=True, exist_ok=True)
     (src_dir / "pages").mkdir(parents=True, exist_ok=True)
+
+    # 3a. Generate Customer Portal FIRST
+    logger.info("p05: generating customer portal for %s", domain)
+    customer_pages = await _generate_customer_portal(domain, design_brief, route_map, src_dir / "pages")
+
+    # ── Gate 3: Admin Requirements ──────────────────────────────────────────
+    customer_flows = []
+    if _domain_ir:
+        customer_flows = [wf.trigger for wf in _domain_ir.workflows]
+    
+    admin_features = _derive_admin_features(customer_flows)
+    
+    # GATE 3: Admin Features Approval
+    try:
+        from aether_os.core.pipeline_state import publish_event
+        from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+        from aether_os.orchestrator.events import ACTIVE_RUN_ID
+        run_id = ACTIVE_RUN_ID.get()
+        if run_id:
+            logger.info("p05: Waiting for Gate 3 (Admin Requirements) approval...")
+            engine = get_decision_engine()
+            decision = Decision(
+                run_id=run_id,
+                org_id=data.get("org_id", ""),
+                decision_type="admin_spec_approval",
+                title="Gate 3: Admin Portal Requirements",
+                what=f"Based on your customer portal, the admin panel will include: {', '.join(admin_features)}",
+                why="Confirm admin features before generation.",
+                phase="p05_frontend",
+            )
+            await engine.request_approval(decision)
+            
+            await publish_event(run_id, {
+                "type": "PhaseApprovalRequired",
+                "phase": "p05_frontend",
+                "gate": "gate_3",
+                "decision_id": decision.id,
+                "data": {"admin_features": admin_features},
+                "allow_overrides": True
+            })
+            
+            resolved = await engine.await_decision(decision.id)
+            if resolved.status == "approved" and resolved.human_choice:
+                try:
+                    if resolved.human_choice.strip().startswith("["):
+                        admin_features = json.loads(resolved.human_choice)
+                    else:
+                        admin_features = [f.strip() for f in resolved.human_choice.split(",") if f.strip()]
+                    logger.info("p05: Admin features updated by user: %s", admin_features)
+                except Exception:
+                    logger.warning("p05: Could not parse user admin features, using derived list")
+    except Exception as e:
+        logger.warning(f"p05: Gate 3 approval skipped due to error: {e}")
 
     # ── Static files ──────────────────────────────────────────────────────────
     (frontend_dir / "package.json").write_text(_generate_package_json(project_slug))
@@ -4468,6 +4815,66 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         frontend_dir,
         [e["table"] for e in entities],
     )
+
+    # ── Gate 2: Preview ──────────────────────────────────────────────────────
+    screenshot_path = ""
+    preview_path = output_dir / "customer_portal_preview.png"
+    
+    # Take actual screenshot
+    success = await _take_preview_screenshot(frontend_dir, preview_path)
+    if success:
+        screenshot_path = str(preview_path)
+    else:
+        logger.warning("p05: Gate 2 preview screenshot failed, will proceed without image")
+
+    try:
+        from aether_os.core.pipeline_state import publish_event
+        from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+        from aether_os.orchestrator.events import ACTIVE_RUN_ID
+        run_id = ACTIVE_RUN_ID.get()
+        if run_id:
+            engine = get_decision_engine()
+            msg = f"Preview available at {screenshot_path}" if screenshot_path else "Preview unavailable."
+            decision = Decision(
+                run_id=run_id,
+                org_id=data.get("org_id", ""),
+                decision_type="portal_preview_approval",
+                title="Gate 2: Customer Portal Preview",
+                what=f"{msg} Type any design changes you want or press Approve to continue.",
+                why="Human confirmation of visual design before finalising.",
+                phase="p05_frontend",
+            )
+            await engine.request_approval(decision)
+            
+            await publish_event(run_id, {
+                "type": "PhaseApprovalRequired",
+                "phase": "p05_frontend",
+                "gate": "gate_2",
+                "decision_id": decision.id,
+                "screenshot_url": f"/api/artifacts/{run_id}/p05_frontend/customer_portal_preview.png" if screenshot_path else None,
+                "allow_overrides": True
+            })
+            
+            logger.info("p05: Waiting for Gate 2 (Preview) approval...")
+            resolved = await engine.await_decision(decision.id)
+            if resolved.status == "approved" and resolved.human_choice:
+                instructions = resolved.human_choice.strip()
+                if instructions:
+                    logger.info("p05: Applying user revisions in Gate 2: %s", instructions)
+                    meta["user_revisions"] = instructions
+                    # Apply real revision pass via LLM
+                    await _apply_gate2_revisions(instructions, frontend_dir, domain, project_name)
+                    # Mirror changes to canonical frontend if needed
+                    if _canonical_frontend.exists():
+                        try:
+                            import shutil as _shutil
+                            _shutil.copytree(str(frontend_dir), str(_canonical_frontend),
+                                             dirs_exist_ok=True,
+                                             ignore=_shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
+                        except Exception:
+                            pass
+    except Exception as e:
+        logger.warning(f"p05: Gate 2 approval/revision failed: {e}")
 
     return TaskResult(
         output_path=str(frontend_dir),

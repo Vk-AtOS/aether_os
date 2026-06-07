@@ -471,34 +471,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     out_md   = output_dir / "architecture.md"
     used_fallback = False
 
-    # ── Spec template cache: skip LLM for known domain+entity combinations ────
-    from aether_os.core import spec_cache as _spec_cache
+    # Extract entities for metadata/cache (no longer used for bypass)
     _resources = _extract_resources(raw_input or requirements, domain=domain)
     _entity_tables = [r["table"] for r in _resources]
-    _cached_arch = _spec_cache.get(domain, _entity_tables, raw_input or requirements)
-    if _cached_arch:
-        logger.info("[p02] spec_cache HIT — skipping LLM architecture call")
-        doc = _cached_arch
-        used_fallback = False
-        out_json.write_text(json.dumps(doc, indent=2))
-        stack = doc.get("tech_stack", {})
-        md = ["# Architecture (from cache)\n\n## Tech Stack\n"]
-        for k, v in stack.items():
-            md.append(f"- **{k}**: {v}")
-        out_md.write_text("\n".join(md))
-        return TaskResult(
-            output_path=str(out_json),
-            confidence=0.88,
-            metadata={
-                "json_path": str(out_json),
-                "markdown_path": str(out_md),
-                "used_fallback": False,
-                "from_cache": True,
-                "endpoint_count": len(doc.get("api_endpoints", [])),
-            },
-            issues=[],
-            success=True,
-        )
 
     # ── Attempt LLM-generated architecture ───────────────────────────────────
     from aether_os.phases.utils import memory_hint
