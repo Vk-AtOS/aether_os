@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -35,7 +36,128 @@ class TaskAgent:
         except Exception:
             return False
 
+    def _write_vps_scripts(self, project_dir: Path, project_name: str):
+        """Write VPS-ready deployment and maintenance scripts."""
+        project_slug = re.sub(r"[^a-z0-9-]", "-", project_name.lower()).strip("-") or "project"
+        
+        # 1. deploy.sh (Enhanced)
+        deploy_sh = f"""#!/bin/bash
+# One-command VPS deployment for {project_name}
+set -e
+echo "Deploying {project_name}..."
+
+# Install Docker if not present
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+fi
+
+docker-compose build
+docker-compose up -d
+
+# Run migrations and seed
+echo "Running migrations and seeding..."
+docker-compose exec -T app alembic upgrade head
+# Seed demo data (skip if already seeded)
+docker-compose exec -T app python -m src.seed 2>/dev/null || echo "Seed skipped (already done or seed.py not found)"
+
+# Health check
+echo "Verifying health..."
+sleep 5
+curl -f http://localhost:8000/health || echo "Warning: Health check failed"
+
+echo ""
+echo "✓ {project_name} is running"
+echo "  App URL: http://$(hostname -I | awk '{{print $1}}')"
+echo "  Admin login: admin@example.com"
+echo "  Admin password: admin_password_change_me"
+echo ""
+echo "IMPORTANT: Change your admin password immediately after first login."
+"""
+        (project_dir / "deploy.sh").write_text(deploy_sh)
+        os.chmod(project_dir / "deploy.sh", 0o755)
+
+        # 2. backup.sh
+        backup_sh = f"""#!/bin/bash
+# Database backup script
+BACKUP_DIR=./backups
+mkdir -p $BACKUP_DIR
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+docker-compose exec -T db pg_dump -U appuser {project_slug.replace('-', '_')} > $BACKUP_DIR/backup_$TIMESTAMP.sql
+
+# Keep last 30 days of backups
+find $BACKUP_DIR -name "*.sql" -mtime +30 -delete
+echo "Backup complete: $BACKUP_DIR/backup_$TIMESTAMP.sql"
+"""
+        (project_dir / "backup.sh").write_text(backup_sh)
+        os.chmod(project_dir / "backup.sh", 0o755)
+
+        # 3. restore.sh
+        restore_sh = f"""#!/bin/bash
+if [ -z "$1" ]; then
+    echo "Usage: ./restore.sh <backup_file.sql>"
+    exit 1
+fi
+cat $1 | docker-compose exec -T db psql -U appuser {project_slug.replace('-', '_')}
+echo "Restore complete."
+"""
+        (project_dir / "restore.sh").write_text(restore_sh)
+        os.chmod(project_dir / "restore.sh", 0o755)
+
+        # 4. update.sh
+        update_sh = f"""#!/bin/bash
+set -e
+git pull
+docker-compose build
+docker-compose up -d
+docker-compose exec -T app alembic upgrade head
+echo "Update successful."
+"""
+        (project_dir / "update.sh").write_text(update_sh)
+        os.chmod(project_dir / "update.sh", 0o755)
+
+    def _write_nginx_config(self, project_dir: Path):
+        """Generate nginx/ directory with nginx.conf and ssl.conf."""
+        nginx_dir = project_dir / "deployment" / "nginx"
+        nginx_dir.mkdir(parents=True, exist_ok=True)
+        
+        nginx_conf = textwrap.dedent("""
+            server {
+                listen 80;
+                server_name localhost;
+
+                location / {
+                    proxy_pass http://app:8000;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                }
+            }
+        """).strip()
+        (nginx_dir / "nginx.conf").write_text(nginx_conf)
+        
+        ssl_conf = textwrap.dedent("""
+            # SSL configuration template (Let's Encrypt / Certbot)
+            # listen 443 ssl;
+            # ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+            # ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+            # include /etc/letsencrypt/options-ssl-nginx.conf;
+            # ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+        """).strip()
+        (nginx_dir / "ssl.conf").write_text(ssl_conf)
+
     async def run(self, phase_input: Any) -> Dict[str, Any]:
+        run_id: str = getattr(phase_input, "run_id", "unknown")
+        project_dir = Path(os.path.expanduser(
+            f"~/.aether_os/projects/{run_id}"
+        ))
+        data = getattr(phase_input, "input_data", {}) or {}
+        project_name = data.get("project_name", "App")
+        
+        self._write_vps_scripts(project_dir, project_name)
+        self._write_nginx_config(project_dir)
+        
         docker_available = await self._check_docker()
         if not docker_available:
             run_id: str = getattr(phase_input, "run_id", "unknown")
@@ -399,108 +521,90 @@ class TaskAgent:
               app_data:
         """)
         compose_path.write_text(content)
+        
+        # docker-compose.dev.yml
+        dev_compose_path = project_dir / "docker-compose.dev.yml"
+        dev_content = textwrap.dedent(f"""\
+            version: '3.8'
+            services:
+              app:
+                build: {build_ctx}
+                volumes:
+                  - ./src:/app/src
+                command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+                ports:
+                  - "8000:8000"
+                environment:
+                  DATABASE_URL: sqlite:///./data/app_dev.db
+                  DEBUG: "true"
+        """)
+        dev_compose_path.write_text(dev_content)
+        
         return compose_path
 
     def _write_deploy_md(self, project_dir: Path) -> Path:
-        """Write DEPLOY.md with deployment instructions for Docker, Railway, and Fly.io."""
-        deploy_md = project_dir / "DEPLOY.md"
-        if deploy_md.exists():
-            return deploy_md  # don't overwrite existing guide
-
+        """Write DEPLOYMENT.md with comprehensive instructions (10 sections)."""
+        deploy_md = project_dir / "DEPLOYMENT.md"
+        
         content = textwrap.dedent("""\
-            # Deployment Guide
+            # DEPLOYMENT & OPERATIONS GUIDE
 
-            ## Option 1: Docker Compose (Recommended)
+            ## 1. VPS Minimum Requirements
+            - OS: Ubuntu 22.04 LTS (Recommended)
+            - RAM: 2GB (Minimum 1GB)
+            - Disk: 20GB SSD
+            - CPU: 1 Core
 
+            ## 2. Domain DNS Configuration
+            1. Login to your DNS provider (Cloudflare, Namecheap, etc.)
+            2. Add an **A Record** pointing to your VPS IP address.
+            3. (Optional) Add a CNAME for 'www'.
+
+            ## 3. SSL Certificate Setup
+            We recommend using **Certbot** for free SSL via Let's Encrypt:
             ```bash
-            # Start the app
-            docker-compose up --build
-
-            # App will be available at http://localhost:8000
-            # API docs at http://localhost:8000/docs
+            sudo apt update && sudo apt install certbot python3-certbot-nginx -y
+            sudo certbot --nginx -d yourdomain.com
             ```
 
-            ## Option 2: Railway (Cloud)
-
-            1. Install Railway CLI: `npm install -g @railway/cli`
-            2. Login: `railway login`
-            3. Deploy: `railway up`
-
-            Or deploy via GitHub:
-            1. Push this code to a GitHub repo
-            2. Go to railway.app → New Project → Deploy from GitHub
-            3. Set environment variables: `DATABASE_URL`, `SECRET_KEY`
-
-            ## Option 3: Fly.io
-
+            ## 4. First-Time Setup Walkthrough
             ```bash
-            fly launch
-            fly deploy
+            git clone <your-repo-url>
+            cd <repo-name>
+            cp .env.example .env
+            nano .env  # Fill in the variables
+            bash deploy.sh
             ```
 
-            ## Option 4: GitHub Codespaces (instant cloud dev environment)
+            ## 5. Admin Password Reset
+            The default admin is `admin@example.com`. 
+            Change your password immediately in the dashboard profile or via the database.
 
-            1. Push this code to GitHub (the "Push to GitHub" button in the AetherOS dashboard does this)
-            2. Click: **[Open in GitHub Codespaces](https://github.com/codespaces/new)**
-            3. Everything installs automatically — Python, Node, Docker-in-Docker
-            4. The API starts automatically on port 8000
+            ## 6. Email Configuration
+            Edit `.env` to include your SMTP credentials (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD).
+            The system uses these for transactional emails (welcome, alerts, etc.).
 
-            ## Option 4: VPS (any Linux server)
+            ## 7. Payment Processing (Stripe)
+            1. Go to Stripe Dashboard -> Developers -> API Keys.
+            2. Copy `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` to your `.env`.
+            3. Restart the app: `bash update.sh`.
 
+            ## 8. Automated Database Backups
+            Add `backup.sh` to your crontab to run daily:
             ```bash
-            scp -r . user@your-server:/app
-            ssh user@your-server "cd /app && docker-compose up --build -d"
+            (crontab -l ; echo "0 2 * * * cd $(pwd) && bash backup.sh") | crontab -
             ```
 
-            ## Option 5: AWS ECS Fargate
+            ## 9. Monitoring
+            - Health check: `http://<vps-ip>/health`
+            - Metrics: `http://<vps-ip>/metrics`
+            - Logs: `docker-compose logs -f app`
 
-            Set environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-            AWS_ECR_REPO, AWS_ECS_CLUSTER, AWS_REGION.
-
-            The factory validates your credentials and generates the push commands automatically.
-            Run them to deploy:
-
+            ## 10. Updating the Application
+            Simply run the update script:
             ```bash
-            # Authenticate with ECR
-            aws ecr get-login-password --region $AWS_REGION | \\
-              docker login --username AWS --password-stdin \\
-              $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-
-            # Build and push
-            docker build -t $AWS_ECR_IMAGE .
-            docker push $AWS_ECR_IMAGE
-
-            # Update ECS service (triggers a new deployment)
-            aws ecs update-service --cluster $AWS_ECS_CLUSTER \\
-              --service $AWS_ECR_REPO --force-new-deployment
+            bash update.sh
             ```
-
-            ## Option 6: Google Cloud Run
-
-            Set GOOGLE_CLOUD_PROJECT and run `gcloud auth application-default login`.
-            The factory generates the gcloud deploy command automatically.
-
-            ```bash
-            # Submit build to Cloud Build and push to GCR
-            gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/$SERVICE_NAME .
-
-            # Deploy to Cloud Run
-            gcloud run deploy $SERVICE_NAME \\
-              --image gcr.io/$GOOGLE_CLOUD_PROJECT/$SERVICE_NAME \\
-              --region $GOOGLE_CLOUD_REGION \\
-              --allow-unauthenticated
-            ```
-
-            ## Environment Variables
-
-            See `.env.example` for required configuration.
-
-            ## Production Checklist
-
-            - [ ] Set `SECRET_KEY` to a random 64-character hex string
-            - [ ] Configure `DATABASE_URL` for PostgreSQL (recommended for production)
-            - [ ] Set `CORS_ORIGINS` to your frontend domain
-            - [ ] Enable HTTPS (Railway/Fly/Cloud Run handle this automatically)
         """)
         deploy_md.write_text(content)
         return deploy_md

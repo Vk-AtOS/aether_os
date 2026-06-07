@@ -107,36 +107,56 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("code_review failed (non-critical): %s", e)
 
-    # Sub-task 2: Static security scan using bandit (if installed) or regex patterns
+    # Sub-task 2: Static security scan using ASTSecurityPatcher over ALL source files
     try:
+        from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
+        from aether_os.core.errors import PipelineBlockedError
+        import ast
+        import astor
+
         data = phase_input.input_data
         project_dir = data.get("project_dir", "")
         backend_path = data.get("backend_output_path", "")
-
-        scan_target: Path | None = None
+        
+        src_path = None
         for candidate in [
-            Path(project_dir) / "src" / "main.py",
-            Path(backend_path) / "src" / "main.py" if backend_path else None,
+            Path(project_dir) / "src",
+            Path(backend_path) / "src" if backend_path else None,
         ]:
             if candidate and candidate.exists():
-                scan_target = candidate
+                src_path = candidate
                 break
 
         security_findings = []
-        if scan_target:
-            source = scan_target.read_text(encoding="utf-8")
-            # Quick regex-based checks for common issues
-            _checks = [
-                (r"password\s*=\s*['\"][^'\"]{4,}['\"]", "Hardcoded password", "high"),
-                (r"secret\s*=\s*['\"][^'\"]{4,}['\"]", "Hardcoded secret", "high"),
-                (r"allow_origins\s*=\s*\[?\s*['\"]?\*['\"]?\s*\]?", "Wildcard CORS origin", "medium"),
-                (r"execute\([^)]*%[^)]*\)", "Possible SQL injection via string formatting", "high"),
-                (r"eval\(", "Use of eval()", "high"),
-                (r"shell=True", "subprocess shell=True", "medium"),
-            ]
-            for pattern, issue, severity in _checks:
-                if re.search(pattern, source, re.IGNORECASE):
-                    security_findings.append({"issue": issue, "severity": severity})
+        if src_path:
+            for py_file in src_path.rglob("*.py"):
+                source = py_file.read_text(encoding="utf-8")
+                
+                # 1. AST-based scanning and patching
+                tree = ast.parse(source)
+                patcher = ASTSecurityPatcher()
+                patcher.visit(tree)
+                
+                if patcher.patches_applied:
+                    patched_source = astor.to_source(tree)
+                    py_file.write_text(patched_source, encoding="utf-8")
+                    logger.info("AST: patched vulnerabilities in %s", py_file.name)
+
+                # 2. Critical finding check (re-scan for remaining high-risk issues)
+                _critical_patterns = [
+                    (r"password\s*=\s*['\"][^'\"]{4,}['\"]", "Hardcoded password"),
+                    (r"secret\s*=\s*['\"][^'\"]{4,}['\"]", "Hardcoded secret"),
+                    (r"execute\([^)]*%[^)]*\)", "Possible SQL injection"),
+                ]
+                
+                for pattern, issue in _critical_patterns:
+                    if re.search(pattern, source, re.IGNORECASE):
+                        security_findings.append({"file": py_file.name, "issue": issue, "severity": "CRITICAL"})
+            
+            # Block if critical findings exist
+            for finding in security_findings:
+                if finding["severity"] == "CRITICAL":
+                    raise PipelineBlockedError(f"CRITICAL security issue in {finding['file']}: {finding['issue']}")
 
         sub_dir = output_dir / "security"
         sub_dir.mkdir(parents=True, exist_ok=True)
@@ -151,6 +171,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             success=True,
         )
         logger.info("security scan completed: %d findings", len(security_findings))
+    except PipelineBlockedError as e:
+        logger.error("Security blocking pipeline: %s", e)
+        raise
     except asyncio.TimeoutError:
         logger.warning("security timed out after %.0fs (non-critical)", _SUBTASK_TIMEOUT)
     except Exception as e:

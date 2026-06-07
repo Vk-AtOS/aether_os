@@ -63,11 +63,13 @@ INACTIVE_PHASE_DIRS = frozenset({
 
 # Ordered 20-phase sequence (12 core + 8 post-deployment)
 PHASE_SEQUENCE = [
+    "p00_research",
     "p01_intake_requirements",
     "p02_architecture",
     "p02b_domain_ir",
     "p03_scaffolding",
     "p04_backend",
+    "p04b_business_logic",
     "p05_frontend",
     "p06_review_security",
     "p07_testing",
@@ -88,11 +90,13 @@ PHASE_SEQUENCE = [
 
 # Phase name → supervisor class path (20 phases: 12 core + 8 post-deployment)
 PHASE_SUPERVISORS: Dict[str, str] = {
+    "p00_research":            "phases.p00_research.supervisor_agent.ResearchSupervisor",
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
     "p02b_domain_ir":          "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
     "p03_scaffolding":         "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
     "p04_backend":             "aether_os.phases.p04_backend.BackendSupervisor",
+    "p04b_business_logic":     "phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
     "p05_frontend":            "aether_os.phases.p05_frontend.FrontendSupervisor",
     "p06_review_security":     "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
     "p07_testing":             "aether_os.phases.p07_testing.TestingSupervisor",
@@ -518,6 +522,30 @@ class FactoryPipeline:
                         await _sess_ckpt_w.commit()
                 except Exception as _ckpt_w_exc:
                     logger.debug("[pipeline] checkpoint save failed (non-fatal): %s", _ckpt_w_exc)
+
+                # After p07_testing: Quality Gate (Fix 9)
+                if phase_name == "p07_testing":
+                    from aether_os.core.quality.metrics import score_project
+                    from aether_os.core.errors import PipelineBlockedError
+                    
+                    for attempt in range(1, 4):
+                        quality = score_project(project_dir)
+                        if quality.total >= 80:
+                            logger.info("[quality] Gate passed: %.1f%%", quality.total)
+                            await emit({"type": "quality_gate_passed", "score": quality.total}, run_id=run_id)
+                            break
+                        
+                        if attempt < 3:
+                            msg = f"Quality score {quality.total:.1f}% < 80% — running self-healing attempt {attempt}/3"
+                            logger.info("[quality] %s", msg)
+                            await emit({"type": "llm_chunk", "phase": "quality_gate", "text": msg}, run_id=run_id)
+                            # Re-run p07b_self_healing to try and improve quality
+                            await self._run_phase("p07b_self_healing", phase_input)
+                        else:
+                            logger.error("[quality] Gate failed after 3 attempts. Final score: %.1f%%", quality.total)
+                            raise PipelineBlockedError(
+                                f"Quality gate failed after 3 improvement attempts. Final score: {quality.total:.1f}%"
+                            )
 
                 # If p11_deployment produced a live_url, persist it to the runs table
                 if phase_name == "p11_deployment":

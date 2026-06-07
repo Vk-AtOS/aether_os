@@ -110,6 +110,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as exc:
         logger.warning("[p01] contract inference failed: %s", exc)
 
+    # ── Step 1c: Integration Flags ──────────────────────────────────────────
+    integration_flags = {
+        "needs_payments": any(kw in raw_input.lower() for kw in ["payment", "stripe", "billing", "checkout", "subscription"]),
+        "needs_email": any(kw in raw_input.lower() for kw in ["email", "smtp", "notification", "message", "mail"]),
+        "needs_file_upload": any(kw in raw_input.lower() for kw in ["upload", "file", "image", "pdf", "storage", "document"]),
+        "needs_maps": any(kw in raw_input.lower() for kw in ["map", "location", "gps", "google maps", "address"]),
+        "needs_sms": any(kw in raw_input.lower() for kw in ["sms", "text message", "twilio", "phone"]),
+        "needs_calendar": any(kw in raw_input.lower() for kw in ["calendar", "schedule", "appointment", "booking", "reservation"]),
+    }
+    phase_input.input_data["integration_flags"] = integration_flags
+    logger.info("[p01] integration_flags: %s", [k for k, v in integration_flags.items() if v])
+
     (output_dir / "project_contract.json").write_text(
         json.dumps(contract, indent=2, default=str)
     )
@@ -154,7 +166,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "intake": intake_record,
         "requirements": requirements_doc,
         "contract": contract,
+        "integration_flags": integration_flags,
         "raw_input_length": len(raw_input),
+    }
+    summary["artifacts"] = {
+        "intake": intake_record,
+        "contract": contract,
+        "integration_flags": integration_flags,
+        "requirements_doc": requirements_doc,
     }
     summary_path = output_dir / "requirements.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
