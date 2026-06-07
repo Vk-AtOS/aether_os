@@ -258,8 +258,19 @@ def generate_schemas_py(ir: DomainIR) -> str:
     """Generate complete schemas.py from DomainIR."""
     lines = [_PYDANTIC_IMPORTS, ""]
 
+    # Generic paginated response
+    lines.extend([
+        "class PaginatedResponse(BaseModel):",
+        "    items: List[Any]",
+        "    total: int",
+        "    page: int",
+        "    limit: int",
+        "",
+    ])
+
     for entity in ir.entities:
-        name = entity.name
+        # ... (rest of the loop)
+
         fields_block_base = []
         fields_block_update = []
 
@@ -375,7 +386,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
     lines = [
         f"{router_var} = APIRouter(prefix='/{t}', tags=['{n}'])",
         "",
-        f"@{router_var}.get('', response_model=dict)",
+        f"@{router_var}.get('', response_model=schemas.PaginatedResponse)",
         f"async def list_{t}(",
         f"    page: int = Query(1, ge=1),",
         f"    limit: int = Query(20, ge=1, le=100),",
@@ -388,11 +399,11 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"    total = total_q.scalar_one()",
         f"    result = await db.execute(select(models.{n}).offset(offset).limit(limit))",
         f"    items = result.scalars().all()",
-        f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{n}.__table__.columns}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
+        f"    return {{'items': items, 'total': total, 'page': page, 'limit': limit}}",
         "",
-        f"@{router_var}.post('', response_model=dict, status_code=201)",
+        f"@{router_var}.post('', response_model=schemas.{n}Response, status_code=201)",
         f"async def create_{var}(",
-        f"    data: {n}Create,",
+        f"    data: schemas.{n}Create,",
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user: dict = Depends(get_current_user),",
         f"):",
@@ -401,9 +412,9 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"    db.add(obj)",
         f"    await db.flush()",
         f"    await db.refresh(obj)",
-        f"    return {{c.name: getattr(obj, c.name) for c in models.{n}.__table__.columns}}",
+        f"    return obj",
         "",
-        f"@{router_var}.get('/{{item_id}}', response_model=dict)",
+        f"@{router_var}.get('/{{item_id}}', response_model=schemas.{n}Response)",
         f"async def get_{var}(",
         f"    item_id: int,",
         f"    db: AsyncSession = Depends(get_db),",
@@ -414,12 +425,12 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
-        f"    return {{c.name: getattr(obj, c.name) for c in models.{n}.__table__.columns}}",
+        f"    return obj",
         "",
-        f"@{router_var}.patch('/{{item_id}}', response_model=dict)",
+        f"@{router_var}.patch('/{{item_id}}', response_model=schemas.{n}Response)",
         f"async def update_{var}(",
         f"    item_id: int,",
-        f"    data: {n}Update,",
+        f"    data: schemas.{n}Update,",
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user: dict = Depends(get_current_user),",
         f"):",
@@ -432,10 +443,10 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"        setattr(obj, k, v)",
         f"    await db.flush()",
         f"    await db.refresh(obj)",
-        f"    return {{c.name: getattr(obj, c.name) for c in models.{n}.__table__.columns}}",
+        f"    return obj",
         "",
-        f"@{router_var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
-        f"async def update_{var}_put(item_id: int, data: {n}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+        f"@{router_var}.put('/{{item_id}}', response_model=schemas.{n}Response, include_in_schema=False)",
+        f"async def update_{var}_put(item_id: int, data: schemas.{n}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
         f"    return await update_{var}(item_id, data, db, current_user)",
         "",
         f"@{router_var}.delete('/{{item_id}}', status_code=204)",

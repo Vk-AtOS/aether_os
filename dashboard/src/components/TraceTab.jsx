@@ -29,13 +29,13 @@ export function TraceTab({ runId }: { runId: string }) {
 
   const { data: traces = [], isLoading } = useQuery<Trace[]>({
     queryKey: ['traces', runId],
-    queryFn: () => apiClient.get(`/runs/${runId}/traces`).then(r => r.data),
+    queryFn: () => apiClient.get(`/factory/runs/${runId}/traces`).then(r => r.data),
     staleTime: 30_000,
   })
 
   const loadDetail = async (traceId: string) => {
     if (detail[traceId]) { setExpanded(traceId); return }
-    const r = await apiClient.get(`/runs/${runId}/traces/${traceId}`)
+    const r = await apiClient.get(`/factory/runs/${runId}/traces/${traceId}`)
     setDetail(d => ({ ...d, [traceId]: r.data }))
     setExpanded(traceId)
   }

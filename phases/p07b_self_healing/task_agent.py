@@ -35,8 +35,11 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
         m = re.search(pat, test_output)
         if m:
             candidate = Path(m.group(1))
+            # Resolve relative to project_dir if not absolute, then resolve for consistency
             if not candidate.is_absolute():
-                candidate = project_dir / candidate
+                candidate = (project_dir / candidate).resolve()
+            else:
+                candidate = candidate.resolve()
             if candidate.exists():
                 return candidate
     return None

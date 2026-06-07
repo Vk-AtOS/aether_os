@@ -2663,7 +2663,7 @@ async def download_run_zip(run_id: str, user: Dict[str, Any] = _current_user()):
     )
 
 
-@router.get("/runs/{run_id}/traces")
+@router.get("/factory/runs/{run_id}/traces")
 async def get_run_traces(
     run_id: str,
     phase: Optional[str] = Query(None),
@@ -2704,7 +2704,7 @@ async def get_run_traces(
         ]
 
 
-@router.get("/runs/{run_id}/traces/{trace_id}")
+@router.get("/factory/runs/{run_id}/traces/{trace_id}")
 async def get_trace_detail(
     run_id: str,
     trace_id: str,
