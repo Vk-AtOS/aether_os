@@ -915,7 +915,9 @@ class FactoryPipeline:
                 })
             except Exception as _e:
                 logger.warning("Auto-start generated app failed for run %s: %s", run_id, _e)
-        asyncio.create_task(_auto_start_app())
+        _ast = asyncio.create_task(_auto_start_app())
+        self._bg_tasks.add(_ast)
+        _ast.add_done_callback(self._bg_tasks.discard)
 
         duration = time.time() - pipeline_start
 

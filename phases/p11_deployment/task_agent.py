@@ -764,7 +764,7 @@ echo "Update successful."
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=360)
             if proc.returncode != 0:
                 return {
                     "success": False,
@@ -772,7 +772,7 @@ echo "Update successful."
                 }
             return {"success": True}
         except asyncio.TimeoutError:
-            return {"success": False, "error": "Docker build timed out (120s)"}
+            return {"success": False, "error": "Docker build timed out (360s)"}
         except FileNotFoundError:
             return {"success": False, "error": "Docker not found — is Docker installed?"}
         except Exception as exc:
