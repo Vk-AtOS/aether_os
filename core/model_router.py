@@ -108,9 +108,13 @@ def get_fallback_chain() -> List[ModelSpec]:
     bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.amazon.nova-pro-v1:0")
     bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.amazon.nova-lite-v1:0")
     bedrock_model  = bedrock_heavy  # model_router uses heavy by default; light selected in client.py
+    # Bedrock fallback: if heavy model fails, try Llama 3.3 70B before OpenRouter free tier
+    bedrock_fallback_model = os.environ.get("BEDROCK_MODEL_FALLBACK", "us.meta.llama3-3-70b-instruct-v1:0")
+    bedrock_timeout = int(os.environ.get("BEDROCK_TIMEOUT", "180"))
     non_openrouter = {
         "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),
-        "bedrock":   ModelSpec("bedrock",   bedrock_model,   45, 2),
+        "bedrock":   ModelSpec("bedrock",   bedrock_model,   bedrock_timeout, 2),
+        "bedrock_fb": ModelSpec("bedrock",  bedrock_fallback_model, 120, 2),
         "gemini":    ModelSpec("gemini",    "gemini-2.5-flash", 45, 2),
         "ollama":    ModelSpec("ollama",    ollama_model, ollama_timeout, 1),
     }
@@ -132,6 +136,9 @@ def get_fallback_chain() -> List[ModelSpec]:
         for p in ("anthropic", "bedrock", "gemini"):
             if p != primary and _is_provider_configured(non_openrouter[p]):
                 chain.append(non_openrouter[p])
+        # Bedrock fallback model (e.g. Llama 3.3 70B) before free OpenRouter tier
+        if primary == "bedrock" and bedrock_fallback_model != bedrock_model:
+            chain.append(non_openrouter["bedrock_fb"])
         for m in openrouter_models:
             chain.append(ModelSpec("openrouter", m, 60, 2))
         if primary != "ollama":
