@@ -144,19 +144,20 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
     ])
 
     entity_links = "\n".join([
-        f"          <a href='/{e['table']}' className='flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 hover:border-brand-300 hover:shadow-sm transition-all group'>"
+        f"          <Link to='/{e['table'].replace('_', '-')}' className='flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 hover:border-brand-300 hover:shadow-sm transition-all group'>"
         f"\n            <div>"
         f"\n              <div className='font-semibold text-gray-900 group-hover:text-brand-700'>{e['table'].replace('_', ' ').title()}</div>"
         f"\n              <div className='text-xs text-gray-500 mt-0.5'>Manage {e['table'].replace('_', ' ')}</div>"
         f"\n            </div>"
         f"\n            <span className='text-brand-400 group-hover:translate-x-0.5 transition-transform text-lg'>→</span>"
-        f"\n          </a>"
+        f"\n          </Link>"
         for e in entities
     ])
 
     return f"""import React from 'react';
 import {{ useQuery }} from '@tanstack/react-query';
 import {{ api }} from '../lib/api';
+import {{ Link }} from '@tanstack/react-router';
 
 export default function Dashboard() {{
   const {{ data: stats }} = useQuery({{
@@ -354,6 +355,19 @@ def generate_ir_entity_page(entity: IREntity) -> str:
     col_cells = "\n".join(_col_cell(f) for f in entity.fields[:6])
     form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in entity.fields)
 
+    # FIX 13: Build typed payload extraction
+    payload_fields = []
+    for f in entity.fields:
+        if f.type in (AetherType.INTEGER, AetherType.FK):
+            payload_fields.append(f"      {f.name}: fd.get('{f.name}') ? parseInt(fd.get('{f.name}') as string, 10) : undefined,")
+        elif f.type in (AetherType.DECIMAL, AetherType.FLOAT):
+            payload_fields.append(f"      {f.name}: fd.get('{f.name}') ? parseFloat(fd.get('{f.name}') as string) : undefined,")
+        elif f.type == AetherType.BOOLEAN:
+            payload_fields.append(f"      {f.name}: fd.get('{f.name}') === 'on',")
+        else:
+            payload_fields.append(f"      {f.name}: fd.get('{f.name}') as string || undefined,")
+    payload_jsx = "\n".join(payload_fields)
+
     plural_label = label + ("s" if not label.endswith("s") else "")
 
     return f"""import React, {{ useState }} from 'react';
@@ -364,10 +378,11 @@ import type {{ {name} }} from '../types';
 export default function {name}Page() {{
   const qc = useQueryClient();
   const [editing, setEditing] = useState<{name} | null | 'new'>(null);
+  const [page, setPage] = useState(1);
 
   const {{ data, isLoading }} = useQuery({{
-    queryKey: ['{table}'],
-    queryFn: () => api.get('/{table}').then(r => r.data),
+    queryKey: ['{table}', page],
+    queryFn: () => api.get('/{table}', {{ params: {{ page, limit: 20 }} }}).then(r => r.data),
   }});{fk_hooks}{fk_lookups}
 
   const save = useMutation({{
@@ -384,11 +399,14 @@ export default function {name}Page() {{
   }});
 
   const rows: {name}[] = data?.items ?? data ?? [];
+  const total = data?.total ?? rows.length;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {{
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const payload = Object.fromEntries(fd.entries());
+    const payload: Partial<{name}> = {{
+{payload_jsx}
+    }};
     save.mutate(payload as any);
   }}
 
@@ -397,43 +415,90 @@ export default function {name}Page() {{
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-900">{plural_label}</h1>
         <button onClick={{() => setEditing('new')}}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          aria-label="Create new {label}">
           + New {label}
         </button>
       </div>
 
       {{isLoading ? (
-        <div className="text-gray-500">Loading…</div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-{col_headers}
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {{rows.map(row => (
-                <tr key={{row.id}} className="hover:bg-gray-50">
-{col_cells}
-                  <td className="px-4 py-2 text-sm space-x-2">
-                    <button onClick={{() => setEditing(row)}}
-                      className="text-blue-600 hover:underline">Edit</button>
-                    <button onClick={{() => remove.mutate(row.id)}}
-                      className="text-red-600 hover:underline">Delete</button>
-                  </td>
-                </tr>
-              ))}}
-            </tbody>
-          </table>
+        <div role="status" aria-label="Loading {plural_label}" className="space-y-3">
+          {{[1,2,3,4,5].map(i => (
+            <div key={{i}} className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+          ))}}
+          <span className="sr-only">Loading…</span>
         </div>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-xl" role="status">
+          <div className="text-4xl mb-3">📋</div>
+          <h3 className="text-lg font-medium text-gray-900">No {plural_label} yet</h3>
+          <p className="text-gray-500">Get started by creating your first {label}.</p>
+          <button onClick={{() => setEditing('new')}}
+            className="mt-4 text-blue-600 font-semibold hover:underline">
+            + Add {label}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200" aria-label="{plural_label} list">
+              <thead className="bg-gray-50">
+                <tr>
+{col_headers}
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {{rows.map(row => (
+                  <tr key={{row.id}} className="hover:bg-gray-50">
+{col_cells}
+                    <td className="px-4 py-2 text-sm text-right space-x-3">
+                      <button onClick={{() => setEditing(row)}}
+                        className="text-blue-600 hover:text-blue-800 font-medium"
+                        aria-label="Edit {{row.id}}">Edit</button>
+                      <button onClick={{() => {{ if(confirm('Delete?')) remove.mutate(row.id) }}}}
+                        className="text-red-600 hover:text-red-800 font-medium"
+                        aria-label="Delete {{row.id}}">Delete</button>
+                    </td>
+                  </tr>
+                ))}}
+              </tbody>
+            </table>
+          </div>
+
+          {{/* FIX 14: Pagination controls */}}
+          <div className="flex items-center justify-between mt-4" aria-label="Pagination">
+            <span className="text-sm text-gray-500">
+              Showing {{((page - 1) * 20) + 1}}–{{Math.min(page * 20, total)}} of {{total}}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={{() => setPage(p => Math.max(1, p - 1))}}
+                disabled={{page === 1}}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                aria-label="Previous page"
+              >
+                ← Prev
+              </button>
+              <span className="px-3 py-1.5 text-sm text-gray-700 font-medium">Page {{page}}</span>
+              <button
+                onClick={{() => setPage(p => p + 1)}}
+                disabled={{page * 20 >= total}}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                aria-label="Next page"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        </>
       )}}
 
       {{editing && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
-            <h2 className="text-lg font-semibold mb-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <h2 id="modal-title" className="text-xl font-bold text-gray-900 mb-6">
               {{editing === 'new' ? 'New {label}' : 'Edit {label}'}}
             </h2>
             <form onSubmit={{handleSubmit}} className="space-y-4">
@@ -443,12 +508,15 @@ export default function {name}Page() {{
 {form_fields}
                 </>
               ); }})()}}
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex justify-end gap-3 pt-6 border-t mt-6">
                 <button type="button" onClick={{() => setEditing(null)}}
-                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100">
+                  Cancel
+                </button>
                 <button type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-                  {{save.isPending ? 'Saving…' : 'Save'}}
+                  disabled={{save.isPending}}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm disabled:opacity-50">
+                  {{save.isPending ? 'Saving…' : 'Save {label}'}}
                 </button>
               </div>
             </form>

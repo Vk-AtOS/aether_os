@@ -76,6 +76,12 @@ def _sa_column(field: IRField) -> str:
         col_type = SA_TYPE_MAP.get(atype, "String(255)")
 
     parts = [col_type]
+    
+    # FIX 7: Add DB-level enum constraints
+    if atype == AetherType.ENUM and field.enum_values:
+        enum_list = ", ".join([f"'{v}'" for v in field.enum_values])
+        parts.append(f"CheckConstraint(\"{field.name} IN ({enum_list})\", name='ck_{field.name}')")
+
     if not field.nullable:
         parts.append("nullable=False")
     if field.unique:
@@ -92,7 +98,8 @@ def _relationship_line(field: IRField) -> str | None:
     """Return an ORM relationship() line for an FK field."""
     if field.type != AetherType.FK or not field.ref_entity:
         return None
-    return f"    {field.ref_entity.lower()} = relationship('{field.ref_entity}', back_populates=None, lazy='select')"
+    # FIX 6: Add FK relationship fields to models
+    return f"    {field.ref_entity.lower()} = relationship('{field.ref_entity}', foreign_keys=[{field.name}], lazy='selectin')"
 
 
 import re as _re
@@ -157,6 +164,13 @@ def generate_models_py(ir: DomainIR) -> str:
         lines.append("    id = Column(Integer, primary_key=True, index=True)")
         for f in entity.fields:
             lines.append(_sa_column(f))
+        
+        # FIX 6: Add relationship fields
+        for f in entity.fields:
+            rel = _relationship_line(f)
+            if rel:
+                lines.append(rel)
+
         lines.append("    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))")
         lines.append("    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))")
         lines.append("")
@@ -358,9 +372,6 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
     update_guard = _role_guard(role_map.get("update", []))
     delete_guard = _role_guard(role_map.get("delete", []))
 
-    def _g(guard: list[str]) -> str:
-        return ("\n" + "\n".join(guard) + "\n") if guard else ""
-
     lines = [
         f"{router_var} = APIRouter(prefix='/{t}', tags=['{n}'])",
         "",
@@ -377,57 +388,61 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         f"    total = total_q.scalar_one()",
         f"    result = await db.execute(select(models.{n}).offset(offset).limit(limit))",
         f"    items = result.scalars().all()",
-        f"    return {{'items': [schemas.{n}Response.model_validate(i) for i in items], 'total': total, 'page': page, 'limit': limit}}",
+        f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{n}.__table__.columns}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
         "",
-        f"@{router_var}.post('', response_model=schemas.{n}Response, status_code=201)",
+        f"@{router_var}.post('', response_model=dict, status_code=201)",
         f"async def create_{var}(",
-        f"    payload: schemas.{n}Create,",
+        f"    data: {n}Create,",
         f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user=Depends(get_current_user),",
+        f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *create_guard,
-        f"    obj = models.{n}(**payload.model_dump(exclude_unset=True))",
+        f"    obj = models.{n}(**data.model_dump(exclude_unset=True))",
         f"    db.add(obj)",
         f"    await db.flush()",
         f"    await db.refresh(obj)",
-        f"    return schemas.{n}Response.model_validate(obj)",
+        f"    return {{c.name: getattr(obj, c.name) for c in models.{n}.__table__.columns}}",
         "",
-        f"@{router_var}.get('/{{item_id}}', response_model=schemas.{n}Response)",
+        f"@{router_var}.get('/{{item_id}}', response_model=dict)",
         f"async def get_{var}(",
         f"    item_id: int,",
         f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user=Depends(get_current_user),",
+        f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *read_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
-        f"    return schemas.{n}Response.model_validate(obj)",
+        f"    return {{c.name: getattr(obj, c.name) for c in models.{n}.__table__.columns}}",
         "",
-        f"@{router_var}.patch('/{{item_id}}', response_model=schemas.{n}Response)",
+        f"@{router_var}.patch('/{{item_id}}', response_model=dict)",
         f"async def update_{var}(",
         f"    item_id: int,",
-        f"    payload: schemas.{n}Update,",
+        f"    data: {n}Update,",
         f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user=Depends(get_current_user),",
+        f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *update_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
-        f"    for k, v in payload.model_dump(exclude_unset=True).items():",
+        f"    for k, v in data.model_dump(exclude_unset=True).items():",
         f"        setattr(obj, k, v)",
         f"    await db.flush()",
         f"    await db.refresh(obj)",
-        f"    return schemas.{n}Response.model_validate(obj)",
+        f"    return {{c.name: getattr(obj, c.name) for c in models.{n}.__table__.columns}}",
+        "",
+        f"@{router_var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
+        f"async def update_{var}_put(item_id: int, data: {n}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+        f"    return await update_{var}(item_id, data, db, current_user)",
         "",
         f"@{router_var}.delete('/{{item_id}}', status_code=204)",
         f"async def delete_{var}(",
         f"    item_id: int,",
         f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user=Depends(get_current_user),",
+        f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *delete_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
@@ -438,41 +453,30 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict[str, list[str]]) -
         "",
     ]
 
-    # Status transition endpoint if 'status' field exists
-    if any(f.name == "status" for f in entity.fields):
-        lines += [
-            f"@{router_var}.patch('/{{item_id}}/status', response_model=schemas.{n}Response)",
-            f"async def update_{var}_status(",
-            f"    item_id: int,",
-            f"    new_status: str = Query(...),",
-            f"    db: AsyncSession = Depends(get_db),",
-            f"    current_user=Depends(get_current_user),",
-            f"):",
-            f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if not obj:",
-            f"        raise HTTPException(status_code=404, detail='{n} not found')",
-            f"    try:",
-            f"        from workflows.{n.lower()}_sm import {n}StateMachine",
-            f"        {n}StateMachine.transition(obj, new_status, actor_role=current_user.get('role', 'user'))",
-            f"    except ImportError:",
-            f"        obj.status = new_status",
-            f"    except ValueError as e:",
-            f"        raise HTTPException(status_code=400, detail=str(e))",
-            f"    except PermissionError as e:",
-            f"        raise HTTPException(status_code=403, detail=str(e))",
-            f"    await db.flush()",
-            f"    await db.refresh(obj)",
-            f"    return schemas.{n}Response.model_validate(obj)",
-            "",
-        ]
-
     return lines
 
 
 def generate_crud_py(ir: DomainIR) -> str:
     """Generate complete routers/crud.py from DomainIR."""
-    lines = [_CRUD_IMPORTS, ""]
+    # Build schema imports list
+    schema_imports = []
+    for entity in ir.entities:
+        schema_imports.append(f"{entity.name}Create, {entity.name}Update")
+    
+    schema_import_line = f"from schemas import {', '.join(schema_imports)}" if schema_imports else ""
+
+    lines = [
+        "from __future__ import annotations",
+        "from typing import List, Optional",
+        "from fastapi import APIRouter, Depends, HTTPException, Query, status",
+        "from sqlalchemy.ext.asyncio import AsyncSession",
+        "from sqlalchemy import select, func",
+        "from database import get_db",
+        "from auth import get_current_user",
+        "import models",
+        schema_import_line,
+        "",
+    ]
 
     for entity in ir.entities:
         role_map = _role_sets(ir, entity.name)
@@ -708,23 +712,37 @@ def generate_stats_router(ir: DomainIR) -> str:
 
     lines.append("")
 
-    # Success rate: find entity with a 'status' field
+    # Success rate and stage breakdown: find entity with a 'status' or 'stage' field
     status_entity = next(
-        (e for e in domain_entities if any(f.name == "status" for f in e.fields)),
+        (e for e in domain_entities if any(f.name in ("status", "stage") for f in e.fields)),
         None,
     )
     if status_entity:
+        status_field = next(f for f in status_entity.fields if f.name in ("status", "stage"))
         lines += [
-            f"    # Success rate from {status_entity.name}.status",
+            f"    # Stats breakdown from {status_entity.name}.{status_field.name}",
             f"    _total_r = await db.execute(select(func.count()).select_from(models.{status_entity.name}))",
             f"    _total_n = _total_r.scalar_one()",
+            f"    stats['total_{status_entity.table}'] = _total_n",
+        ]
+        
+        if status_field.enum_values:
+            for val in status_field.enum_values:
+                lines += [
+                    f"    _stage_{val.lower()}_r = await db.execute(",
+                    f"        select(func.count()).select_from(models.{status_entity.name})",
+                    f"        .where(models.{status_entity.name}.{status_field.name} == '{val}')",
+                    f"    )",
+                    f"    stats['stage_{val.lower()}'] = _stage_{val.lower()}_r.scalar_one()",
+                ]
+
+        lines += [
             f"    _succ_r = await db.execute(",
             f"        select(func.count()).select_from(models.{status_entity.name})",
-            f"        .where(models.{status_entity.name}.status.in_(['success', 'completed', 'done', 'active']))",
+            f"        .where(models.{status_entity.name}.{status_field.name}.in_(['success', 'completed', 'done', 'active', 'Won']))",
             f"    )",
             f"    _succ_n = _succ_r.scalar_one()",
             f"    stats['success_rate'] = round(_succ_n / _total_n * 100, 2) if _total_n else 0.0",
-            f"    stats['total_{status_entity.table}'] = _total_n",
             "",
         ]
 

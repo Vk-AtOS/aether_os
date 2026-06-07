@@ -43,58 +43,44 @@ def _find_src_dir(data: dict) -> Optional[Path]:
 
 
 def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
-    """PIPELINE-034: generate a meaningful fallback test (not just assert True)."""
-    if src_dir and (src_dir / "main.py").exists():
-        return textwrap.dedent(f"""\
-            import pytest
-            from fastapi.testclient import TestClient
-            import importlib.util
-            import sys
-            import os
-
-            os.environ.setdefault("DATABASE_URL", "sqlite:///./test_fallback.db")
-
-            def _load_app():
-                spec = importlib.util.spec_from_file_location("main", "{src_dir / 'main.py'}")
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                return mod.app
-
-            def test_health():
-                try:
-                    app = _load_app()
-                    client = TestClient(app)
-                    resp = client.get("/health")
-                    assert resp.status_code == 200
-                except Exception as e:
-                    pytest.skip(f"Could not load app: {{e}}")
-
-            def test_app_importable():
-                \"\"\"Verify the generated application can be imported without errors.\"\"\"
-                try:
-                    spec = importlib.util.find_spec("main")
-                    if spec is not None:
-                        assert spec is not None, "main module not found"
-                    else:
-                        assert "{src_dir}" != "", "No src_dir resolved"
-                except Exception as e:
-                    assert False, f"Import failed: {{e}}"
-        """)
+    """PIPELINE-034: generate a meaningful fallback test (FIX 17)."""
     return textwrap.dedent(f"""\
+        \"\"\"Auto-generated API tests for {project_name}.\"\"\"
+        from __future__ import annotations
         import pytest
-        import importlib.util
+        import pytest_asyncio
+        from httpx import AsyncClient, ASGITransport
+        import sys
+        import os
 
-        def test_app_importable():
-            \"\"\"Verify the generated application can be imported without errors.\"\"\"
-            import importlib, sys
-            try:
-                spec = importlib.util.find_spec("main")
-                assert spec is not None, "main module not found"
-            except Exception as e:
-                assert False, f"Import failed: {{e}}"
+        # Ensure src/ is importable
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-        def test_project_name():
-            assert "{project_name}" != ""
+        try:
+            from main import app
+        except ImportError:
+            # Fallback if src is different
+            app = None
+
+        @pytest_asyncio.fixture
+        async def client():
+            if not app:
+                pytest.skip("App not found")
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test"
+            ) as ac:
+                yield ac
+
+        @pytest.mark.asyncio
+        async def test_health(client: AsyncClient):
+            r = await client.get("/health")
+            assert r.status_code == 200
+            assert r.json()["status"] == "ok"
+
+        @pytest.mark.asyncio
+        async def test_app_exists():
+            assert app is not None
     """)
 
 
@@ -216,13 +202,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         llm = get_llm_client()
         entity_names = [e.get("name", "Item") for e in entities[:6]]
         prompt = (
-            f"Generate pytest unit tests for a FastAPI backend named '{project_name}'. "
-            f"Entities: {json.dumps(entity_names)}.\n\n"
-            "Use httpx.AsyncClient with the FastAPI TestClient. "
-            "Test: health endpoint, list endpoint returns 200 with items key, "
-            "create endpoint returns 201/200, get by id, delete. "
-            "Use pytest.mark.asyncio. Keep tests self-contained with no DB setup needed "
-            "(mock the DB or use in-memory SQLite).\n\n"
+            f"Generate pytest unit tests for a FastAPI backend named '{project_name}'.\n"
+            f"Entities and their plural tables: {json.dumps([(e.get('name'), e.get('table')) for e in entities[:6]])}.\n\n"
+            "Rules for test generation:\n"
+            "1. Use @pytest_asyncio.fixture and 'async def' for the async client fixture.\n"
+            "2. The app must be imported as 'from main import app' assuming 'src/' is in sys.path.\n"
+            "3. Add 'sys.path.insert(0, os.path.join(os.path.dirname(__file__), \"..\", \"src\"))' at the top.\n"
+            "4. Test real endpoints based on the plural tables provided (e.g., if table is 'contacts', test '/contacts').\n"
+            "5. Test: health endpoint, list (returns items), create, get by id, patch.\n"
+            "6. Use realistic test data for create/patch payloads based on entity names.\n"
             "Return ONLY the Python test file content. No markdown."
         )
         result = await llm.call(prompt, task_type="code_generation", max_tokens=3000)

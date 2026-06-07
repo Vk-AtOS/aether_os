@@ -67,6 +67,47 @@ _GEMINI_LIGHT  = "gemini-2.0-flash"
 _cost_registry: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
 
 
+async def _write_llm_trace(
+    run_id: Optional[str],
+    phase: str,
+    task_type: str,
+    model: str,
+    prompt: str,
+    raw_response: str,
+    parsed_ok: bool,
+    error: Optional[str],
+    attempt: int,
+    duration_ms: int,
+    tokens_in: int,
+    tokens_out: int,
+) -> None:
+    """Write one row to llm_traces. Non-blocking — failures are swallowed (FIX 22)."""
+    try:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import LLMTrace
+        async with get_session_factory()() as db:
+            trace = LLMTrace(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                phase=phase,
+                task_type=task_type,
+                model=model,
+                prompt=prompt[:50000],       # cap at 50K chars
+                raw_response=raw_response[:50000],
+                parsed_ok=parsed_ok,
+                error=error,
+                attempt=attempt,
+                duration_ms=duration_ms,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+            )
+            db.add(trace)
+            await db.commit()
+    except Exception as _trace_exc:
+        import logging
+        logging.getLogger(__name__).debug("LLM trace write failed (non-blocking): %s", _trace_exc)
+
+
 # ── Anthropic ─────────────────────────────────────────────────────────────────
 
 def _get_anthropic_client():
@@ -604,22 +645,21 @@ class LLMClient:
         max_tokens: int = 8192,
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
+        run_id: Optional[str] = None,
+        phase: Optional[str] = None,
+        attempt: int = 1,
     ) -> str:
         """
-        Call the LLM via the multi-model router.
-
-        Cost reduction pipeline applied automatically:
-          1. Context compression (Haiku-powered, only when context is large)
-          2. Semantic cache check (in router)
-          3. Token budget enforcement (in router)
-          4. Anthropic prompt caching via cache_control (in _call_anthropic)
-          5. Provider fallback chain: Anthropic → Gemini → Ollama
-
-        Chain: Anthropic claude-sonnet-4-6 → Gemini gemini-2.5-flash → Ollama qwen2.5-coder:3b
-        Each model has individual timeouts and retry counts (see core/model_router.py).
+        Call the LLM via the multi-model router. (FIX 22 with tracing)
         """
-        enforce_local = False
+        start_time = time.time()
+        tokens_in = len(prompt) // 4
+        raw_response = ""
+        error_msg = None
+        parsed_ok = True
 
+        enforce_local = False
+        # ... (org check logic)
         if org_id:
             try:
                 from aether_os.core.db import get_session_factory
@@ -634,7 +674,7 @@ class LLMClient:
                         context = context or {}
                         context["enforce_local"] = True
             except Exception:
-                pass  # Non-fatal — continue without org check
+                pass
 
         if context:
             ctx_str = json.dumps(context, indent=2)
@@ -643,27 +683,52 @@ class LLMClient:
             full_prompt = prompt
 
         # ── Context compression ──────────────────────────────────────────────
-        # Only compress for heavy tasks when accumulated context is large.
-        # Uses Haiku at ~1/10th the cost of Sonnet — pays for itself many times over.
         if not enforce_local:
             try:
                 from aether_os.core.llm.compressor import compress_context
                 full_prompt, _compressed = await compress_context(full_prompt, task_type=task_type)
             except Exception:
-                pass  # Non-fatal — use uncompressed prompt
+                pass
 
         from aether_os.core.model_router import get_router
-        text, provider = await get_router().call(
-            prompt=full_prompt,
-            task_type=task_type,
-            system=system,
-            max_tokens=max_tokens,
-            enforce_local=enforce_local,
-            org_id=org_id,
-            plan=plan,
-        )
-        self.last_provider = provider
-        return text
+        try:
+            raw_response, provider = await get_router().call(
+                prompt=full_prompt,
+                task_type=task_type,
+                system=system,
+                max_tokens=max_tokens,
+                enforce_local=enforce_local,
+                org_id=org_id,
+                plan=plan,
+            )
+            self.last_provider = provider
+            tokens_out = len(raw_response) // 4
+            return raw_response
+        except Exception as exc:
+            error_msg = str(exc)
+            parsed_ok = False
+            tokens_out = 0
+            raise
+        finally:
+            duration_ms = int((time.time() - start_time) * 1000)
+            _run_id = run_id or (context.get("run_id") if context else None)
+            _phase = phase or (context.get("phase", task_type) if context else task_type)
+            
+            # Fire-and-forget trace write
+            asyncio.create_task(_write_llm_trace(
+                run_id=_run_id,
+                phase=_phase,
+                task_type=task_type,
+                model=getattr(self, 'last_provider', 'unknown'),
+                prompt=prompt,
+                raw_response=raw_response,
+                parsed_ok=parsed_ok,
+                error=error_msg,
+                attempt=attempt,
+                duration_ms=duration_ms,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+            ))
 
     async def call_structured(
         self,
@@ -672,7 +737,22 @@ class LLMClient:
         task_type: str = "code_generation",
         context: dict = None
     ) -> dict:
-        """Call LLM and guarantee JSON output."""
+        """Call LLM and guarantee JSON output (FIX 20)."""
+
+        def _validate_architecture(data: dict) -> bool:
+            """Ensure minimum required fields are present for architecture tasks."""
+            if task_type != "architecture":
+                return True
+            # Relaxed validation: check for tech_stack instead of individual fields
+            # since the schema_example might be the whole ARCHITECTURE_SCHEMA.
+            required = {"tech_stack", "database_schema", "api_endpoints"}
+            if not required.issubset(data.keys()):
+                return False
+            ts = data.get("tech_stack", {})
+            if not isinstance(ts, dict):
+                return False
+            ts_required = {"backend", "frontend", "database"}
+            return ts_required.issubset(ts.keys())
 
         if is_local_llm():
             # Minimal prompt for local models
@@ -694,9 +774,11 @@ Input: {prompt}"""
                     task_type,
                     context or {})
                 result = safe_parse_json(response)
-                if not result.get("parse_error"):
+                if not result.get("parse_error") and _validate_architecture(result):
                     return result
-                # If parse failed, try again with even simpler prompt
+                
+                # If parse failed or validation failed, try again with even simpler prompt
+                logger.warning(f"Structured call validation failed [task={task_type} attempt={attempt+1}]")
                 full_prompt = f"""Output ONLY this JSON with real values filled in:
 {json.dumps(schema_example)}
 Task: {prompt[:200]}"""
@@ -706,7 +788,7 @@ Task: {prompt[:200]}"""
 
         # Return schema with defaults after 3 fails
         logger.error(
-            "All structured attempts failed, returning schema defaults")
+            "All structured attempts failed or invalid, returning schema defaults")
         return schema_example
 
     async def call_json(

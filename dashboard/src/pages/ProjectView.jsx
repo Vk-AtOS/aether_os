@@ -9,6 +9,7 @@ import LogViewer from './LogViewer';
 import AppPreviewPanel from '../components/project/AppPreviewPanel';
 import QualityPanel from '../components/project/QualityPanel';
 import FeedbackPanel from '../components/project/FeedbackPanel';
+import { TraceTab } from '../components/TraceTab';
 import {
   Terminal,
   ExternalLink,
@@ -1917,6 +1918,7 @@ const ProjectView = () => {
                   ...(run?.live_url ? [{ id: 'iframe', label: 'App Preview', icon: OpenTab }] : []),
                   { id: 'env',       label: 'Env Vars',  icon: Zap       },
                   { id: 'run',       label: 'Run App',   icon: Play      },
+                  { id: 'trace',     label: 'Trace',     icon: ShieldCheck },
                   { id: 'council',   label: 'Council',   icon: Users     },
                   { id: 'decisions', label: 'Decisions', icon: GitPullRequest },
                 ].map((tab) => (
@@ -2009,6 +2011,11 @@ const ProjectView = () => {
                 feedLines={feedLines}
                 isRunning={isRunning}
               />
+            )}
+
+            {/* ── Trace tab ─────────────────────────────────────────────────── */}
+            {activeArtifactTab === 'trace' && (
+              <TraceTab runId={run.run_id || run.id} />
             )}
 
             {/* ── Artifacts tab ─────────────────────────────────────────────── */}

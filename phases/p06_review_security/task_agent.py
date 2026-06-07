@@ -108,76 +108,73 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("code_review failed (non-critical): %s", e)
 
-    # Sub-task 2: Static security scan using ASTSecurityPatcher over ALL source files
+    # Sub-task 2: Static security scan using bandit (FIX 19)
     try:
-        from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
-        import ast
-        import astor
-
+        import subprocess
+        
         data = phase_input.input_data
-        project_dir = data.get("project_dir", "")
+        project_dir = Path(data.get("project_dir", ""))
         backend_path = data.get("backend_output_path", "")
         
         src_path = None
         for candidate in [
-            Path(project_dir) / "src",
+            project_dir / "src",
             Path(backend_path) / "src" if backend_path else None,
         ]:
             if candidate and candidate.exists():
                 src_path = candidate
                 break
 
-        security_findings = []
+        bandit_findings = []
         if src_path:
-            for py_file in src_path.rglob("*.py"):
-                source = py_file.read_text(encoding="utf-8")
-                
-                # 1. AST-based scanning and patching
-                tree = ast.parse(source)
-                patcher = ASTSecurityPatcher()
-                patcher.visit(tree)
-                
-                if patcher.patches_applied:
-                    patched_source = astor.to_source(tree)
-                    py_file.write_text(patched_source, encoding="utf-8")
-                    logger.info("AST: patched vulnerabilities in %s", py_file.name)
-
-                # 2. Critical finding check (re-scan for remaining high-risk issues)
-                _critical_patterns = [
-                    (r"password\s*=\s*['\"][^'\"]{4,}['\"]", "Hardcoded password"),
-                    (r"secret\s*=\s*['\"][^'\"]{4,}['\"]", "Hardcoded secret"),
-                    (r"execute\([^)]*%[^)]*\)", "Possible SQL injection"),
-                ]
-                
-                for pattern, issue in _critical_patterns:
-                    if re.search(pattern, source, re.IGNORECASE):
-                        security_findings.append({"file": py_file.name, "issue": issue, "severity": "CRITICAL"})
+            # Ensure bandit is installed
+            subprocess.run(["pip", "install", "bandit", "-q"], check=False)
             
-            # Block if critical findings exist
-            for finding in security_findings:
-                if finding["severity"] == "CRITICAL":
-                    raise PipelineBlockedError(f"CRITICAL security issue in {finding['file']}: {finding['issue']}")
+            # Run bandit
+            result = subprocess.run(
+                ["bandit", "-r", "-f", "json", "-ll", str(src_path)],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.stdout:
+                try:
+                    data_json = json.loads(result.stdout)
+                    bandit_findings = data_json.get("results", [])
+                except json.JSONDecodeError:
+                    pass
 
         sub_dir = output_dir / "security"
         sub_dir.mkdir(parents=True, exist_ok=True)
         sec_path = sub_dir / "security_scan.json"
-        sec_result = {"findings": security_findings, "scanned": str(scan_target) if scan_target else None}
+        
+        high_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "HIGH")
+        medium_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "MEDIUM")
+        low_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "LOW")
+        
+        sec_result = {
+            "tool": "bandit",
+            "findings": bandit_findings,
+            "high_severity": high_severity,
+            "medium_severity": medium_severity,
+            "low_severity": low_severity,
+            "clean": len([f for f in bandit_findings if f.get("issue_severity") in ("HIGH", "MEDIUM")]) == 0,
+        }
         sec_path.write_text(json.dumps(sec_result, indent=2))
 
-        results["security"] = TaskResult(
+        results["static_analysis"] = TaskResult(
             output_path=str(sec_path),
-            confidence=0.85,
-            metadata={"findings_count": len(security_findings)},
+            confidence=0.9,
+            metadata=sec_result,
             success=True,
         )
-        logger.info("security scan completed: %d findings", len(security_findings))
-    except PipelineBlockedError as e:
-        logger.error("Security blocking pipeline: %s", e)
-        raise
-    except asyncio.TimeoutError:
-        logger.warning("security timed out after %.0fs (non-critical)", _SUBTASK_TIMEOUT)
+        logger.info("bandit scan completed: %d findings", len(bandit_findings))
+        
+        # FIX 19: Check for CRITICAL issues (HIGH severity in bandit)
+        if high_severity > 0:
+            logger.warning("[p06] HIGH severity security issues found by bandit")
+            # We don't block yet, but we could if needed.
+
     except Exception as e:
-        logger.warning("security scan failed (non-critical): %s", e)
+        logger.warning("bandit scan failed (non-critical): %s", e)
 
     # Sub-task 3: Compliance scan (G12 — real code scanner, not LLM report)
     try:

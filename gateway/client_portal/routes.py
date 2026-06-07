@@ -373,6 +373,8 @@ async def portal_download_zip(run_id: str):
             for file_path in project_dir.rglob("*"):
                 if not file_path.is_file():
                     continue
+                if file_path.name == "run_preview.py":
+                    continue
                 parts_set = set(file_path.parts)
                 # Skip known heavy/sensitive/internal directories
                 if parts_set & _SKIP_DIRS:

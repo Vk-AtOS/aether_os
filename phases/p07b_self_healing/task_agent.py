@@ -20,6 +20,28 @@ LLM_TIMEOUT = 45
 _PHASE_HARD_TIMEOUT = MAX_ATTEMPTS * (TEST_TIMEOUT + LLM_TIMEOUT + 15)  # 600s
 
 
+import re
+
+def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path]:
+    """Extract the file path from pytest's error output (FIX 18)."""
+    # Pattern: "ERROR collecting path/to/file.py" or "FAILED path/to/test.py::test_name"
+    patterns = [
+        r'ERROR collecting (.+?\.py)',
+        r'FAILED (.+?\.py)::',
+        r'ImportError.*in (.+?\.py)',
+        r'File "(.+?\.py)", line \d+',
+    ]
+    for pat in patterns:
+        m = re.search(pat, test_output)
+        if m:
+            candidate = Path(m.group(1))
+            if not candidate.is_absolute():
+                candidate = project_dir / candidate
+            if candidate.exists():
+                return candidate
+    return None
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     try:
         return await asyncio.wait_for(_run_inner(phase_input, memory_ctx, output_dir), timeout=_PHASE_HARD_TIMEOUT)
@@ -95,7 +117,8 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
         logger.info(msg2)
         await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg2})
 
-        fix = await _get_fix(main_py, test_file, last_output)
+        failing_file = _identify_failing_file(last_output, project_dir) or main_py
+        fix = await _get_fix(failing_file, test_file, last_output)
         if not fix:
             logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
             continue
@@ -107,7 +130,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             logger.warning("[p07b_self_healing] LLM fix has syntax error: %s", e)
             continue
 
-        main_py.write_text(fix)
+        failing_file.write_text(fix)
 
     # Max attempts reached — non-blocking, still success
     result = {
@@ -160,13 +183,14 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
         return {"passed": False, "output": str(e)}
 
 
-async def _get_fix(main_py: Path, test_file: Path, failure_output: str) -> Optional[str]:
+async def _get_fix(target_file: Path, test_file: Path, failure_output: str) -> Optional[str]:
     from aether_os.core.llm.client import get_llm_client
 
     # Gather full context — all generated source files matter for diagnosing the failure
-    src_dir = main_py.parent
-    _src_ctx = f"# === main.py ===\n{main_py.read_text()}\n"
-    for _sib in ["models.py", "schemas.py", "routers/crud.py", "auth.py", "database.py"]:
+    src_dir = target_file.parent
+    _src_ctx = f"# === {target_file.name} ===\n{target_file.read_text()}\n"
+    for _sib in ["main.py", "models.py", "schemas.py", "routers/crud.py", "auth.py", "database.py"]:
+        if _sib == target_file.name: continue
         _p = src_dir / _sib
         if _p.exists():
             _content = _p.read_text()
@@ -178,7 +202,9 @@ async def _get_fix(main_py: Path, test_file: Path, failure_output: str) -> Optio
 
     prompt = f"""You are a senior Python backend engineer. Fix the FastAPI backend so all tests pass.
 
-SOURCE FILES (complete):
+FAILING FILE: {target_file.name}
+
+SOURCE FILES (context):
 {_src_ctx}
 
 TEST FILE:
@@ -188,6 +214,7 @@ TEST FAILURE OUTPUT:
 {failure_output[:2000]}
 
 RULES:
+- Return ONLY the fixed complete {target_file.name}.
 - Never store plaintext passwords — use passlib bcrypt
 - Never use in-memory dicts/lists as databases — use SQLAlchemy ORM
 - Use `result.scalars().all()` not `result.all()` for async SQLAlchemy queries
@@ -197,7 +224,6 @@ RULES:
 - Import every name you use — no bare NameError references
 - After fixing, verify all imports exist and all referenced names are defined
 
-Return ONLY the fixed complete main.py.
 No explanation. No markdown. No code fences. Just valid Python."""
 
     def _strip_fences(code: str) -> str:
