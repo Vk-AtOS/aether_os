@@ -568,10 +568,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     logger.info("[p02] architecture.json written (%d endpoints, fallback=%s)",
                 len(doc.get("api_endpoints", [])), used_fallback)
 
-    # ── Save to spec cache for future similar projects ────────────────────────
-    if not used_fallback and _entity_tables:
-        _spec_cache.put(domain, _entity_tables, doc, raw_input or requirements)
-
     # ── Human-readable Markdown ───────────────────────────────────────────────
     stack = doc.get("tech_stack", {})
     md = ["# Architecture\n\n## Tech Stack\n"]
