@@ -4,17 +4,18 @@ P00 Domain Research Phase - Research and Pattern Extraction.
 from __future__ import annotations
 import json
 import logging
+import os
+import asyncio
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 from aether_os.phases.base import TaskResult
 from phases.p00_research.domain_sites import DOMAIN_COMPETITOR_MAP
 from phases.p00_research.vision_analyzer import analyze_screenshot
 
 logger = logging.getLogger(__name__)
-
-import httpx
-import asyncio
 
 async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
     """Capture a screenshot of a URL using Screenshotone API with Playwright fallback."""
