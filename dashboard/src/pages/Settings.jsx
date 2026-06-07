@@ -135,8 +135,8 @@ const Settings = () => {
     aws_access_key_id: '',
     aws_secret_access_key: '',
     aws_region: 'us-east-1',
-    bedrock_model_heavy: 'amazon.nova-pro-v1:0',
-    bedrock_model_light: 'amazon.nova-lite-v1:0',
+    bedrock_model_heavy: 'deepseek.v3.2',
+    bedrock_model_light: 'google.gemma-3-27b-it',
     aws_key_configured: false,
     aws_secret_configured: false,
     aws_key_id_masked: '',
@@ -932,13 +932,16 @@ const Settings = () => {
                     onChange={(e) => setBedrockConfig(c => ({ ...c, bedrock_model_heavy: e.target.value }))}
                     className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent"
                   >
+                    <option value="deepseek.v3.2">DeepSeek V3.2 ✓ Works</option>
+                    <option value="mistral.devstral-2-123b">Mistral Devstral 123B ✓ Works</option>
+                    <option value="mistral.mistral-large-3-675b-instruct">Mistral Large 675B ✓ Works</option>
+                    <option value="google.gemma-3-27b-it">Gemma 3 27B IT ✓ Works</option>
+                    <option value="us.meta.llama3-3-70b-instruct-v1:0">Llama 3.3 70B (us) ✓ Works</option>
+                    <option value="meta.llama3-70b-instruct-v1:0">Llama 3 70B ✓ Works</option>
+                    <option value="us.amazon.nova-pro-v1:0">Amazon Nova Pro ✓ Works</option>
+                    <option value="amazon.nova-pro-v1:0">Amazon Nova Pro (direct)</option>
                     <option value="us.anthropic.claude-sonnet-4-6">Claude Sonnet 4.6 (us)</option>
                     <option value="us.anthropic.claude-opus-4-7">Claude Opus 4.7 (us)</option>
-                    <option value="us.anthropic.claude-3-5-sonnet-20241022-v2:0">Claude 3.5 Sonnet v2 (us)</option>
-                    <option value="amazon.nova-pro-v1:0">Amazon Nova Pro ✓ Works Now</option>
-                    <option value="amazon.nova-micro-v1:0">Amazon Nova Micro ✓ Works Now</option>
-                    <option value="us.meta.llama3-3-70b-instruct-v1:0">Llama 3.3 70B (us)</option>
-                    <option value="anthropic.claude-sonnet-4-6-20250514-v1:0">Claude Sonnet 4.6 (direct)</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -948,11 +951,13 @@ const Settings = () => {
                     onChange={(e) => setBedrockConfig(c => ({ ...c, bedrock_model_light: e.target.value }))}
                     className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs font-mono text-bright focus:outline-none focus:border-accent"
                   >
+                    <option value="google.gemma-3-27b-it">Gemma 3 27B IT ✓ Works</option>
+                    <option value="google.gemma-3-12b-it">Gemma 3 12B IT ✓ Works</option>
+                    <option value="us.meta.llama3-3-70b-instruct-v1:0">Llama 3.3 70B (us) ✓ Works</option>
+                    <option value="meta.llama3-70b-instruct-v1:0">Llama 3 70B ✓ Works</option>
+                    <option value="meta.llama3-8b-instruct-v1:0">Llama 3 8B ✓ Works</option>
+                    <option value="amazon.nova-lite-v1:0">Amazon Nova Lite ✓ Works</option>
                     <option value="us.anthropic.claude-haiku-4-5-20251001-v1:0">Claude Haiku 4.5 (us)</option>
-                    <option value="us.anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku (us)</option>
-                    <option value="amazon.nova-lite-v1:0">Amazon Nova Lite ✓ Works Now</option>
-                    <option value="us.meta.llama3-1-8b-instruct-v1:0">Llama 3.1 8B (us)</option>
-                    <option value="amazon.nova-lite-v1:0">Amazon Nova Lite (direct)</option>
                   </select>
                 </div>
               </div>
