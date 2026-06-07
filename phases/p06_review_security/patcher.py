@@ -29,8 +29,18 @@ class ASTSecurityPatcher(ast.NodeTransformer):
                                 self.patches_applied.append("cors_wildcard_fix")
                                 logger.info("AST: patched CORS wildcard")
         
-        # Patch hardcoded SECRET_KEY? Harder to do in visit_Call as it's an assignment
         return self.generic_visit(node)
+
+    def patch_file(self, path: str):
+        """Load, parse, apply AST patches, and write back to disk."""
+        with open(path, "r") as f:
+            source = f.read()
+        tree = ast.parse(source)
+        new_tree = self.visit(tree)
+        new_source = astor.to_source(new_tree)
+        with open(path, "w") as f:
+            f.write(new_source)
+        logger.info("AST: patched file %s", path)
 
     def visit_Assign(self, node: ast.Assign):
         # Patch hardcoded SECRET_KEY

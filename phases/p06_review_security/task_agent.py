@@ -171,7 +171,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         # FIX 19: Check for CRITICAL issues (HIGH severity in bandit)
         if high_severity > 0:
             logger.warning("[p06] HIGH severity security issues found by bandit")
-            # We don't block yet, but we could if needed.
+            from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
+            # Patch main.py if found
+            for candidate in [
+                project_dir / "src" / "main.py",
+                Path(backend_path) / "src" / "main.py" if backend_path else None,
+            ]:
+                if candidate and candidate.exists():
+                    ASTSecurityPatcher().patch_file(str(candidate))
+                    break
 
     except Exception as e:
         logger.warning("bandit scan failed (non-critical): %s", e)

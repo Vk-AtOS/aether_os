@@ -76,7 +76,7 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
         async def test_health(client: AsyncClient):
             r = await client.get("/health")
             assert r.status_code == 200
-            assert r.json()["status"] == "ok"
+            assert r.json()["status"] == "healthy"
 
         @pytest.mark.asyncio
         async def test_app_exists():
@@ -216,7 +216,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         result = await llm.call(prompt, task_type="code_generation", max_tokens=3000)
         if result and len(result.strip()) > 100:
             import re
-            m = re.search(r"```(?:python)?\s*\n(.*?)```", result, re.DOTALL)
+            m = re.search(r"```(?:python)?\s*\n?(.*?)```", result, re.DOTALL)
             test_code = m.group(1).strip() if m else result.strip()
             # Validate syntax
             try:

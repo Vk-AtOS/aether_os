@@ -209,19 +209,9 @@ class ModelRouter:
         enforce_local: bool = False,
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, str]:
         """
-        Execute the fallback chain and return (text, provider).
-
-        Cost reduction layers applied in order:
-          1. Semantic cache check (skips LLM entirely if hit)
-          2. Token budget check (downgrades model or blocks on trial plan)
-          3. Anthropic prompt caching (via cache_control on system prompt)
-          4. Normal fallback chain
-          5. Record usage for budget tracking
-
-        trace_name is used as the LangSmith run name.  When omitted it is
-        auto-built from ACTIVE_PHASE + ACTIVE_RUN_ID context vars.
+        Execute the fallback chain and return (text, provider, model).
         """
         global _active_model, _fallback_count_today, _fallback_date
         from aether_os.core.errors import LLMUnavailable
@@ -247,7 +237,7 @@ class ModelRouter:
                             )
                         except Exception:
                             pass
-                    return cached, "cache"
+                    return cached, "cache", "cache"
             except Exception as _ce:
                 logger.debug("Cache check failed (continuing): %s", _ce)
 
@@ -461,7 +451,7 @@ class ModelRouter:
                             await asyncio.sleep(1.5 ** attempt)
                         continue
                     # ─────────────────────────────────────────────────────────
-                    return result, spec.provider
+                    return result, spec.provider, spec.model
 
                 except asyncio.TimeoutError:
                     msg = f"{spec.provider}/{spec.model} timed out after {spec.timeout_seconds}s"

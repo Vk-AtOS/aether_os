@@ -22,6 +22,7 @@ Features:
 - last_provider attribute set after each call
 """
 from __future__ import annotations
+import uuid
 import asyncio
 import contextvars
 import json
@@ -231,7 +232,9 @@ async def _call_anthropic(
                 model, attempt + 1, usage.input_tokens, usage.output_tokens,
                 cache_read, cache_create,
             )
+            self.last_model = model
             return text
+
         except Exception as exc:
             last_exc = exc
             exc_str = str(exc).lower()
@@ -318,6 +321,7 @@ async def _call_gemini(
             text = response.text
             _cost_registry["calls"] += 1
             logger.debug("Gemini [%s] attempt=%d", model_name, attempt + 1)
+            self.last_model = model_name
             return text
         except Exception as exc:
             last_exc = exc
@@ -393,7 +397,9 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
             try:
                 resp = await http.post(url, json=payload)
                 resp.raise_for_status()
-                return resp.json().get("response", "")
+                result = resp.json().get("response", "")
+                self.last_model = model
+                return result
             except Exception as exc:
                 raise RuntimeError(f"Ollama call failed with {model}: {exc}") from exc
 
@@ -635,6 +641,7 @@ class LLMClient:
 
     def __init__(self) -> None:
         self.last_provider: Optional[str] = None
+        self.last_model: Optional[str] = None
 
     async def call(
         self,
@@ -692,7 +699,7 @@ class LLMClient:
 
         from aether_os.core.model_router import get_router
         try:
-            raw_response, provider = await get_router().call(
+            raw_response, provider, model = await get_router().call(
                 prompt=full_prompt,
                 task_type=task_type,
                 system=system,
@@ -702,6 +709,7 @@ class LLMClient:
                 plan=plan,
             )
             self.last_provider = provider
+            self.last_model = model
             tokens_out = len(raw_response) // 4
             return raw_response
         except Exception as exc:
@@ -719,7 +727,7 @@ class LLMClient:
                 run_id=_run_id,
                 phase=_phase,
                 task_type=task_type,
-                model=getattr(self, 'last_provider', 'unknown'),
+                model=getattr(self, 'last_model', 'unknown'),
                 prompt=prompt,
                 raw_response=raw_response,
                 parsed_ok=parsed_ok,
