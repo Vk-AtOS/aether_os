@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { apiClient } from '../lib/api'
+import api from '../api'
 
 export function TraceTab({ runId }) {
   const [expanded, setExpanded] = useState(null)
@@ -8,13 +8,13 @@ export function TraceTab({ runId }) {
 
   const { data: traces = [], isLoading } = useQuery({
     queryKey: ['traces', runId],
-    queryFn: () => apiClient.get(`/factory/runs/${runId}/traces`).then(r => r.data),
+    queryFn: () => api.getRunTraces(runId).then(r => r.data),
     staleTime: 30_000,
   })
 
   const loadDetail = async (traceId) => {
     if (detail[traceId]) { setExpanded(traceId); return }
-    const r = await apiClient.get(`/factory/runs/${runId}/traces/${traceId}`)
+    const r = await api.getRunTraceDetail(runId, traceId)
     setDetail(d => ({ ...d, [traceId]: r.data }))
     setExpanded(traceId)
   }
