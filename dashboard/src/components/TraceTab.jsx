@@ -1,25 +1,34 @@
-import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import React, { useState, useEffect } from 'react'
 import api from '../api'
 
 export function TraceTab({ runId }) {
+  const [traces, setTraces] = useState([])
+  const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(null)
   const [detail, setDetail] = useState({})
 
-  const { data: traces = [], isLoading } = useQuery({
-    queryKey: ['traces', runId],
-    queryFn: () => api.getRunTraces(runId).then(r => r.data),
-    staleTime: 30_000,
-  })
+  useEffect(() => {
+    if (!runId) return
+    setLoading(true)
+    api.getRunTraces(runId)
+      .then(r => setTraces(r.data || []))
+      .catch(() => setTraces([]))
+      .finally(() => setLoading(false))
+  }, [runId])
 
   const loadDetail = async (traceId) => {
+    if (expanded === traceId) { setExpanded(null); return }
     if (detail[traceId]) { setExpanded(traceId); return }
-    const r = await api.getRunTraceDetail(runId, traceId)
-    setDetail(d => ({ ...d, [traceId]: r.data }))
-    setExpanded(traceId)
+    try {
+      const r = await api.getRunTraceDetail(runId, traceId)
+      setDetail(d => ({ ...d, [traceId]: r.data }))
+      setExpanded(traceId)
+    } catch {
+      setExpanded(traceId)
+    }
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="p-6 space-y-2" role="status" aria-label="Loading traces">
         {[1,2,3,4,5].map(i => <div key={i} className="h-14 bg-gray-100 rounded-lg animate-pulse" />)}
@@ -58,7 +67,7 @@ export function TraceTab({ runId }) {
             {phaseTraces.map(trace => (
               <div key={trace.id} className="p-3">
                 <button
-                  onClick={() => expanded === trace.id ? setExpanded(null) : loadDetail(trace.id)}
+                  onClick={() => loadDetail(trace.id)}
                   className="w-full text-left flex items-center gap-3"
                   aria-expanded={expanded === trace.id}
                   aria-controls={`trace-detail-${trace.id}`}
@@ -87,10 +96,7 @@ export function TraceTab({ runId }) {
                 </button>
 
                 {expanded === trace.id && detail[trace.id] && (
-                  <div
-                    id={`trace-detail-${trace.id}`}
-                    className="mt-3 space-y-3"
-                  >
+                  <div id={`trace-detail-${trace.id}`} className="mt-3 space-y-3">
                     <div>
                       <div className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Prompt</div>
                       <pre className="text-xs bg-gray-900 text-green-300 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap max-h-64">
