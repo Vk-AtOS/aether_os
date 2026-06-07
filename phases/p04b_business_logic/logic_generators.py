@@ -5,17 +5,23 @@ Real functional scaffolds for Email, Payments, and Storage.
 import json
 from typing import Dict, List
 
+def _step_name(step) -> str:
+    if isinstance(step, dict):
+        return step.get("name") or step.get("action") or step.get("status") or str(step)
+    return str(step)
+
 def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
     """Generate a Python StateMachine class for a workflow with role checks."""
     trigger = workflow.get("trigger", "updated")
-    steps = workflow.get("steps", [])
-    
+    raw_steps = workflow.get("steps", [])
+    steps = [_step_name(s) for s in raw_steps]
+
     # Simple transition map from steps (placed -> confirmed -> preparing)
     transitions = {}
     for i in range(len(steps) - 1):
         transitions[steps[i]] = [steps[i+1]]
     if steps:
-        transitions[steps[-1]] = ["cancelled"] # Allow cancellation from end state? Maybe not.
+        transitions[steps[-1]] = ["cancelled"]
         
     lines = [
         f"class {entity_name}StateMachine:",

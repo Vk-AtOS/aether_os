@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.errors import PipelineBlockedError
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Sub-task 2: Static security scan using ASTSecurityPatcher over ALL source files
     try:
         from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
-        from aether_os.core.errors import PipelineBlockedError
         import ast
         import astor
 
