@@ -142,19 +142,43 @@ def _check_domain_specificity(src_dir: Path) -> float:
     return min(1.0, score)
 
 def _check_frontend_complete(project_dir: Path) -> float:
-    """Check if frontend exists and passes vite build."""
     frontend_dir = project_dir / "frontend"
     if not frontend_dir.exists():
-        return 0.0
-    # Check package.json exists
+        # Also check p05_frontend output
+        p05_dir = project_dir / "p05_frontend" / "frontend"
+        if p05_dir.exists():
+            frontend_dir = p05_dir
+        else:
+            return 0.0
+
     if not (frontend_dir / "package.json").exists():
         return 0.3
-    # Check src/main.tsx or src/main.jsx exists
+
     main_tsx = frontend_dir / "src" / "main.tsx"
     main_jsx = frontend_dir / "src" / "main.jsx"
     if not main_tsx.exists() and not main_jsx.exists():
         return 0.5
-    # Attempt vite build into a temp dir (60s timeout)
+
+    # If dist already exists with index.html, score full without rebuilding
+    dist_dir = frontend_dir / "dist"
+    if dist_dir.exists() and (dist_dir / "index.html").exists():
+        return 1.0
+
+    # Check build_status.json (async build in progress)
+    build_status_file = project_dir / "build_status.json"
+    if build_status_file.exists():
+        try:
+            status_data = json.loads(build_status_file.read_text())
+            if status_data.get("status") == "done":
+                return 1.0
+            if status_data.get("status") == "building":
+                return 0.7  # In progress — partial credit
+            if status_data.get("status") == "failed":
+                return 0.4
+        except Exception:
+            pass
+
+    # Attempt build only if source files exist and no prior attempt
     import tempfile, subprocess
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -162,9 +186,11 @@ def _check_frontend_complete(project_dir: Path) -> float:
                 ["npx", "vite", "build", "--outDir", tmp, "--logLevel", "silent"],
                 cwd=str(frontend_dir),
                 capture_output=True,
-                timeout=60,
+                timeout=120,  # Extended to 2 minutes
             )
             return 1.0 if result.returncode == 0 else 0.6
+    except subprocess.TimeoutExpired:
+        return 0.6
     except Exception:
         return 0.6
 

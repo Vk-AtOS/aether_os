@@ -826,16 +826,30 @@ def _fallback_models(project_name: str, entities: list) -> str:
         table = ent.get("table", name.lower() + "s")
         fields = ent.get("fields", []) or [{"name": "name"}, {"name": "description"}]
         cols = ["    id = Column(Integer, primary_key=True, index=True)"]
+        rels = []
         for f in fields[:10]:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
             sa_type = _col_to_sa_type(fn)
+            
+            # Enum constraint fallback logic
+            if fn in ("status", "type", "stage", "priority"):
+                sa_type += f", CheckConstraint(\"{fn} IN ('active', 'inactive', 'pending', 'open', 'closed', 'new')\", name='ck_{table}_{fn}')"
+
             nullable = "False" if any(req in fn.lower() for req in ("name", "email", "title", "status")) else "True"
             cols.append(f"    {fn} = Column({sa_type}, nullable={nullable})")
+            
+            # Relationship fallback
+            if fn.endswith("_id") and "user" not in fn:
+                ref_name = fn[:-3].capitalize()
+                rels.append(f"    {fn[:-3]} = relationship('{ref_name}', foreign_keys=[{fn}], lazy='selectin')")
+
+        cols += rels
         cols += [
-            "    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))",
-            "    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))",
+            "    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)",
+            "    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)",
+            "    deleted_at = Column(DateTime(timezone=True), nullable=True)",
         ]
         entity_classes.append(
             f"class {name}(Base):\n    __tablename__ = '{table}'\n" + "\n".join(cols)
@@ -844,7 +858,7 @@ def _fallback_models(project_name: str, entities: list) -> str:
     return textwrap.dedent(f"""\
         from __future__ import annotations
         from datetime import datetime, timezone
-        from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey
+        from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey, CheckConstraint, func
         from sqlalchemy.orm import relationship
         from .database import Base
 
@@ -856,8 +870,8 @@ def _fallback_models(project_name: str, entities: list) -> str:
             password_hash = Column(String(255), nullable=False)
             role = Column(String(50), nullable=False, default="user")
             is_active = Column(Boolean, nullable=False, default=True)
-            created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-            updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+            created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+            updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
         {"".join(ec + chr(10) + chr(10) + chr(10) for ec in entity_classes)}
@@ -920,6 +934,8 @@ def _fallback_crud_routers(entities: list) -> str:
         "from sqlalchemy import select, func",
         "from database import get_db",
         "from auth import get_current_user, require_admin",
+        "import models",
+        "from schemas import " + ", ".join([f"{e.get('name', 'Item')}Create, {e.get('name', 'Item')}Update" for e in entities[:8]]),
         "",
     ]
     router_vars = []
@@ -929,11 +945,6 @@ def _fallback_crud_routers(entities: list) -> str:
         var = f"{table}_router"
         router_vars.append(var)
         lines += [
-            f"# Import {name} model lazily to avoid circular imports",
-            f"def _get_{table}_model():",
-            f"    from models import {name}",
-            f"    return {name}",
-            "",
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
             f"@{var}.get('/', response_model=dict)",
@@ -943,53 +954,48 @@ def _fallback_crud_routers(entities: list) -> str:
             f"    db: AsyncSession = Depends(get_db),",
             f"    current_user: dict = Depends(get_current_user),",
             f"):",
-            f"    _Model = _get_{table}_model()",
             f"    offset = (page - 1) * limit",
-            f"    total_q = await db.execute(select(func.count()).select_from(_Model))",
+            f"    total_q = await db.execute(select(func.count()).select_from(models.{name}))",
             f"    total = total_q.scalar_one()",
-            f"    result = await db.execute(select(_Model).offset(offset).limit(limit))",
+            f"    result = await db.execute(select(models.{name}).offset(offset).limit(limit))",
             f"    items = result.scalars().all()",
-            f"    return {{'items': [{{c.name: getattr(i, c.name) for c in _Model.__table__.columns}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
+            f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{name}.__table__.columns}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
             "",
-            f"@{var}.post('/', status_code=201)",
-            f"async def create_{table}(data: Dict[str, Any], db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    _Model = _get_{table}_model()",
-            f"    valid_cols = {{c.name for c in _Model.__table__.columns}} - {{'id', 'created_at', 'updated_at'}}",
-            f"    filtered = {{k: v for k, v in data.items() if k in valid_cols}}",
-            f"    obj = _Model(**filtered)",
+            f"@{var}.post('/', status_code=201, response_model=dict)",
+            f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    obj = models.{name}(**data.model_dump(exclude_unset=True))",
             f"    db.add(obj)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
-            f"    return {{c.name: getattr(obj, c.name) for c in _Model.__table__.columns}}",
+            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns}}",
             "",
-            f"@{var}.get('/{{item_id}}')",
+            f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    _Model = _get_{table}_model()",
-            f"    result = await db.execute(select(_Model).where(_Model.id == item_id))",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
             f"    obj = result.scalar_one_or_none()",
             f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    return {{c.name: getattr(obj, c.name) for c in _Model.__table__.columns}}",
+            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns}}",
             "",
-            f"@{var}.patch('/{{item_id}}')",
-            f"async def update_{table}(item_id: int, data: Dict[str, Any], db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    _Model = _get_{table}_model()",
-            f"    result = await db.execute(select(_Model).where(_Model.id == item_id))",
+            f"@{var}.patch('/{{item_id}}', response_model=dict)",
+            f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
             f"    obj = result.scalar_one_or_none()",
             f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    valid_cols = {{c.name for c in _Model.__table__.columns}} - {{'id', 'created_at', 'updated_at'}}",
-            f"    for k, v in data.items():",
-            f"        if k in valid_cols:",
-            f"            setattr(obj, k, v)",
+            f"    for k, v in data.model_dump(exclude_unset=True).items():",
+            f"        setattr(obj, k, v)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
-            f"    return {{c.name: getattr(obj, c.name) for c in _Model.__table__.columns}}",
+            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns}}",
+            "",
+            f"@{var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
+            f"async def update_{table}_put(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    return await update_{table}(item_id, data, db, current_user)",
             "",
             f"@{var}.delete('/{{item_id}}', status_code=204)",
             f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_admin)):",
-            f"    _Model = _get_{table}_model()",
-            f"    result = await db.execute(select(_Model).where(_Model.id == item_id))",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
             f"    obj = result.scalar_one_or_none()",
             f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
@@ -1575,19 +1581,31 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     ir_to_models as _ir_to_models,
                     ir_to_schemas as _ir_to_schemas,
                     generate_stats_router as _gen_stats,
+                    generate_seed_py as _gen_seed,
                 )
                 models_code = _ir_to_models(_ir)
                 schemas_code = _ir_to_schemas(_ir)
                 stats_code = _gen_stats(_ir)
+                seed_code = _gen_seed(_ir)
                 (src_dir / "models.py").write_text(models_code)
                 (src_dir / "schemas.py").write_text(schemas_code)
                 (routers_dir / "stats.py").write_text(stats_code)
-                generated_via = "ir-driven+llm"
-                logger.info(
-                    "[p04a] IR-driven models/schemas: %d entities generated deterministically",
-                    len(_ir.entities),
-                )
-                # Update entities list from IR so LLM CRUD/seed is accurate
+                (src_dir / "seed.py").write_text(seed_code)
+                import secrets
+                env_content = textwrap.dedent(f"""\
+                    DATABASE_URL=sqlite+aiosqlite:///./app.db
+                    SECRET_KEY={secrets.token_hex(32)}
+                    ACCESS_TOKEN_EXPIRE_MINUTES=60
+                    CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+                """)
+                (src_dir / ".env").write_text(env_content)
+                (src_dir / ".env.example").write_text(env_content.replace(secrets.token_hex(32), "your-secret-key"))
+                # Ensure .gitignore ignores .env
+                gitignore = src_dir.parent / ".gitignore"
+                if gitignore.exists() and ".env" not in gitignore.read_text():
+                    with open(gitignore, "a") as f:
+                        f.write("\n.env\n")
+                # Update entities list from IR so LLM CRUD is accurate
                 entities = [{"name": e.name, "table": e.table,
                              "fields": [{"name": f.name, "type": f.type} for f in e.fields]}
                             for e in _ir.entities]
@@ -1596,6 +1614,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             models_code = ""
             schemas_code = ""
             crud_code = ""
+            seed_code = ""
 
     # ── Step 2: LLM call 1 — models + schemas ────────────────────────────────
     # Skipped when IR fast-path already filled these; llm still used for seed data below
@@ -1701,21 +1720,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         logger.warning("[p04a] LLM CRUD routers failed (%s), using fallback", exc)
         crud_code = _fallback_crud_routers(entities)
         (routers_dir / "crud.py").write_text(crud_code)
-
-    # ── Step 3b: Services layer ───────────────────────────────────────────────
-    services_dir = src_dir / "services"
-    services_dir.mkdir(parents=True, exist_ok=True)
-    (services_dir / "__init__.py").write_text(_SERVICES_INIT_PY)
-    try:
-        service_code = await _llm_service_layer(llm, project_name, entities,
-                                                  models_code, schemas_code, mem)
-        service_code = _fix_common_issues(service_code)
-        (services_dir / "entity_services.py").write_text(service_code)
-        logger.info("[p04a] services/entity_services.py %d chars", len(service_code))
-    except Exception as exc:
-        logger.warning("[p04a] service layer LLM failed (%s), using fallback", exc)
-        service_code = _fallback_service_layer(entities)
-        (services_dir / "entity_services.py").write_text(service_code)
 
     # ── Step 4: Seed data — Template, IR-generated, or LLM ──────────────────
     if seed_code:

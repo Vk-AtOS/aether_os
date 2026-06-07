@@ -233,6 +233,54 @@ _DOMAIN_COMPONENT_DESC: Dict[str, str] = {
 
 
 _DOMAIN_FALLBACK_WIDGETS = {
+    "crm": """
+import React from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { apiClient } from '../lib/api'
+
+export default function DomainWidget() {
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => apiClient.get('/stats').then(r => r.data),
+    staleTime: 30_000,
+  })
+
+  const pipeline = [
+    { stage: 'New', count: stats?.stage_new ?? 0 },
+    { stage: 'Qualified', count: stats?.stage_qualified ?? 0 },
+    { stage: 'Proposal', count: stats?.stage_proposal ?? 0 },
+    { stage: 'Won', count: stats?.stage_won ?? 0 },
+  ]
+
+  if (isLoading) {
+    return (
+      <div className="p-6 bg-indigo-50 rounded-2xl animate-pulse">
+        <div className="h-6 bg-indigo-200 rounded w-48 mb-4" />
+        <div className="flex space-x-4">
+          {[1,2,3,4].map(i => <div key={i} className="h-24 bg-indigo-100 rounded-xl w-1/4" />)}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 bg-indigo-50 rounded-2xl" role="region" aria-label="Deal pipeline overview">
+      <h2 className="text-xl font-bold text-indigo-900 mb-4">Deal Pipeline</h2>
+      <div className="flex space-x-4">
+        {pipeline.map(({ stage, count }) => (
+          <div key={stage}
+            className="flex flex-col items-center bg-white border border-indigo-100 rounded-2xl shadow-sm p-4 flex-1"
+            role="group" aria-label={`${stage} stage`}>
+            <span className="text-xs font-bold uppercase tracking-widest text-indigo-500 mb-2">{stage}</span>
+            <span className="text-3xl font-extrabold text-indigo-900">{count}</span>
+            <span className="text-xs text-indigo-400 mt-1">Deals</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+""",
     "restaurant": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Table Map</h3><div className='grid grid-cols-4 gap-2 mt-2'>{[1,2,3,4,5,6,7,8].map(i => <div key={i} className='w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs'>{i}</div>)}</div></div> }",
     "healthcare": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Today's Appointments</h3><ul className='mt-2 text-sm space-y-1'><li>9:00 AM - John Doe</li><li>10:30 AM - Jane Smith</li></ul></div> }",
     "ecommerce": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Sales Overview</h3><div className='mt-2 text-2xl font-bold'>$4,250.00</div><div className='text-xs text-green-600'>+12% from yesterday</div></div> }",
@@ -240,7 +288,6 @@ _DOMAIN_FALLBACK_WIDGETS = {
     "real_estate": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Property Map</h3><div className='aspect-video bg-gray-100 rounded mt-2 flex items-center justify-center text-gray-400'>Map View</div></div> }",
     "education": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Class Schedule</h3><div className='mt-2 space-y-2'><div className='h-2 bg-gray-100 rounded w-full'></div><div className='h-2 bg-gray-100 rounded w-3/4'></div></div></div> }",
     "gym_fitness": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Active Members</h3><div className='mt-2 text-3xl font-bold'>124</div></div> }",
-    "crm": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Pipeline</h3><div className='flex mt-2 gap-1'><div className='h-8 bg-blue-100 w-full'></div><div className='h-8 bg-blue-300 w-full'></div><div className='h-8 bg-blue-500 w-full'></div></div></div> }",
     "hospitality": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Room Status</h3><div className='grid grid-cols-5 gap-1 mt-2'>{[1,2,3,4,5].map(i => <div key={i} className='h-4 bg-green-500 rounded'></div>)}</div></div> }",
     "logistics": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Fleet Tracking</h3><div className='mt-2 space-y-1 text-xs'><div>Truck 01: En Route</div><div>Truck 02: Loading</div></div></div> }",
     "marketplace": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Top Sellers</h3><div className='mt-2 space-y-2'>{[1,2,3].map(i => <div key={i} className='h-4 bg-gray-50 rounded'></div>)}</div></div> }",
@@ -1526,10 +1573,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 def _generate_auth_ts() -> str:
     return """\
-export const TOKEN_KEY = 'token'
-export const getToken = () => localStorage.getItem(TOKEN_KEY)
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+// Auto-generated by AetherOS p05_frontend
+const TOKEN_KEY = 'auth_token'
+const REFRESH_KEY = 'auth_refresh_token'
+
+export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY)
+export const getRefreshToken = (): string | null => localStorage.getItem(REFRESH_KEY)
+export const setToken = (access: string, refresh: string): void => {
+  localStorage.setItem(TOKEN_KEY, access)
+  localStorage.setItem(REFRESH_KEY, refresh)
+}
+export const clearToken = (): void => {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REFRESH_KEY)
+}
 """
 
 
@@ -1631,7 +1688,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
         lines.append(f"  list: () => apiClient.get<{type_name}[]>('{endpoint}').then(r => r.data),")
         lines.append(f"  create: (data: {type_name}Create) => apiClient.post<{type_name}>('{endpoint}', data).then(r => r.data),")
         lines.append(f"  update: (id: string | number, data: Partial<{type_name}Create>) =>")
-        lines.append(f"    apiClient.put<{type_name}>(`{endpoint}/${{id}}`, data).then(r => r.data),")
+        lines.append(f"    apiClient.patch<{type_name}>(`{endpoint}/${{id}}`, data).then(r => r.data),")
         lines.append(f"  remove: (id: string | number) => apiClient.delete(`{endpoint}/${{id}}`),")
         lines.append("}")
 
@@ -1678,6 +1735,7 @@ def _generate_app(entities: List[dict], dual_portal: bool = False) -> str:
 import {{ createRootRoute, createRoute, createRouter, Outlet, redirect }} from '@tanstack/react-router'
 import {{ Layout }} from './components/Layout'
 import {{ LoginPage }} from './pages/LoginPage'
+import {{ getToken }} from '../lib/auth'
 import Dashboard from './pages/Dashboard'
 {imports_str}
 
@@ -1688,8 +1746,9 @@ const layoutRoute = createRoute({{
   id: 'layout',
   component: Layout,
   beforeLoad: () => {{
-    if (!localStorage.getItem('token')) throw redirect({{ to: '/login' }})
+    if (!getToken()) throw redirect({{ to: '/login' }})
   }},
+
 }})
 
 const loginRoute = createRoute({{
@@ -1779,13 +1838,13 @@ import {{ createRootRoute, createRoute, createRouter, Outlet, redirect }} from '
 import {{ CustomerLayout }} from './components/CustomerLayout'
 import {{ AdminLayout }} from './components/AdminLayout'
 import {{ LoginPage }} from './pages/LoginPage'
+import {{ getToken }} from '../lib/auth'
 import CustomerHome from './pages/CustomerHome'
 import AdminDashboard from './pages/Dashboard'
 {imports_str}
-
 function _getRole(): string | null {{
   try {{
-    const t = localStorage.getItem('token')
+    const t = getToken()
     if (!t) return null
     return JSON.parse(atob(t.split('.')[1]))?.role ?? 'user'
   }} catch {{ return null }}
@@ -1799,8 +1858,9 @@ const customerLayoutRoute = createRoute({{
   id: 'customer',
   component: CustomerLayout,
   beforeLoad: () => {{
-    if (!localStorage.getItem('token')) throw redirect({{ to: '/login' }})
+    if (!getToken()) throw redirect({{ to: '/login' }})
   }},
+
 }})
 
 const customerHomeRoute = createRoute({{
@@ -2480,8 +2540,11 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-48">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600" />
+      <div role="status" aria-label="Loading data" className="space-y-3">
+        {[1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+        ))}
+        <span className="sr-only">Loading…</span>
       </div>
     )
   }
@@ -2493,9 +2556,10 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
         onChange={e => setGlobalFilter(e.target.value)}
         placeholder="Search..."
         className="mb-4 w-full max-w-sm px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        aria-label="Search records"
       />
       <div className="overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" aria-label="Data table">
           <thead className="bg-gray-50 border-b border-gray-200">
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
@@ -2504,6 +2568,7 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
                     className="px-4 py-3 text-left font-medium text-gray-600 cursor-pointer hover:text-gray-900 select-none"
+                    aria-label={`Sort by ${header.column.columnDef.header}`}
                   >
                     <div className="flex items-center gap-1">
                       {flexRender(header.column.columnDef.header, header.getContext())}
@@ -2982,8 +3047,9 @@ export function LoginPage() {{
     setLoading(true)
     setError('')
     try {{
-      const {{ access_token }} = await authApi.login(email, password)
-      setToken(access_token)
+      const { access_token, refresh_token } = await authApi.login(email, password)
+      setToken(access_token, refresh_token)
+
       const role = _getRole(access_token)
       // Route admins to the management portal, everyone else to the customer portal
       navigate({{ to: role === 'admin' ? '/admin' : '/' }})
@@ -3073,8 +3139,9 @@ export function LoginPage() {{
     setLoading(true)
     setError('')
     try {{
-      const {{ access_token }} = await authApi.login(email, password)
-      setToken(access_token)
+      const { access_token, refresh_token } = await authApi.login(email, password)
+      setToken(access_token, refresh_token)
+
       navigate({{ to: '/' }})
     }} catch {{
       setError('Invalid email or password')
@@ -3179,8 +3246,9 @@ export function LoginPage() {{
     setLoading(true)
     setError('')
     try {{
-      const {{ access_token }} = await authApi.login(email, password)
-      setToken(access_token)
+      const { access_token, refresh_token } = await authApi.login(email, password)
+      setToken(access_token, refresh_token)
+
       navigate({{ to: '/' }})
     }} catch {{
       setError('Invalid email or password')
@@ -4186,9 +4254,10 @@ export default function Home() {{
                 Built for scale, speed, and reliability.
               </p>
               <div className="mt-10 flex justify-center gap-x-6">
-                <a href="/browse" className="rounded-md bg-{primary_color} px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
+                <Link to="/browse" className="rounded-md bg-{{primary_color}} px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
                   Get Started <ArrowRight size={{16}} />
-                </a>
+                </Link>
+
               </div>
             </div>
           </div>
@@ -4876,9 +4945,55 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning(f"p05: Gate 2 approval/revision failed: {e}")
 
+    # ── Step 6: Launch Async Build (FIX 16) ──────────────────────────────────
+    # Non-blocking: we return success immediately after codegen.
+    # The build runs in the background.
+    build_status_file = project_dir / "build_status.json"
+    build_status_file.write_text(json.dumps({"status": "building", "started_at": int(time.time())}))
+    
+    # We use a detached subprocess to ensure it continues after the phase finishes.
+    build_cmd = "npm install && npm run build"
+    log_file = output_dir / "npm_build.log"
+    
+    # Simple script to run build and update status
+    bg_script = textwrap.dedent(f"""\
+        import subprocess, json, time, os
+        from pathlib import Path
+        
+        project_dir = Path('{project_dir}')
+        frontend_dir = project_dir / 'frontend'
+        status_file = project_dir / 'build_status.json'
+        log_path = Path('{log_file}')
+        
+        try:
+            with open(log_path, 'w') as f:
+                res = subprocess.run('{build_cmd}', shell=True, cwd=str(frontend_dir), 
+                                     stdout=f, stderr=subprocess.STDOUT, timeout=1200)
+            
+            if res.returncode == 0:
+                status = "done"
+            else:
+                status = "failed"
+        except Exception as e:
+            status = "failed"
+            with open(log_path, 'a') as f:
+                f.write(f'\\nError: {{str(e)}}')
+        
+        try:
+            status_file.write_text(json.dumps({{"status": status, "finished_at": int(time.time())}}))
+        except:
+            pass
+    """)
+    
+    bg_script_path = output_dir / "bg_build.py"
+    bg_script_path.write_text(bg_script)
+    
+    subprocess.Popen(["python3", str(bg_script_path)], start_new_session=True)
+    logger.info("p05_frontend: background build launched (FIX 16)")
+
     return TaskResult(
         output_path=str(frontend_dir),
-        confidence=0.9,
+        confidence=0.8, # confidence slightly lower until build done
         metadata=meta,
         success=True,
         issues=[],

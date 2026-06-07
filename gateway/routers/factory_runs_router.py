@@ -1628,53 +1628,47 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
 
         main_py.write_text(content)
 
-        # Swap postgres DATABASE_URL to SQLite so the preview works without a DB server.
-        sqlite_db_path = str(root_dir / "preview.db").replace("\\", "/")
-        sqlite_patch = (
-            f"\n# AetherOS: swap database to SQLite for preview\n"
-            f"import os as _os\n"
-            f"_db_url = _os.environ.get('DATABASE_URL', '')\n"
-            f"if 'postgresql' in _db_url or 'postgres' in _db_url or not _db_url:\n"
-            f"    _os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///{sqlite_db_path}'\n"
-            f"    DATABASE_URL = _os.environ['DATABASE_URL']\n"
-        )
-        # Serve built frontend
+        # FIX 4: Create run_preview.py instead of patching main.py
+        run_preview_py = root_dir / "run_preview.py"
         _dist_str = str(frontend_dist).replace("\\", "/") if frontend_dist and frontend_dist.is_dir() else ""
-        frontend_patch = ""
-        if _dist_str:
-            frontend_patch = (
-                f"\n# AetherOS: serve built frontend\n"
-                f"from fastapi.staticfiles import StaticFiles as _SF\n"
-                f"from fastapi.responses import FileResponse as _FR\n"
-                f"from fastapi import HTTPException as _HTTPEx\n"
-                f"import pathlib as _pl\n"
-                f"_DIST = _pl.Path(r'{_dist_str}')\n"
-                f"if _DIST.is_dir():\n"
-                f"    @app.get('/{{path:path}}', include_in_schema=False)\n"
-                f"    def _spa(path: str = ''):\n"
-                f"        # Never swallow API calls — return 404 so the frontend shows an error\n"
-                f"        if path.startswith('api/'):\n"
-                f"            raise _HTTPEx(status_code=404, detail='Not found')\n"
-                f"        f = _DIST / path\n"
-                f"        return _FR(str(f) if f.is_file() else str(_DIST / 'index.html'))\n"
-            )
-        patches = ""
-        if "AetherOS: swap database" not in content:
-            patches += sqlite_patch
-        if _dist_str and "AetherOS: serve built frontend" not in content:
-            patches += frontend_patch
-        elif _dist_str and "_preview_ui" in content and "_preview_ui" not in _dist_str:
-            # Previous run fell back to _preview_ui; now we have a real dist/ — update the path.
-            import re as _re_spa
-            content = _re_spa.sub(
-                r"_DIST = _pl\.Path\(r'[^']*'\)",
-                f"_DIST = _pl.Path(r'{_dist_str}')",
-                content,
-            )
-            patches = ""  # content already modified; write it directly
-            main_py.write_text(content)
-        if patches:
-            main_py.write_text(content + patches)
+        
+        # Use relative paths for portability on the VPS filesystem
+        preview_content = textwrap.dedent(f"""\
+            \"\"\"AetherOS run-preview entrypoint — VPS only, not distributed.\"\"\"
+            import os
+            import pathlib
+            import sys
+
+            _PROJECT_DIR = pathlib.Path(__file__).parent
+            # Add src to sys.path so 'import models', etc. works
+            sys.path.insert(0, str(_PROJECT_DIR / "src"))
+
+            _PREVIEW_DB = _PROJECT_DIR / "preview.db"
+            _DIST = _PROJECT_DIR / "p05_frontend" / "frontend" / "dist"
+
+            os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{{_PREVIEW_DB}}")
+            os.environ.setdefault("SECRET_KEY", "aetheros-preview-secret-not-for-production")
+
+            # Import the real app after setting env vars
+            from main import app  # noqa: E402
+
+            if _DIST.is_dir():
+                from fastapi.staticfiles import StaticFiles
+                from fastapi.responses import FileResponse
+                from fastapi import HTTPException
+
+                @app.get("/{{path:path}}", include_in_schema=False)
+                def _spa(path: str = ""):
+                    if path.startswith("api/"):
+                        raise HTTPException(status_code=404, detail="Not found")
+                    f = _DIST / path
+                    return FileResponse(str(f) if f.is_file() else str(_DIST / "index.html"))
+            
+            if __name__ == "__main__":
+                import uvicorn
+                uvicorn.run(app, host="0.0.0.0", port=8000)
+        """)
+        run_preview_py.write_text(preview_content)
 
     # ── Patch models.py: fix duplicate keyword arguments in Column() calls ─────
     # LLM sometimes emits `Column(Boolean, default=True, ..., default=True)`.
@@ -2643,6 +2637,8 @@ async def download_run_zip(run_id: str, user: Dict[str, Any] = _current_user()):
             if not fpath.is_file():
                 continue
             rel = fpath.relative_to(project_dir)
+            if rel.name == "run_preview.py":
+                continue
             parts = rel.parts
             if any(p in _SKIP for p in parts):
                 continue
@@ -2663,8 +2659,89 @@ async def download_run_zip(run_id: str, user: Dict[str, Any] = _current_user()):
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{name}.zip"'},
+        headers={{"Content-Disposition": f'attachment; filename="{{name}}.zip"'}},
     )
+
+
+@router.get("/runs/{run_id}/traces")
+async def get_run_traces(
+    run_id: str,
+    phase: Optional[str] = Query(None),
+    limit: int = Query(100, le=500),
+    user: Dict[str, Any] = _current_user(),
+):
+    """Return LLM call traces for a pipeline run (FIX 23)."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import LLMTrace
+    from sqlalchemy import select
+    
+    sf = get_session_factory()
+    async with sf() as db:
+        q = select(LLMTrace).where(LLMTrace.run_id == run_id)
+        if phase:
+            q = q.where(LLMTrace.phase == phase)
+        q = q.order_by(LLMTrace.created_at.asc()).limit(limit)
+        result = await db.execute(q)
+        traces = result.scalars().all()
+        
+        return [
+            {
+                "id": t.id,
+                "phase": t.phase,
+                "task_type": t.task_type,
+                "model": t.model,
+                "attempt": t.attempt,
+                "duration_ms": t.duration_ms,
+                "tokens_in": t.tokens_in,
+                "tokens_out": t.tokens_out,
+                "parsed_ok": t.parsed_ok,
+                "error": t.error,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "has_prompt": bool(t.prompt),
+                "has_response": bool(t.raw_response),
+            }
+            for t in traces
+        ]
+
+
+@router.get("/runs/{run_id}/traces/{trace_id}")
+async def get_trace_detail(
+    run_id: str,
+    trace_id: str,
+    user: Dict[str, Any] = _current_user(),
+):
+    """Return full prompt and response for a single trace (FIX 23)."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import LLMTrace
+    from sqlalchemy import select
+    
+    sf = get_session_factory()
+    async with sf() as db:
+        result = await db.execute(
+            select(LLMTrace).where(
+                LLMTrace.id == trace_id,
+                LLMTrace.run_id == run_id,
+            )
+        )
+        trace = result.scalar_one_or_none()
+        if not trace:
+            raise HTTPException(status_code=404, detail="Trace not found")
+        
+        return {
+            "id": trace.id,
+            "phase": trace.phase,
+            "task_type": trace.task_type,
+            "model": trace.model,
+            "prompt": trace.prompt,
+            "raw_response": trace.raw_response,
+            "parsed_ok": trace.parsed_ok,
+            "error": trace.error,
+            "attempt": trace.attempt,
+            "duration_ms": trace.duration_ms,
+            "tokens_in": trace.tokens_in,
+            "tokens_out": trace.tokens_out,
+            "created_at": trace.created_at.isoformat() if trace.created_at else None,
+        }
 
 
 @router.post("/factory/runs/{run_id}/push-github")
@@ -2710,6 +2787,8 @@ async def push_run_to_github(run_id: str, req: Dict[str, Any], user: Dict[str, A
             if not fpath.is_file() or files_pushed >= 50:
                 break
             rel = fpath.relative_to(project_dir)
+            if rel.name == "run_preview.py":
+                continue
             parts = rel.parts
             if any(p in _SKIP for p in parts):
                 continue
