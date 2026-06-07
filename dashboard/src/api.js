@@ -214,6 +214,10 @@ export const api = {
   getWorkspaces: () => client.get('/workspaces'),
   createWorkspace: (data) => client.post('/workspaces', data),
   deleteWorkspace: (id) => client.delete(`/workspaces/${id}`),
+
+  // LLM Traces
+  getRunTraces: (runId) => client.get(`/factory/runs/${runId}/traces`),
+  getRunTraceDetail: (runId, traceId) => client.get(`/factory/runs/${runId}/traces/${traceId}`),
 };
 
 // Default export so pages can do: import api from '../api'
