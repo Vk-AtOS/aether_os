@@ -60,7 +60,7 @@ def upgrade() -> None:
                 {"v": encrypted, "id": row_id}
             )
 
-    session.commit()
+
 
 
 def downgrade() -> None:
