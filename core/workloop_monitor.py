@@ -213,7 +213,7 @@ Return a JSON array where each element has:
 
 Return ONLY the JSON array, no markdown."""
 
-            text, _ = await router.call(prompt, task_type="summarize", max_tokens=1024)
+            text, _, _ = await router.call(prompt, task_type="summarize", max_tokens=1024)
 
             import json, re
             # Strip markdown fences if any

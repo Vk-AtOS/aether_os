@@ -4581,7 +4581,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
         from aether_os.orchestrator.events import ACTIVE_RUN_ID
         run_id = ACTIVE_RUN_ID.get()
-        if run_id:
+
+        # Only require approval if NOT in autonomous mode
+        if run_id and accumulated_context.get("decision_mode") != "autonomous":
             logger.info("p05: Waiting for Gate 3 (Admin Requirements) approval...")
             engine = get_decision_engine()
             decision = Decision(
@@ -4594,7 +4596,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 phase="p05_frontend",
             )
             await engine.request_approval(decision)
-            
+
             await publish_event(run_id, {
                 "type": "PhaseApprovalRequired",
                 "phase": "p05_frontend",
@@ -4603,7 +4605,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 "data": {"admin_features": admin_features},
                 "allow_overrides": True
             })
-            
+
             resolved = await engine.await_decision(decision.id)
             if resolved.status == "approved" and resolved.human_choice:
                 try:
@@ -4614,6 +4616,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     logger.info("p05: Admin features updated by user: %s", admin_features)
                 except Exception:
                     logger.warning("p05: Could not parse user admin features, using derived list")
+        else:
+            logger.info("p05: Autonomous mode detected — bypassing Gate 3 approval.")
+
     except Exception as e:
         logger.warning(f"p05: Gate 3 approval skipped due to error: {e}")
 

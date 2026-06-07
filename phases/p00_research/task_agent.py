@@ -162,7 +162,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         from aether_os.orchestrator.events import ACTIVE_RUN_ID
         from aether_os.core.errors import PipelineBlockedError
         run_id = ACTIVE_RUN_ID.get()
-        if run_id:
+        autonomous_mode = data.get("autonomous_mode", False)
+        if run_id and not autonomous_mode:
             logger.info("p00: Waiting for Gate 1 (Design Brief) approval...")
             engine = get_decision_engine()
             decision = Decision(
