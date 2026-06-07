@@ -2,38 +2,17 @@ import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../lib/api'
 
-interface Trace {
-  id: string
-  phase: string
-  task_type: string
-  model: string
-  attempt: number
-  duration_ms: number
-  tokens_in: number
-  tokens_out: number
-  parsed_ok: boolean
-  error: string | null
-  created_at: string
-  has_prompt: boolean
-  has_response: boolean
-}
+export function TraceTab({ runId }) {
+  const [expanded, setExpanded] = useState(null)
+  const [detail, setDetail] = useState({})
 
-interface TraceDetail extends Trace {
-  prompt: string
-  raw_response: string
-}
-
-export function TraceTab({ runId }: { runId: string }) {
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [detail, setDetail] = useState<Record<string, TraceDetail>>({})
-
-  const { data: traces = [], isLoading } = useQuery<Trace[]>({
+  const { data: traces = [], isLoading } = useQuery({
     queryKey: ['traces', runId],
     queryFn: () => apiClient.get(`/factory/runs/${runId}/traces`).then(r => r.data),
     staleTime: 30_000,
   })
 
-  const loadDetail = async (traceId: string) => {
+  const loadDetail = async (traceId) => {
     if (detail[traceId]) { setExpanded(traceId); return }
     const r = await apiClient.get(`/factory/runs/${runId}/traces/${traceId}`)
     setDetail(d => ({ ...d, [traceId]: r.data }))
@@ -58,8 +37,7 @@ export function TraceTab({ runId }: { runId: string }) {
     )
   }
 
-  // Group by phase for timeline display
-  const byPhase: Record<string, Trace[]> = {}
+  const byPhase = {}
   for (const t of traces) {
     if (!byPhase[t.phase]) byPhase[t.phase] = []
     byPhase[t.phase].push(t)
@@ -85,7 +63,6 @@ export function TraceTab({ runId }: { runId: string }) {
                   aria-expanded={expanded === trace.id}
                   aria-controls={`trace-detail-${trace.id}`}
                 >
-                  {/* Status dot */}
                   <span
                     className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                       !trace.parsed_ok ? 'bg-red-500' :
