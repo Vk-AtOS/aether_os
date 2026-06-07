@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Task types NOT cached (code gen output must be unique per project)
 _NO_CACHE_TASKS = {
-    "code_generation", "security_scan", "testing",
+    "code_generation", "security_scan", "testing", "architecture",
 }
 
 

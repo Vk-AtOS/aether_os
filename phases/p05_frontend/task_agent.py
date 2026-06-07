@@ -3047,7 +3047,7 @@ export function LoginPage() {{
     setLoading(true)
     setError('')
     try {{
-      const { access_token, refresh_token } = await authApi.login(email, password)
+      const {{ access_token, refresh_token }} = await authApi.login(email, password)
       setToken(access_token, refresh_token)
 
       const role = _getRole(access_token)
@@ -3139,7 +3139,7 @@ export function LoginPage() {{
     setLoading(true)
     setError('')
     try {{
-      const { access_token, refresh_token } = await authApi.login(email, password)
+      const {{ access_token, refresh_token }} = await authApi.login(email, password)
       setToken(access_token, refresh_token)
 
       navigate({{ to: '/' }})
@@ -3246,7 +3246,7 @@ export function LoginPage() {{
     setLoading(true)
     setError('')
     try {{
-      const { access_token, refresh_token } = await authApi.login(email, password)
+      const {{ access_token, refresh_token }} = await authApi.login(email, password)
       setToken(access_token, refresh_token)
 
       navigate({{ to: '/' }})
@@ -4583,7 +4583,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         run_id = ACTIVE_RUN_ID.get()
 
         # Only require approval if NOT in autonomous mode
-        if run_id and accumulated_context.get("decision_mode") != "autonomous":
+        if run_id and data.get("autonomous_mode") != True and data.get("decision_mode") != "autonomous":
             logger.info("p05: Waiting for Gate 3 (Admin Requirements) approval...")
             engine = get_decision_engine()
             decision = Decision(
