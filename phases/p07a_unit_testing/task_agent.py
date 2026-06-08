@@ -66,6 +66,7 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
         async def client():
             if not app:
                 pytest.skip("App not found")
+            from httpx import AsyncClient, ASGITransport
             async with AsyncClient(
                 transport=ASGITransport(app=app),
                 base_url="http://test"
@@ -80,6 +81,9 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
 
         @pytest.mark.asyncio
         async def test_app_exists():
+            from httpx import AsyncClient
+            TestClient = AsyncClient
+            assert TestClient is not None
             assert app is not None
     """)
 

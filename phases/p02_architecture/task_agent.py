@@ -477,12 +477,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Attempt LLM-generated architecture ───────────────────────────────────
     from aether_os.phases.utils import memory_hint
+    from aether_os.core.spec_cache import _CACHE_DIR
     mem = memory_hint(memory_ctx)
+    run_id = data.get("run_id")
+    cache_path = _CACHE_DIR / f"{run_id}.json" if run_id else None
 
-    doc: dict = {}
-    try:
-        llm    = get_llm_client()
+    doc: Dict[str, Any] = {}
 
+    # IMP-1: Check for existing architecture.json in spec_cache
+    if cache_path and cache_path.exists():
+        logger.info("[p02] Cache hit for run_id=%s", run_id)
+        doc = json.loads(cache_path.read_text())
+    
+    if not doc:
+        logger.info("[p02] Cache miss, generating architecture...")
+        
         # ── Semantic learning: search for similar past architectures ──────────
         similar_context = ""
         try:
@@ -498,6 +507,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as e:
             logger.warning("[p02] Semantic search failed: %s", e)
 
+        # ── Attempt LLM-generated architecture ───────────────────────────────────
+        try:
+            llm = get_llm_client()
+        except Exception as e:
+            logger.error("[p02] LLM client instantiation failed: %s", e)
+            raise
+
         _stack_hint = ""
         if _preferred_backend: _stack_hint += f"\nPreferred backend: {_preferred_backend}"
         if _preferred_frontend: _stack_hint += f"\nPreferred frontend: {_preferred_frontend}"
@@ -506,41 +522,42 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _table_names = [t.get("name", "?") for t in _existing_schema["tables"][:10]]
             _stack_hint += f"\nExisting DB tables (use these): {', '.join(_table_names)}"
 
-        prompt = (
-            f"Design a complete software architecture for the following requirements:\n\n"
-            f"{requirements}\n\n"
-            f"Domain: {profile.name}\n"
-            f"Preferred Database: {profile.preferred_db}\n"
-            f"Suggested Stack: {json.dumps(profile.suggested_tech_stack)}\n"
-            f"Mandatory Patterns: {', '.join(profile.required_patterns)}\n"
-            f"Security: {', '.join(profile.security_requirements)}\n"
-            f"Example Entities to consider: {', '.join(profile.example_entities)}\n"
-            f"{_stack_hint}"
-            f"{similar_context}"
-            f"{mem}"
-            f"\nFocus on: tech stack choices, database schema, API endpoints, security."
-        )
-        # Seed the schema example with domain defaults
-        schema_example = dict(ARCHITECTURE_SCHEMA)
-        schema_example["domain"] = domain
-        schema_example["tech_stack"] = {**TECH_STACK_DEFAULTS, **profile.suggested_tech_stack}
-        if "database" in profile.suggested_tech_stack:
-            schema_example["tech_stack"]["database"] = profile.suggested_tech_stack["database"]
-        schema_example["security_considerations"] = profile.security_requirements + ["Input validation"]
-        
-        doc = await llm.call_structured(
-            prompt=prompt,
-            schema_example=schema_example,
-            task_type="architecture",
-        )
-        # call_structured never raises but may return the schema example on total failure
-        # Detect total failure: if parse_error flag is set or doc is identical to schema
-        if doc.get("parse_error") or doc.get("tech_stack") == ARCHITECTURE_SCHEMA["tech_stack"]:
-            raise ValueError("LLM returned unparseable response")
-    except Exception as e:
-        logger.warning("[p02] LLM call failed (%s), using intelligent fallback", e)
-        doc = {}
-        used_fallback = True
+        try:
+            prompt = (
+                f"Design a complete software architecture for the following requirements:\n\n"
+                f"{requirements}\n\n"
+                f"Domain: {profile.name}\n"
+                f"Preferred Database: {profile.preferred_db}\n"
+                f"Suggested Stack: {json.dumps(profile.suggested_tech_stack)}\n"
+                f"Mandatory Patterns: {', '.join(profile.required_patterns)}\n"
+                f"Security: {', '.join(profile.security_requirements)}\n"
+                f"Example Entities to consider: {', '.join(profile.example_entities)}\n"
+                f"{_stack_hint}"
+                f"{similar_context}"
+                f"{mem}"
+                f"\nFocus on: tech stack choices, database schema, API endpoints, security."
+            )
+            # Seed the schema example with domain defaults
+            schema_example = dict(ARCHITECTURE_SCHEMA)
+            schema_example["domain"] = domain
+            schema_example["tech_stack"] = {**TECH_STACK_DEFAULTS, **profile.suggested_tech_stack}
+            if "database" in profile.suggested_tech_stack:
+                schema_example["tech_stack"]["database"] = profile.suggested_tech_stack["database"]
+            schema_example["security_considerations"] = profile.security_requirements + ["Input validation"]
+            
+            doc = await llm.call_structured(
+                prompt=prompt,
+                schema_example=schema_example,
+                task_type="architecture",
+            )
+            # call_structured never raises but may return the schema example on total failure
+            # Detect total failure: if parse_error flag is set or doc is identical to schema
+            if doc.get("parse_error") or doc.get("tech_stack") == ARCHITECTURE_SCHEMA["tech_stack"]:
+                raise ValueError("LLM returned unparseable response")
+        except Exception as e:
+            logger.warning("[p02] LLM call failed (%s), using intelligent fallback", e)
+            doc = {}
+            used_fallback = True
 
     # ── Apply fallback if LLM produced nothing useful ────────────────────────
     if not doc or not doc.get("api_endpoints") or used_fallback:
@@ -550,6 +567,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             if not doc.get(key):
                 doc[key] = val
         used_fallback = True
+    
+    # Cache the final doc
+    if cache_path:
+        cache_path.write_text(json.dumps(doc, indent=2))
+        logger.info("[p02] architecture.json cached to %s", cache_path)
 
     doc = fix_tech_stack(doc)
 
@@ -565,6 +587,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Always write architecture.json ───────────────────────────────────────
     out_json.write_text(json.dumps(doc, indent=2))
+    if cache_path:
+        cache_path.write_text(json.dumps(doc, indent=2))
+        logger.info("[p02] architecture.json cached to %s", cache_path)
     logger.info("[p02] architecture.json written (%d endpoints, fallback=%s)",
                 len(doc.get("api_endpoints", [])), used_fallback)
 
