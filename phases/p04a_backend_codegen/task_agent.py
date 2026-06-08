@@ -406,7 +406,7 @@ except ImportError:
 
 @app.get("/health", tags=["system"])
 async def health():
-    return {"status": "ok", "version": "1.0.0", "service": "{PROJECT_NAME}"}
+    return {"status": "healthy", "version": "1.0.0", "service": "{PROJECT_NAME}"}
 
 
 @app.get("/ready", tags=["system"])
@@ -1704,12 +1704,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
             # Validate: all_routers must exist and must not be an empty list.
             _ar_match = re.search(r'all_routers\s*=\s*\[([^\]]*)\]', crud_code)
+            if not _ar_match or not _ar_match.group(1).strip():
+                logger.warning("[p04a] all_routers missing or empty in LLM output, retrying once...")
+                retry_mem = mem + "\nCRITICAL: The previous attempt generated an empty all_routers list. You MUST generate CRUD routers for ALL entities and export them in all_routers."
+                crud_code = await _llm_crud_routers(llm, project_name, entities, models_code, schemas_code, retry_mem)
+                crud_code = _fix_common_issues(crud_code)
+                _ar_match = re.search(r'all_routers\s*=\s*\[([^\]]*)\]', crud_code)
+
             if not _ar_match:
                 _router_vars = [f"{e.get('table', e.get('name','item').lower()+'s')}_router" for e in entities[:8]]
                 crud_code += f"\n\nall_routers = [{', '.join(_router_vars)}]\n"
-                logger.warning("[p04a] all_routers missing from LLM output, appended list of %d routers", len(_router_vars))
+                logger.warning("[p04a] all_routers still missing from LLM output, appended list of %d routers", len(_router_vars))
             elif not _ar_match.group(1).strip():
-                logger.warning("[p04a] LLM generated all_routers = [] — using fallback CRUD routers")
+                logger.warning("[p04a] LLM still generated all_routers = [] — using fallback CRUD routers")
                 crud_code = _fallback_crud_routers(entities)
         else:
             logger.info("[p04a] IR fast-path: using deterministic CRUD routers")

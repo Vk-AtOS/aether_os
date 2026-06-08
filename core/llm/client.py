@@ -232,7 +232,6 @@ async def _call_anthropic(
                 model, attempt + 1, usage.input_tokens, usage.output_tokens,
                 cache_read, cache_create,
             )
-            self.last_model = model
             return text
 
         except Exception as exc:
@@ -321,7 +320,6 @@ async def _call_gemini(
             text = response.text
             _cost_registry["calls"] += 1
             logger.debug("Gemini [%s] attempt=%d", model_name, attempt + 1)
-            self.last_model = model_name
             return text
         except Exception as exc:
             last_exc = exc
@@ -398,7 +396,6 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
                 resp = await http.post(url, json=payload)
                 resp.raise_for_status()
                 result = resp.json().get("response", "")
-                self.last_model = model
                 return result
             except Exception as exc:
                 raise RuntimeError(f"Ollama call failed with {model}: {exc}") from exc
@@ -716,6 +713,9 @@ class LLMClient:
             error_msg = str(exc)
             parsed_ok = False
             tokens_out = 0
+            # FIX H3: Ensure we have at least the provider name if model is unknown
+            if not getattr(self, 'last_model', None):
+                self.last_model = getattr(self, 'last_provider', 'unknown')
             raise
         finally:
             duration_ms = int((time.time() - start_time) * 1000)

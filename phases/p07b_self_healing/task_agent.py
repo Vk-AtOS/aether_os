@@ -34,7 +34,15 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
     for pat in patterns:
         m = re.search(pat, test_output)
         if m:
-            candidate = Path(m.group(1))
+            candidate_str = m.group(1)
+            # FIX M3: If absolute path, try to make it relative to project_root
+            try:
+                if os.path.isabs(candidate_str):
+                    candidate_str = os.path.relpath(candidate_str, str(project_dir))
+            except Exception:
+                pass
+            
+            candidate = Path(candidate_str)
             # Resolve relative to project_dir if not absolute, then resolve for consistency
             if not candidate.is_absolute():
                 candidate = (project_dir / candidate).resolve()

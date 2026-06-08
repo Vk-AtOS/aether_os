@@ -149,7 +149,7 @@ class FactoryPipeline:
     def __init__(self) -> None:
         self.ledger = get_ledger()
         self.pm = get_project_manager()
-        self._bg_tasks = set()
+        self._background_tasks = set()
 
     async def run(self,
                   client_id: str,
@@ -429,10 +429,15 @@ class FactoryPipeline:
                 # Run phase with timeout (configurable per phase)
                 # Look for PHASE_TIMEOUT_<PHASE_NAME> or fallback to PHASE_TIMEOUT_SECONDS/600
                 _env_key = f"PHASE_TIMEOUT_{phase_name.upper()}"
+                _default_timeout = "600"
+                if phase_name == "p05_frontend":
+                    _default_timeout = "1200"  # BUG-H2: Increase p05 timeout to 20 mins
+
                 _phase_timeout = float(os.environ.get(
-                    _env_key, 
-                    os.environ.get("PHASE_TIMEOUT_SECONDS", "600")
+                    _env_key,
+                    os.environ.get("PHASE_TIMEOUT_SECONDS", _default_timeout)
                 ))
+
                 if _bridge:
                     try:
                         _bridge.report_stage_start(run_id, phase_name)
@@ -797,8 +802,8 @@ class FactoryPipeline:
                         except Exception as _bac_exc:
                             logger.warning("[BackendAuditCouncil] non-fatal: %s", _bac_exc)
                     _bac_task = asyncio.create_task(_backend_audit_council())
-                    self._bg_tasks.add(_bac_task)
-                    _bac_task.add_done_callback(self._bg_tasks.discard)
+                    self._background_tasks.add(_bac_task)
+                    _bac_task.add_done_callback(self._background_tasks.discard)
 
                 # Update state
                 p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
@@ -912,8 +917,8 @@ class FactoryPipeline:
             except Exception as _e:
                 logger.warning("Auto-start generated app failed for run %s: %s", run_id, _e)
         _ast = asyncio.create_task(_auto_start_app())
-        self._bg_tasks.add(_ast)
-        _ast.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_ast)
+        _ast.add_done_callback(self._background_tasks.discard)
 
         duration = time.time() - pipeline_start
 
@@ -1016,8 +1021,8 @@ class FactoryPipeline:
                 await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_error"})
 
         _dc_task = asyncio.create_task(_delivery_council_check())
-        self._bg_tasks.add(_dc_task)
-        _dc_task.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_dc_task)
+        _dc_task.add_done_callback(self._background_tasks.discard)
 
         # Emit pipeline_complete immediately so SSE clients are not blocked.
         # Status is "council_review" until the DeliveryCouncil background task completes.
@@ -1049,8 +1054,8 @@ class FactoryPipeline:
                 except Exception as _ne:
                     logger.debug("[pipeline] notification creation failed: %s", _ne)
             _n_task = asyncio.create_task(_create_completion_notification())
-            self._bg_tasks.add(_n_task)
-            _n_task.add_done_callback(self._bg_tasks.discard)
+            self._background_tasks.add(_n_task)
+            _n_task.add_done_callback(self._background_tasks.discard)
 
         # T5-01: Deliver webhook to org subscribers (background, non-blocking)
         if org_id:
@@ -1070,8 +1075,8 @@ class FactoryPipeline:
                 except Exception as _wh_exc:
                     logger.debug("[pipeline] webhook delivery skipped: %s", _wh_exc)
             _wh_t = asyncio.create_task(_fire_completion_webhook())
-            self._bg_tasks.add(_wh_t)
-            _wh_t.add_done_callback(self._bg_tasks.discard)
+            self._background_tasks.add(_wh_t)
+            _wh_t.add_done_callback(self._background_tasks.discard)
 
         # ── Extract and persist learning patterns (background, non-blocking) ────
         async def _extract_learning():
@@ -1135,8 +1140,8 @@ class FactoryPipeline:
                 logger.debug("[pipeline] Learning extraction skipped: %s", _le)
 
         _lt = asyncio.create_task(_extract_learning())
-        self._bg_tasks.add(_lt)
-        _lt.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_lt)
+        _lt.add_done_callback(self._background_tasks.discard)
 
         # D6: Finalize project living memory
         _pm_update(project_dir, {"tech_stack": accumulated_context.get("architecture_json", {}).get("tech_stack", {})})
@@ -1146,10 +1151,10 @@ class FactoryPipeline:
         async def _cleanup():
             await asyncio.sleep(300)
             await clear_run(run_id)
-            self._bg_tasks.discard(asyncio.current_task())
+            self._background_tasks.discard(asyncio.current_task())
         _t = asyncio.create_task(_cleanup())
-        self._bg_tasks.add(_t)
-        _t.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_t)
+        _t.add_done_callback(self._background_tasks.discard)
 
         # ── Store outcome in cross-run memory for future learning (background) ──
         async def _store_memory():
@@ -1169,8 +1174,8 @@ class FactoryPipeline:
             except Exception as _me:
                 logger.debug("[pipeline] Memory store skipped: %s", _me)
         _t2 = asyncio.create_task(_store_memory())
-        self._bg_tasks.add(_t2)
-        _t2.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_t2)
+        _t2.add_done_callback(self._background_tasks.discard)
 
         # ── PART 2: Embed artifacts for semantic search (background, non-blocking)
         async def _embed_artifacts():
@@ -1220,8 +1225,8 @@ class FactoryPipeline:
             except Exception as e:
                 logger.warning("[pipeline] Artifact embedding skipped: %s", e)
         _t3 = asyncio.create_task(_embed_artifacts())
-        self._bg_tasks.add(_t3)
-        _t3.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_t3)
+        _t3.add_done_callback(self._background_tasks.discard)
 
         # ── PART 3: Upload artifacts to S3 (background, non-blocking)
         async def _upload_to_s3():
@@ -1239,8 +1244,8 @@ class FactoryPipeline:
             except Exception as _s3_exc:
                 logger.warning("[pipeline] S3 upload skipped: %s", _s3_exc)
         _t4 = asyncio.create_task(_upload_to_s3())
-        self._bg_tasks.add(_t4)
-        _t4.add_done_callback(self._bg_tasks.discard)
+        self._background_tasks.add(_t4)
+        _t4.add_done_callback(self._background_tasks.discard)
 
         return {
             "run_id": run_id,
