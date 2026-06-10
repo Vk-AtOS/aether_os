@@ -5004,7 +5004,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         
         try:
             status_file.write_text(json.dumps({{"status": status, "finished_at": int(time.time())}}))
-        except:
+        except Exception:
             pass
     """)
     

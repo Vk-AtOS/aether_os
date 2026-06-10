@@ -83,7 +83,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Admin account created on first startup
       AETHER_ADMIN_USER: ${AETHER_ADMIN_USER:-admin@example.com}
-      AETHER_ADMIN_PASSWORD: ${AETHER_ADMIN_PASSWORD:-changeme}
+      AETHER_ADMIN_PASSWORD: ${AETHER_ADMIN_PASSWORD:?AETHER_ADMIN_PASSWORD must be set in .env}
     depends_on:
       db:
         condition: service_healthy

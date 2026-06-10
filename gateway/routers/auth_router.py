@@ -124,7 +124,7 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
         session.add(org)
 
         # Create owner user — role is always "owner" regardless of request body (B1)
-        _consent_now = datetime.now(timezone.utc)
+        _consent_now = datetime.now(timezone.utc).replace(tzinfo=None)
         _consent_meta = json.dumps({
             "tos_version": _CURRENT_TOS_VERSION,
             "dpa_version": _CURRENT_DPA_VERSION,
