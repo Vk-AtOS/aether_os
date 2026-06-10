@@ -599,7 +599,7 @@ def create_app() -> FastAPI:
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=["Content-Type", "Authorization", "X-Org-ID", "Accept"],
     )
 
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
