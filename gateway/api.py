@@ -186,6 +186,35 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import RedirectResponse
 import os
 
+class OrgIDLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        import structlog
+        from aether_os.gateway.auth import decode_access_token
+        
+        org_id = request.headers.get("X-Org-ID")
+        user_id = None
+        
+        if not org_id:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                payload = decode_access_token(token)
+                if payload:
+                    org_id = payload.get("org_id")
+                    user_id = payload.get("user_id")
+        
+        if org_id:
+            structlog.contextvars.bind_contextvars(org_id=org_id)
+        if user_id:
+            structlog.contextvars.bind_contextvars(user_id=user_id)
+            
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            structlog.contextvars.clear_contextvars()
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         import secrets as _sec
@@ -588,6 +617,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Security middleware — always enabled
+    app.add_middleware(OrgIDLoggingMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(HttpsRedirectMiddleware)
 

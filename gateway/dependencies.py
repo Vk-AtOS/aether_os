@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import select
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -38,6 +39,33 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="MFA verification required. Complete sign-in at /auth/mfa/confirm.",
             )
+
+        # email_verified and is_active check
+        user_id = payload.get("user_id")
+        if user_id:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import User, Organisation
+            sf = get_session_factory()
+            async with sf() as session:
+                user_row = (await session.execute(
+                    select(User, Organisation).join(Organisation).where(User.id == user_id)
+                )).fetchone()
+                if not user_row:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+                
+                db_user, db_org = user_row
+                if not db_user.is_active or db_user.deleted_at:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is deactivated")
+                
+                if db_org.is_deleted:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation is deleted")
+
+                if not db_user.email_verified:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="email_not_verified",
+                    )
+
         jti = payload.get("jti")
         if jti:
             try:

@@ -5,7 +5,7 @@ and re-establishes normal service operation.
 Recovery flow:
   1. Take a pre-recovery snapshot of current (possibly corrupted) state
   2. Restore from the last known-good snapshot
-  3. Run Alembic upgrade head to ensure schema is current
+  3. Run Alembic upgrade heads to ensure schema is current
   4. Run DB health probe to confirm restoration worked
   5. Log recovery event to guardian_events
 """
@@ -30,15 +30,33 @@ class AutoRecovery:
         from aether_os.core.guardian.snapshot_manager import get_snapshot_manager
         from aether_os.core.guardian.models import GuardianEvent
         from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import select
         from datetime import datetime
 
+        # Check for running runs
+        max_retries = 5
+        for _ in range(max_retries):
+            sf = get_session_factory()
+            async with sf() as session:
+                running_runs = (await session.execute(
+                    select(Run).where(Run.status == 'running')
+                )).scalars().all()
+            
+            if not running_runs:
+                break
+            
+            logger.warning("Guardian AutoRecovery: deferring restore due to active pipeline runs")
+            await asyncio.sleep(30)
+        else:
+            logger.error("Guardian AutoRecovery: failed to restore due to persistent running pipeline runs")
+            return False
+
         mgr = get_snapshot_manager()
-
+        # ... rest of the original recover() logic ...
         logger.warning("Guardian AutoRecovery: starting recovery sequence")
-
-        # Step 1: snapshot current state before we restore (forensic record)
+        # Step 1: snapshot current state
         await mgr.take_snapshot(trigger="pre_recovery", note="Pre-recovery forensic snapshot")
-
         # Step 2: find latest clean snapshot
         latest = await mgr.get_latest()
         if latest is None:
@@ -88,7 +106,7 @@ class AutoRecovery:
         return health_ok
 
     async def _run_alembic_upgrade(self) -> bool:
-        """Run alembic upgrade head in an executor (blocking operation)."""
+        """Run alembic upgrade heads in an executor (blocking operation)."""
         import pathlib
 
         alembic_ini = pathlib.Path(__file__).resolve().parent.parent.parent / "aether_os" / "alembic.ini"
@@ -102,7 +120,7 @@ class AutoRecovery:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                "alembic", "-c", str(alembic_ini), "upgrade", "head",
+                "alembic", "-c", str(alembic_ini), "upgrade", "heads",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -110,7 +128,7 @@ class AutoRecovery:
             if proc.returncode != 0:
                 logger.warning("Guardian alembic upgrade warnings: %s", stderr.decode(errors="replace")[:300])
                 return proc.returncode == 0
-            logger.info("Guardian: alembic upgrade head completed")
+            logger.info("Guardian: alembic upgrade heads completed")
             return True
         except asyncio.TimeoutError:
             logger.error("Guardian: alembic upgrade timed out")

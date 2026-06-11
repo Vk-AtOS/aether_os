@@ -496,8 +496,13 @@ async def _call_bedrock(
                 from aether_os.orchestrator.factory_pipeline import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP
                 _run_id = _ARID.get("") or os.environ.get("ACTIVE_RUN_ID", "unknown")
                 _phase  = _AP.get("") or os.environ.get("ACTIVE_PHASE", "unknown")
+                
+                # Fetch org_id if available
+                _org_id = os.environ.get("ACTIVE_ORG_ID", "-")
+                
                 asyncio.create_task(
                     _gbt()._async_record_llm_call(
+                        org_id=_org_id,
                         project_id=_run_id,
                         phase=_phase,
                         model=f"bedrock/{model_id}",

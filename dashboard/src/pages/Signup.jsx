@@ -59,8 +59,8 @@ const Signup = () => {
         email: form.email.trim(),
         password: form.password,
         org_name: form.org_name.trim() || undefined,
-        terms_accepted: true,
-        dpa_accepted: true,
+        terms_accepted: form.terms_accepted,
+        dpa_accepted: form.dpa_accepted,
       });
       api.setToken(res.data.access_token);
       if (res.data.refresh_token) {
@@ -141,9 +141,9 @@ const Signup = () => {
           {/* Legal checkboxes */}
           <div className="space-y-3 pt-1">
             {[
-              { key: 'terms_accepted', doc: 'tos', linkText: 'Terms of Service', suffix: '' },
-              { key: 'dpa_accepted',   doc: 'dpa', linkText: 'Data Processing Agreement', suffix: ' (GDPR Art. 28)' },
-            ].map(({ key, doc, linkText, suffix }) => (
+              { key: 'terms_accepted', linkText: 'Terms of Service', suffix: '', apiLink: '/api/legal/tos' },
+              { key: 'dpa_accepted',   linkText: 'Data Processing Agreement', suffix: ' (GDPR Art. 28)', apiLink: '/api/legal/dpa' },
+            ].map(({ key, linkText, suffix, apiLink }) => (
               <div key={key} className="flex items-start gap-3">
                 <button type="button"
                   onClick={() => setForm(f => ({ ...f, [key]: !f[key] }))}
@@ -156,7 +156,7 @@ const Signup = () => {
                 </button>
                 <span className="text-xs text-muted">
                   I accept the{' '}
-                  <a href={`/legal?doc=${doc}`} target="_blank" rel="noopener noreferrer"
+                  <a href={apiLink} target="_blank" rel="noopener noreferrer"
                     className="text-accent underline underline-offset-2">{linkText}</a>
                   {suffix}
                 </span>

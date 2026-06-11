@@ -364,6 +364,9 @@ async def _generate_domain_component(
         "- Visual polish: rounded-2xl, shadows, colour badges, proper spacing — make it look like a real product\n"
         f"- Entities available in this app (for label inspiration): {', '.join(entity_names)}\n"
         f"- Design personality: {domain} apps should feel visually distinct — avoid generic grey/white Bootstrap-style layouts\n\n"
+        "- Responsive Design: Use Tailwind responsive prefixes (sm:, md:, lg:) on ALL grid/flex containers and text size declarations.\n"
+        "- Accessibility: Use 'aria-label' on every icon-only button; use 'htmlFor' and 'aria-label' on all inputs.\n"
+        "- Loading/Empty states: Include an 'isLoading' branch showing a skeleton/spinner and an 'isEmpty' branch with an empty-state illustration/text.\n\n"
         "Return ONLY the React component code. No markdown fences, no explanation."
     )
 
@@ -4968,43 +4971,41 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning(f"p05: Gate 2 approval/revision failed: {e}")
 
-    # ── Step 6: Launch Async Build (FIX 16) ──────────────────────────────────
-    # Non-blocking: we return success immediately after codegen.
-    # The build runs in the background.
-    build_status_file = project_dir / "build_status.json"
-    build_status_file.write_text(json.dumps({"status": "building", "started_at": int(time.time())}))
-    
-    # We use a detached subprocess to ensure it continues after the phase finishes.
+    # ── Step 6: Synchronous Build (FIX 33) ──────────────────────────────────
+    # Now blocking to ensure artifacts exist for deployment.
+    frontend_dir = project_dir / 'frontend'
     build_cmd = "npm install && npm run build"
     log_file = output_dir / "npm_build.log"
     
-    # Simple script to run build and update status
-    bg_script = textwrap.dedent(f"""\
-        import subprocess, json, time, os
-        from pathlib import Path
+    frontend_build_failed = False
+    try:
+        logger.info("p05: Running synchronous frontend build...")
+        result = subprocess.run(
+            build_cmd, 
+            shell=True, 
+            cwd=str(frontend_dir), 
+            capture_output=True, 
+            text=True,
+            timeout=600 # 10 mins
+        )
+        with open(log_file, "w") as f:
+            f.write(f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}\n")
         
-        project_dir = Path('{project_dir}')
-        frontend_dir = project_dir / 'frontend'
-        status_file = project_dir / 'build_status.json'
-        log_path = Path('{log_file}')
-        
-        try:
-            with open(log_path, 'w') as f:
-                res = subprocess.run('{build_cmd}', shell=True, cwd=str(frontend_dir), 
-                                     stdout=f, stderr=subprocess.STDOUT, timeout=1200)
-            
-            if res.returncode == 0:
-                status = "done"
-            else:
-                status = "failed"
-        except Exception as e:
-            status = "failed"
-            with open(log_path, 'a') as f:
-                f.write(f'\\nError: {{str(e)}}')
-        
-        try:
-            status_file.write_text(json.dumps({{"status": status, "finished_at": int(time.time())}}))
-        except Exception:
+        if result.returncode != 0:
+            logger.error("p05: Frontend build failed with code %d", result.returncode)
+            frontend_build_failed = True
+    except Exception as e:
+        logger.error("p05: Frontend build exception: %s", e)
+        frontend_build_failed = True
+
+    ctx.record_phase(PhaseOutput(
+        phase_id="p05",
+        phase_name="frontend",
+        passed=not frontend_build_failed,
+        metadata={"frontend_build_failed": frontend_build_failed},
+        duration_seconds=0, # Simplified
+    ))
+
             pass
     """)
     

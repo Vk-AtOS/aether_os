@@ -15,7 +15,7 @@ def _utcnow() -> datetime:
 class Organisation(Base):
     __tablename__ = "organisations"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id: Mapped[str] = mapped_column(String(50), primary_key=True, default=lambda: f"org_{uuid.uuid4()}")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     plan: Mapped[str] = mapped_column(String(50), default="trial")  # trial, pro, enterprise
@@ -27,6 +27,8 @@ class Organisation(Base):
     data_region: Mapped[str] = mapped_column(String(20), default="global")
     scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
@@ -36,7 +38,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(ForeignKey("organisations.id"), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="member")  # owner, member
@@ -47,6 +49,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     mfa_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
 
@@ -54,7 +57,7 @@ class APIKey(Base):
     __tablename__ = "api_keys"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(ForeignKey("organisations.id"), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_used_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -67,7 +70,7 @@ class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    org_id: Mapped[Optional[str]] = mapped_column(ForeignKey("organisations.id"), nullable=True, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=True, index=True)
     command: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     started_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True, index=True)
@@ -136,7 +139,7 @@ class PhaseCompletion(Base):
 class PhaseConfig(Base):
     __tablename__ = "phase_configs"
 
-    org_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     phase_name: Mapped[str] = mapped_column(String(255), primary_key=True)
     enabled: Mapped[int] = mapped_column(default=1)
     priority: Mapped[str] = mapped_column(String(50), default="normal")
@@ -154,7 +157,7 @@ class Decision(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     decision_type: Mapped[str] = mapped_column(String(100), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     what: Mapped[str] = mapped_column(Text, nullable=False)
@@ -172,7 +175,7 @@ class Webhook(Base):
     __tablename__ = "webhooks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
     events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     secret: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -184,7 +187,7 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -197,7 +200,7 @@ class OrgApiKey(Base):
     __tablename__ = "org_api_keys"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)   # "anthropic", "google", "openrouter", "bedrock"
     api_key: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
@@ -210,7 +213,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -224,7 +227,7 @@ class SamlConfig(Base):
     __tablename__ = "saml_configs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False)
     idp_entity_id: Mapped[str] = mapped_column(String(512), nullable=False)
     idp_sso_url: Mapped[str] = mapped_column(String(512), nullable=False)
     idp_cert: Mapped[Text] = mapped_column(Text, nullable=False)
@@ -235,7 +238,7 @@ class ArtifactEmbedding(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     embedding: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -245,7 +248,7 @@ class MarketplaceProfile(Base):
     __tablename__ = "marketplace_profiles"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     base_domain: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -290,7 +293,7 @@ class TokenBudgetRecord(Base):
     __tablename__ = "token_budget_records"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     month: Mapped[str] = mapped_column(String(7), nullable=False)       # "YYYY-MM"
     input_tokens: Mapped[int] = mapped_column(default=0)
     output_tokens: Mapped[int] = mapped_column(default=0)
@@ -308,7 +311,7 @@ class LLMCallRecord(Base):
     __tablename__ = "llm_call_records"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     project_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     phase: Mapped[str] = mapped_column(String(100), nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -323,7 +326,7 @@ class InstalledPluginRecord(Base):
     __tablename__ = "installed_plugins"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     plugin_id: Mapped[str] = mapped_column(String(100), nullable=False)
     config_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # encrypted JSON
     installed_at: Mapped[float] = mapped_column(Float, default=time.time)
@@ -336,13 +339,22 @@ class LlmConfig(Base):
     __tablename__ = "llm_config"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="openrouter")
     heavy_model: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     light_model: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     prefer_paid: Mapped[bool] = mapped_column(default=False)
     council_enabled: Mapped[bool] = mapped_column(default=True)
     council_strict_mode: Mapped[bool] = mapped_column(default=False)
+    # LangSmith
+    langsmith_enabled: Mapped[bool] = mapped_column(default=False)
+    langsmith_project: Mapped[str] = mapped_column(String(255), default="aetheros-factory")
+    # Bedrock
+    bedrock_enabled: Mapped[bool] = mapped_column(default=False)
+    bedrock_region: Mapped[str] = mapped_column(String(50), default="us-east-1")
+    bedrock_model_heavy: Mapped[str] = mapped_column(String(255), default="us.anthropic.claude-sonnet-4-6")
+    bedrock_model_light: Mapped[str] = mapped_column(String(255), default="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+
     updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=time.time)
 
 
@@ -351,7 +363,7 @@ class UserLearningPattern(Base):
     __tablename__ = "user_learning_patterns"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     pattern_type: Mapped[str] = mapped_column(String(64), nullable=False)
     pattern_key: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -368,7 +380,7 @@ class LearningClarificationPending(Base):
     __tablename__ = "learning_clarifications_pending"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True)
     question: Mapped[str] = mapped_column(Text, nullable=False)
@@ -396,7 +408,7 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # None = org-wide
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -411,7 +423,7 @@ class CodebaseProfile(Base):
     __tablename__ = "codebase_profiles"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(ForeignKey("organisations.id"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=False, index=True)
     repo_url: Mapped[str] = mapped_column(String(512), nullable=False)
     repo_name: Mapped[str] = mapped_column(String(256), nullable=False)
     detected_stack: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # {"backend": "FastAPI", "frontend": "React", "db": "PostgreSQL"}
@@ -426,7 +438,7 @@ class BuildFeedback(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # e.g. ["great-ui", "fast-api", "clean-models"]
@@ -440,7 +452,7 @@ class GoldenBuild(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
-    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     domain: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
     prompt_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # first 500 chars of original prompt

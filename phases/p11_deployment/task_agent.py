@@ -227,6 +227,22 @@ echo "Update successful."
         self._write_docker_compose(project_dir, app_dir)
         self._write_deploy_md(project_dir)
 
+        # FIX 33: Check for frontend build failure
+        frontend_build_failed = False
+        if hasattr(phase_input, "phase_outputs"):
+            for phase_output in phase_input.phase_outputs:
+                if phase_output.phase_name == "frontend":
+                    frontend_build_failed = phase_output.metadata.get("frontend_build_failed", False)
+                    break
+        
+        if frontend_build_failed:
+            logger.error("p11: Deployment aborted: Frontend build failed.")
+            return {
+                "success": False,
+                "error": "Frontend build failed — see p05 logs. Cannot deploy.",
+                "skipped": True,
+            }
+
         port = self._find_free_port()
         image_name = f"aetheros-{run_id[:8]}"
         container_name = f"aetheros-app-{run_id[:8]}"

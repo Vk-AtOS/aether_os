@@ -386,8 +386,13 @@ class ModelRouter:
                             _cost_usd = (_est_input * _in_rate + _est_output * _out_rate) / 1_000_000
                             # Write to LLMCallRecord (per-run billing detail)
                             from aether_os.core.billing import get_billing_tracker
+                            
+                            # Get org_id from environment or context (assume injected similarly to run_id)
+                            _org_id = os.environ.get("ACTIVE_ORG_ID", "-")
+                            
                             _ct3 = asyncio.create_task(
                                 get_billing_tracker()._async_record_llm_call(
+                                    org_id=_org_id,
                                     project_id=_run_id,
                                     phase=_phase,
                                     model=f"{spec.provider}/{spec.model}",
