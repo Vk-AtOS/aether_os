@@ -121,8 +121,8 @@ def get_fallback_chain() -> List[ModelSpec]:
         defaults = [m.strip() for m in _DEFAULT_FALLBACK_MODELS.split(",")]
         openrouter_models = list(dict.fromkeys([heavy] + defaults))  # dedup, preserve order
 
-    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.amazon.nova-pro-v1:0")
-    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.amazon.nova-lite-v1:0")
+    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")
+    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.anthropic.claude-haiku-4-5-20251001-v1:0")
     bedrock_model  = bedrock_heavy  # model_router uses heavy by default; light selected in client.py
     # Bedrock fallback: if heavy model fails, try Llama 3.3 70B before OpenRouter free tier
     bedrock_fallback_model = os.environ.get("BEDROCK_MODEL_FALLBACK", "us.meta.llama3-3-70b-instruct-v1:0")
@@ -227,12 +227,19 @@ async def _apply_org_chain_overrides(
         filtered: List[ModelSpec] = []
         has_gemini = False
         has_openrouter = False
+        bedrock_primary_updated = False
 
         for spec in chain:
             # Remove bedrock if DB says it's disabled for this org
             if spec.provider == "bedrock" and cfg is not None and not cfg.bedrock_enabled:
                 logger.debug("Router: org %s has bedrock_enabled=False — removing from chain", org_id[:8])
                 continue
+            # Override first bedrock spec's model with DB-configured heavy model
+            if (spec.provider == "bedrock" and not bedrock_primary_updated
+                    and cfg is not None and cfg.bedrock_model_heavy):
+                spec = ModelSpec(spec.provider, cfg.bedrock_model_heavy, spec.timeout_seconds, spec.retry_count)
+                bedrock_primary_updated = True
+                logger.debug("Router: org %s bedrock model overridden to %s", org_id[:8], cfg.bedrock_model_heavy)
             if spec.provider == "gemini":
                 has_gemini = True
             if spec.provider == "openrouter":
@@ -619,7 +626,8 @@ class ModelRouter:
             )
         if spec.provider == "bedrock":
             return await _llm_mod._call_bedrock(
-                prompt, task_type, system=system, max_tokens=max_tokens
+                prompt, task_type, system=system, max_tokens=max_tokens,
+                model_id=spec.model,
             )
         if spec.provider == "gemini":
             return await _llm_mod._call_gemini(
