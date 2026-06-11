@@ -454,12 +454,12 @@ async def _call_bedrock(
         _bdr_kwargs: dict = {
             "region_name": region,
             "config": _BotoConfig(
-                # read_timeout must be < BEDROCK_TIMEOUT (default 180s) so the
-                # boto3 thread raises ReadTimeoutError and exits before asyncio
-                # cancellation fires — prevents zombie threads piling up.
-                read_timeout=150,
-                connect_timeout=15,
-                retries={"max_attempts": 0},  # let our own retry loop handle it
+                # read_timeout << model_router timeout (180s) so the boto3 thread
+                # raises ReadTimeoutError and exits BEFORE asyncio wait_for fires.
+                # Keeps the thread pool clear of zombie threads on slow models.
+                read_timeout=90,
+                connect_timeout=10,
+                retries={"max_attempts": 0},  # model_router owns retry logic
             ),
         }
         _key_id = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
@@ -502,8 +502,8 @@ async def _call_bedrock(
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            # 330s outer guard — boto3 read_timeout=300 fires first under normal conditions
-            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=330)
+            # 100s guard — fires after botocore read_timeout=90s so thread has already exited
+            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=100)
             # Record per-call LLM usage in DB (best-effort)
             try:
                 from aether_os.core.billing import get_billing_tracker as _gbt
