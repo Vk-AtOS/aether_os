@@ -51,16 +51,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             if resp.status_code >= 400:
                 raise ValueError(f"health returned {resp.status_code}")
     except Exception as exc:
-        logger.info("[p07b] backend not reachable at %s (%s) — skipping load test", health_url, exc)
-        results["skipped"] = True
-        results["reason"] = "backend not running locally"
+        logger.error("[p07b] backend not reachable at %s (%s) — load test failed", health_url, exc)
+        results["success"] = False
+        results["reason"] = f"Cannot run performance test — app health check failed: {exc}"
         (output_dir / "perf_results.json").write_text(json.dumps(results, indent=2))
         return TaskResult(
             output_path=str(output_dir / "perf_results.json"),
-            confidence=0.5,
+            confidence=0.0,
             metadata=results,
-            success=True,
-            issues=[],
+            success=False,
+            issues=[results["reason"]],
         )
 
     # ── Run concurrent load ───────────────────────────────────────────────────

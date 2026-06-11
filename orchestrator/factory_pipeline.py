@@ -464,8 +464,20 @@ class FactoryPipeline:
                 # Emit file_written events for every file produced by this phase
                 _phase_dir = project_dir / phase_name
                 if _phase_dir.exists():
+                    # Patterns to exclude
+                    exclude_patterns = [
+                        "**/node_modules/**", "**/dist/**", "**/.git/**", 
+                        "**/__pycache__/**", "**/*.pyc",
+                    ]
+                    
                     for _f in _phase_dir.rglob("*"):
                         if _f.is_file():
+                            rel_path = str(_f.relative_to(project_dir))
+                            
+                            # Simple filter
+                            if any(p in rel_path for p in ["node_modules/", ".git/", "dist/", "__pycache__/"]) or rel_path.endswith(".pyc"):
+                                continue
+
                             try:
                                 _sz = _f.stat().st_size
                             except OSError:
@@ -473,7 +485,7 @@ class FactoryPipeline:
                             await emit({
                                 "type": "file_written",
                                 "phase": phase_name,
-                                "path": str(_f.relative_to(project_dir)),
+                                "path": rel_path,
                                 "size": _sz,
                             }, run_id=run_id)
 
@@ -600,9 +612,35 @@ class FactoryPipeline:
                         logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
 
                     # Spec review gate: pause here if decision_mode != "autonomous"
-                    # so the user can inspect/edit the parsed requirements before codegen starts.
                     if accumulated_context.get("decision_mode") != "autonomous":
                         try:
+                            # Problem 34: Check if decision already exists.
+                            _ctrl = await get_control(run_id)
+                            # If it's already approved, just continue. If it's missing or unexpected, emit error.
+                            if _ctrl == "spec_approved":
+                                logger.info("[pipeline] Spec already approved — continuing (run=%s)", run_id)
+                            elif _ctrl is None or _ctrl not in ("spec_review", "spec_approved"):
+                                # Wiped or never created
+                                logger.error("[pipeline] Gate decision not found for run %s. Emitting gate_error.", run_id)
+                                await publish_event(run_id, {
+                                    "type": "gate_error",
+                                    "run_id": run_id,
+                                    "message": "Gate decision not found. It may have been wiped by a system restore.",
+                                })
+                                # Update metadata
+                                # (Assuming there's a function to update run metadata, 
+                                # if not, we can use a direct DB query here or via ledger)
+                                from aether_os.core.db import get_session_factory as _gsf_warn
+                                from aether_os.core.models import Run as _Run_warn
+                                from sqlalchemy import update as _sa_up_warn
+                                async with _gsf_warn()() as _s_warn:
+                                    await _s_warn.execute(
+                                        _sa_up_warn(_Run_warn)
+                                        .where(_Run_warn.id == run_id)
+                                        .values(metadata=func.jsonb_set(_Run_warn.metadata, '{pipeline_warning}', '"Gate decision wiped — check logs"', True))
+                                    )
+                                    await _s_warn.commit()
+
                             await set_control(run_id, "spec_review")
                             await emit({"type": "spec_review_ready", "run_id": run_id}, run_id=run_id)
                             logger.info("[pipeline] Spec review gate: waiting for approval (run=%s)", run_id)

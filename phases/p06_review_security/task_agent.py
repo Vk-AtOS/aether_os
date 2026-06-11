@@ -264,7 +264,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 scan_result.score, len(scan_result.routes), pdf_path,
             )
         else:
-            logger.info("Compliance scan: no src/main.py found, skipping")
+            logger.info("Compliance scan: no src/main.py found, failing phase")
+            results["compliance"] = TaskResult(
+                output_path="",
+                confidence=0.0,
+                metadata={},
+                success=False,
+                issues=["Source code not found — cannot perform security review. Fix upstream code generation errors first."]
+            )
 
     except Exception as e:
         logger.warning("Compliance scan failed (non-critical): %s", e)

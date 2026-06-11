@@ -325,26 +325,41 @@ async def restore_snapshot(
     }
 
 
-# ── Baseline management (admin) ───────────────────────────────────────────────
+# ── Baseline management (superadmin) ──────────────────────────────────────────
 
-@router.post("/baseline/refresh")
-async def refresh_baseline(
+@router.post("/update-baseline")
+async def update_baseline(
+    req: Dict[str, Any],
     user: Dict[str, Any] = _get_current_user(),
 ) -> Dict[str, Any]:
     """
-    Refresh the file integrity baseline after a legitimate code deploy.
-    Call this after every planned deployment so the watchdog doesn't flag
-    the new code as tampering.
+    Refresh the file integrity baseline for specific files.
+    Superadmin only.
     """
-    _require_admin(user)
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+        
     from aether_os.core.guardian.threat_detector import get_threat_detector, _CRITICAL_FILES
+    from pathlib import Path
 
+    file_path = req.get("file_path")
     td = get_threat_detector()
     refreshed = []
-    for path in _CRITICAL_FILES:
-        if path.exists():
-            await td.update_baseline(path)
-            refreshed.append(path.name)
+    
+    if file_path:
+        # Find matching file in _CRITICAL_FILES
+        target = next((f for f in _CRITICAL_FILES if f.name == file_path or str(f).endswith(file_path)), None)
+        if target and target.exists():
+            await td.update_baseline(target)
+            refreshed.append(target.name)
+        else:
+            raise HTTPException(status_code=404, detail="File not monitored or not found")
+    else:
+        # Refresh all
+        for path in _CRITICAL_FILES:
+            if path.exists():
+                await td.update_baseline(path)
+                refreshed.append(path.name)
 
-    logger.info("Guardian baseline refreshed by %s: %s", user.get("sub", "unknown"), refreshed)
-    return {"ok": True, "refreshed_files": refreshed}
+    logger.info("Guardian baseline updated by %s: %s", user.get("sub", "unknown"), refreshed)
+    return {"ok": True, "updated_files": refreshed}

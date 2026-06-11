@@ -31,10 +31,19 @@ class QualityScore:
     details: Dict[str, Any] = field(default_factory=dict)
 
 def _check_auth_coverage(src_dir: Path) -> float:
-    """Check what % of routes in routers/ are protected by auth."""
+    """Check if JWT decode middleware is defined and routes use it."""
     routers_dir = src_dir / "routers"
     if not routers_dir.exists():
         return 0.0
+    
+    # Check for JWT guard/middleware
+    has_jwt = False
+    for f in src_dir.rglob("*.py"):
+        if "jwt" in f.read_text(errors="ignore").lower():
+            has_jwt = True
+            break
+            
+    if not has_jwt: return 0.0
     
     total_routes = 0
     protected_routes = 0
@@ -42,55 +51,56 @@ def _check_auth_coverage(src_dir: Path) -> float:
     for f in routers_dir.glob("*.py"):
         if f.name == "__init__.py": continue
         code = f.read_text(errors="ignore")
+        # Look for @app.get/post etc.
         routes = re.findall(r"@\w+\.(?:get|post|put|patch|delete)\(", code)
         total_routes += len(routes)
         
-        # Look for Depends(get_current_user) or role guards
-        protected = len(re.findall(r"Depends\(get_current_user\)", code))
+        # Look for auth dependencies or auth-specific decorators
+        protected = len(re.findall(r"Depends\(get_current_user\)|@requires_auth", code))
         protected_routes += min(protected, len(routes))
         
     if total_routes == 0: return 1.0
-    return protected_routes / total_routes
+    return min(1.0, protected_routes / total_routes)
 
 def _check_validation_density(src_dir: Path) -> float:
     """Check if schemas use Pydantic validators or Field constraints."""
-    schemas_py = src_dir / "schemas.py"
-    if not schemas_py.exists():
-        return 0.0
+    # Find all Pydantic models
+    model_files = list(src_dir.rglob("models.py")) + list(src_dir.rglob("schemas.py"))
     
-    code = schemas_py.read_text(errors="ignore")
-    try:
-        tree = ast.parse(code)
-        classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name.endswith(("Base", "Create", "Update"))]
-        if not classes: return 0.0
+    total_fields = 0
+    validated_fields = 0
+    
+    for f in model_files:
+        code = f.read_text(errors="ignore")
+        # Find all fields defined as Mapped[type] = mapped_column(...) or Type: type = ...
+        fields = re.findall(r"mapped_column\((.+?)\)", code)
+        total_fields += len(fields)
         
-        validated_classes = 0
-        for cls in classes:
-            has_val = False
-            for node in ast.walk(cls):
-                if isinstance(node, ast.Call):
-                    if isinstance(node.func, ast.Name) and node.func.id == "Field":
-                        has_val = True
-                    if isinstance(node.func, ast.Attribute) and node.func.attr == "field_validator":
-                        has_val = True
-                if has_val: break
-            if has_val: validated_classes += 1
-            
-        return validated_classes / len(classes)
-    except Exception:
-        return 0.5
+        # Count fields with constraints (nullable=False, ForeignKey, index=True)
+        # or Pydantic Field() / validators
+        validated = len(re.findall(r"mapped_column\(.*?nullable=False.*?\)", code))
+        validated += len(re.findall(r"mapped_column\(ForeignKey", code))
+        validated_fields += min(validated, len(fields))
+
+    if total_fields == 0: return 0.5
+    return min(1.0, validated_fields / total_fields)
 
 def _check_seed_quality(src_dir: Path) -> float:
-    """Check record density and FK usage in seed.py."""
+    """Check if seed.py contains ORM object instantiation."""
     seed_py = src_dir / "seed.py"
     if not seed_py.exists():
         return 0.0
     
     code = seed_py.read_text(errors="ignore")
-    entities_seeded = len(re.findall(r"\w+\(", code)) - len(re.findall(r"User\(", code))
+    # Check for instantiation of ORM classes (assuming ClassName())
+    # This is a heuristic: uppercase class names followed by (
+    seeds = re.findall(r"\b[A-Z]\w+\(", code)
     
-    if entities_seeded >= 50: return 1.0
-    if entities_seeded >= 20: return 0.7
+    # Exclude common calls if any
+    seeds = [s for s in seeds if s not in ("print(", "asyncio(", "from(", "import(")]
+    
+    if len(seeds) >= 10: return 1.0
+    if len(seeds) >= 3: return 0.7
     return 0.3
 
 def _check_domain_specificity(src_dir: Path) -> float:

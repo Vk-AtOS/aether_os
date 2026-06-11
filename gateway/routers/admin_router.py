@@ -364,4 +364,13 @@ async def system_deploy(user: Dict[str, Any] = _current_user()):
     )
     log.append(f"systemctl restart: pid={restart.pid}")
 
+    # 4. Refresh Guardian baseline
+    try:
+        from aether_os.core.guardian.threat_detector import get_threat_detector
+        await get_threat_detector().update_all_baselines()
+        log.append("Guardian baseline updated")
+    except Exception as e:
+        logger.error("Failed to update Guardian baseline: %s", e)
+        log.append(f"Guardian baseline update failed: {e}")
+
     return {"ok": pull.returncode == 0, "log": log}

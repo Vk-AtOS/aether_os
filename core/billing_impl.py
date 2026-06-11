@@ -55,30 +55,30 @@ class UsageTracker:
         prices = _TOKEN_PRICES.get(model, _TOKEN_PRICES["default"])
         return (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
 
-    def record_llm_call(self, project_id: str, phase: str, model: str,
+    def record_llm_call(self, org_id: str, project_id: str, phase: str, model: str,
                         input_tokens: int, output_tokens: int,
                         cost_usd: Optional[float] = None) -> None:
         if cost_usd is None:
             cost_usd = self._calc_cost(model, input_tokens, output_tokens)
-        _run_async(self._async_record_llm_call(project_id, phase, model, input_tokens, output_tokens, cost_usd))
+        _run_async(self._async_record_llm_call(org_id, project_id, phase, model, input_tokens, output_tokens, cost_usd))
 
     def record_phase_completion(self, project_id: str, phase: str,
                                 duration_s: float) -> None:
         _run_async(self._async_record_phase_completion(project_id, phase, duration_s))
 
-    def get_project_cost(self, project_id: str) -> CostSummary:
-        return _run_async(self._async_get_project_cost(project_id)) or CostSummary(
+    def get_project_cost(self, org_id: str, project_id: str) -> CostSummary:
+        return _run_async(self._async_get_project_cost(org_id, project_id)) or CostSummary(
             project_id=project_id,
             total_input_tokens=0, total_output_tokens=0,
             total_cost_usd=0.0, phase_breakdown={},
         )
 
-    def get_phase_cost(self, project_id: str, phase: str) -> float:
-        return _run_async(self._async_get_phase_cost(project_id, phase)) or 0.0
+    def get_phase_cost(self, org_id: str, project_id: str, phase: str) -> float:
+        return _run_async(self._async_get_phase_cost(org_id, project_id, phase)) or 0.0
 
     # ── Async implementations ─────────────────────────────────────────────────
 
-    async def _async_record_llm_call(self, project_id: str, phase: str, model: str,
+    async def _async_record_llm_call(self, org_id: str, project_id: str, phase: str, model: str,
                                      input_tokens: int, output_tokens: int,
                                      cost_usd: float) -> None:
         try:
@@ -87,7 +87,7 @@ class UsageTracker:
             sf = get_session_factory()
             async with sf() as session:
                 session.add(LLMCallRecord(
-                    project_id=project_id, phase=phase, model=model,
+                    org_id=org_id, project_id=project_id, phase=phase, model=model,
                     input_tokens=input_tokens, output_tokens=output_tokens,
                     cost_usd=cost_usd, created_at=time.time(),
                 ))
@@ -106,7 +106,7 @@ class UsageTracker:
         except Exception as exc:
             logger.debug("record_phase_completion failed: %s", exc)
 
-    async def _async_get_project_cost(self, project_id: str) -> CostSummary:
+    async def _async_get_project_cost(self, org_id: str, project_id: str) -> CostSummary:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import LLMCallRecord
@@ -119,12 +119,12 @@ class UsageTracker:
                         func.coalesce(func.sum(LLMCallRecord.input_tokens), 0),
                         func.coalesce(func.sum(LLMCallRecord.output_tokens), 0),
                         func.coalesce(func.sum(LLMCallRecord.cost_usd), 0.0),
-                    ).where(LLMCallRecord.project_id == project_id)
+                    ).where(LLMCallRecord.org_id == org_id, LLMCallRecord.project_id == project_id)
                 )).one()
 
                 phase_rows = (await session.execute(
                     select(LLMCallRecord.phase, func.coalesce(func.sum(LLMCallRecord.cost_usd), 0.0))
-                    .where(LLMCallRecord.project_id == project_id)
+                    .where(LLMCallRecord.org_id == org_id, LLMCallRecord.project_id == project_id)
                     .group_by(LLMCallRecord.phase)
                 )).all()
 
@@ -143,7 +143,7 @@ class UsageTracker:
                 total_cost_usd=0.0, phase_breakdown={},
             )
 
-    async def _async_get_phase_cost(self, project_id: str, phase: str) -> float:
+    async def _async_get_phase_cost(self, org_id: str, project_id: str, phase: str) -> float:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import LLMCallRecord
@@ -153,7 +153,7 @@ class UsageTracker:
             async with sf() as session:
                 row = (await session.execute(
                     select(func.coalesce(func.sum(LLMCallRecord.cost_usd), 0.0))
-                    .where(LLMCallRecord.project_id == project_id, LLMCallRecord.phase == phase)
+                    .where(LLMCallRecord.org_id == org_id, LLMCallRecord.project_id == project_id, LLMCallRecord.phase == phase)
                 )).scalar_one()
             return round(float(row), 6)
         except Exception as exc:

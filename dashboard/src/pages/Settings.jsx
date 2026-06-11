@@ -86,7 +86,7 @@ const PhaseConfigPanel = ({ phase, config, onSave }) => {
 };
 
 const Settings = () => {
-  const { updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
+  const { orgName, updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
   const location = useLocation();
   const ssoRef = useRef(null);
 
@@ -116,7 +116,7 @@ const Settings = () => {
     openrouter_light_model: 'meta-llama/llama-3.3-70b-instruct:free',
     openrouter_fallback_models: [],
   });
-  const [availableModels, setAvailableModels] = useState({});
+  const [availableModels, setAvailableModels] = useState([]);
   const [llmSaveStatus, setLlmSaveStatus] = useState(null);
   const [modelTestStatus, setModelTestStatus] = useState({}); // model -> 'testing'|'ok'|'fail'
   const [customModelInput, setCustomModelInput] = useState('');
@@ -272,7 +272,7 @@ const Settings = () => {
           }));
         }
         if (modelsRes.status === 'fulfilled') {
-          setAvailableModels(modelsRes.value.data?.openrouter || {});
+          setAvailableModels(modelsRes.value.data || []);
         }
         // LangSmith settings
         try {
@@ -721,15 +721,17 @@ const Settings = () => {
                       {label} <span className="font-normal normal-case text-muted/60">({hint})</span>
                     </label>
                     <select
-                      value={Object.values(availableModels).includes(llmConfig[key]) ? llmConfig[key] : '__custom__'}
+                      value={availableModels.find(m => m.id === llmConfig[key]) ? llmConfig[key] : '__custom__'}
                       onChange={(e) => {
                         if (e.target.value !== '__custom__')
                           setLlmConfig(c => ({ ...c, [key]: e.target.value }));
                       }}
                       className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
                     >
-                      {Object.entries(availableModels).map(([name, id]) => (
-                        <option key={id} value={id}>{name} — {id}</option>
+                      {availableModels.map(m => (
+                        <option key={m.id} value={m.id} disabled={!m.plan_allowed}>
+                          {m.name} — {m.id} {m.plan_allowed ? '' : '(Pro only)'}
+                        </option>
                       ))}
                       <option value="__custom__">— paste custom ID below —</option>
                     </select>
@@ -1544,7 +1546,7 @@ const Settings = () => {
               {/* Danger Zone */}
               <div className="border border-danger/30 rounded-xl p-5 space-y-4 mt-4">
                 <h4 className="text-xs font-bold text-danger uppercase tracking-widest">Danger Zone</h4>
-                <p className="text-xs text-muted">Permanently delete this organisation and all associated data. This action cannot be undone.</p>
+                <p className="text-xs text-muted">Delete this organisation and all associated data. This will deactivate all users and schedule data for permanent deletion in 30 days.</p>
                 {deleteOrgStatus !== 'confirming' ? (
                   <button
                     onClick={() => setDeleteOrgStatus('confirming')}
@@ -1554,23 +1556,28 @@ const Settings = () => {
                   </button>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-xs text-danger font-bold">Type DELETE to confirm:</p>
+                    <p className="text-xs text-danger font-bold">Type <span className="underline italic">{orgName}</span> to confirm:</p>
                     <input
                       type="text"
                       value={deleteOrgInput}
                       onChange={e => setDeleteOrgInput(e.target.value)}
-                      placeholder="DELETE"
+                      placeholder={orgName}
                       className="w-full bg-surface border border-danger/30 rounded px-3 py-2 text-xs text-bright focus:outline-none focus:border-danger"
                     />
                     <div className="flex gap-3">
                       <button
-                        disabled={deleteOrgInput !== 'DELETE' || deleteOrgStatus === 'deleting'}
+                        disabled={deleteOrgInput !== orgName || deleteOrgStatus === 'deleting'}
                         onClick={async () => {
                           setDeleteOrgStatus('deleting');
                           try {
                             await api.client.delete('/account/org');
-                            api.clearToken();
-                            window.location.href = '/login';
+                            // After soft-delete, the user's token will become invalid on next check
+                            // but we clear it now for better UX.
+                            setTimeout(() => {
+                              api.clearToken();
+                              window.location.href = '/login';
+                            }, 2000);
+                            setDeleteOrgStatus('done');
                           } catch {
                             setDeleteOrgStatus('error');
                             setTimeout(() => setDeleteOrgStatus(null), 3000);
@@ -1578,7 +1585,7 @@ const Settings = () => {
                         }}
                         className="text-[10px] font-bold bg-danger text-white px-4 py-1.5 rounded uppercase tracking-wider hover:bg-danger/90 transition-colors disabled:opacity-40"
                       >
-                        {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'error' ? '✗ Error' : 'Permanently Delete'}
+                        {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'done' ? 'Scheduled' : deleteOrgStatus === 'error' ? '✗ Error' : 'Confirm Delete'}
                       </button>
                       <button
                         onClick={() => { setDeleteOrgStatus(null); setDeleteOrgInput(''); }}
