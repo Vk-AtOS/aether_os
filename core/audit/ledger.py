@@ -113,7 +113,8 @@ class DecisionLedger:
 
     async def async_log_audit_event(self, org_id: str, user_id: str, action: str,
                                     resource_type: str, resource_id: str,
-                                    metadata: Dict[str, Any], ip_address: str) -> None:
+                                    metadata: Dict[str, Any], ip_address: str,
+                                    user_agent: str = "-") -> None:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import AuditLog
