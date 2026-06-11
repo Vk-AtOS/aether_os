@@ -448,7 +448,18 @@ async def _call_bedrock(
     _per_call_usage: dict = {}
 
     def _invoke() -> str:
-        _bdr_kwargs: dict = {"region_name": region}
+        from botocore.config import Config as _BotoConfig  # type: ignore
+        _bdr_kwargs: dict = {
+            "region_name": region,
+            "config": _BotoConfig(
+                # read_timeout must be < BEDROCK_TIMEOUT (default 180s) so the
+                # boto3 thread raises ReadTimeoutError and exits before asyncio
+                # cancellation fires — prevents zombie threads piling up.
+                read_timeout=150,
+                connect_timeout=15,
+                retries={"max_attempts": 0},  # let our own retry loop handle it
+            ),
+        }
         _key_id = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
         _secret  = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
         if _key_id and _secret:
@@ -489,7 +500,8 @@ async def _call_bedrock(
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            text = await loop.run_in_executor(None, _invoke)
+            # 330s outer guard — boto3 read_timeout=300 fires first under normal conditions
+            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=330)
             # Record per-call LLM usage in DB (best-effort)
             try:
                 from aether_os.core.billing import get_billing_tracker as _gbt
@@ -542,13 +554,17 @@ async def _call_bedrock_vision(
     logger.info("LLM Vision call: provider=bedrock model=%s task=%s region=%s", model_id, task_type, region)
 
     def _invoke():
-        _bdr_kwargs: dict = {"region_name": region}
+        from botocore.config import Config as _BotoConfig  # type: ignore
+        _bdr_kwargs: dict = {
+            "region_name": region,
+            "config": _BotoConfig(read_timeout=120, connect_timeout=15, retries={"max_attempts": 0}),
+        }
         _key_id = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
         _secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
         if _key_id and _secret:
             _bdr_kwargs["aws_access_key_id"] = _key_id
             _bdr_kwargs["aws_secret_access_key"] = _secret
-            
+
         client = boto3.client("bedrock-runtime", **_bdr_kwargs)
         
         # Detect image format (simple)
