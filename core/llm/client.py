@@ -413,8 +413,8 @@ async def _call_ollama(prompt: str, task_type: str) -> str:
 # Nova models work with standard AWS credits/billing; no separate subscription required.
 # To use Anthropic Claude on Bedrock, set BEDROCK_MODEL_HEAVY/LIGHT env vars to
 # us.anthropic.claude-sonnet-4-6 after completing the AWS Marketplace subscription.
-_BEDROCK_HEAVY_DEFAULT = "us.amazon.nova-pro-v1:0"
-_BEDROCK_LIGHT_DEFAULT = "us.amazon.nova-lite-v1:0"
+_BEDROCK_HEAVY_DEFAULT = "us.anthropic.claude-sonnet-4-6"
+_BEDROCK_LIGHT_DEFAULT = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
 def _select_bedrock_model(task_type: str) -> str:
@@ -432,11 +432,13 @@ async def _call_bedrock(
     task_type: str,
     system: Optional[str] = None,
     max_tokens: int = 8192,
+    model_id: Optional[str] = None,
 ) -> str:
     """Call Claude on Amazon Bedrock via the Converse API (boto3, sync in executor)."""
     import boto3  # type: ignore
 
-    model_id = _select_bedrock_model(task_type)
+    if model_id is None:
+        model_id = _select_bedrock_model(task_type)
     region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
     system_prompt = system or (
         "You are AetherOS, an expert autonomous software development system. "
