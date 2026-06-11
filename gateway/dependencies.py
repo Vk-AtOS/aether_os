@@ -83,7 +83,6 @@ async def get_current_user(
     if token.startswith("aesk_"):
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import APIKey, Organisation
-        from sqlalchemy import select
 
         hashed = hash_api_key(token)
         session_factory = get_session_factory()
