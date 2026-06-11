@@ -56,6 +56,7 @@ import logging
 import os
 import pathlib
 import tempfile
+import textwrap
 import time
 from typing import Any, Dict, List, Optional
 
@@ -247,7 +248,13 @@ async def get_factory_run(
                 current_phase = _phase
                 # Synthesize an agent event from each phase completion
                 _label = _phase.replace("_", " ").replace("p0", "Phase ").replace("p1", "Phase 1")
-                _ts = _updated.timestamp() if hasattr(_updated, "timestamp") else None
+                # Fix 65: updated_at may be a float (epoch) or a datetime object
+                if hasattr(_updated, "timestamp"):
+                    _ts = _updated.timestamp()
+                elif isinstance(_updated, (int, float)) and _updated:
+                    _ts = float(_updated)
+                else:
+                    _ts = None
                 synthesized_events.append({
                     "agent": _label.title(),
                     "action": _status,
@@ -785,13 +792,18 @@ async def get_sse_token(
 async def stream_run_events(
     run_id: str,
     sse_token: Optional[str] = None,
+    last_event_id: Optional[str] = None,
 ):
     """Server-Sent Events stream for live pipeline output.
 
     Auth: POST /factory/runs/{run_id}/sse-token first, then use the
     returned sse_token as a query param here. JWTs must never be passed
     in URLs (they land in nginx/proxy logs).
+
+    Fix 21: Accepts Last-Event-ID header to resume from a specific position
+    so reconnects do not replay all events from the beginning.
     """
+    from fastapi import Request
     from fastapi.responses import StreamingResponse, Response
     from aether_os.core.audit.ledger import get_ledger
     from aether_os.core.rate_limiter import sse_token_pop
@@ -811,13 +823,41 @@ async def stream_run_events(
     if not detail:
         return Response(status_code=404, content="Run not found or access denied")
 
+    # Fix 21: parse Last-Event-ID from query param (browsers send header, but we also allow QP)
+    _last_seen = -1
+    if last_event_id is not None:
+        try:
+            _last_seen = int(last_event_id)
+        except (ValueError, TypeError):
+            _last_seen = -1
+
     async def event_generator():
         from aether_os.core.pipeline_state import get_redis, get_event_history, _local_history
 
-        # Replay history first so late-joining clients get full context
+        # Fix 21: replay only events after last_seen position
         history = await get_event_history(run_id)
-        for past_event in history:
-            yield f"data: {json.dumps(past_event)}\n\n"
+        # Fix 22: check decisions table for spec_review_ready events before replaying
+        _decided_ids: set = set()
+        try:
+            from aether_os.core.decisions.decision_engine import get_decision_engine as _gde
+            _engine = _gde()
+            _decisions = await _engine.list_for_run(run_id, status=None)
+            _decided_ids = {
+                d.id for d in _decisions
+                if getattr(d, "status", None) in ("approved", "rejected")
+            }
+        except Exception:
+            pass
+
+        replay_start = _last_seen + 1
+        for idx, past_event in enumerate(history[replay_start:], start=replay_start):
+            # Fix 22: swap spec_review_ready for decision_already_made if already decided
+            _etype = past_event.get("type", "")
+            if _etype in ("spec_review_ready", "PhaseApprovalRequired"):
+                _did = past_event.get("decision_id")
+                if _did and _did in _decided_ids:
+                    past_event = {**past_event, "type": "decision_already_made", "original_type": _etype}
+            yield f"id: {idx}\ndata: {json.dumps(past_event)}\n\n"
 
         r = await get_redis()
         if r is None:
@@ -829,7 +869,7 @@ async def stream_run_events(
                 buf = _local_history.get(run_id, [])
                 for raw in buf[seen:]:
                     seen += 1
-                    yield f"data: {raw}\n\n"
+                    yield f"id: {seen - 1}\ndata: {raw}\n\n"
                     try:
                         if json.loads(raw).get("type") == "pipeline_complete":
                             return
@@ -840,6 +880,7 @@ async def stream_run_events(
 
         pubsub = r.pubsub()
         await pubsub.subscribe(f"pipeline:events:{run_id}")
+        _live_idx = len(history)
         try:
             async for message in pubsub.listen():
                 if message["type"] != "message":
@@ -848,7 +889,14 @@ async def stream_run_events(
                     event = json.loads(message["data"])
                 except Exception:
                     continue
-                yield f"data: {message['data']}\n\n"
+                # Fix 22: also gate spec_review_ready on live events
+                _etype = event.get("type", "")
+                if _etype in ("spec_review_ready", "PhaseApprovalRequired"):
+                    _did = event.get("decision_id")
+                    if _did and _did in _decided_ids:
+                        event = {**event, "type": "decision_already_made", "original_type": _etype}
+                yield f"id: {_live_idx}\ndata: {json.dumps(event)}\n\n"
+                _live_idx += 1
                 if event.get("type") == "pipeline_complete":
                     break
         except Exception:
@@ -1082,6 +1130,14 @@ async def patch_file_content(
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(body.content, encoding="utf-8")
+        
+        # Post-write baseline update for Guardian
+        try:
+            from aether_os.core.guardian.threat_detector import get_threat_detector
+            await get_threat_detector().update_baseline(file_path)
+        except Exception as e:
+            logger.warning("Guardian: failed to update baseline after file write: %s", e)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error writing file: {e}")
 
@@ -1532,7 +1588,7 @@ async def start_run_app(
 
 <script>
 const base='/app-preview';
-fetch('/api/factory/runs/{run_id}/preview-credentials',{{headers:{{'Authorization':'Bearer '+localStorage.getItem('token')||''}}  }})
+fetch('/api/factory/runs/{run_id}/preview-credentials',{{headers:{{'Authorization':'Bearer '+(localStorage.getItem('aether_token')||'')}}}})
   .then(r=>r.ok?r.json():null).then(d=>{{
     if(d){{document.getElementById('email').textContent=d.email||'admin@example.com';document.getElementById('password').textContent=d.password||'Admin1234!';}}
   }}).catch(()=>{{}});
@@ -2133,14 +2189,40 @@ async def get_preview_credentials(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return demo login credentials for the generated app preview."""
+    """Return demo login credentials for the generated app preview.
+
+    Fix 23: Returns 503 with deployment_status if p11 has not completed.
+    Fix 77: Returns 503 with container_crashed if credentials file missing.
+    """
     import json as _json
     from aether_os.core.projects import get_project_manager
+    from aether_os.core.db import get_session_factory as _gsf_pc
+    from aether_os.core.models import PhaseCompletion as _PC_pc
+
+    # Fix 23: check p11_deployment phase status
+    try:
+        async with _gsf_pc()() as _sess_pc:
+            _p11 = await _sess_pc.get(_PC_pc, (run_id, "p11_deployment"))
+            _p11_status = _p11.status if _p11 else "pending"
+    except Exception:
+        _p11_status = "unknown"
+
+    if _p11_status not in ("passed", "completed"):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "detail": "app_not_deployed_yet",
+                "deployment_status": _p11_status,
+            },
+        )
+
     root_dir = get_project_manager().get_project_dir(run_id).resolve()
     creds_path = root_dir / "preview_credentials.json"
     if creds_path.exists():
         return _json.loads(creds_path.read_text())
-    # Fall back to scanning seed.py directly
+
+    # Fix 77: credentials file missing means app never started / crashed
+    # Try seed.py as fallback before returning 503
     for seed_candidate in [
         root_dir / "p04_backend" / "backend_codegen" / "src" / "seed.py",
     ]:
@@ -2155,7 +2237,16 @@ async def get_preview_credentials(
                     "password": _pass_m.group(1) if _pass_m else "(check seed.py)",
                     "note": "Extracted from seed.py — run 'Run App' to get predictable credentials",
                 }
-    raise HTTPException(status_code=404, detail="Preview credentials not available — start the app first.")
+
+    # Fix 77: no credentials file and no seed.py — app crashed or never started
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "detail": "app_not_running",
+            "reason": "container_crashed",
+            "suggestion": "Check deployment logs for the error cause",
+        },
+    )
 
 
 @router.get("/factory/runs/{run_id}/compliance")
@@ -2266,6 +2357,7 @@ async def approve_decision(
     user: Dict[str, Any] = _current_user(),
 ):
     from aether_os.core.decisions.decision_engine import get_decision_engine
+    from aether_os.core.pipeline_state import publish_event as _pub_evt
     engine = get_decision_engine()
     try:
         decision = await engine.resolve(
@@ -2273,9 +2365,67 @@ async def approve_decision(
             org_id=user["org_id"],
             approved=True,
         )
+        # Fix 22: emit gate_approved into Redis so SSE replay knows decision was made
+        try:
+            await _pub_evt(run_id, {
+                "type": "gate_approved",
+                "decision_id": decision_id,
+                "run_id": run_id,
+                "ts": time.time(),
+            })
+        except Exception:
+            pass
         return decision.to_dict()
     except LookupError:
-        raise HTTPException(status_code=404, detail="Decision not found")
+        # Fix 42: if not in DB, try to recover from Redis event history
+        try:
+            from aether_os.core.pipeline_state import get_event_history as _geh
+            _history = await _geh(run_id)
+            _redis_decision = None
+            for _evt in _history:
+                if (
+                    _evt.get("type") in ("spec_review_ready", "PhaseApprovalRequired", "approval_required")
+                    and str(_evt.get("decision_id", "")) == decision_id
+                ):
+                    _redis_decision = _evt
+                    break
+            if _redis_decision:
+                # Re-create and resolve
+                _new_d = await engine.request_approval(type(
+                    "_RecoveredDecision", (), {
+                        "run_id": run_id,
+                        "org_id": user["org_id"],
+                        "decision_type": _redis_decision.get("decision_type", "phase_escalation"),
+                        "title": _redis_decision.get("title", "Recovered gate"),
+                        "what": _redis_decision.get("what", "Recovered from Redis history"),
+                        "why": "Decision record was wiped; recovered from Redis event history",
+                        "phase": _redis_decision.get("phase", ""),
+                        "timeout_seconds": 300,
+                        "id": decision_id,
+                    }
+                )())
+                _resolved = await engine.resolve(
+                    decision_id=decision_id,
+                    org_id=user["org_id"],
+                    approved=True,
+                )
+                try:
+                    await _pub_evt(run_id, {
+                        "type": "gate_approved",
+                        "decision_id": decision_id,
+                        "run_id": run_id,
+                        "ts": time.time(),
+                        "recovered": True,
+                    })
+                except Exception:
+                    pass
+                return _resolved.to_dict()
+        except Exception:
+            pass
+        return {
+            "detail": "gate_decision_wiped_by_recovery",
+            "recovery_action": "pipeline_will_auto_proceed_in_600s",
+        }
     except PermissionError:
         raise HTTPException(status_code=403, detail="Decision belongs to a different org")
 
@@ -2569,7 +2719,13 @@ async def stop_deployment(
 
 @router.get("/factory/runs/{run_id}/artifacts")
 async def get_run_artifacts(run_id: str, user: Dict[str, Any] = _current_user()):
+    """List artifacts for a run.
+
+    Fix 78: Returns relative paths only (strips backend_codegen/src/ prefix).
+    Fix 81: Filters run_app.log from non-superadmin users.
+    """
     import os as _os
+    import re as _re_art
     from pathlib import Path
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Run
@@ -2586,13 +2742,27 @@ async def get_run_artifacts(run_id: str, user: Dict[str, Any] = _current_user())
     _ALLOW_HIDDEN = {".env.example", ".gitignore", ".dockerignore", ".eslintrc",
                      ".prettierrc", ".editorconfig", ".nvmrc"}
     _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
+    _is_superadmin = user.get("role") == "superadmin"
+
+    def _relative_artifact_path(rel_str: str) -> str:
+        """Fix 78: strip internal directory prefixes, keep only src/filename.py style."""
+        # Strip everything up to and including backend_codegen/src/ or phase/src/
+        _stripped = _re_art.sub(r'^.*?backend_codegen/src/', 'src/', rel_str)
+        if _stripped == rel_str:
+            _stripped = _re_art.sub(r'^p\d+[^/]*/(?:backend_codegen/)?src/', 'src/', rel_str)
+        return _stripped
+
     if project_dir.exists():
         for fpath in sorted(project_dir.rglob("*")):
             if not fpath.is_file():
                 continue
             rel = fpath.relative_to(project_dir)
+            rel_str = str(rel)
             parts = rel.parts
             if any(p in _ARTIFACT_SKIP for p in parts):
+                continue
+            # Fix 81: filter run_app.log for non-superadmin
+            if fpath.name == "run_app.log" and not _is_superadmin:
                 continue
             # Allow .github/ and .devcontainer/ dirs; allow known dotfiles; skip everything else hidden
             if any(p.startswith('.') for p in parts):
@@ -2600,9 +2770,11 @@ async def get_run_artifacts(run_id: str, user: Dict[str, Any] = _current_user())
                     continue
             if fpath.suffix in {".pyc", ".pyo"}:
                 continue
+            # Fix 78: use relative path (strip absolute filesystem prefixes)
+            _display_path = _relative_artifact_path(rel_str)
             artifacts.append({
                     "filename": fpath.name,
-                    "path": str(rel),
+                    "path": _display_path,
                     "phase": rel.parts[0] if len(rel.parts) > 1 else "root",
                     "size_bytes": fpath.stat().st_size,
                     "created_at": int(fpath.stat().st_mtime * 1000),
@@ -2661,6 +2833,75 @@ async def download_run_zip(run_id: str, user: Dict[str, Any] = _current_user()):
         media_type="application/zip",
         headers={{"Content-Disposition": f'attachment; filename="{{name}}.zip"'}},
     )
+
+
+@router.get("/api/factory/runs/{run_id}/portal")
+async def get_run_portal(
+    run_id: str,
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Fix 75: Return portal HTML content path and run summary.
+
+    Returns 404 with detail portal_not_generated if no portal data exists.
+    """
+    import pathlib as _pl
+    from aether_os.core.db import get_session_factory as _gsf_portal
+    from aether_os.core.models import Run as _Run_portal
+    from sqlalchemy import select as _sel_portal
+
+    async with _gsf_portal()() as _sess_portal:
+        _run_p = (await _sess_portal.execute(
+            _sel_portal(_Run_portal).where(
+                _Run_portal.id == run_id,
+                _Run_portal.org_id == user["org_id"],
+            )
+        )).scalar_one_or_none()
+    if not _run_p:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    _project_dir = _pl.Path.home() / ".aether_os" / "projects" / run_id
+
+    # Look for portal output from p14 or p10
+    _portal_html: Optional[str] = None
+    _portal_candidates = [
+        _project_dir / "p14_client_portal" / "portal" / "index.html",
+        _project_dir / "p14_client_portal" / "index.html",
+        _project_dir / "p10_docs_delivery" / "portal" / "index.html",
+        _project_dir / "p10_docs_delivery" / "index.html",
+    ]
+    for _cand in _portal_candidates:
+        if _cand.exists():
+            _portal_html = str(_cand.relative_to(_project_dir))
+            break
+
+    if not _portal_html:
+        raise HTTPException(status_code=404, detail="portal_not_generated")
+
+    # Gather deliverables list
+    _deliverables = []
+    for _phase in ("p10_docs_delivery", "p14_client_portal"):
+        _phase_dir = _project_dir / _phase
+        if _phase_dir.exists():
+            for _f in sorted(_phase_dir.rglob("*")):
+                if _f.is_file() and _f.suffix in (".html", ".pdf", ".zip", ".md", ".json"):
+                    _deliverables.append({
+                        "filename": _f.name,
+                        "path": str(_f.relative_to(_project_dir)),
+                        "size_bytes": _f.stat().st_size,
+                    })
+
+    _council = _run_p.council_delivery or {}
+    return {
+        "run_id": run_id,
+        "portal_html_path": _portal_html,
+        "summary": {
+            "project_name": _run_p.project_name or f"project-{run_id[:8]}",
+            "status": _run_p.status,
+            "quality_score": _run_p.quality_score,
+            "council_verdict": "passed" if _council.get("passed") else ("failed" if _council else "pending"),
+        },
+        "deliverables": _deliverables,
+    }
 
 
 @router.get("/factory/runs/{run_id}/traces")

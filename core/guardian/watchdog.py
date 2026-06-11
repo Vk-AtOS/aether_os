@@ -167,6 +167,7 @@ class GuardianWatchdog:
                         source_ip=e.get("source_ip"),
                         endpoint=e.get("endpoint"),
                         detail=e.get("detail"),
+                        org_id=None,
                     )
                     sess.add(row)
                     ids.append(row.id)

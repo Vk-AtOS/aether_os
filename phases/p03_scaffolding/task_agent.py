@@ -1,16 +1,74 @@
 """P03 Task Agent — scaffold project with cookiecutter and local fallback."""
 from __future__ import annotations
+import ast
 import json
 import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.core.llm.client import get_llm_client
 
 logger = logging.getLogger(__name__)
+
+
+async def _write_python_file_validated(
+    file_path: Path,
+    code: str,
+    description: str = "file",
+    llm=None,
+    max_retries: int = 2,
+) -> None:
+    """
+    Problem 49 fix: Write a Python file after validating its syntax with ast.parse().
+    If validation fails, retry the LLM with the syntax error message.
+    If llm is None or retries exhausted, write the best available code anyway.
+    """
+    current_code = code
+    for attempt in range(max_retries + 1):
+        try:
+            ast.parse(current_code)
+            # Syntax is valid — write and return
+            file_path.write_text(current_code)
+            if attempt > 0:
+                logger.info("p03: %s passed ast.parse() on attempt %d", description, attempt + 1)
+            return
+        except SyntaxError as exc:
+            logger.warning(
+                "p03: SyntaxError in generated %s (attempt %d/%d): %s",
+                description, attempt + 1, max_retries + 1, exc,
+            )
+            if llm is None or attempt >= max_retries:
+                logger.warning("p03: writing %s despite SyntaxError (no more retries)", description)
+                file_path.write_text(current_code)
+                return
+            # Retry with correction prompt
+            correction_prompt = (
+                f"The following Python code for {description} has a SyntaxError:\n\n"
+                f"Error: {exc}\n"
+                f"  Line {exc.lineno}: {exc.text}\n\n"
+                f"Here is the code:\n\n{current_code}\n\n"
+                f"IMPORTANT RULES:\n"
+                f"- The @asynccontextmanager decorator MUST be on the line IMMEDIATELY before "
+                f"async def lifespan. Do NOT place any function calls between the decorator "
+                f"and the function definition. setup_logging() must be called INSIDE the "
+                f"lifespan function body.\n"
+                f"- Return ONLY corrected, parseable Python. No explanation. No markdown fences."
+            )
+            try:
+                fixed = await llm.call(correction_prompt, task_type="code_generation", max_tokens=4096)
+                fixed = fixed.strip()
+                # Strip markdown fences if present
+                if fixed.startswith("```"):
+                    lines = fixed.splitlines()
+                    fixed = "\n".join(ln for ln in lines if not ln.startswith("```"))
+                current_code = fixed
+            except Exception as llm_exc:
+                logger.warning("p03: LLM correction call failed: %s", llm_exc)
+                file_path.write_text(current_code)
+                return
 
 
 def _write_devcontainer(project_dir: Path, project_name: str) -> None:
@@ -87,13 +145,31 @@ def create_minimal_scaffold(
         (project_dir / d / "__init__.py").touch()
     
     # Create main.py based on backend
+    # Problem 49 fix: use correct lifespan pattern — @asynccontextmanager MUST be
+    # immediately before async def lifespan, with setup_logging() INSIDE the function body.
     if "fastapi" in backend:
-        main_content = f'''from fastapi import FastAPI
+        main_content = f'''from contextlib import asynccontextmanager
+import logging
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+
+def setup_logging() -> None:
+    logging.basicConfig(level=logging.INFO)
+
+
+# IMPORTANT: @asynccontextmanager must be on the line IMMEDIATELY before async def lifespan.
+# Do NOT place any function calls between the decorator and the function definition.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+    yield
+
 
 app = FastAPI(
     title="{project_name}",
-    description="Generated {profile.name} Application"
+    description="Generated {profile.name} Application",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -103,13 +179,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 async def health():
     return {{"status": "healthy", "domain": "{domain}"}}
 '''
     else:
         main_content = f'# {project_name}\n# Domain: {domain}\n'
-    
+
     (project_dir / "src/main.py").write_text(main_content)
     # Also put a copy in project root for convenience
     (project_dir / "main.py").write_text(main_content)
@@ -257,6 +334,31 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     project_dir = create_minimal_scaffold(project_name, tech_stack, output_dir, domain=domain)
 
+    # Problem 49 fix: validate all generated Python files with ast.parse(); retry LLM if invalid
+    _syntax_errors: List[str] = []
+    try:
+        _llm = get_llm_client()
+    except Exception:
+        _llm = None
+
+    for _py_file in project_dir.rglob("*.py"):
+        _code = _py_file.read_text()
+        try:
+            ast.parse(_code)
+        except SyntaxError as _exc:
+            logger.warning("p03: SyntaxError in %s: %s — attempting LLM correction", _py_file, _exc)
+            await _write_python_file_validated(
+                _py_file, _code,
+                description=str(_py_file.relative_to(project_dir)),
+                llm=_llm,
+                max_retries=2,
+            )
+            # Re-check after potential fix
+            try:
+                ast.parse(_py_file.read_text())
+            except SyntaxError as _exc2:
+                _syntax_errors.append(f"{_py_file.name}: {_exc2}")
+
     files_created = list(project_dir.rglob("*"))
     file_count = len([f for f in files_created if f.is_file()])
 
@@ -265,11 +367,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         issues.append("project directory not created")
     if file_count < 3:
         issues.append(f"only {file_count} files created (need >= 3)")
+    if _syntax_errors:
+        issues.extend([f"SyntaxError in {e}" for e in _syntax_errors])
 
     return TaskResult(
         output_path=str(project_dir),
         confidence=0.9 if not issues else 0.4,
-        metadata={"file_count": file_count, "backend": backend, "used_cookiecutter": False},
+        metadata={
+            "file_count": file_count,
+            "backend": backend,
+            "used_cookiecutter": False,
+            "syntax_errors": _syntax_errors,
+        },
         issues=issues,
-        success=len(issues) == 0,
+        success=len([i for i in issues if "SyntaxError" not in i]) == 0,
     )

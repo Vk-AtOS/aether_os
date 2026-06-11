@@ -522,21 +522,62 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _table_names = [t.get("name", "?") for t in _existing_schema["tables"][:10]]
             _stack_hint += f"\nExisting DB tables (use these): {', '.join(_table_names)}"
 
-        try:
-            prompt = (
-                f"Design a complete software architecture for the following requirements:\n\n"
-                f"{requirements}\n\n"
+        # Problem 44 fix: extract must-have nouns from spec to validate entity coverage
+        def _extract_spec_nouns(text: str) -> List[str]:
+            """Extract distinct candidate entity nouns from spec must-have features."""
+            import re as _re
+            # Grab lines that look like requirements/features
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            nouns: List[str] = []
+            _stop = {"the", "and", "for", "are", "with", "that", "this", "from", "have",
+                     "will", "can", "but", "not", "build", "create", "make", "using",
+                     "api", "app", "rest", "web", "system", "service", "python", "fastapi",
+                     "django", "must", "should", "able", "each", "every", "user", "users",
+                     "data", "based", "support", "include", "provide"}
+            for line in lines[:40]:
+                words = _re.findall(r'\b([A-Za-z]{4,})\b', line)
+                for w in words:
+                    lw = w.lower()
+                    if lw not in _stop:
+                        nouns.append(lw.rstrip("s"))  # rough singular
+            # Deduplicate preserving order
+            seen: set = set()
+            result = []
+            for n in nouns:
+                if n not in seen:
+                    seen.add(n)
+                    result.append(n)
+            return result[:20]
+
+        _spec_nouns = _extract_spec_nouns(raw_input or requirements)
+        _min_entities = max(1, int(len(_spec_nouns) * 0.8))
+
+        def _build_arch_prompt(reqs: str, hint: str, extra: str = "") -> str:
+            return (
+                f"Design a complete software architecture for the following requirements.\n\n"
+                f"=== FULL REQUIREMENTS (read carefully) ===\n{reqs}\n"
+                f"=== END REQUIREMENTS ===\n\n"
+                f"CRITICAL INSTRUCTIONS:\n"
+                f"1. Extract ALL entity names from the spec above.\n"
+                f"2. Define a database table for EACH entity with appropriate columns and FK relationships.\n"
+                f"3. Define API endpoints for each entity's CRUD operations PLUS domain-specific operations.\n"
+                f"4. Validate that every must-have feature in the spec is represented in the architecture output.\n"
+                f"5. Do NOT generate only a generic 'items' entity — the schema must reflect the actual domain.\n\n"
                 f"Domain: {profile.name}\n"
                 f"Preferred Database: {profile.preferred_db}\n"
                 f"Suggested Stack: {json.dumps(profile.suggested_tech_stack)}\n"
                 f"Mandatory Patterns: {', '.join(profile.required_patterns)}\n"
                 f"Security: {', '.join(profile.security_requirements)}\n"
                 f"Example Entities to consider: {', '.join(profile.example_entities)}\n"
-                f"{_stack_hint}"
+                f"{hint}"
                 f"{similar_context}"
                 f"{mem}"
+                f"{extra}"
                 f"\nFocus on: tech stack choices, database schema, API endpoints, security."
             )
+
+        try:
+            prompt = _build_arch_prompt(requirements, _stack_hint)
             # Seed the schema example with domain defaults
             schema_example = dict(ARCHITECTURE_SCHEMA)
             schema_example["domain"] = domain
@@ -544,7 +585,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             if "database" in profile.suggested_tech_stack:
                 schema_example["tech_stack"]["database"] = profile.suggested_tech_stack["database"]
             schema_example["security_considerations"] = profile.security_requirements + ["Input validation"]
-            
+
             doc = await llm.call_structured(
                 prompt=prompt,
                 schema_example=schema_example,
@@ -554,6 +595,33 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             # Detect total failure: if parse_error flag is set or doc is identical to schema
             if doc.get("parse_error") or doc.get("tech_stack") == ARCHITECTURE_SCHEMA["tech_stack"]:
                 raise ValueError("LLM returned unparseable response")
+
+            # Problem 44 fix: validate entity coverage, retry up to 2 times if too few entities
+            _MAX_ENTITY_RETRIES = 2
+            for _retry in range(_MAX_ENTITY_RETRIES):
+                _db_tables = [t.get("table", "") for t in doc.get("database_schema", [])]
+                _entity_count = len([t for t in _db_tables if t and t not in ("users", "user")])
+                if _entity_count >= _min_entities:
+                    break
+                logger.warning(
+                    "[p02] Entity coverage check failed: got %d entities, spec requires ~%d. Retry %d/%d",
+                    _entity_count, _min_entities, _retry + 1, _MAX_ENTITY_RETRIES,
+                )
+                _missing_hint = (
+                    f"\n\nYou generated only {_entity_count} entities but the spec requires at least "
+                    f"{_min_entities}. Add the missing entities from this list: "
+                    f"{', '.join(_spec_nouns)}. "
+                    f"Each entity needs its own database table and CRUD API endpoints."
+                )
+                _retry_prompt = _build_arch_prompt(requirements, _stack_hint, extra=_missing_hint)
+                _retry_doc = await llm.call_structured(
+                    prompt=_retry_prompt,
+                    schema_example=schema_example,
+                    task_type="architecture",
+                )
+                if _retry_doc and not _retry_doc.get("parse_error"):
+                    doc = _retry_doc
+
         except Exception as e:
             logger.warning("[p02] LLM call failed (%s), using intelligent fallback", e)
             doc = {}

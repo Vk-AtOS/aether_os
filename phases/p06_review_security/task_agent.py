@@ -129,7 +129,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if src_path:
             # Ensure bandit is installed
             subprocess.run(["pip", "install", "bandit", "-q"], check=False)
-            
+
             # Run bandit
             result = subprocess.run(
                 ["bandit", "-r", "-f", "json", "-ll", str(src_path)],
@@ -139,34 +139,82 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 try:
                     data_json = json.loads(result.stdout)
                     bandit_findings = data_json.get("results", [])
+
+                    # Problem 73: check for files that bandit skipped due to parse errors
+                    _errors_section = data_json.get("errors", [])
+                    _skipped_files = []
+                    for _err in _errors_section:
+                        _fname = _err.get("filename") or _err.get("file") or ""
+                        if _fname:
+                            _skipped_files.append(_fname)
+                    # Also check metrics for skipped counts if present
+                    _metrics = data_json.get("metrics", {}).get("_totals", {})
+                    _skipped_count_metric = int(_metrics.get("skipped_tests", 0))
+
+                    if _skipped_files or _skipped_count_metric > 0:
+                        _skip_n = len(_skipped_files) or _skipped_count_metric
+                        _skip_names = ", ".join(
+                            [Path(f).name for f in _skipped_files[:5]]
+                        ) or "unknown files"
+                        bandit_findings = [
+                            {
+                                "issue_text": (
+                                    f"Security scan incomplete — {_skip_n} file(s) skipped "
+                                    f"due to parse errors: {_skip_names}. "
+                                    f"Fix syntax errors in p04a before trusting this scan."
+                                ),
+                                "issue_severity": "HIGH",
+                                "issue_confidence": "LOW",
+                                "filename": _skip_names,
+                                "skipped_due_to_parse_error": True,
+                            }
+                        ] + bandit_findings
+                        logger.warning(
+                            "[p06] bandit skipped %d file(s) due to parse errors: %s",
+                            _skip_n, _skip_names,
+                        )
                 except json.JSONDecodeError:
                     pass
 
         sub_dir = output_dir / "security"
         sub_dir.mkdir(parents=True, exist_ok=True)
         sec_path = sub_dir / "security_scan.json"
-        
+
         high_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "HIGH")
         medium_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "MEDIUM")
         low_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "LOW")
-        
+
+        # Problem 73: if any files were skipped, confidence must be low
+        _has_skipped = any(f.get("skipped_due_to_parse_error") for f in bandit_findings)
+        _scan_confidence = 0.3 if _has_skipped else 0.9
+
         sec_result = {
             "tool": "bandit",
             "findings": bandit_findings,
             "high_severity": high_severity,
             "medium_severity": medium_severity,
             "low_severity": low_severity,
-            "clean": len([f for f in bandit_findings if f.get("issue_severity") in ("HIGH", "MEDIUM")]) == 0,
+            "clean": (
+                len([f for f in bandit_findings if f.get("issue_severity") in ("HIGH", "MEDIUM")]) == 0
+                and not _has_skipped
+            ),
+            "scan_confidence": _scan_confidence,
+            "files_skipped_due_to_parse_errors": _has_skipped,
         }
         sec_path.write_text(json.dumps(sec_result, indent=2))
 
         results["static_analysis"] = TaskResult(
             output_path=str(sec_path),
-            confidence=0.9,
+            confidence=_scan_confidence,
             metadata=sec_result,
             success=True,
+            issues=(
+                [f"Security scan incomplete — files skipped due to parse errors. "
+                 f"Confidence reduced to {_scan_confidence}"]
+                if _has_skipped else []
+            ),
         )
-        logger.info("bandit scan completed: %d findings", len(bandit_findings))
+        logger.info("bandit scan completed: %d findings (confidence=%.1f)", len(bandit_findings), _scan_confidence)
         
         # FIX 19: Check for CRITICAL issues (HIGH severity in bandit)
         if high_severity > 0:

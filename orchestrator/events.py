@@ -17,6 +17,8 @@ from typing import Optional
 ACTIVE_RUN_ID: ContextVar[Optional[str]] = ContextVar("active_run_id", default=None)
 # Phase name currently executing (for tagging llm_chunk events)
 ACTIVE_PHASE: ContextVar[Optional[str]] = ContextVar("active_phase", default=None)
+# Org ID for the active run (for cost tracking)
+ACTIVE_ORG_ID: ContextVar[Optional[str]] = ContextVar("active_org_id", default=None)
 
 
 def emit_sync(event: dict, run_id: Optional[str] = None) -> None:

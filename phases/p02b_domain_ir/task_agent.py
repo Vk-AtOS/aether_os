@@ -361,11 +361,26 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
         arch_path_str = str(output_dir.parent / "p02_architecture" / "architecture.json")
     arch_path = Path(arch_path_str)
     architecture: dict = {}
-    if arch_path.exists():
+    # --- Problem 25 fix: handle str architecture output ---
+    _arch_raw = data.get("architecture_output")
+    if _arch_raw is not None:
+        if isinstance(_arch_raw, str):
+            try:
+                architecture = json.loads(_arch_raw)
+            except Exception:
+                logger.warning("p02b: architecture_output is a non-JSON string — will extract from spec")
+                architecture = {}
+        elif isinstance(_arch_raw, dict):
+            architecture = _arch_raw
+    if not architecture and arch_path.exists():
         try:
             architecture = json.loads(arch_path.read_text())
         except Exception:
             pass
+    # If architecture is still not a dict (e.g. came in as something unexpected), reset
+    if not isinstance(architecture, dict):
+        logger.warning("p02b: architecture resolved to non-dict type %s — resetting to {}", type(architecture))
+        architecture = {}
 
     domain: str = getattr(phase_input, "domain", None) or architecture.get("domain", "general")
     app_name: str = data.get("app_name", data.get("project_name", "App"))
@@ -427,6 +442,63 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     logger.info("p02b pass 4 complete — %d clarifying questions",
                 len(p4.get("clarifying_questions", [])))
 
+    # --- Problem 25 fix: if all passes failed, attempt direct LLM extraction from raw spec ---
+    _any_entities = bool(p1.get("entities") or p4.get("entities"))
+    if not _any_entities:
+        logger.warning("p02b: all 4 passes yielded no entities — running fallback direct extraction")
+        _FALLBACK_EXTRACT_PROMPT = """You are a software architect. Given the following application specification, extract all business entities as JSON.
+
+Specification:
+{spec}
+
+Return ONLY valid JSON in this exact format:
+{{
+  "entities": [
+    {{
+      "name": "EntityName",
+      "table": "entity_names",
+      "description": "Brief description",
+      "fields": [
+        {{"name": "field_name", "type": "string", "nullable": false, "unique": false, "index": false, "ref_entity": null, "enum_values": [], "default": null, "confidence": 0.9}}
+      ]
+    }}
+  ],
+  "relationships": [],
+  "business_rules": [],
+  "permissions": [],
+  "workflows": [],
+  "dashboard_metrics": [],
+  "notifications": [],
+  "clarifying_questions": []
+}}"""
+        _fallback_result = await _call(
+            _FALLBACK_EXTRACT_PROMPT.format(spec=requirements[:6000]),
+            pass_num=0,
+        )
+        if _fallback_result.get("entities"):
+            p1 = _fallback_result
+            p2 = _fallback_result
+            p3 = _fallback_result
+            p4 = _fallback_result
+            logger.info("p02b: fallback extraction produced %d entities", len(p1["entities"]))
+        else:
+            logger.warning("p02b: fallback extraction also produced no entities — building stub IR")
+            # Build a minimal stub from app_name and raw spec
+            _stub_entity_name = "".join(w.capitalize() for w in app_name.split()[:2]) or "Item"
+            p1 = {
+                "entities": [{
+                    "name": _stub_entity_name,
+                    "table": _stub_entity_name.lower() + "s",
+                    "description": f"Primary entity for {app_name}",
+                    "fields": [
+                        {"name": "name", "type": "string", "nullable": False, "unique": False,
+                         "index": False, "ref_entity": None, "enum_values": [], "default": None, "confidence": 0.7},
+                        {"name": "description", "type": "text", "nullable": True, "unique": False,
+                         "index": False, "ref_entity": None, "enum_values": [], "default": None, "confidence": 0.7},
+                    ],
+                }],
+            }
+
     # Merge all passes into DomainIR
     ir = _build_ir_from_passes(p1, p2, p3, p4, domain=domain, app_name=app_name)
 
@@ -455,6 +527,13 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
         errors.extend(val.errors)
     for w in val.warnings:
         logger.debug("p02b IR validator warning: %s", w)
+
+    # --- Problem 25 fix: validate IR is not empty before saving ---
+    if not ir.entities:
+        raise ValueError(
+            f"p02b: DomainIR is incomplete — no entities were extracted for app '{app_name}' "
+            f"(domain={domain}). Check requirements input and LLM availability."
+        )
 
     # Save IR to disk
     output_dir.mkdir(parents=True, exist_ok=True)

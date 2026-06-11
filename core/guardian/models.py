@@ -19,6 +19,7 @@ class GuardianEvent(Base):
     source_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     endpoint: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     detail: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

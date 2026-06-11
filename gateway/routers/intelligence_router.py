@@ -33,6 +33,7 @@ def _current_user():
 @router.get("/intelligence/global-insights")
 async def get_global_insights(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
     """Authenticated intelligence feed — aggregated from GlobalPattern + completed runs."""
+    org_id = user["org_id"]
     try:
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import GlobalPattern
@@ -42,6 +43,7 @@ async def get_global_insights(user: Dict[str, Any] = _current_user()) -> Dict[st
             # ── GlobalPattern rows — real learned data ─────────────────────
             gp_rows = (await session.execute(
                 _sel(GlobalPattern)
+                .where(GlobalPattern.org_id == org_id)
                 .order_by(GlobalPattern.usage_count.desc())
                 .limit(50)
             )).scalars().all()
@@ -94,12 +96,17 @@ async def list_global_patterns(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Return all learned GlobalPattern entries for the platform."""
+    org_id = user["org_id"]
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import GlobalPattern
     from sqlalchemy import select
     sf = get_session_factory()
     async with sf() as sess:
-        rows = (await sess.execute(select(GlobalPattern).order_by(GlobalPattern.usage_count.desc()))).scalars().all()
+        rows = (await sess.execute(
+            select(GlobalPattern)
+            .where(GlobalPattern.org_id == org_id)
+            .order_by(GlobalPattern.usage_count.desc())
+        )).scalars().all()
     patterns = [
         {
             "id": p.id,
@@ -129,6 +136,7 @@ async def create_global_pattern(
     sf = get_session_factory()
     async with sf() as sess:
         p = GlobalPattern(
+            org_id=user["org_id"],
             domain=body.get("domain", "general"),
             pattern_name=body.get("pattern_name", ""),
             pattern_type=body.get("pattern_type", "manual"),
@@ -158,6 +166,8 @@ async def update_global_pattern(
         p = await sess.get(GlobalPattern, pattern_id)
         if not p:
             raise HTTPException(status_code=404, detail="Pattern not found")
+        if p.org_id != user["org_id"]:
+            raise HTTPException(status_code=403, detail="not_your_pattern")
         for field_name in ("domain", "pattern_name", "pattern_type", "success_rate", "usage_count", "avg_quality_score"):
             if field_name in body:
                 setattr(p, field_name, body[field_name])
@@ -181,6 +191,8 @@ async def delete_global_pattern(
         p = await sess.get(GlobalPattern, pattern_id)
         if not p:
             raise HTTPException(status_code=404, detail="Pattern not found")
+        if p.org_id != user["org_id"]:
+            raise HTTPException(status_code=403, detail="not_your_pattern")
         await sess.delete(p)
         await sess.commit()
 

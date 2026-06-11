@@ -166,6 +166,11 @@ const Settings = () => {
   const [auditActionFilter, setAuditActionFilter] = useState('');
   const [auditExportStatus, setAuditExportStatus] = useState(null); // null|'exporting'|'done'|'error'
 
+  // Plan & Limits (Problem 14)
+  const [usageData, setUsageData] = useState(null);
+  const [usageLoading, setUsageLoading] = useState(true);
+  const [usageError, setUsageError] = useState(false);
+
   // Must match PHASE_SEQUENCE in orchestrator/factory_pipeline.py exactly (21 phases).
   const PHASES = [
     'p01_intake_requirements',
@@ -313,6 +318,17 @@ const Settings = () => {
           const scimRes = await api.client.get('/settings/scim');
           setScimConfig(scimRes.data);
         } catch (_) {}
+
+        // Plan & usage limits
+        try {
+          const usageRes = await api.client.get('/orgs/me/usage');
+          setUsageData(usageRes.data);
+          setUsageError(false);
+        } catch (_) {
+          setUsageError(true);
+        } finally {
+          setUsageLoading(false);
+        }
       } catch (err) {
         console.error('Settings fetch error', err);
       }
@@ -634,7 +650,7 @@ const Settings = () => {
       <header className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">AetherOS Factory Settings</h1>
-          <p className="text-muted mt-1">Configure the autonomous development engine and monitor system health.</p>
+          <p className="text-muted mt-1">Manage your API keys and configure which AI models power your pipeline.</p>
         </div>
         <StorageWidget />
       </header>
@@ -697,6 +713,112 @@ const Settings = () => {
             </div>
           </section>
 
+          {/* Plan & Limits Section (Problem 14) */}
+          <section className="panel overflow-hidden">
+            <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
+              <BarChart3 className="w-4 h-4 mr-2 text-accent" />
+              <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Plan &amp; Limits</h3>
+            </div>
+            <div className="p-6">
+              {usageLoading ? (
+                <div className="space-y-4 animate-pulse">
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} className="space-y-1.5">
+                      <div className="h-3 bg-border/40 rounded w-1/3" />
+                      <div className="h-2 bg-border/30 rounded w-full" />
+                      <div className="h-2.5 bg-border/20 rounded w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : usageError ? (
+                <div className="flex items-center gap-2 text-sm text-danger py-2">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  Unable to load usage data
+                </div>
+              ) : usageData ? (
+                <div className="space-y-5">
+                  {/* Plan name */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-muted uppercase tracking-wider">Current Plan</span>
+                    <span className="text-sm font-bold text-accent capitalize">{usageData.plan_name || usageData.plan || 'Free'}</span>
+                  </div>
+
+                  {/* Project creation limit */}
+                  {usageData.projects_limit != null && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="font-semibold text-bright">Projects</span>
+                        <span className="text-muted font-mono">
+                          {usageData.projects_used ?? '?'} / {usageData.projects_limit === -1 ? 'Unlimited' : usageData.projects_limit}
+                        </span>
+                      </div>
+                      {usageData.projects_limit !== -1 && (
+                        <div className="w-full bg-border/30 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-accent transition-all"
+                            style={{ width: `${Math.min(100, ((usageData.projects_used ?? 0) / usageData.projects_limit) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Monthly LLM token budget */}
+                  {usageData.token_budget_monthly != null && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="font-semibold text-bright">Monthly Token Budget</span>
+                        <span className="text-muted font-mono">
+                          {(usageData.tokens_used_monthly ?? 0).toLocaleString()} / {usageData.token_budget_monthly === -1 ? 'Unlimited' : usageData.token_budget_monthly.toLocaleString()}
+                        </span>
+                      </div>
+                      {usageData.token_budget_monthly !== -1 && (
+                        <div className="w-full bg-border/30 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-success transition-all"
+                            style={{ width: `${Math.min(100, ((usageData.tokens_used_monthly ?? 0) / usageData.token_budget_monthly) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Pipeline run concurrency */}
+                  {usageData.concurrent_runs_limit != null && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-bright">Pipeline Concurrency</span>
+                      <span className="text-xs font-mono text-muted">
+                        {usageData.concurrent_runs_limit === -1 ? 'Unlimited' : `${usageData.concurrent_runs_limit} parallel run${usageData.concurrent_runs_limit !== 1 ? 's' : ''}`}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* File storage usage */}
+                  {usageData.storage_limit_gb != null && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="font-semibold text-bright">File Storage</span>
+                        <span className="text-muted font-mono">
+                          {(usageData.storage_used_gb ?? 0).toFixed(2)} GB / {usageData.storage_limit_gb === -1 ? 'Unlimited' : `${usageData.storage_limit_gb} GB`}
+                        </span>
+                      </div>
+                      {usageData.storage_limit_gb !== -1 && (
+                        <div className="w-full bg-border/30 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-warning transition-all"
+                            style={{ width: `${Math.min(100, ((usageData.storage_used_gb ?? 0) / usageData.storage_limit_gb) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted">No usage data available.</p>
+              )}
+            </div>
+          </section>
+
           {/* Model Configuration Section */}
           <section className="panel overflow-hidden">
             <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
@@ -729,8 +851,14 @@ const Settings = () => {
                       className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
                     >
                       {availableModels.map(m => (
-                        <option key={m.id} value={m.id} disabled={!m.plan_allowed}>
-                          {m.name} — {m.id} {m.plan_allowed ? '' : '(Pro only)'}
+                        <option
+                          key={m.id}
+                          value={m.id}
+                          disabled={!m.plan_allowed}
+                          title={!m.plan_allowed ? 'Upgrade to Pro to use this model' : undefined}
+                          style={!m.plan_allowed ? { color: '#6b7280' } : undefined}
+                        >
+                          {m.name}{m.plan_allowed ? '' : ' (Pro only)'}
                         </option>
                       ))}
                       <option value="__custom__">— paste custom ID below —</option>
@@ -799,8 +927,16 @@ const Settings = () => {
                     className="bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
                   >
                     <option value="">+ Add from catalogue…</option>
-                    {Object.entries(availableModels).map(([name, id]) => (
-                      <option key={id} value={id}>{name} — {id}</option>
+                    {availableModels.map(model => (
+                      <option
+                        key={model.id}
+                        value={model.id}
+                        disabled={!model.plan_allowed}
+                        title={!model.plan_allowed ? 'Upgrade to Pro to use this model' : undefined}
+                        style={!model.plan_allowed ? { color: '#6b7280' } : undefined}
+                      >
+                        {model.name} — {model.id}{model.plan_allowed ? '' : ' (Pro only)'}
+                      </option>
                     ))}
                   </select>
                   <input

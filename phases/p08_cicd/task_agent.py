@@ -200,8 +200,14 @@ jobs:
 """
         ci_file = output_dir / "ci.yml"
         ci_file.write_text(ci_config)
-        results["ci_config_generated"] = True
-        results["ci_config_path"] = str(ci_file)
+
+        # Problem 68: verify CI file actually exists on disk before marking as generated
+        if not ci_file.exists():
+            results["issues"] = results.get("issues", []) + ["CI workflow file ci.yml was not written to disk"]
+            logger.error("p08: ci.yml not found after write — gate failure")
+        else:
+            results["ci_config_generated"] = True
+            results["ci_config_path"] = str(ci_file)
 
         # Mirror to .github/workflows/ci.yml in the project root so it's
         # included in the delivery ZIP and works when user pushes to GitHub
@@ -212,6 +218,31 @@ jobs:
                 _workflows_dir.mkdir(parents=True, exist_ok=True)
                 (_workflows_dir / "ci.yml").write_text(ci_config)
                 results["ci_workflow_mirrored"] = str(_workflows_dir / "ci.yml")
+                # Problem 68: also generate a Dockerfile in project root if missing
+                _proj_dockerfile = _project_dir / "Dockerfile"
+                if not _proj_dockerfile.exists():
+                    # Write a minimal Dockerfile for the project
+                    _minimal_dockerfile = (
+                        "FROM python:3.11-slim\n"
+                        "WORKDIR /app\n"
+                        "ENV PYTHONPATH=/app\n"
+                        "COPY requirements.txt* ./\n"
+                        "RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true\n"
+                        "COPY . .\n"
+                        "EXPOSE 8000\n"
+                        'CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]\n'
+                    )
+                    try:
+                        _proj_dockerfile.write_text(_minimal_dockerfile)
+                        results["dockerfile_generated"] = str(_proj_dockerfile)
+                    except Exception as _df_e:
+                        logger.warning("p08: could not write project Dockerfile: %s", _df_e)
+                else:
+                    results["dockerfile_exists"] = str(_proj_dockerfile)
+                # Problem 68: verify Dockerfile exists
+                if not _proj_dockerfile.exists():
+                    results["issues"] = results.get("issues", []) + ["Dockerfile was not found in project root"]
+                    logger.error("p08: Dockerfile not found after write — gate failure")
             except Exception as _wf_e:
                 logger.warning("p08: could not mirror CI workflow: %s", _wf_e)
 
@@ -350,10 +381,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Ensure output_dir in phase_input matches what we expect
     agent = CICDAgent()
     result_dict = await agent.run(phase_input)
-    
+
+    # Problem 68: gate fails if CI workflow or Dockerfile are missing
+    scan_results = result_dict.get("scan_results", result_dict)
+    gate_issues = scan_results.get("issues", [])
+    ci_generated = scan_results.get("ci_config_generated", False) or scan_results.get("ci_workflow_mirrored", False)
+    dockerfile_ok = scan_results.get("dockerfile_generated") or scan_results.get("dockerfile_exists")
+    gate_passed = ci_generated and bool(dockerfile_ok) and not gate_issues
+
     return TaskResult(
         output_path=result_dict.get("output_path", ""),
-        confidence=result_dict.get("confidence", 0.9),
-        success=True, # We consider scan success even if issues found
-        metadata=result_dict
+        confidence=result_dict.get("confidence", 0.9 if gate_passed else 0.4),
+        success=gate_passed,
+        issues=gate_issues if not gate_passed else [],
+        metadata=result_dict,
     )

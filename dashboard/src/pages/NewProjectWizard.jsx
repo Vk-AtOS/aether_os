@@ -21,10 +21,11 @@ const PRIORITIES = ['High', 'Normal', 'Low'];
 const BACKEND_OPTIONS = ['FastAPI', 'Django', 'Express', 'Flask'];
 const FRONTEND_OPTIONS = ['React', 'Vue', 'Vanilla JS', 'None'];
 const DB_OPTIONS = ['PostgreSQL', 'MongoDB', 'SQLite', 'MySQL'];
+// Fallback models shown before LLM config loads — labels are generic to avoid hardcoding versions
 const DEFAULT_MODELS = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Anthropic)' },
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Google)' },
-  { value: 'qwen2.5-coder:7b', label: 'Qwen 2.5 Coder 7B (Ollama)' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet (Anthropic)' },
+  { value: 'gemini-2.0-flash', label: 'Gemini Flash (Google)' },
+  { value: 'qwen2.5-coder:7b', label: 'Qwen Coder (Ollama)' },
 ];
 
 const StepIndicator = ({ step }) => {
@@ -149,19 +150,48 @@ const NewProjectWizard = () => {
   }, []);
 
   useEffect(() => {
-    api.getLlmConfig().then(res => {
-      const d = res.data || {};
+    // Fetch LLM config and optionally active-provider for dynamic model label
+    Promise.all([
+      api.getLlmConfig().catch(() => ({ data: {} })),
+      api.client.get('/settings/active-provider').catch(() => ({ data: null })),
+    ]).then(([llmRes, providerRes]) => {
+      const d = llmRes.data || {};
+      const providerData = providerRes.data;
+
       const fetched = [];
-      if (d.openrouter_heavy_model) fetched.push({ value: d.openrouter_heavy_model, label: `${d.openrouter_heavy_model} (OpenRouter)` });
-      if (d.ollama_model) fetched.push({ value: d.ollama_model, label: `${d.ollama_model} (Ollama)` });
-      const allModels = fetched.length ? [...DEFAULT_MODELS, ...fetched] : DEFAULT_MODELS;
+
+      // If active-provider endpoint returned info, show it as the first/primary option
+      if (providerData?.provider && providerData?.model) {
+        const providerLabel = providerData.provider.charAt(0).toUpperCase() + providerData.provider.slice(1);
+        fetched.push({ value: providerData.model, label: `${providerLabel} — ${providerData.model}` });
+      } else if (d.openrouter_heavy_model) {
+        // Fall back to constructing label from LLM config
+        const parts = d.openrouter_heavy_model.split('/');
+        const providerPart = parts.length > 1 ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : 'OpenRouter';
+        fetched.push({ value: d.openrouter_heavy_model, label: `${providerPart} — ${d.openrouter_heavy_model} (OpenRouter)` });
+      }
+
+      if (d.ollama_model) {
+        fetched.push({ value: d.ollama_model, label: `Ollama — ${d.ollama_model}` });
+      }
+
+      // Deduplicate: remove DEFAULT_MODELS entries that are overridden by fetched
+      const fetchedValues = new Set(fetched.map(f => f.value));
+      const filteredDefaults = DEFAULT_MODELS.filter(m => !fetchedValues.has(m.value));
+      const allModels = fetched.length ? [...fetched, ...filteredDefaults] : DEFAULT_MODELS;
       setModels(allModels);
-      const primary = d.primary_llm || 'anthropic';
-      let def = DEFAULT_MODELS[0].value;
-      if (primary === 'openrouter' && d.openrouter_heavy_model) def = d.openrouter_heavy_model;
-      else if (primary === 'ollama' && d.ollama_model) def = d.ollama_model;
+
+      const primary = d.primary_llm || 'openrouter';
+      let def = allModels[0].value;
+      if (providerData?.model && allModels.some(m => m.value === providerData.model)) {
+        def = providerData.model;
+      } else if (primary === 'openrouter' && d.openrouter_heavy_model && allModels.some(m => m.value === d.openrouter_heavy_model)) {
+        def = d.openrouter_heavy_model;
+      } else if (primary === 'ollama' && d.ollama_model) {
+        def = d.ollama_model;
+      }
       setModel(allModels.some(m => m.value === def) ? def : allModels[0].value);
-    }).catch(() => {});
+    });
   }, []);
 
   useEffect(() => {

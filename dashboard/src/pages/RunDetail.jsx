@@ -1,0 +1,461 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { api } from '../api';
+import {
+  ChevronLeft,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Loader2,
+  ExternalLink,
+  Download,
+  AlertTriangle,
+  RefreshCw,
+  Zap,
+  Shield,
+  Star,
+  FileCode,
+} from 'lucide-react';
+
+// ── Phase constants ───────────────────────────────────────────────────────────
+
+const PHASE_LABELS = {
+  p01_intake_requirements: 'Intake & Requirements',
+  p02_architecture:        'Architecture',
+  p02b_domain_ir:          'Domain IR',
+  p03_scaffolding:         'Scaffolding',
+  p04_backend:             'Backend Codegen',
+  p05_frontend:            'Frontend Codegen',
+  p06_review_security:     'Review & Security',
+  p07_testing:             'Testing',
+  p07b_self_healing:       'Self-Healing',
+  p08_cicd_deployment:     'CI/CD & Deployment',
+  p09_observability:       'Observability',
+  p10_docs_delivery:       'Docs & Delivery',
+  p11_deployment:          'Deployment',
+  p11a_monitoring:         'Monitoring',
+  p11b_error_tracking:     'Error Tracking',
+  p11c_analytics:          'Analytics',
+  p11d_alerting:           'Alerting',
+  p12a_feature_flags:      'Feature Flags',
+  p12b_ab_testing:         'A/B Testing',
+  p13_app_memory:          'App Memory',
+  p14_client_portal:       'Client Portal',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const fmtDuration = (ms) => {
+  if (ms == null) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+};
+
+const fmtTime = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+  } catch {
+    return iso;
+  }
+};
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const StatusBadge = ({ status }) => {
+  const cfg = {
+    running:      { label: 'Running',       cls: 'bg-accent/20 text-accent border-accent/40', pulse: true  },
+    needs_review: { label: 'Needs Review',  cls: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40', pulse: false },
+    completed:    { label: 'Completed',     cls: 'bg-success/20 text-success border-success/40', pulse: false },
+    failed:       { label: 'Failed',        cls: 'bg-danger/20 text-danger border-danger/40', pulse: false },
+    paused:       { label: 'Paused',        cls: 'bg-blue-500/20 text-blue-400 border-blue-500/40', pulse: false },
+    cancelled:    { label: 'Cancelled',     cls: 'bg-muted/20 text-muted border-border', pulse: false },
+  };
+  const c = cfg[status] || { label: status || 'Unknown', cls: 'bg-border text-muted border-border', pulse: false };
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${c.cls}`}>
+      {c.pulse && <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" /></span>}
+      {c.label}
+    </span>
+  );
+};
+
+const PhasePill = ({ status }) => {
+  if (status === 'completed' || status === 'complete') return <CheckCircle2 className="w-4 h-4 text-success shrink-0" />;
+  if (status === 'running')   return <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />;
+  if (status === 'failed')    return <XCircle className="w-4 h-4 text-danger shrink-0" />;
+  if (status === 'skipped')   return <span className="w-4 h-4 text-muted shrink-0 text-[10px] font-bold flex items-center justify-center">–</span>;
+  return <Clock className="w-4 h-4 text-muted/40 shrink-0" />;
+};
+
+const PhaseRow = ({ name, phaseData }) => {
+  const label = PHASE_LABELS[name] || name;
+  const status = phaseData?.status || 'pending';
+  const duration = phaseData?.duration_ms ?? phaseData?.duration_seconds != null ? (phaseData.duration_ms ?? phaseData.duration_seconds * 1000) : null;
+  const bgCls = status === 'running' ? 'bg-accent/5 border-accent/20' : status === 'failed' ? 'bg-danger/5 border-danger/20' : 'border-transparent';
+
+  return (
+    <tr className={`border-b border-border/50 last:border-0 ${bgCls}`}>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <PhasePill status={status} />
+          <span className="text-xs text-bright font-mono">{name}</span>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-xs text-muted">{label}</td>
+      <td className="px-4 py-3">
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${
+          status === 'completed' || status === 'complete' ? 'text-success' :
+          status === 'running'   ? 'text-accent' :
+          status === 'failed'    ? 'text-danger' :
+          status === 'skipped'   ? 'text-muted/50' :
+          'text-muted/40'
+        }`}>{status}</span>
+      </td>
+      <td className="px-4 py-3 text-xs font-mono text-muted text-right">{fmtDuration(duration)}</td>
+    </tr>
+  );
+};
+
+// ── Live SSE event log ────────────────────────────────────────────────────────
+
+const LiveEventLog = ({ runId }) => {
+  const [lines, setLines] = useState([]);
+  const [connected, setConnected] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('aether_token');
+    const url = `/api/factory/runs/${runId}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    const es = new EventSource(url);
+    es.onopen = () => setConnected(true);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const msg = data.message || data.text || JSON.stringify(data);
+        setLines(prev => [...prev.slice(-200), msg]);
+      } catch {
+        setLines(prev => [...prev.slice(-200), e.data]);
+      }
+    };
+    es.onerror = () => { setConnected(false); es.close(); };
+    return () => es.close();
+  }, [runId]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [lines]);
+
+  return (
+    <div className="rounded-xl border border-border bg-[#0a0c10] overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-border/10">
+        <span className={`w-2 h-2 rounded-full ${connected ? 'bg-success animate-pulse' : 'bg-muted'}`} />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted">
+          {connected ? 'Live Stream' : 'Disconnected'}
+        </span>
+      </div>
+      <div className="h-64 overflow-y-auto p-4 font-mono text-xs text-bright/80 space-y-0.5 custom-scrollbar">
+        {lines.length === 0 ? (
+          <span className="text-muted">Waiting for events…</span>
+        ) : (
+          lines.map((line, i) => <div key={i}>{line}</div>)
+        )}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+};
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+const RunDetail = () => {
+  const { runId } = useParams();
+  const navigate = useNavigate();
+
+  const [run, setRun] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+
+  const loadRun = useCallback(async () => {
+    try {
+      const [runRes, eventsRes] = await Promise.allSettled([
+        api.getRun(runId),
+        api.client.get(`/factory/runs/${runId}/events`).catch(() => ({ data: [] })),
+      ]);
+      if (runRes.status === 'fulfilled') setRun(runRes.value.data);
+      else setError(runRes.reason?.response?.data?.detail || 'Failed to load run');
+      if (eventsRes.status === 'fulfilled') {
+        const raw = eventsRes.value.data;
+        setEvents(Array.isArray(raw) ? raw : raw?.events ?? []);
+      }
+    } catch (e) {
+      setError(e.response?.data?.detail || e.message || 'Failed to load run');
+    } finally {
+      setLoading(false);
+    }
+  }, [runId]);
+
+  useEffect(() => {
+    loadRun();
+    // Poll every 10 s if run is active
+    const iv = setInterval(() => {
+      if (run?.status === 'running' || run?.status === 'needs_review') loadRun();
+    }, 10_000);
+    return () => clearInterval(iv);
+  }, [loadRun, run?.status]);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const res = await api.downloadRunZip(runId);
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `run-${runId.slice(0, 8)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    } catch {
+      // ignore
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-5xl mx-auto space-y-6 animate-pulse">
+        <div className="h-8 bg-border/30 rounded w-1/3" />
+        <div className="h-4 bg-border/20 rounded w-1/2" />
+        <div className="h-64 bg-border/20 rounded-xl" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center gap-2 text-danger p-4 bg-danger/10 border border-danger/30 rounded-xl">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span className="text-sm">{error}</span>
+        </div>
+        <button onClick={() => navigate(-1)} className="mt-4 flex items-center gap-1 text-sm text-muted hover:text-bright transition-colors">
+          <ChevronLeft className="w-4 h-4" /> Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!run) return null;
+
+  // Build phase progress from run.phases or run.phase_results
+  const phaseMap = run.phases || run.phase_results || {};
+  const phaseList = Object.keys(PHASE_LABELS);
+
+  // Derive council verdict from run
+  const councilVerdict = run.council_verdict || run.council?.verdict || null;
+  const councilScore   = run.council_score   || run.council?.score   || null;
+  const qualityScore   = run.quality_score   ?? run.quality?.score   ?? null;
+  const llmCostUsd     = run.llm_cost_usd    ?? run.cost_usd         ?? null;
+  const liveUrl        = run.live_url        || run.preview_url      || run.app_url || null;
+  const errorMsg       = run.error_message   || run.error            || null;
+  const suggestions    = run.suggestions     || run.recovery_suggestions || [];
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6 pb-20">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs text-muted hover:text-bright transition-colors mb-2">
+            <ChevronLeft className="w-3.5 h-3.5" /> Back
+          </button>
+          <h1 className="text-2xl font-bold text-bright">
+            {run.app_name || run.project_name || `Run ${runId.slice(0, 8)}`}
+          </h1>
+          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            <StatusBadge status={run.status} />
+            <span className="text-xs text-muted font-mono">{runId.slice(0, 12)}…</span>
+            {run.created_at && <span className="text-xs text-muted">{fmtTime(run.created_at)}</span>}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 shrink-0 mt-6">
+          <button
+            onClick={loadRun}
+            className="p-2 text-muted hover:text-bright border border-border rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          {(run.status === 'completed' || run.status === 'needs_review') && (
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="flex items-center gap-1.5 px-3 py-2 bg-accent/20 text-accent border border-accent/30 rounded-lg text-xs font-bold hover:bg-accent/30 transition-colors disabled:opacity-50"
+            >
+              {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              Download ZIP
+            </button>
+          )}
+          {liveUrl && (
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-success/20 text-success border border-success/30 rounded-lg text-xs font-bold hover:bg-success/30 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Live App
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-panel border border-border rounded-xl p-4">
+          <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1 flex items-center gap-1">
+            <Star className="w-3 h-3" /> Quality Score
+          </div>
+          <div className={`text-2xl font-bold ${qualityScore != null ? (qualityScore >= 80 ? 'text-success' : qualityScore >= 60 ? 'text-warning' : 'text-danger') : 'text-muted'}`}>
+            {qualityScore != null ? `${qualityScore}` : '—'}
+            {qualityScore != null && <span className="text-sm font-normal text-muted">/100</span>}
+          </div>
+        </div>
+        <div className="bg-panel border border-border rounded-xl p-4">
+          <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1 flex items-center gap-1">
+            <Zap className="w-3 h-3" /> LLM Cost
+          </div>
+          <div className="text-2xl font-bold text-bright">
+            {llmCostUsd != null ? `$${llmCostUsd.toFixed(4)}` : '—'}
+          </div>
+        </div>
+        <div className="bg-panel border border-border rounded-xl p-4">
+          <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1 flex items-center gap-1">
+            <Shield className="w-3 h-3" /> Council
+          </div>
+          <div className={`text-2xl font-bold ${
+            councilVerdict === 'approved' ? 'text-success' :
+            councilVerdict === 'rejected' ? 'text-danger' :
+            councilScore != null ? (councilScore >= 70 ? 'text-success' : 'text-warning') : 'text-muted'
+          }`}>
+            {councilVerdict ? (councilVerdict === 'approved' ? 'Approved' : councilVerdict === 'rejected' ? 'Rejected' : councilVerdict)
+              : councilScore != null ? `${councilScore}` : '—'}
+          </div>
+        </div>
+        <div className="bg-panel border border-border rounded-xl p-4">
+          <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1 flex items-center gap-1">
+            <FileCode className="w-3 h-3" /> Phases
+          </div>
+          <div className="text-2xl font-bold text-bright">
+            {Object.values(phaseMap).filter(p => p?.status === 'completed' || p?.status === 'complete').length}
+            <span className="text-sm font-normal text-muted">/{phaseList.length}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Live SSE panel (when running) */}
+      {run.status === 'running' && (
+        <section>
+          <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Live Pipeline Output</h2>
+          <LiveEventLog runId={runId} />
+        </section>
+      )}
+
+      {/* Error + suggestions (when failed) */}
+      {run.status === 'failed' && errorMsg && (
+        <div className="bg-danger/5 border border-danger/30 rounded-xl p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-danger shrink-0" />
+            <h3 className="text-sm font-bold text-danger">Pipeline Failed</h3>
+          </div>
+          <p className="text-xs text-bright/80 font-mono whitespace-pre-wrap">{errorMsg}</p>
+          {suggestions.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-muted uppercase tracking-wider">Suggestions</p>
+              <ul className="space-y-1">
+                {suggestions.map((s, i) => (
+                  <li key={i} className="text-xs text-bright/70 flex items-start gap-1.5">
+                    <span className="text-accent shrink-0 mt-0.5">→</span>{s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Council verdict (needs_review) */}
+      {run.status === 'needs_review' && (
+        <div className="bg-yellow-500/5 border border-yellow-500/30 rounded-xl p-5 space-y-2">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-yellow-400 shrink-0" />
+            <h3 className="text-sm font-bold text-yellow-400">Awaiting Council Review</h3>
+          </div>
+          {councilVerdict && (
+            <p className="text-xs text-bright/70">Council verdict: <span className="font-bold text-bright">{councilVerdict}</span></p>
+          )}
+          {run.council?.summary && (
+            <p className="text-xs text-bright/70">{run.council.summary}</p>
+          )}
+          <p className="text-xs text-muted">Go to the project view to approve or reject.</p>
+          <Link
+            to={`/project/${runId}`}
+            className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent/80 font-bold transition-colors"
+          >
+            Open Project View <ExternalLink className="w-3 h-3" />
+          </Link>
+        </div>
+      )}
+
+      {/* Phase progress table */}
+      <section>
+        <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Phase Progress</h2>
+        <div className="bg-panel border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-border bg-border/10">
+                <th className="px-4 py-2.5 text-[10px] font-bold text-muted uppercase tracking-wider">Phase</th>
+                <th className="px-4 py-2.5 text-[10px] font-bold text-muted uppercase tracking-wider">Name</th>
+                <th className="px-4 py-2.5 text-[10px] font-bold text-muted uppercase tracking-wider">Status</th>
+                <th className="px-4 py-2.5 text-[10px] font-bold text-muted uppercase tracking-wider text-right">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {phaseList.map(p => (
+                <PhaseRow key={p} name={p} phaseData={phaseMap[p]} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Recent events log (non-running) */}
+      {run.status !== 'running' && events.length > 0 && (
+        <section>
+          <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Event Log</h2>
+          <div className="bg-panel border border-border rounded-xl overflow-hidden">
+            <div className="divide-y divide-border/50 max-h-80 overflow-y-auto custom-scrollbar">
+              {events.slice(-50).map((ev, i) => (
+                <div key={i} className="px-4 py-2 flex items-start gap-3 text-xs">
+                  <span className="text-muted font-mono text-[10px] shrink-0 mt-0.5">{fmtTime(ev.created_at || ev.timestamp)}</span>
+                  <span className={`shrink-0 mt-0.5 text-[10px] font-bold uppercase ${
+                    ev.type === 'phase_complete' ? 'text-success' :
+                    ev.type === 'phase_failed' || ev.type === 'error' ? 'text-danger' :
+                    ev.type === 'phase_start' ? 'text-accent' : 'text-muted'
+                  }`}>{ev.type || 'event'}</span>
+                  <span className="text-bright/80">{ev.message || ev.text || JSON.stringify(ev)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+};
+
+export default RunDetail;

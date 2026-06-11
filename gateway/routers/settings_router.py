@@ -139,9 +139,9 @@ async def get_api_keys(
             logger.debug("get_api_keys: org_keys DB check failed: %s", exc)
 
     return {
-        "anthropic": "********" if org_keys["anthropic"] else _mask(os.environ.get("ANTHROPIC_API_KEY", "")),
-        "google":    "********" if org_keys["google"] else _mask(os.environ.get("GOOGLE_API_KEY", "")),
-        "openrouter":"********" if org_keys["openrouter"] else _mask(os.environ.get("OPENROUTER_API_KEY", "")),
+        "anthropic": "********" if org_keys["anthropic"] else None,
+        "google":    "********" if org_keys["google"] else None,
+        "openrouter":"********" if org_keys["openrouter"] else None,
         "org_keys": org_keys,
     }
 

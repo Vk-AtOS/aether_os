@@ -44,6 +44,7 @@ const Agents            = React.lazy(() => import('./pages/Agents'));
 const GlobalPatternsTuning = React.lazy(() => import('./pages/GlobalPatternsTuning'));
 const ProjectDesigner   = React.lazy(() => import('./pages/ProjectDesigner'));
 const Workspaces        = React.lazy(() => import('./pages/Workspaces'));
+const RunDetail         = React.lazy(() => import('./pages/RunDetail'));
 
 
 const ProtectedRoute = ({ children }) => {
@@ -136,6 +137,7 @@ function App() {
         <Route path="designer" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
         <Route path="designer/:id" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
         <Route path="workspaces" element={<ErrorBoundary><Workspaces /></ErrorBoundary>} />
+        <Route path="runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

@@ -289,6 +289,28 @@ class ModelRouter:
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
 
+        # ── 3. Plan-based model enforcement (P10) ─────────────────────────────
+        if plan == "trial" and not enforce_local:
+            # Filter chain to only include free-tier models
+            filtered_chain = []
+            for spec in chain:
+                is_free = False
+                if spec.provider == "openrouter" and spec.model.endswith(":free"):
+                    is_free = True
+                elif spec.provider == "gemini" and "flash" in spec.model.lower():
+                    is_free = True
+                elif spec.provider == "anthropic" and "haiku" in spec.model.lower():
+                    is_free = True
+                elif spec.provider == "ollama":
+                    is_free = True
+                
+                if is_free:
+                    filtered_chain.append(spec)
+            
+            if not filtered_chain:
+                raise LLMUnavailable("Trial plan users are restricted to free-tier models. No free models available in fallback chain.")
+            chain = filtered_chain
+
         for spec in chain:
             if not _is_provider_configured(spec):
                 logger.debug("Router: skipping %s — not configured", spec.provider)
@@ -372,7 +394,7 @@ class ModelRouter:
                             pass
                     # Record cost to billing ledger using active run context vars
                     try:
-                        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
+                        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID
                         _run_id = ACTIVE_RUN_ID.get(None)
                         _phase = ACTIVE_PHASE.get("unknown")
                         if _run_id:
@@ -387,8 +409,8 @@ class ModelRouter:
                             # Write to LLMCallRecord (per-run billing detail)
                             from aether_os.core.billing import get_billing_tracker
                             
-                            # Get org_id from environment or context (assume injected similarly to run_id)
-                            _org_id = os.environ.get("ACTIVE_ORG_ID", "-")
+                            # Get org_id from context or environment
+                            _org_id = ACTIVE_ORG_ID.get("") or os.environ.get("ACTIVE_ORG_ID", "-")
                             
                             _ct3 = asyncio.create_task(
                                 get_billing_tracker()._async_record_llm_call(

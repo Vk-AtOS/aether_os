@@ -35,8 +35,10 @@ client.interceptors.response.use(
       !original.url?.includes('/auth/refresh') &&
       !original.url?.includes('/auth/login')
     ) {
+      // If server explicitly requests re-authentication, skip refresh and redirect immediately.
+      const forceReauth = error.response?.data?.action === 're_authenticate';
       const refreshToken = localStorage.getItem('aether_refresh_token');
-      if (refreshToken) {
+      if (!forceReauth && refreshToken) {
         original._retried = true;
         try {
           if (!_refreshPromise) {

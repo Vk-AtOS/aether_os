@@ -23,32 +23,53 @@ _PHASE_HARD_TIMEOUT = MAX_ATTEMPTS * (TEST_TIMEOUT + LLM_TIMEOUT + 15)  # 600s
 import re
 
 def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path]:
-    """Extract the file path from pytest's error output (FIX 18)."""
-    # Pattern: "ERROR collecting path/to/file.py" or "FAILED path/to/test.py::test_name"
-    patterns = [
-        r'ERROR collecting (.+?\.py)',
-        r'FAILED (.+?\.py)::',
-        r'ImportError.*in (.+?\.py)',
-        r'File "(.+?\.py)", line \d+',
-    ]
-    for pat in patterns:
-        m = re.search(pat, test_output)
-        if m:
-            candidate_str = m.group(1)
-            # FIX M3: If absolute path, try to make it relative to project_root
-            try:
-                if os.path.isabs(candidate_str):
-                    candidate_str = os.path.relpath(candidate_str, str(project_dir))
-            except Exception:
-                pass
-            
+    """
+    Problem 50 fix: Parse exec validation error output (stdout/stderr from Python
+    import/syntax check) to identify the EXACT failing file and line number.
+
+    Priority order:
+    1. Python traceback  File "/path/to/file.py", line N  (most precise)
+    2. pytest ERROR collecting / FAILED markers
+    3. ImportError in file
+    """
+    # Priority 1: Python traceback — last File "..." entry is the actual failing location
+    traceback_matches = re.findall(r'File "([^"]+\.py)", line \d+', test_output)
+    if traceback_matches:
+        # Walk from last to first — skip test files and site-packages
+        for candidate_str in reversed(traceback_matches):
+            if "site-packages" in candidate_str or "pytest" in candidate_str:
+                continue
             candidate = Path(candidate_str)
-            # Resolve relative to project_dir if not absolute, then resolve for consistency
             if not candidate.is_absolute():
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
             if candidate.exists():
+                logger.debug("[p07b] Traceback identified failing file: %s", candidate)
+                return candidate
+
+    # Priority 2: pytest ERROR collecting / FAILED markers
+    patterns = [
+        r'ERROR collecting (.+?\.py)',
+        r'FAILED (.+?\.py)::',
+        r'ImportError.*in (.+?\.py)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, test_output)
+        if m:
+            candidate_str = m.group(1)
+            try:
+                if os.path.isabs(candidate_str):
+                    candidate_str = os.path.relpath(candidate_str, str(project_dir))
+            except Exception:
+                pass
+            candidate = Path(candidate_str)
+            if not candidate.is_absolute():
+                candidate = (project_dir / candidate).resolve()
+            else:
+                candidate = candidate.resolve()
+            if candidate.exists():
+                logger.debug("[p07b] Pattern matched failing file: %s", candidate)
                 return candidate
     return None
 
@@ -143,23 +164,25 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 
         failing_file.write_text(fix)
 
-    # Max attempts reached — non-blocking, still success
+    # Problem 45 fix: Max attempts reached — tests still failing → report failure accurately
+    # Do NOT propagate a false success=True; set gate_result accordingly
     result = {
-        "success": True,
+        "success": False,                   # Problem 45: was incorrectly True
+        "self_healing_exhausted": True,     # Problem 45: signal for orchestrator
         "attempts": attempt,
         "status": "max_attempts_reached",
         "last_output": last_output[:500],
     }
-    msg = f"⚠ [p07b_self_healing] Max attempts ({MAX_ATTEMPTS}) reached — tests still failing"
+    msg = f"[p07b_self_healing] Max attempts ({MAX_ATTEMPTS}) reached — tests still failing"
     logger.warning(msg)
     await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg})
     (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
     return TaskResult(
         output_path=str(output_dir / "self_healing.json"),
-        confidence=0.4,
+        confidence=0.0,                     # Problem 45: was 0.4, should be 0.0 on full exhaustion
         metadata=result,
-        success=True,  # Non-blocking
-        issues=[f"Tests still failing after {MAX_ATTEMPTS} attempts"],
+        success=False,                      # Problem 45: was True
+        issues=[f"Self-healing exhausted: tests still failing after {MAX_ATTEMPTS} attempts"],
     )
 
 
@@ -195,13 +218,38 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
 
 
 async def _get_fix(target_file: Path, test_file: Path, failure_output: str) -> Optional[str]:
+    """
+    Problem 50 fix: Parse the exec validation error output to identify the exact failing
+    file and line number; send THAT file with the exact error to the LLM.
+    Do NOT rely on the escalation message from an earlier phase.
+    """
     from aether_os.core.llm.client import get_llm_client
 
-    # Gather full context — all generated source files matter for diagnosing the failure
+    # Problem 50 fix: extract exact file path and line number from the Python traceback
+    _tb_match = re.search(r'File "([^"]+\.py)", line (\d+)', failure_output)
+    _exact_location = ""
+    if _tb_match:
+        _exact_file_str = _tb_match.group(1)
+        _exact_line = _tb_match.group(2)
+        _exact_location = f"\nEXACT FAILING LOCATION: File \"{_exact_file_str}\", line {_exact_line}"
+        # If the traceback points to a different file than target_file, use it
+        _tb_path = Path(_exact_file_str)
+        if _tb_path.exists() and _tb_path.resolve() != target_file.resolve():
+            logger.info("[p07b] Traceback points to %s (not %s) — switching target file",
+                        _tb_path, target_file)
+            target_file = _tb_path
+
+    # Gather full context — target_file first (most important), then siblings
     src_dir = target_file.parent
-    _src_ctx = f"# === {target_file.name} ===\n{target_file.read_text()}\n"
+    try:
+        _target_content = target_file.read_text()
+    except Exception:
+        _target_content = "# (could not read file)"
+
+    _src_ctx = f"# === {target_file.name} (FAILING FILE) ===\n{_target_content}\n"
     for _sib in ["main.py", "models.py", "schemas.py", "routers/crud.py", "auth.py", "database.py"]:
-        if _sib == target_file.name: continue
+        if _sib == target_file.name:
+            continue
         _p = src_dir / _sib
         if _p.exists():
             _content = _p.read_text()
@@ -213,7 +261,7 @@ async def _get_fix(target_file: Path, test_file: Path, failure_output: str) -> O
 
     prompt = f"""You are a senior Python backend engineer. Fix the FastAPI backend so all tests pass.
 
-FAILING FILE: {target_file.name}
+FAILING FILE: {target_file.name}{_exact_location}
 
 SOURCE FILES (context):
 {_src_ctx}
@@ -221,11 +269,13 @@ SOURCE FILES (context):
 TEST FILE:
 {test_file.read_text()[:2000]}
 
-TEST FAILURE OUTPUT:
+TEST FAILURE OUTPUT (exact error from Python execution):
 {failure_output[:2000]}
 
 RULES:
+- Read the EXACT FAILING LOCATION above — that is the line with the bug.
 - Return ONLY the fixed complete {target_file.name}.
+- The @asynccontextmanager decorator MUST be on the line immediately before async def lifespan. Do NOT place any function calls (e.g. setup_logging()) between the decorator and the function definition. setup_logging() must be called INSIDE the lifespan function body.
 - Never store plaintext passwords — use passlib bcrypt
 - Never use in-memory dicts/lists as databases — use SQLAlchemy ORM
 - Use `result.scalars().all()` not `result.all()` for async SQLAlchemy queries

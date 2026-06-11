@@ -398,20 +398,43 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as exc:
         logger.warning("[p10] change_requests failed (non-critical): %s", exc)
 
+    # Problem 70: check for docs at the canonical paths under p10_docs_delivery/docs/
+    docs_dir = output_dir / "docs"
+    _p70_issues = []
+    # README.md is written as "README.md" key → docs_dir/README.md
+    _readme_path = docs_dir / "README.md"
+    # API_REFERENCE.md is written as "docs/API_REFERENCE.md" key → docs_dir/docs/API_REFERENCE.md
+    _api_ref_path = docs_dir / "docs" / "API_REFERENCE.md"
+    # Also accept flattened path docs_dir/API_REFERENCE.md (in case LLM used flat key)
+    _api_ref_alt = docs_dir / "API_REFERENCE.md"
+
+    if not _readme_path.exists():
+        _p70_issues.append(f"README.md missing at {_readme_path}")
+    if not _api_ref_path.exists() and not _api_ref_alt.exists():
+        _p70_issues.append(f"API_REFERENCE.md missing at {_api_ref_path} or {_api_ref_alt}")
+
+    if _p70_issues:
+        logger.warning("[p10] gate check issues: %s", _p70_issues)
+
     summary = {
         "phases": {
             k: {"output_path": v.output_path, "success": v.success, "confidence": v.confidence}
             for k, v in results.items()
-        }
+        },
+        "docs_dir": str(docs_dir),
+        "readme_path": str(_readme_path),
+        "api_ref_path": str(_api_ref_path),
+        "gate_issues": _p70_issues,
     }
     summary_path = output_dir / "consolidated.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
     any_success = any(v.success for v in results.values())
+    all_issues = _p70_issues if not any_success else []
     return TaskResult(
         output_path=str(summary_path),
-        confidence=0.9 if any_success else 0.5,
+        confidence=0.9 if any_success and not _p70_issues else 0.5,
         metadata=summary,
         success=any_success or bool(results),
-        issues=[] if any_success else ["No documentation or delivery output generated"],
+        issues=all_issues,
     )

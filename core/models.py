@@ -262,6 +262,7 @@ class GlobalPattern(Base):
     __tablename__ = "global_patterns"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=True, index=True)
     domain: Mapped[str] = mapped_column(String(255), nullable=False)
     pattern_name: Mapped[str] = mapped_column(String(255), nullable=False)
     pattern_type: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -464,6 +465,17 @@ class GoldenBuild(Base):
     domain_ir_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # entity names + fields summary
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class PipelineEvent(Base):
+    """Persistent record of every pipeline event (Fix 24)."""
+    __tablename__ = "pipeline_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
 
 class LLMTrace(Base):
