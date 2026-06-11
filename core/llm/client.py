@@ -457,7 +457,7 @@ async def _call_bedrock(
                 # read_timeout << model_router timeout (180s) so the boto3 thread
                 # raises ReadTimeoutError and exits BEFORE asyncio wait_for fires.
                 # Keeps the thread pool clear of zombie threads on slow models.
-                read_timeout=90,
+                read_timeout=130,
                 connect_timeout=10,
                 retries={"max_attempts": 0},  # model_router owns retry logic
             ),
@@ -498,12 +498,12 @@ async def _call_bedrock(
     )
 
     loop = asyncio.get_running_loop()
-    retries = 3
+    retries = 1
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            # 100s guard — fires after botocore read_timeout=90s so thread has already exited
-            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=100)
+            # 140s guard — fires after botocore read_timeout=130s so thread has already exited
+            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=140)
             # Record per-call LLM usage in DB (best-effort)
             try:
                 from aether_os.core.billing import get_billing_tracker as _gbt
