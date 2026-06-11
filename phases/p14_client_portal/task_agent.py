@@ -6,16 +6,73 @@ from aether_os.phases.base import TaskResult
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
     Implements p14_client_portal: Self-Service Client Portal
+
+    Problem 80: if p10 already generated the portal, reuse it instead of regenerating.
     """
     project_dir = Path(phase_input.input_data.get("project_dir", "/tmp"))
+    project_name = phase_input.input_data.get("project_name", "Application")
+
+    # Problem 80: check if p10 already generated this portal — reuse it
+    _p10_consolidated = None
+    for _p10_candidate in [
+        output_dir.parent / "consolidated.json",
+        project_dir / "p10_docs_delivery" / "consolidated.json",
+    ]:
+        if _p10_candidate.exists():
+            try:
+                import json as _json_p80
+                _p10_consolidated = _json_p80.loads(_p10_candidate.read_text())
+            except Exception:
+                pass
+            break
+
+    if _p10_consolidated:
+        _p10_portal = _p10_consolidated.get("phases", {}).get("client_portal", {})
+        _p10_portal_path = _p10_portal.get("output_path", "")
+        if _p10_portal_path and Path(_p10_portal_path).exists():
+            # Portal already exists from p10 — reference it, optionally enhance
+            _existing_portal_dir = Path(_p10_portal_path)
+            _portal_html = _existing_portal_dir / "client_portal.html"
+            if _portal_html.exists():
+                import logging as _ll
+                _ll.getLogger(__name__).info(
+                    "[p14] Reusing p10-generated client portal at %s (Problem 80 dedup)",
+                    _p10_portal_path,
+                )
+                # Optionally enhance with quality score and council verdict
+                _quality_score = phase_input.input_data.get("quality_score", None)
+                _council_verdict = phase_input.input_data.get("council_verdict", None)
+                if _quality_score or _council_verdict:
+                    try:
+                        _html = _portal_html.read_text()
+                        _inject = ""
+                        if _quality_score:
+                            _inject += f'\n  <div class="card"><h2>Quality Score</h2><div class="stat-value">{_quality_score}</div></div>'
+                        if _council_verdict:
+                            _inject += f'\n  <div class="card"><h2>Council Verdict</h2><p>{_council_verdict}</p></div>'
+                        if _inject:
+                            _html = _html.replace("</div>\n</body>", f"{_inject}\n  </div>\n</body>")
+                            _portal_html.write_text(_html)
+                    except Exception:
+                        pass
+                return TaskResult(
+                    output_path=str(_existing_portal_dir),
+                    confidence=0.95,
+                    metadata={
+                        "reused_from_p10": True,
+                        "portal_path": str(_existing_portal_dir),
+                        "files_written": 0,
+                    },
+                    issues=[],
+                    success=True,
+                )
+
     portal_dir = output_dir / "client_portal"
     migrations_dir = output_dir / "migrations"
     test_dir = output_dir / "tests"
     portal_dir.mkdir(parents=True, exist_ok=True)
     migrations_dir.mkdir(parents=True, exist_ok=True)
     test_dir.mkdir(parents=True, exist_ok=True)
-
-    project_name = phase_input.input_data.get("project_name", "Application")
 
     # Client Portal HTML (self-contained, no Tailwind CDN required)
     portal_html = f"""<!DOCTYPE html>

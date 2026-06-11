@@ -493,12 +493,12 @@ async def _call_bedrock(
             # Record per-call LLM usage in DB (best-effort)
             try:
                 from aether_os.core.billing import get_billing_tracker as _gbt
-                from aether_os.orchestrator.factory_pipeline import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP
+                from aether_os.orchestrator.events import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP, ACTIVE_ORG_ID as _AOID
                 _run_id = _ARID.get("") or os.environ.get("ACTIVE_RUN_ID", "unknown")
                 _phase  = _AP.get("") or os.environ.get("ACTIVE_PHASE", "unknown")
                 
                 # Fetch org_id if available
-                _org_id = os.environ.get("ACTIVE_ORG_ID", "-")
+                _org_id = _AOID.get("") or os.environ.get("ACTIVE_ORG_ID", "-")
                 
                 asyncio.create_task(
                     _gbt()._async_record_llm_call(
@@ -699,6 +699,24 @@ class LLMClient:
             except Exception:
                 pass
 
+        # Problem 59: per-model cost pricing (USD per 1K tokens)
+        _BEDROCK_PRICING: Dict[str, Dict[str, float]] = {
+            "amazon.nova-pro-v1:0":                        {"input": 0.0008, "output": 0.0032},
+            "us.amazon.nova-pro-v1:0":                     {"input": 0.0008, "output": 0.0032},
+            "amazon.nova-lite-v1:0":                       {"input": 0.00006, "output": 0.00024},
+            "us.amazon.nova-lite-v1:0":                    {"input": 0.00006, "output": 0.00024},
+            "anthropic.claude-3-5-sonnet-20241022-v2:0":   {"input": 0.003, "output": 0.015},
+            "us.anthropic.claude-3-5-sonnet-20241022-v2:0": {"input": 0.003, "output": 0.015},
+            "anthropic.claude-3-haiku-20240307-v1:0":      {"input": 0.00025, "output": 0.00125},
+            "us.meta.llama3-3-70b-instruct-v1:0":          {"input": 0.00072, "output": 0.00072},
+            # Anthropic direct
+            "claude-sonnet-4-6":                           {"input": 0.003, "output": 0.015},
+            "claude-haiku-4-5-20251001":                   {"input": 0.00025, "output": 0.00125},
+            # Gemini
+            "gemini-2.5-pro":                              {"input": 0.00125, "output": 0.005},
+            "gemini-2.0-flash":                            {"input": 0.00015, "output": 0.0006},
+        }
+
         from aether_os.core.model_router import get_router
         try:
             raw_response, provider, model = await get_router().call(
@@ -713,6 +731,63 @@ class LLMClient:
             self.last_provider = provider
             self.last_model = model
             tokens_out = len(raw_response) // 4
+
+            # Problem 59: compute call cost and persist to pipeline_runs + org accumulator
+            try:
+                _pricing = _BEDROCK_PRICING.get(model or "", None)
+                if not _pricing:
+                    # Try matching by suffix (e.g. model names vary by region prefix)
+                    for _k, _v in _BEDROCK_PRICING.items():
+                        if (model or "").endswith(_k) or _k.endswith(model or ""):
+                            _pricing = _v
+                            break
+                if _pricing:
+                    _call_cost = (
+                        (tokens_in / 1000.0) * _pricing["input"]
+                        + (tokens_out / 1000.0) * _pricing["output"]
+                    )
+                else:
+                    # OpenRouter: use a safe default estimate
+                    _call_cost = (tokens_in + tokens_out) / 1000.0 * 0.001
+
+                _cost_run_id = run_id or (context.get("run_id") if context else None)
+                _cost_org_id = org_id or (context.get("org_id") if context else None)
+
+                if _call_cost > 0 and (_cost_run_id or _cost_org_id):
+                    async def _persist_cost(
+                        _rid=_cost_run_id, _oid=_cost_org_id, _cost=_call_cost, _model=model
+                    ):
+                        try:
+                            from aether_os.core.db import get_session_factory
+                            from sqlalchemy import text as _text
+                            async with get_session_factory()() as _db:
+                                if _rid:
+                                    await _db.execute(
+                                        _text("UPDATE pipeline_runs SET cost = COALESCE(cost, 0) + :c WHERE id = :r"),
+                                        {"c": _cost, "r": _rid},
+                                    )
+                                if _oid:
+                                    import datetime as _dt
+                                    _today = _dt.date.today().isoformat()
+                                    _month = _today[:7]
+                                    # Update org daily/monthly accumulator in org_usage table if it exists
+                                    await _db.execute(
+                                        _text("""
+                                            INSERT INTO org_llm_usage (org_id, date, month, cost_usd, call_count)
+                                            VALUES (:org, :day, :mon, :cost, 1)
+                                            ON CONFLICT (org_id, date) DO UPDATE
+                                            SET cost_usd = org_llm_usage.cost_usd + :cost,
+                                                call_count = org_llm_usage.call_count + 1
+                                        """),
+                                        {"org": _oid, "day": _today, "mon": _month, "cost": _cost},
+                                    )
+                                await _db.commit()
+                        except Exception as _ce:
+                            logger.debug("Cost persistence failed (non-blocking): %s", _ce)
+                    asyncio.create_task(_persist_cost())
+            except Exception as _pe:
+                logger.debug("Cost computation failed (non-blocking): %s", _pe)
+
             return raw_response
         except Exception as exc:
             error_msg = str(exc)
@@ -846,36 +921,85 @@ Task: {prompt[:200]}"""
 
     async def embed(self, text: str) -> List[float]:
         """
-        Generate a vector embedding for the given text using Ollama.
-        Returns a zero vector of the correct dimension if Ollama is unavailable.
+        Generate a vector embedding for the given text.
+
+        Provider priority (Problem 55):
+          1. AWS Bedrock Titan Embeddings (amazon.titan-embed-text-v2:0) — primary
+          2. Ollama (nomic-embed-text at localhost:11434) — fallback
+          3. Zero vector — last resort if both unavailable
         """
         _EMBEDDING_DIMS = {
             "nomic-embed-text": 768,
             "all-MiniLM-L6-v2": 384,
             "bge-large-en": 1024,
             "mxbai-embed-large": 1024,
+            "amazon.titan-embed-text-v2:0": 1024,
         }
-        model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
-        dim = _EMBEDDING_DIMS.get(model, 768)
+        bedrock_embed_model = os.environ.get(
+            "BEDROCK_EMBED_MODEL", "amazon.titan-embed-text-v2:0"
+        )
+        ollama_model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+        dim = _EMBEDDING_DIMS.get(bedrock_embed_model, 1024)
 
+        # ── Primary: AWS Bedrock Titan Embeddings ─────────────────────────────
+        _bedrock_ok = (
+            bool(os.environ.get("AWS_ACCESS_KEY_ID", "").strip())
+            or os.environ.get("BEDROCK_ENABLED", "false").lower() == "true"
+        )
+        if _bedrock_ok:
+            try:
+                import boto3  # type: ignore
+                import json as _json
+                region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+                _bdr_kwargs: dict = {"region_name": region}
+                _key_id = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+                _secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+                if _key_id and _secret:
+                    _bdr_kwargs["aws_access_key_id"] = _key_id
+                    _bdr_kwargs["aws_secret_access_key"] = _secret
+
+                loop = asyncio.get_running_loop()
+
+                def _invoke_bedrock_embed() -> List[float]:
+                    _client = boto3.client("bedrock-runtime", **_bdr_kwargs)
+                    _body = _json.dumps({"inputText": text[:8000]})
+                    _resp = _client.invoke_model(
+                        modelId=bedrock_embed_model,
+                        body=_body,
+                        contentType="application/json",
+                        accept="application/json",
+                    )
+                    _result = _json.loads(_resp["body"].read())
+                    return _result.get("embedding", [0.0] * dim)
+
+                embedding = await loop.run_in_executor(None, _invoke_bedrock_embed)
+                if embedding and len(embedding) > 0:
+                    return embedding
+            except Exception as _be:
+                logger.warning("Bedrock Titan embedding failed (falling back to Ollama): %s", _be)
+
+        # ── Fallback: Ollama ──────────────────────────────────────────────────
+        ollama_dim = _EMBEDDING_DIMS.get(ollama_model, 768)
         try:
             import httpx
             from ..config.loader import get_config
             cfg = get_config()
             base_url = cfg.get("llm.ollama_base_url", "http://localhost:11434")
 
-            async with httpx.AsyncClient(timeout=30.0) as http:
+            async with httpx.AsyncClient(timeout=10.0) as http:
                 resp = await http.post(
                     f"{base_url}/api/embeddings",
-                    json={"model": model, "prompt": text[:8000]},
+                    json={"model": ollama_model, "prompt": text[:8000]},
                 )
                 resp.raise_for_status()
-                return resp.json().get("embedding", [0.0] * dim)
+                result = resp.json().get("embedding", [])
+                if result:
+                    return result
         except Exception as e:
             logger.warning("Ollama embedding failed: %s", e)
 
-        logger.error("All embedding providers failed. Returning zero vector.")
-        return [0.0] * dim
+        logger.error("All embedding providers failed (Bedrock + Ollama). Returning zero vector.")
+        return [0.0] * (dim if _bedrock_ok else ollama_dim)
 
     def get_cost_stats(self) -> Dict[str, int]:
         """Return token usage stats since process start."""

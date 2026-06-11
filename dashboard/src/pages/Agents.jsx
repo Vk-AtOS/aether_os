@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Bot, Play, RefreshCw, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronRight, Cpu, Zap } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
+import { useRole } from '../hooks/useRole';
 
 const KIND_COLORS = {
   code:     'text-blue-400',
@@ -15,7 +16,15 @@ const KIND_COLORS = {
 
 const AGENT_TIMEOUT_MS = 60_000;
 
-const AgentCard = ({ agent, onRun, recentRuns = [] }) => {
+// Internal system agents that require enterprise plan to run manually
+const RESTRICTED_AGENTS = new Set([
+  'policy_agent',
+  'stability_guardian_agent',
+  'snapshot_agent',
+  'red_team_safety_agent',
+]);
+
+const AgentCard = ({ agent, onRun, recentRuns = [], userRole = 'member' }) => {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -114,14 +123,29 @@ const AgentCard = ({ agent, onRun, recentRuns = [] }) => {
 
           {error && <p className="text-xs text-danger">{error}</p>}
 
-          <button
-            onClick={run}
-            disabled={running}
-            className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors"
-          >
-            {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-            {running ? 'Running…' : `Run ${agent.name}`}
-          </button>
+          {(() => {
+            const isRestricted = RESTRICTED_AGENTS.has(agent.name);
+            const isEnterprise = userRole === 'enterprise' || userRole === 'owner' || userRole === 'admin' || userRole === 'superadmin';
+            const runDisabled = running || (isRestricted && !isEnterprise);
+            return (
+              <div className="relative inline-block group">
+                <button
+                  onClick={run}
+                  disabled={runDisabled}
+                  className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-colors"
+                  title={isRestricted && !isEnterprise ? 'Enterprise plan required' : undefined}
+                >
+                  {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  {running ? 'Running…' : `Run ${agent.name}`}
+                </button>
+                {isRestricted && !isEnterprise && (
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded bg-gray-900 border border-border px-2 py-1 text-[10px] text-bright opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    Enterprise plan required
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           {result && (
             <div className={`rounded-xl border p-4 space-y-3 ${result.status === 'success' || result.status === 'completed' ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-yellow-500/5 border-yellow-500/30'}`}>
@@ -157,6 +181,7 @@ const Agents = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
+  const { role: userRole } = useRole();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -240,7 +265,7 @@ const Agents = () => {
       ) : (
         <div className="space-y-2">
           {filtered.map(agent => (
-            <AgentCard key={agent.name} agent={agent} recentRuns={recentRuns} />
+            <AgentCard key={agent.name} agent={agent} recentRuns={recentRuns} userRole={userRole} />
           ))}
         </div>
       )}

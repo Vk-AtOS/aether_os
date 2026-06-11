@@ -357,20 +357,61 @@ async def system_deploy(user: Dict[str, Any] = _current_user()):
         capture_output=True, timeout=120,
     )
 
-    # 3. Restart systemd service (non-blocking — response sent before process dies)
+    # 3. Refresh Guardian baseline (P9 fix: MUST happen before restart)
+    try:
+        from aether_os.core.guardian.threat_detector import get_threat_detector
+        td = get_threat_detector()
+        await td.update_all_baselines()
+        log.append("Guardian baseline updated")
+    except Exception as e:
+        logger.error("Failed to update Guardian baseline: %s", e)
+        log.append(f"Guardian baseline update failed: {e}")
+
+    # 4. Restart systemd service (non-blocking — response sent before process dies)
     restart = _sp.Popen(
         ["systemctl", "restart", "aetheros"],
         stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
     )
     log.append(f"systemctl restart: pid={restart.pid}")
 
-    # 4. Refresh Guardian baseline
-    try:
-        from aether_os.core.guardian.threat_detector import get_threat_detector
-        await get_threat_detector().update_all_baselines()
-        log.append("Guardian baseline updated")
-    except Exception as e:
-        logger.error("Failed to update Guardian baseline: %s", e)
-        log.append(f"Guardian baseline update failed: {e}")
-
     return {"ok": pull.returncode == 0, "log": log}
+
+
+class PlatformFileWrite(BaseModel):
+    file_path: str
+    content: str
+
+
+@router.post("/admin/platform/save-file")
+async def save_platform_file(
+    req: PlatformFileWrite,
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Apply a code fix to a platform-level monitored file (P9)."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+
+    from aether_os.core.guardian.threat_detector import get_threat_detector, _CRITICAL_FILES
+    from pathlib import Path
+
+    # Security check: only allow monitored files
+    target = next((f for f in _CRITICAL_FILES if f.name == req.file_path or str(f).endswith(req.file_path)), None)
+    if not target:
+        raise HTTPException(status_code=403, detail="File is not monitored or not allowed for direct edit")
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        # 1. Write the new content
+        target.write_text(req.content, encoding="utf-8")
+        
+        # 2. Update baseline atomically (P9)
+        td = get_threat_detector()
+        await td.update_baseline(target)
+        
+        logger.info("Admin applied fix to %s and updated Guardian baseline", target.name)
+        return {"ok": True, "file": target.name, "baseline_updated": True}
+    except Exception as exc:
+        logger.error("Failed to save platform fix to %s: %s", target.name, exc)
+        raise HTTPException(status_code=500, detail=str(exc))

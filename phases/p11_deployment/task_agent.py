@@ -247,11 +247,44 @@ echo "Update successful."
         image_name = f"aetheros-{run_id[:8]}"
         container_name = f"aetheros-app-{run_id[:8]}"
 
-        # Remove any stale container from a previous run
+        # Problem 52: remove any existing container with the same name (stop+rm, ignore errors)
         subprocess.run(
-            ["docker", "rm", "-f", container_name],
+            ["docker", "stop", container_name],
             capture_output=True,
         )
+        subprocess.run(
+            ["docker", "rm", container_name],
+            capture_output=True,
+        )
+
+        # Problem 52: clean up crash-looping old containers (restart count > 10)
+        try:
+            _ps_result = subprocess.run(
+                ["docker", "ps", "-a", "--filter", "name=aetheros-app-",
+                 "--format", "{{.Names}}\t{{.Status}}"],
+                capture_output=True, text=True,
+            )
+            for _line in _ps_result.stdout.splitlines():
+                _parts = _line.split("\t", 1)
+                if len(_parts) == 2:
+                    _cname, _status = _parts
+                    # "Restarting (1) 5 seconds ago" or status contains restart count
+                    if "Restarting" in _status and _cname != container_name:
+                        # Get inspect data to check restart count
+                        _inspect = subprocess.run(
+                            ["docker", "inspect", "--format",
+                             "{{.RestartCount}}", _cname],
+                            capture_output=True, text=True,
+                        )
+                        try:
+                            if int(_inspect.stdout.strip()) > 10:
+                                subprocess.run(["docker", "rm", "-f", _cname], capture_output=True)
+                                import logging as _ll; _ll.getLogger(__name__).info(
+                                    "[p11] removed crash-looping container %s", _cname)
+                        except (ValueError, Exception):
+                            pass
+        except Exception:
+            pass
 
         await self._ensure_network()
 
@@ -264,6 +297,46 @@ echo "Update successful."
             return run_result
 
         ready = await self._wait_for_ready(port, timeout=30)
+
+        # Problem 53 & 63: if health check fails, gate must fail — include container logs
+        if not ready:
+            _container_logs = ""
+            try:
+                _logs_result = subprocess.run(
+                    ["docker", "logs", "--tail", "50", container_name],
+                    capture_output=True, text=True, timeout=10,
+                )
+                _container_logs = (_logs_result.stdout + _logs_result.stderr)[-3000:]
+            except Exception:
+                pass
+            deploy_file = project_dir / "p11_deployment" / "deployment.json"
+            deploy_file.parent.mkdir(parents=True, exist_ok=True)
+            deploy_info_failed: Dict[str, Any] = {
+                "live_url": None,
+                "port": port,
+                "image_name": image_name,
+                "container_name": container_name,
+                "ready": False,
+                "app_dir": str(app_dir),
+                "docker_valid": 0,  # Problem 63: 0 when health check fails
+                "failure_reason": "Container health check failed — /health did not return HTTP 200 within 30s",
+                "container_logs_tail": _container_logs,
+            }
+            deploy_file.write_text(json.dumps(deploy_info_failed, indent=2))
+            return {
+                "success": False,
+                "ready": False,
+                "live_url": None,
+                "port": port,
+                "container_name": container_name,
+                "output_file": str(deploy_file),
+                "docker_valid": 0,
+                "issues": [
+                    "Container health check failed — /health did not return HTTP 200 within 30s",
+                    f"Container logs (last 50 lines):\n{_container_logs}",
+                ],
+            }
+
         # Use PUBLIC_HOST env var so the URL is externally accessible on a VPS.
         # Falls back to localhost for local dev.
         public_host = os.environ.get("PUBLIC_HOST", "localhost")
@@ -275,6 +348,7 @@ echo "Update successful."
             "image_name": image_name,
             "container_name": container_name,
             "ready": ready,
+            "docker_valid": 100,  # Problem 63: 100 only when health check passes
             "app_dir": str(app_dir),
         }
 
@@ -287,6 +361,7 @@ echo "Update successful."
             "live_url": live_url,
             "port": port,
             "ready": ready,
+            "docker_valid": 100,
             "container_name": container_name,
             "output_file": str(deploy_file),
         }
@@ -465,6 +540,7 @@ echo "Update successful."
         content = textwrap.dedent(f"""
             FROM python:3.11-slim
             WORKDIR /app
+            ENV PYTHONPATH=/app
             COPY requirements.txt* ./
             {pip_cmd}
             COPY . .

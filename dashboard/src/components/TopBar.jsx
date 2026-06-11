@@ -89,6 +89,7 @@ const OrgSwitcher = () => {
 
 const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const [health, setHealth] = useState(null);
+  const [systemStatus, setSystemStatus] = useState(null); // { status: 'nominal'|'degraded'|'warning'|'critical', message: string }
   const [costs, setCosts] = useState({ today_usd: 0, tokens_today: '—' });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
@@ -106,13 +107,22 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
         setFetchError(err.message || 'Health check failed');
       }
     };
+    const fetchSystemStatus = async () => {
+      try {
+        const res = await api.client.get('/system/status');
+        setSystemStatus(res.data);
+      } catch {
+        // If /system/status not available, fall back to health check for status
+        setSystemStatus(null);
+      }
+    };
     const fetchCosts = async () => {
       try { setCosts((await api.getCosts()).data); } catch (err) {
         setFetchError(err.message || 'Cost fetch failed');
       }
     };
-    fetchHealth(); fetchCosts();
-    const iv = setInterval(() => { fetchHealth(); fetchCosts(); }, 30_000);
+    fetchHealth(); fetchSystemStatus(); fetchCosts();
+    const iv = setInterval(() => { fetchHealth(); fetchSystemStatus(); fetchCosts(); }, 30_000);
     return () => clearInterval(iv);
   }, []);
 
@@ -136,6 +146,28 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
       setSearchQ('');
     }
   };
+
+  // Derive display status from /system/status or fall back to /system/health
+  const derivedStatus = (() => {
+    if (systemStatus) {
+      const s = (systemStatus.status || '').toLowerCase();
+      if (s === 'nominal' || s === 'ok' || s === 'healthy') return { label: systemStatus.message || systemStatus.status || 'Nominal', level: 'nominal' };
+      if (s === 'warning' || s === 'degraded') return { label: systemStatus.message || systemStatus.status || 'Degraded', level: 'warning' };
+      if (s === 'critical') return { label: systemStatus.message || 'Critical', level: 'critical' };
+      return { label: systemStatus.status || 'Unknown', level: 'warning' };
+    }
+    if (health) {
+      const ok = health.status === 'ok' || health.status === 'healthy';
+      return { label: ok ? 'Nominal' : 'Degraded', level: ok ? 'nominal' : 'warning' };
+    }
+    return null;
+  })();
+
+  const statusDotClass = derivedStatus
+    ? derivedStatus.level === 'nominal' ? 'bg-success'
+      : derivedStatus.level === 'critical' ? 'bg-danger animate-pulse'
+      : 'bg-warning animate-pulse'
+    : 'bg-muted';
 
   const isHealthy = health?.status === 'ok' || health?.status === 'healthy';
   const providerColor = PROVIDER_COLORS[activeProvider] || 'text-muted';
@@ -223,11 +255,13 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
             <kbd className="ml-auto font-mono bg-border/30 rounded px-1 text-[10px]" aria-hidden="true">⌘K</kbd>
           </button>
 
-          {health && (
-            <div className="flex items-center text-xs space-x-4" role="status" aria-live="polite" aria-label={`System status: ${isHealthy ? 'Nominal' : 'Degraded'}`}>
+          {derivedStatus && (
+            <div className="flex items-center text-xs space-x-4" role="status" aria-live="polite" aria-label={`System status: ${derivedStatus.label}`}>
               <div className="flex items-center space-x-1.5">
-                <span className={`w-2 h-2 rounded-full ${isHealthy ? 'bg-success' : 'bg-warning animate-pulse'}`} aria-hidden="true" />
-                <span className="text-muted">{isHealthy ? 'Nominal' : 'Degraded'}</span>
+                <span className={`w-2 h-2 rounded-full ${statusDotClass}`} aria-hidden="true" />
+                <span className={`${derivedStatus.level === 'critical' ? 'text-danger' : derivedStatus.level === 'warning' ? 'text-warning' : 'text-muted'}`}>
+                  {derivedStatus.label}
+                </span>
               </div>
               <div className="flex items-center space-x-1.5 border-l border-border pl-4" aria-label={`${costs.tokens_today || '0'} tokens used today`}>
                 <Coins className="w-3.5 h-3.5 text-accent" aria-hidden="true" />

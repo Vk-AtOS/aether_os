@@ -449,6 +449,7 @@ email-validator>=2.1.0
 _DOCKERFILE = """\
 FROM python:3.11-slim
 WORKDIR /app
+ENV PYTHONPATH=/app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
@@ -588,8 +589,13 @@ Project requirements:
 Entities to model:
 {entities_json}
 
+ABSOLUTE IMPORTS RULE (MANDATORY — Docker will fail otherwise):
+- Use ABSOLUTE imports only. Do NOT use relative imports (no 'from .module import X').
+- Import as: `from database import Base`, `from models import User`, `from schemas import UserCreate`, `from auth import get_current_user`
+- NEVER write `from .database import Base` or `from .models import X` — these break inside Docker containers.
+
 MODELS.PY requirements (file: src/models.py):
-1. Imports: `from .database import Base`, SQLAlchemy column types, relationship
+1. Imports: `from database import Base` (ABSOLUTE — no dot prefix), SQLAlchemy column types, relationship
 2. ALWAYS include a User model:
    - id (Integer, primary_key, index)
    - email (String 255, unique, index, nullable=False)
@@ -695,6 +701,11 @@ Full src/schemas.py:
 
 FILE: src/routers/crud.py
 
+ABSOLUTE IMPORTS RULE (MANDATORY — Docker will fail otherwise):
+- Use ABSOLUTE imports only. Do NOT use relative imports (no 'from .module import X').
+- Import as: `from database import get_db`, `from models import MyModel`, `from schemas import MyCreate`, `from auth import get_current_user`
+- NEVER write `from .database import get_db` or `from ..models import X`.
+
 STRICT REQUIREMENTS — every violation causes runtime errors:
 1. Imports:
    - `from __future__ import annotations`
@@ -762,9 +773,13 @@ Complete src/models.py (use EXACT class names from here):
 
 FILE: src/seed.py
 
+ABSOLUTE IMPORTS RULE: Use absolute imports only — NO relative imports.
+Example: `from database import AsyncSessionLocal`, `from auth import get_password_hash`, `from models import User`
+NEVER write `from .database import ...` or `from .models import ...`.
+
 REQUIREMENTS:
 1. Import: `from database import AsyncSessionLocal`, `from auth import get_password_hash`
-2. Import all models from `models`
+2. Import all models from `models` (absolute: `from models import User, ...`)
 3. `async def seed_database()` — called on every startup
 4. Check if already seeded: `result = await db.execute(select(func.count()).select_from(User))`
    If count > 0, return early (idempotent)
@@ -1683,6 +1698,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
             logger.info("[p04a] IR fast-path: using deterministic models/schemas (%d classes)", len(_llm_classes))
 
+        # P26: ast.parse validation before writing to disk
+        for _fname, _code, _fallback_fn, _fallback_args in [
+            ("models.py", models_code, _fallback_models, [project_name, entities]),
+            ("schemas.py", schemas_code, _fallback_schemas, [entities]),
+        ]:
+            try:
+                ast.parse(_code)
+            except SyntaxError as _syn:
+                logger.warning("[p04a] SyntaxError in LLM-generated %s: %s — using fallback", _fname, _syn)
+                if _fname == "models.py":
+                    models_code = _fallback_fn(*_fallback_args)
+                else:
+                    schemas_code = _fallback_fn(*_fallback_args)
+
         (src_dir / "models.py").write_text(models_code)
         (src_dir / "schemas.py").write_text(schemas_code)
         logger.info("[p04a] models.py %d chars (%d ORM classes), schemas.py %d chars",
@@ -1702,6 +1731,32 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             crud_code = await _llm_crud_routers(llm, project_name, entities, models_code, schemas_code, mem)
             crud_code = _fix_common_issues(crud_code)
 
+            # P26: ast.parse validation — retry if SyntaxError, never write broken code
+            _MAX_CRUD_ATTEMPTS = 3
+            for _crud_attempt in range(1, _MAX_CRUD_ATTEMPTS + 1):
+                try:
+                    ast.parse(crud_code)
+                    break  # valid — proceed
+                except SyntaxError as _syn:
+                    if _crud_attempt < _MAX_CRUD_ATTEMPTS:
+                        logger.warning(
+                            "[p04a] SyntaxError in LLM crud.py (attempt %d/%d): %s — retrying",
+                            _crud_attempt, _MAX_CRUD_ATTEMPTS, _syn,
+                        )
+                        _syn_retry_prompt = (
+                            f"The previous CRUD routers code had a SyntaxError: {_syn}. "
+                            f"Write correct, parseable Python.\n\n"
+                        )
+                        crud_code = await _llm_crud_routers(
+                            llm, project_name, entities, models_code, schemas_code,
+                            mem + "\n" + _syn_retry_prompt
+                        )
+                        crud_code = _fix_common_issues(crud_code)
+                    else:
+                        logger.warning("[p04a] crud.py still has SyntaxError after %d attempts — using fallback", _MAX_CRUD_ATTEMPTS)
+                        crud_code = _fallback_crud_routers(entities)
+                        break
+
             # Validate: all_routers must exist and must not be an empty list.
             _ar_match = re.search(r'all_routers\s*=\s*\[([^\]]*)\]', crud_code)
             if not _ar_match or not _ar_match.group(1).strip():
@@ -1720,6 +1775,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 crud_code = _fallback_crud_routers(entities)
         else:
             logger.info("[p04a] IR fast-path: using deterministic CRUD routers")
+            # P26: validate IR-generated code too
+            try:
+                ast.parse(crud_code)
+            except SyntaxError as _syn:
+                logger.warning("[p04a] SyntaxError in IR-generated crud.py: %s — using fallback", _syn)
+                crud_code = _fallback_crud_routers(entities)
 
         (routers_dir / "crud.py").write_text(crud_code)
         logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
@@ -1764,6 +1825,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 # Validate: seed must import and use User model (auth requires it)
                 if "from models import User" not in seed_code and "from models import" in seed_code:
                     logger.warning("[p04a] seed.py does not import User model — using fallback")
+                    seed_code = _fallback_seed(project_name, entities)
+                # P26: ast.parse validation before writing seed.py
+                try:
+                    ast.parse(seed_code)
+                except SyntaxError as _syn:
+                    logger.warning("[p04a] SyntaxError in LLM seed.py: %s — using fallback", _syn)
                     seed_code = _fallback_seed(project_name, entities)
                 (src_dir / "seed.py").write_text(seed_code)
                 logger.info("[p04a] seed.py %d chars (LLM)", len(seed_code))

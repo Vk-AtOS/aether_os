@@ -86,6 +86,36 @@ class AutoRecovery:
         # Step 5: health verification
         health_ok = await self._verify_health()
 
+        # Update baseline and set cooldown after successful restore
+        if health_ok and trigger_event_id:
+            try:
+                from aether_os.core.guardian.models import GuardianEvent
+                from aether_os.core.db import get_session_factory
+                from aether_os.core.guardian.threat_detector import get_threat_detector, _CRITICAL_FILES
+                from sqlalchemy import select
+                
+                sf = get_session_factory()
+                async with sf() as sess:
+                    event = (await sess.execute(select(GuardianEvent).where(GuardianEvent.id == trigger_event_id))).scalars().first()
+                    
+                    if event and event.detail and "file" in event.detail:
+                        file_name = event.detail["file"]
+                        
+                        # Find Path object
+                        target = next((f for f in _CRITICAL_FILES if f.name == file_name or str(f).endswith(file_name)), None)
+                        if target:
+                            td = get_threat_detector()
+                            await td.update_baseline(target)
+                            
+                            # Set cooldown
+                            from aether_os.core.rate_limiter import _get_async_redis
+                            r = await _get_async_redis()
+                            if r:
+                                await r.set(f"guardian:cooldown:{target.name}", 1, ex=300)
+                                logger.info("Guardian: cooldown set for %s", target.name)
+            except Exception as e:
+                logger.error("Guardian: failed to update baseline/cooldown after restore: %s", e)
+
         outcome = "success" if (health_ok and alembic_ok) else "partial"
         severity = "low" if outcome == "success" else "medium"
 
@@ -157,6 +187,7 @@ class AutoRecovery:
         event_type: str,
         severity: str,
         detail: Dict[str, Any],
+        org_id: Optional[str] = None,
     ) -> None:
         try:
             from aether_os.core.guardian.models import GuardianEvent
@@ -168,6 +199,7 @@ class AutoRecovery:
                     event_type=event_type,
                     severity=severity,
                     detail=detail,
+                    org_id=org_id,
                 ))
                 await sess.commit()
         except Exception as exc:

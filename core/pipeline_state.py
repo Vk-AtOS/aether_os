@@ -63,14 +63,27 @@ async def publish_event(run_id: str, event: dict) -> None:
     if r is None:
         # Local in-memory fallback: buffer events so SSE consumers can poll
         _local_history[run_id].append(payload)
-        return
+    else:
+        try:
+            await r.publish(f"pipeline:events:{run_id}", payload)
+            await r.rpush(f"pipeline:history:{run_id}", payload)
+            await r.expire(f"pipeline:history:{run_id}", 86400)
+        except Exception as exc:
+            logger.debug("publish_event failed for run %s (buffering locally): %s", run_id, exc)
+            _local_history[run_id].append(payload)
+    # Fix 24: async write to pipeline_events PG table
     try:
-        await r.publish(f"pipeline:events:{run_id}", payload)
-        await r.rpush(f"pipeline:history:{run_id}", payload)
-        await r.expire(f"pipeline:history:{run_id}", 86400)
-    except Exception as exc:
-        logger.debug("publish_event failed for run %s (buffering locally): %s", run_id, exc)
-        _local_history[run_id].append(payload)
+        from aether_os.core.db import get_session_factory as _gsf_pe
+        from aether_os.core.models import PipelineEvent as _PE
+        async with _gsf_pe()() as _s_pe:
+            _s_pe.add(_PE(
+                run_id=run_id,
+                event_type=event.get("type", "unknown"),
+                payload=event,
+            ))
+            await _s_pe.commit()
+    except Exception as _pe_exc:
+        logger.debug("pipeline_events PG write failed (non-fatal): %s", _pe_exc)
 
 
 async def get_event_history(run_id: str) -> List[dict]:

@@ -170,6 +170,12 @@ class ThreatDetector:
                     "detail": {"file": str(path), "reason": "file_missing"},
                 })
                 continue
+            
+            # Check cooldown
+            r = await _get_redis()
+            if r and await r.get(f"guardian:cooldown:{path.name}"):
+                 continue
+
             current = _sha256_file(path)
             baseline = await self._get_baseline(path)
             if baseline and current and current != baseline:

@@ -7,6 +7,7 @@ The orchestrator routes messages; it never calls phase logic directly.
 """
 from __future__ import annotations
 import asyncio
+import datetime
 import logging
 import time
 import uuid
@@ -21,7 +22,7 @@ from aether_os.orchestrator.state_machine import (
     PipelineStateMachine, PipelineState, PHASE_TO_STATE,
 )
 from aether_os.orchestrator.events import (
-    ACTIVE_RUN_ID, ACTIVE_PHASE, emit,
+    ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID, emit,
 )
 from aether_os.core.pipeline_state import (
     publish_event, get_control, set_control, clear_run,
@@ -409,6 +410,9 @@ class FactoryPipeline:
             # Set context vars so LLM calls in this phase can emit to the queue
             run_token   = ACTIVE_RUN_ID.set(run_id)
             phase_token = ACTIVE_PHASE.set(phase_name)
+            org_token   = ACTIVE_ORG_ID.set(org_id)
+            # Fix 12: also set os.environ for code paths that use os.environ["ACTIVE_ORG_ID"]
+            os.environ["ACTIVE_ORG_ID"] = org_id or ""
 
             # Update state machine
             await self._update_state(run_id, phase_name, "running")
@@ -454,11 +458,43 @@ class FactoryPipeline:
                     phase_result.get("status") == "escalated"
                     and accumulated_context.get("decision_mode") != "autonomous"
                 ):
+                    _escalation_reason = str((phase_result.get("issues") or ["unknown"])[:1][0])
+                    # Fix 16 + Fix 28: notify run owner of phase escalation + set deadline in metadata
+                    if org_id:
+                        async def _notify_escalation(_rid=run_id, _oid=org_id, _pn=phase_name, _reason=_escalation_reason, _pname=accumulated_context.get("project_name") or f"run-{run_id[:8]}"):
+                            try:
+                                from aether_os.core.db import get_session_factory as _gsf_esc
+                                from aether_os.core.models import Notification as _Notif_esc, Run as _Run_esc
+                                _notif_esc = _Notif_esc(
+                                    org_id=_oid,
+                                    type="phase_escalation_required",
+                                    title=f"🔔 Approval required: {_pn} in {_pname}",
+                                    message=f"Phase {_pn} escalated: {_reason[:200]}. Auto-approves in 10 minutes.",
+                                    link=f"/dashboard/runs/{_rid}",
+                                )
+                                async with _gsf_esc()() as _s_esc:
+                                    _s_esc.add(_notif_esc)
+                                    # Fix 28: set escalation deadline in run metadata
+                                    _run_esc = await _s_esc.get(_Run_esc, _rid)
+                                    if _run_esc is not None:
+                                        _meta_esc = dict(_run_esc.metadata or {})
+                                        _meta_esc.setdefault("pending_escalations", {})[_pn] = {
+                                            "reason": _reason,
+                                            "deadline": time.time() + 600,
+                                            "auto_approve_at": datetime.datetime.utcnow().isoformat() + "Z",
+                                        }
+                                        _run_esc.metadata = _meta_esc
+                                    await _s_esc.commit()
+                            except Exception as _ne_esc:
+                                logger.debug("[pipeline] escalation notification failed: %s", _ne_esc)
+                        _esc_t = asyncio.create_task(_notify_escalation())
+                        self._background_tasks.add(_esc_t)
+                        _esc_t.add_done_callback(self._background_tasks.discard)
                     await self._await_human_approval(
                         run_id=run_id,
                         org_id=org_id or "",
                         phase_name=phase_name,
-                        reason=str((phase_result.get("issues") or ["unknown"])[:1][0]),
+                        reason=_escalation_reason,
                     )
 
                 # Emit file_written events for every file produced by this phase
@@ -566,6 +602,27 @@ class FactoryPipeline:
                             await self._run_phase("p07b_self_healing", phase_input)
                         else:
                             logger.error("[quality] Gate failed after 3 attempts. Final score: %.1f%%", quality.total)
+                            # Fix 16: notify run owner — self_healing_exhausted
+                            if org_id:
+                                async def _notify_self_healing_exhausted(_rid=run_id, _oid=org_id, _pname=accumulated_context.get("project_name") or f"run-{run_id[:8]}"):
+                                    try:
+                                        from aether_os.core.db import get_session_factory as _gsf_she
+                                        from aether_os.core.models import Notification as _Notif_she
+                                        _notif_she = _Notif_she(
+                                            org_id=_oid,
+                                            type="self_healing_exhausted",
+                                            title=f"⚠ Self-healing exhausted for {_pname}",
+                                            message="All 3 self-healing attempts failed. Quality gate not met.",
+                                            link=f"/dashboard/runs/{_rid}",
+                                        )
+                                        async with _gsf_she()() as _s_she:
+                                            _s_she.add(_notif_she)
+                                            await _s_she.commit()
+                                    except Exception as _ne_she:
+                                        logger.debug("[pipeline] self_healing_exhausted notification failed: %s", _ne_she)
+                                _she_t = asyncio.create_task(_notify_self_healing_exhausted())
+                                self._background_tasks.add(_she_t)
+                                _she_t.add_done_callback(self._background_tasks.discard)
                             raise PipelineBlockedError(
                                 f"Quality gate failed after 3 improvement attempts. Final score: {quality.total:.1f}%"
                             )
@@ -630,16 +687,16 @@ class FactoryPipeline:
                                 # Update metadata
                                 # (Assuming there's a function to update run metadata, 
                                 # if not, we can use a direct DB query here or via ledger)
+                                # Fix 34: use Python-level dict update (jsonb_set crashes on SQLite)
                                 from aether_os.core.db import get_session_factory as _gsf_warn
                                 from aether_os.core.models import Run as _Run_warn
-                                from sqlalchemy import update as _sa_up_warn
                                 async with _gsf_warn()() as _s_warn:
-                                    await _s_warn.execute(
-                                        _sa_up_warn(_Run_warn)
-                                        .where(_Run_warn.id == run_id)
-                                        .values(metadata=func.jsonb_set(_Run_warn.metadata, '{pipeline_warning}', '"Gate decision wiped — check logs"', True))
-                                    )
-                                    await _s_warn.commit()
+                                    _run_warn = await _s_warn.get(_Run_warn, run_id)
+                                    if _run_warn is not None:
+                                        _meta_warn = dict(_run_warn.metadata or {})
+                                        _meta_warn["pipeline_warning"] = "Gate decision wiped — check logs"
+                                        _run_warn.metadata = _meta_warn
+                                        await _s_warn.commit()
 
                             await set_control(run_id, "spec_review")
                             await emit({"type": "spec_review_ready", "run_id": run_id}, run_id=run_id)
@@ -880,8 +937,20 @@ class FactoryPipeline:
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
                     await self.ledger.async_update_run_status(run_id, "failed")
+                    # Fix 62: persist finished_at on pipeline abort
+                    try:
+                        from aether_os.core.db import get_session_factory as _gsf_fa
+                        from aether_os.core.models import Run as _Run_fa
+                        async with _gsf_fa()() as _s_fa:
+                            _r_fa = await _s_fa.get(_Run_fa, run_id)
+                            if _r_fa:
+                                _r_fa.finished_at = time.time()
+                                await _s_fa.commit()
+                    except Exception:
+                        pass
                     await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
-                                                  "error": f"Critical phase {phase_name} timed out", "ts": time.time()})
+                                                      "error": f"Critical phase {phase_name} timed out", "ts": time.time()})
+
                     return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} timed out"}
 
             except Exception as e:
@@ -899,8 +968,20 @@ class FactoryPipeline:
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s failed — aborting pipeline %s", phase_name, run_id)
                     await self.ledger.async_update_run_status(run_id, "failed")
+                    # Fix 62: persist finished_at on pipeline abort
+                    try:
+                        from aether_os.core.db import get_session_factory as _gsf_fb
+                        from aether_os.core.models import Run as _Run_fb
+                        async with _gsf_fb()() as _s_fb:
+                            _r_fb = await _s_fb.get(_Run_fb, run_id)
+                            if _r_fb:
+                                _r_fb.finished_at = time.time()
+                                await _s_fb.commit()
+                    except Exception:
+                        pass
                     await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
                                                   "error": f"Critical phase {phase_name} failed: {e}", "ts": time.time()})
+
                     return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} failed: {e}"}
 
             finally:
@@ -913,6 +994,17 @@ class FactoryPipeline:
             if control == "cancel":
                 logger.info("Pipeline %s cancelled after phase %s", run_id, phase_name)
                 await self.ledger.async_update_run_status(run_id, "cancelled")
+                # Fix 62: persist finished_at on cancel (ORM, SQLite-safe)
+                try:
+                    from aether_os.core.db import get_session_factory as _gsf_canc
+                    from aether_os.core.models import Run as _Run_canc
+                    async with _gsf_canc()() as _s_canc:
+                        _r_canc = await _s_canc.get(_Run_canc, run_id)
+                        if _r_canc:
+                            _r_canc.finished_at = time.time()
+                            await _s_canc.commit()
+                except Exception:
+                    pass
                 await publish_event(run_id, {"type": "pipeline_complete", "status": "cancelled", "ts": time.time()})
                 return {
                     "run_id": run_id, "status": "cancelled",
@@ -1013,6 +1105,24 @@ class FactoryPipeline:
                         "reason": _delivery.get("reason", ""),
                         "suggestions": _delivery.get("suggestions", []),
                     })
+                    # Fix 16: council_fail notification (score < 0.5)
+                    if _council_score < 0.5 and org_id:
+                        try:
+                            from aether_os.core.db import get_session_factory as _gsf_cn
+                            from aether_os.core.models import Notification as _Notif_cn
+                            _pname_cn = project_name or f"run-{run_id[:8]}"
+                            _notif_cn = _Notif_cn(
+                                org_id=org_id,
+                                type="council_fail",
+                                title=f"❌ Council failed for {_pname_cn}",
+                                message=f"DeliveryCouncil score {_council_score:.2f} < 0.5: {_delivery.get('reason', '')}",
+                                link=f"/dashboard/runs/{run_id}",
+                            )
+                            async with _gsf_cn()() as _s_cn:
+                                _s_cn.add(_notif_cn)
+                                await _s_cn.commit()
+                        except Exception as _ne_cn:
+                            logger.debug("[pipeline] council_fail notification failed: %s", _ne_cn)
                 else:
                     logger.info(
                         "DeliveryCouncil: run %s passed (score=%.2f)", run_id, _council_score
@@ -1064,6 +1174,17 @@ class FactoryPipeline:
 
         # Emit pipeline_complete immediately so SSE clients are not blocked.
         # Status is "council_review" until the DeliveryCouncil background task completes.
+        # Fix 62: persist finished_at at pipeline completion (ORM, SQLite-safe)
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_fin
+            from aether_os.core.models import Run as _Run_fin
+            async with _gsf_fin()() as _s_fin:
+                _r_fin = await _s_fin.get(_Run_fin, run_id)
+                if _r_fin:
+                    _r_fin.finished_at = time.time()
+                    await _s_fin.commit()
+        except Exception:
+            pass
         _complete_event = {
             "type": "pipeline_complete",
             "status": "council_review",
@@ -1084,7 +1205,7 @@ class FactoryPipeline:
                         type="pipeline_complete",
                         title=f"✅ {_pname} is ready",
                         message=f"Factory run completed in {round(duration, 1)}s across {len(phases_to_run)} phases.",
-                        link=f"/project/{run_id}",
+                        link=f"/dashboard/runs/{run_id}",
                     )
                     async with _gsf_n()() as _s:
                         _s.add(_notif)
@@ -1150,7 +1271,11 @@ class FactoryPipeline:
                     # 2. Global patterns table (shared intelligence across all users)
                     _stack_key = str(_run_tech.get("backend", domain or "unknown"))
                     _existing_gp = (await _sl.execute(
-                        _sel_l(_GP).where(_GP.domain == domain, _GP.pattern_name == _stack_key)
+                        _sel_l(_GP).where(
+                            _GP.org_id == org_id,
+                            _GP.domain == domain,
+                            _GP.pattern_name == _stack_key,
+                        )
                     )).scalar_one_or_none()
                     _q_score = 0.7 if _q_flag == "pass" else (0.4 if _q_flag == "warn" else 0.2)
                     if _existing_gp:
@@ -1165,6 +1290,7 @@ class FactoryPipeline:
                         )
                     else:
                         _sl.add(_GP(
+                            org_id=org_id,
                             domain=domain or "general",
                             pattern_name=_stack_key,
                             pattern_type="tech_stack",
@@ -1225,7 +1351,8 @@ class FactoryPipeline:
                 _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
                 _count = 0
                 _errors = 0
-                _MAX_ARTIFACTS = int(os.environ.get("ARTIFACT_EMBED_LIMIT", "500"))
+                _MAX_ARTIFACTS = int(os.environ.get("ARTIFACT_EMBED_LIMIT", "5000"))
+                _total_files = 0
                 for _phase in results:
                     if await get_control(run_id) == "cancel":
                         break
@@ -1233,6 +1360,7 @@ class FactoryPipeline:
                     if _phase_dir.exists():
                         for f in _phase_dir.rglob("*"):
                             if f.is_file() and f.suffix in _extensions:
+                                _total_files += 1
                                 try:
                                     await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text(), org_id=org_id)
                                     _count += 1
@@ -1244,17 +1372,21 @@ class FactoryPipeline:
                                     continue
                     if _count >= _MAX_ARTIFACTS:
                         break
+                # Count remaining files not yet iterated
                 if _count >= _MAX_ARTIFACTS:
+                    _skipped = _total_files - _count
                     logger.warning(
-                        "[pipeline] Artifact embedding truncated at %d (ARTIFACT_EMBED_LIMIT). "
-                        "Some files were not indexed — semantic search will be incomplete for run %s.",
-                        _MAX_ARTIFACTS, run_id,
+                        "[pipeline] Semantic search indexed %d of %d files — %d were skipped due to volume limits (ARTIFACT_EMBED_LIMIT=%d) for run %s.",
+                        _count, _total_files, _skipped, _MAX_ARTIFACTS, run_id,
                     )
                     await publish_event(run_id, {
                         "type": "artifact_embed_truncated",
                         "limit": _MAX_ARTIFACTS,
+                        "indexed": _count,
+                        "total": _total_files,
+                        "skipped": _skipped,
                         "run_id": run_id,
-                        "message": f"Semantic search indexed only the first {_MAX_ARTIFACTS} files. Set ARTIFACT_EMBED_LIMIT to index more.",
+                        "message": f"Semantic search indexed {_count} of {_total_files} files — {_skipped} were skipped due to volume limits.",
                     })
                 if _errors:
                     logger.warning("[pipeline] Embedded %d artifacts (%d failed) for run %s", _count, _errors, run_id)

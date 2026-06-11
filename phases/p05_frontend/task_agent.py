@@ -410,6 +410,16 @@ def _read_architecture(data: dict) -> dict:
         except Exception:
             pass
 
+    # Problem 67: also accept inline architecture_json dict propagated by pipeline
+    if arch is None:
+        _arch_inline = data.get("architecture_json")
+        if isinstance(_arch_inline, dict) and (
+            _arch_inline.get("database_schema") or _arch_inline.get("entities")
+        ):
+            arch = _arch_inline
+            logger.debug("p05: architecture from inline architecture_json (%d tables)",
+                         len(_arch_inline.get("database_schema", [])))
+
     if arch is None:
         project_dir = Path(data.get("project_dir", ""))
         if project_dir.exists():
@@ -626,7 +636,11 @@ def _extract_all_entities_from_models_py(data: dict) -> List[dict]:
 # ── Schema helpers ─────────────────────────────────────────────────────────────
 
 def _normalise_entities(arch: dict) -> List[dict]:
-    """Return list of {table, columns: [str]} dicts, skipping users/auth tables."""
+    """Return list of {table, columns: [str]} dicts, skipping users/auth tables.
+
+    Problem 67: also reads arch["entities"] (p02 IR format) when database_schema is absent,
+    so real entity names are used instead of the generic 'items' fallback.
+    """
     raw_schema = arch.get("database_schema", arch.get("db_schema", []))
     entities: List[dict] = []
     seen: set = set()
@@ -643,6 +657,29 @@ def _normalise_entities(arch: dict) -> List[dict]:
             else:
                 cols.append(str(c))
         entities.append({"table": table, "columns": [c for c in cols if c]})
+
+    # Problem 67: if database_schema was empty, fall back to arch["entities"] (p02 IR list)
+    if not entities:
+        _ir_entities = arch.get("entities", [])
+        for ent in _ir_entities:
+            ent_name = ent.get("name", ent.get("table", ""))
+            if not ent_name:
+                continue
+            # Convert entity name to snake_case table name
+            _table = re.sub(r'([A-Z])', lambda m: '_' + m.group(1).lower(), ent_name).lstrip('_')
+            if _table in seen:
+                continue
+            seen.add(_table)
+            # Extract field names from various p02 IR formats
+            _cols: List[str] = []
+            for field in ent.get("fields", ent.get("columns", ent.get("attributes", []))):
+                if isinstance(field, dict):
+                    _cols.append(field.get("name", field.get("column", "")))
+                elif isinstance(field, str):
+                    _cols.append(field)
+            if not _cols:
+                _cols = ["id", "name", "status", "created_at"]
+            entities.append({"table": _table, "name": ent_name, "columns": [c for c in _cols if c]})
 
     entities = [e for e in entities if e["table"].lower() not in ("users",)]
     if not entities:
@@ -4496,6 +4533,43 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 )
                 entities = _models_entities
 
+        # Problem 67: 3rd fallback — try data["entities"] (direct pipeline propagation)
+        # and data["architecture"]["entities"] if still stuck on generic "items" fallback.
+        if len(entities) == 1 and entities[0]["table"] == "items":
+            _data_entities = data.get("entities", [])
+            if not _data_entities:
+                _data_entities = data.get("architecture", {}).get("entities", [])
+            if _data_entities:
+                _p67_ents: List[dict] = []
+                for _e in _data_entities:
+                    _ename = _e.get("name", _e.get("table", "")) if isinstance(_e, dict) else str(_e)
+                    if not _ename or _ename.lower() in ("user", "users"):
+                        continue
+                    _etable = re.sub(r'([A-Z])', lambda m: '_' + m.group(1).lower(), _ename).lstrip('_').lower()
+                    _ecols = []
+                    if isinstance(_e, dict):
+                        for _f in _e.get("fields", _e.get("columns", _e.get("attributes", []))):
+                            if isinstance(_f, dict):
+                                _ecols.append(_f.get("name", _f.get("column", "")))
+                            elif isinstance(_f, str):
+                                _ecols.append(_f)
+                    if not _ecols:
+                        _ecols = ["id", "name", "status", "created_at"]
+                    _p67_ents.append({"table": _etable, "name": _ename, "columns": [c for c in _ecols if c]})
+                if _p67_ents:
+                    logger.info(
+                        "p05 [P67]: replaced 'items' fallback with %d entities from pipeline data: %s",
+                        len(_p67_ents), [e["table"] for e in _p67_ents],
+                    )
+                    entities = _p67_ents
+
+        # Problem 67: final warning — if still 'items', the pipeline did not propagate entities
+        if len(entities) == 1 and entities[0]["table"] == "items":
+            logger.warning(
+                "p05 [P67]: All entity recovery paths exhausted — generating generic 'items' page. "
+                "Ensure p02_architecture_path, backend_output_path, or entities are set in input_data."
+            )
+
     # 2b. Detect application domain (used for stat labels + LLM widget)
     domain = _detect_domain(phase_input)
     logger.info("p05_frontend: detected domain=%s for project=%s", domain, project_name)
@@ -4842,14 +4916,63 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _copy_err:
             logger.warning("p05_frontend: could not mirror frontend to project root: %s", _copy_err)
 
-    # ── Frontend council audit ─────────────────────────────────────────────────
+    # ── Frontend council audit (Problem 32: correction loop, up to 2 rounds) ────
     frontend_audit: Dict[str, Any] = {"passed": True, "failures": [], "corrections": ""}
+    _MAX_AUDIT_ROUNDS = 2
     try:
-        dashboard_code = (src_dir / "pages" / "Dashboard.tsx").read_text()
         from aether_os.core.council.council import FrontendAuditCouncil
-        frontend_audit = await FrontendAuditCouncil().audit(dashboard_code)
-        if not frontend_audit["passed"]:
-            logger.warning("[p05] FrontendAuditCouncil failures: %s", frontend_audit["failures"])
+        from aether_os.core.llm.client import get_llm_client as _get_llm
+        _audit_llm = _get_llm()
+
+        for _audit_round in range(1, _MAX_AUDIT_ROUNDS + 2):  # +2: initial + 2 correction rounds
+            _dashboard_path = src_dir / "pages" / "Dashboard.tsx"
+            if not _dashboard_path.exists():
+                break
+            dashboard_code = _dashboard_path.read_text()
+            frontend_audit = await FrontendAuditCouncil().audit(dashboard_code)
+
+            if frontend_audit["passed"]:
+                if _audit_round > 1:
+                    logger.info("[p05] FrontendAuditCouncil PASSED after %d correction round(s)", _audit_round - 1)
+                break
+
+            logger.warning("[p05] FrontendAuditCouncil round %d failures: %s", _audit_round, frontend_audit["failures"])
+
+            if _audit_round > _MAX_AUDIT_ROUNDS:
+                # Exhausted correction rounds — report remaining failures
+                logger.warning("[p05] FrontendAuditCouncil still failing after %d correction rounds", _MAX_AUDIT_ROUNDS)
+                frontend_audit["passed"] = False
+                frontend_audit["issues"] = frontend_audit.get("failures", [])
+                break
+
+            # Correction pass: LLM fixes the failing files
+            corrections_text = frontend_audit.get("corrections", "") or "\n".join(frontend_audit.get("failures", []))
+            if not corrections_text:
+                break
+
+            _correction_prompt = (
+                f"The following React/TypeScript frontend code failed a quality audit.\n\n"
+                f"AUDIT FAILURES:\n{corrections_text}\n\n"
+                f"CURRENT Dashboard.tsx:\n```tsx\n{dashboard_code[:6000]}\n```\n\n"
+                f"Fix ALL the listed issues. Return ONLY the complete corrected Dashboard.tsx content, "
+                f"no markdown fences, no explanation."
+            )
+            try:
+                _corrected = await _audit_llm.call(_correction_prompt, task_type="code_fix", max_tokens=6000)
+                if _corrected and len(_corrected.strip()) > 200:
+                    # Strip markdown fences if present
+                    import re as _re_audit
+                    _corrected = _re_audit.sub(r'^```(?:tsx?|javascript)?\s*\n?', '', _corrected.strip())
+                    _corrected = _re_audit.sub(r'\n?```\s*$', '', _corrected.strip())
+                    _dashboard_path.write_text(_corrected)
+                    logger.info("[p05] FrontendAuditCouncil correction round %d applied (%d chars)", _audit_round, len(_corrected))
+                else:
+                    logger.warning("[p05] FrontendAuditCouncil correction returned empty/short response — skipping")
+                    break
+            except Exception as _corr_exc:
+                logger.warning("[p05] FrontendAuditCouncil correction LLM call failed: %s", _corr_exc)
+                break
+
     except Exception as _fac_exc:
         logger.debug("[p05] FrontendAuditCouncil skipped: %s", _fac_exc)
 
@@ -5006,19 +5129,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         duration_seconds=0, # Simplified
     ))
 
-            pass
-    """)
-    
-    bg_script_path = output_dir / "bg_build.py"
-    bg_script_path.write_text(bg_script)
-    
-    subprocess.Popen(["python3", str(bg_script_path)], start_new_session=True)
-    logger.info("p05_frontend: background build launched (FIX 16)")
-
     return TaskResult(
         output_path=str(frontend_dir),
-        confidence=0.8, # confidence slightly lower until build done
+        confidence=0.8 if not frontend_build_failed else 0.5,
         metadata=meta,
         success=True,
-        issues=[],
+        issues=["Frontend build failed — see npm_build.log"] if frontend_build_failed else [],
     )

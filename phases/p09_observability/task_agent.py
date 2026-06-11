@@ -151,7 +151,19 @@ providers:
 
 
 def _find_backend_src(data: dict) -> Path | None:
-    for key in ("backend_src_dir", "main_py"):
+    """Find the canonical backend src dir where p11 will build from.
+
+    Problem 72: p09 must patch the same canonical_src_dir that p11 builds from
+    (p04_backend/backend_codegen/src), NOT the scaffolding dir (p03_scaffolding/*/src).
+    Priority order:
+      1. canonical_src_dir from pipeline context (set by p04a)
+      2. backend_src_dir from pipeline context
+      3. p04_backend/backend_codegen/src (standard p04a output location)
+      4. main_py parent
+      5. project_dir rglob fallback (prefer deeper paths = generated code)
+    """
+    # Priority 1+2: explicit canonical path from pipeline
+    for key in ("canonical_src_dir", "backend_src_dir"):
         val = data.get(key, "")
         if val:
             p = Path(val)
@@ -159,19 +171,51 @@ def _find_backend_src(data: dict) -> Path | None:
                 p = p.parent
             if p.is_dir() and (p / "main.py").exists():
                 return p
+
+    # Priority 3: standard p04a output location
     project_dir = data.get("project_dir", "")
     if project_dir:
-        candidates = sorted(Path(project_dir).rglob("main.py"), key=lambda x: len(x.parts))
-        if candidates:
-            return candidates[-1].parent
+        _standard = Path(project_dir) / "p04_backend" / "backend_codegen" / "src"
+        if _standard.is_dir() and (_standard / "main.py").exists():
+            return _standard
+        # Also check p04a_backend_codegen/src
+        _alt = Path(project_dir) / "p04a_backend_codegen" / "src"
+        if _alt.is_dir() and (_alt / "main.py").exists():
+            return _alt
+
+    # Priority 4: main_py direct path
+    val = data.get("main_py", "")
+    if val:
+        p = Path(val)
+        if p.is_file():
+            p = p.parent
+        if p.is_dir() and (p / "main.py").exists():
+            return p
+
+    # Priority 5: project_dir rglob — prefer deeper candidates (generated code over stubs)
+    # and exclude node_modules/p03_scaffolding to avoid patching stubs
+    if project_dir:
+        _candidates = [
+            c for c in Path(project_dir).rglob("main.py")
+            if "node_modules" not in str(c)
+            and "p03_scaffolding" not in str(c)
+        ]
+        if _candidates:
+            # Prefer deeper paths (more specific subdirectories = real generated code)
+            _candidates.sort(key=lambda x: -len(x.parts))
+            return _candidates[0].parent
     return None
 
 
 def _patch_main_py(main_py: Path) -> None:
     source = main_py.read_text()
-    if "from .monitoring import" in source:
+    # Problem 72: use absolute import (no relative dot) so it works in Docker (PYTHONPATH=/app)
+    if "from monitoring import" in source or "from .monitoring import" in source:
+        # Fix relative import if present
+        source = source.replace("from .monitoring import", "from monitoring import")
+        main_py.write_text(source)
         return
-    import_line = "from .monitoring import setup_logging, add_prometheus_middleware, timing_middleware\n"
+    import_line = "from monitoring import setup_logging, add_prometheus_middleware, timing_middleware\n"
     if "from __future__ import annotations" in source:
         source = source.replace(
             "from __future__ import annotations\n",
@@ -257,22 +301,144 @@ async def run(phase_input: Any, memory_ctx: List[dict], output_dir: Path) -> Tas
         str(db_dir / "provisioning.yml"),
     ]
 
+    # Problem 69: verify all four observability components were actually generated
+    _gate_issues = []
+    _features_present = []
+
+    # Component 1: structured JSON logging in monitoring.py
+    if backend_src_dir:
+        _mon_py = backend_src_dir / "monitoring.py"
+        if _mon_py.exists() and "JsonFormatter" in _mon_py.read_text():
+            _features_present.append("structured_json_logging")
+        else:
+            _gate_issues.append("structured JSON logging not injected into monitoring.py")
+
+        # Component 2: Prometheus /metrics endpoint
+        _main_py_check = backend_src_dir / "main.py"
+        if _main_py_check.exists() and (
+            "add_prometheus_middleware" in _main_py_check.read_text()
+            or "prometheus" in _main_py_check.read_text().lower()
+        ):
+            _features_present.append("prometheus_metrics")
+        else:
+            _gate_issues.append("Prometheus /metrics endpoint not wired into main.py")
+    else:
+        _gate_issues.append("No backend src dir found — cannot instrument logging or metrics")
+
+    # Component 3: prometheus_alerts.yml — write it if missing
+    _alerts_file = output_dir / "monitoring" / "prometheus_alerts.yml"
+    if not _alerts_file.exists():
+        _alerts_content = f"""\
+groups:
+  - name: {project_name}_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{{status=~"5.."}}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate on {project_name}"
+          description: "More than 10% of requests are failing."
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on {project_name}"
+          description: "95th percentile response time exceeded 2 seconds."
+
+      - alert: ServiceDown
+        expr: up{{job="{project_name}"}} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{project_name} is down"
+          description: "The service has been unreachable for 1 minute."
+"""
+        try:
+            _alerts_file.parent.mkdir(parents=True, exist_ok=True)
+            _alerts_file.write_text(_alerts_content)
+            files_written.append(str(_alerts_file))
+            _features_present.append("prometheus_alerts")
+        except Exception as _ae:
+            _gate_issues.append(f"prometheus_alerts.yml generation failed: {_ae}")
+    else:
+        _features_present.append("prometheus_alerts")
+
+    # Component 4: OpenTelemetry instrumentation
+    _otel_py = output_dir / "monitoring" / "otel_setup.py"
+    if not _otel_py.exists():
+        _otel_content = f"""\
+\"\"\"OpenTelemetry instrumentation for {project_name}.\"\"\"
+from __future__ import annotations
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+
+def setup_opentelemetry(app) -> None:
+    \"\"\"Instrument FastAPI app with OpenTelemetry tracing.\"\"\"
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+        otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+        provider = TracerProvider()
+        exporter = OTLPSpanExporter(endpoint=f"{{otlp_endpoint}}/v1/traces")
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+
+        FastAPIInstrumentor.instrument_app(app)
+        try:
+            SQLAlchemyInstrumentor().instrument()
+        except Exception:
+            pass
+        logger.info("OpenTelemetry tracing enabled — exporting to %s", otlp_endpoint)
+    except ImportError:
+        logger.warning(
+            "OpenTelemetry not installed — tracing disabled. "
+            "Install with: pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi"
+        )
+"""
+        try:
+            _otel_py.write_text(_otel_content)
+            files_written.append(str(_otel_py))
+            _features_present.append("opentelemetry_tracing")
+        except Exception as _oe:
+            _gate_issues.append(f"OpenTelemetry setup file generation failed: {_oe}")
+    else:
+        _features_present.append("opentelemetry_tracing")
+
+    gate_passed = len(_gate_issues) == 0
+
     summary = {
         "project": project_name,
         "backend_src": str(backend_src_dir) if backend_src_dir else None,
         "files_written": len(files_written),
         "files": files_written,
-        "features": ["structured_json_logging", "prometheus_metrics", "request_timing", "grafana_dashboard"],
+        "features": _features_present,
+        "gate_passed": gate_passed,
+        "gate_issues": _gate_issues,
     }
     summary_path = output_dir / "observability.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
-    logger.info("[p09] observability complete: %d files written", len(files_written))
+    logger.info("[p09] observability complete: %d files written, gate_passed=%s, issues=%s",
+                len(files_written), gate_passed, _gate_issues)
 
     return TaskResult(
         output_path=str(summary_path),
-        confidence=0.9,
+        confidence=0.9 if gate_passed else 0.5,
         metadata=summary,
-        success=True,
-        issues=[],
+        success=gate_passed,
+        issues=_gate_issues,
     )

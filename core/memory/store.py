@@ -35,6 +35,7 @@ class MemoryRecord:
     input_text: str = ""          # Original input summary
     output_text: str = ""         # Successful output (code, patch, fix)
     task_type: str = ""           # e.g. "code_generation", "ci_repair"
+    org_id: str = ""              # Organisation that owns this record
     metadata: Dict[str, Any] = field(default_factory=dict)
     success_count: int = 1        # How many times this solution worked
     created_at: float = field(default_factory=time.time)
@@ -82,6 +83,7 @@ class MemoryStore:
                     input_text TEXT,
                     output_text TEXT,
                     task_type TEXT,
+                    org_id TEXT DEFAULT '',
                     metadata TEXT,
                     success_count INTEGER DEFAULT 1,
                     created_at REAL,
@@ -89,6 +91,7 @@ class MemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_memory_hash ON memory(input_hash);
                 CREATE INDEX IF NOT EXISTS idx_memory_task ON memory(task_type);
+                CREATE INDEX IF NOT EXISTS idx_memory_org ON memory(org_id);
 
                 -- FTS5 for text similarity search
                 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
@@ -120,8 +123,8 @@ class MemoryStore:
             conn = self._connect()
             c = conn.cursor()
             existing = c.execute(
-                "SELECT id, success_count FROM memory WHERE input_hash=? AND task_type=?",
-                (record.input_hash, record.task_type),
+                "SELECT id, success_count FROM memory WHERE input_hash=? AND task_type=? AND org_id=?",
+                (record.input_hash, record.task_type, record.org_id),
             ).fetchone()
 
             if existing:
@@ -136,14 +139,15 @@ class MemoryStore:
                 )
             else:
                 c.execute(
-                    "INSERT INTO memory (id, input_hash, input_text, output_text, task_type, metadata, success_count, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO memory (id, input_hash, input_text, output_text, task_type, org_id, metadata, success_count, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         record.id,
                         record.input_hash,
                         record.input_text,
                         record.output_text,
                         record.task_type,
+                        record.org_id,
                         json.dumps(record.metadata),
                         record.success_count,
                         record.created_at,
@@ -159,32 +163,46 @@ class MemoryStore:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.store_sync, record)
 
-    def retrieve_sync(self, input_hash: str, k: int = 5) -> List[MemoryRecord]:
+    def retrieve_sync(self, input_hash: str, k: int = 5, org_id: str = "") -> List[MemoryRecord]:
         """
         Retrieve top-k most relevant records by input_hash (exact) or FTS similarity.
+        When org_id is provided, results are scoped to that organisation.
         Returns records ordered by success_count DESC.
         """
         with self._lock:
             conn = self._connect()
-            # First: exact hash match
-            rows = conn.execute(
-                "SELECT * FROM memory WHERE input_hash=? ORDER BY success_count DESC LIMIT ?",
-                (input_hash, k),
-            ).fetchall()
-
-            if not rows:
-                # FTS fallback: search by input_text similarity
-                try:
-                    rows = conn.execute(
-                        "SELECT m.* FROM memory m "
-                        "JOIN memory_fts f ON m.rowid=f.rowid "
-                        "WHERE memory_fts MATCH ? "
-                        "ORDER BY m.success_count DESC LIMIT ?",
-                        (input_hash, k),
-                    ).fetchall()
-                except sqlite3.OperationalError:
-                    rows = []
-
+            if org_id:
+                rows = conn.execute(
+                    "SELECT * FROM memory WHERE input_hash=? AND org_id=? ORDER BY success_count DESC LIMIT ?",
+                    (input_hash, org_id, k),
+                ).fetchall()
+                if not rows:
+                    try:
+                        rows = conn.execute(
+                            "SELECT m.* FROM memory m "
+                            "JOIN memory_fts f ON m.rowid=f.rowid "
+                            "WHERE memory_fts MATCH ? AND m.org_id=? "
+                            "ORDER BY m.success_count DESC LIMIT ?",
+                            (input_hash, org_id, k),
+                        ).fetchall()
+                    except sqlite3.OperationalError:
+                        rows = []
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM memory WHERE input_hash=? ORDER BY success_count DESC LIMIT ?",
+                    (input_hash, k),
+                ).fetchall()
+                if not rows:
+                    try:
+                        rows = conn.execute(
+                            "SELECT m.* FROM memory m "
+                            "JOIN memory_fts f ON m.rowid=f.rowid "
+                            "WHERE memory_fts MATCH ? "
+                            "ORDER BY m.success_count DESC LIMIT ?",
+                            (input_hash, k),
+                        ).fetchall()
+                    except sqlite3.OperationalError:
+                        rows = []
             conn.close()
 
         return [
@@ -194,6 +212,7 @@ class MemoryStore:
                 input_text=r["input_text"] or "",
                 output_text=r["output_text"] or "",
                 task_type=r["task_type"] or "",
+                org_id=r["org_id"] if "org_id" in r.keys() else "",
                 metadata=json.loads(r["metadata"] or "{}"),
                 success_count=r["success_count"],
                 created_at=r["created_at"],
@@ -202,10 +221,10 @@ class MemoryStore:
             for r in rows
         ]
 
-    async def retrieve(self, input_hash: str, k: int = 5) -> List[MemoryRecord]:
+    async def retrieve(self, input_hash: str, k: int = 5, org_id: str = "") -> List[MemoryRecord]:
         """Async wrapper for retrieve_sync."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.retrieve_sync, input_hash, k)
+        return await loop.run_in_executor(None, self.retrieve_sync, input_hash, k, org_id)
 
     def stats(self) -> Dict[str, Any]:
         """Return store statistics."""
