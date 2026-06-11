@@ -60,7 +60,7 @@ import textwrap
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
@@ -791,6 +791,7 @@ async def get_sse_token(
 @router.get("/factory/runs/{run_id}/stream")
 async def stream_run_events(
     run_id: str,
+    request: Request,
     sse_token: Optional[str] = None,
     last_event_id: Optional[str] = None,
 ):
@@ -803,7 +804,6 @@ async def stream_run_events(
     Fix 21: Accepts Last-Event-ID header to resume from a specific position
     so reconnects do not replay all events from the beginning.
     """
-    from fastapi import Request
     from fastapi.responses import StreamingResponse, Response
     from aether_os.core.audit.ledger import get_ledger
     from aether_os.core.rate_limiter import sse_token_pop
@@ -823,11 +823,14 @@ async def stream_run_events(
     if not detail:
         return Response(status_code=404, content="Run not found or access denied")
 
-    # Fix 21: parse Last-Event-ID from query param (browsers send header, but we also allow QP)
+    # Fix 21: parse Last-Event-ID — browsers send this as a header on reconnect (HTML5 EventSource
+    # spec). Also accept the query param as a fallback for non-browser clients.
     _last_seen = -1
-    if last_event_id is not None:
+    _header_lei = request.headers.get("Last-Event-ID") or request.headers.get("last-event-id")
+    _raw_lei = _header_lei if _header_lei is not None else last_event_id
+    if _raw_lei is not None:
         try:
-            _last_seen = int(last_event_id)
+            _last_seen = int(_raw_lei)
         except (ValueError, TypeError):
             _last_seen = -1
 

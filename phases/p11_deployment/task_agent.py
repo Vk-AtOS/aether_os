@@ -194,8 +194,11 @@ echo "Update successful."
         project_dir = Path(os.path.expanduser(
             f"~/.aether_os/projects/{run_id}"
         ))
+        # P72: read canonical_src_dir from pipeline context so we deploy from the same
+        # directory that p09_observability patched (not a stale scaffolding copy).
+        _canonical_src = data.get("canonical_src_dir")
 
-        main_py = self._find_main_py(project_dir)
+        main_py = self._find_main_py(project_dir, canonical_src_dir=_canonical_src)
         if not main_py:
             # Generate fallback app directly from requirement
             raw_input = getattr(phase_input, "raw_input", "") or (
@@ -381,11 +384,20 @@ echo "Update successful."
         except Exception:
             return False
 
-    def _find_main_py(self, project_dir: Path) -> Optional[Path]:
+    def _find_main_py(self, project_dir: Path, canonical_src_dir: Optional[str] = None) -> Optional[Path]:
         """
         Find the real main.py with priority order.
         Skips scaffolding stubs (< 500 bytes or only /health).
+        P72: canonical_src_dir from pipeline context takes priority so p11 deploys
+        from the same directory that p09_observability patched.
         """
+        # Priority 0: canonical_src_dir from pipeline context (P72 fix)
+        if canonical_src_dir:
+            _canon = Path(canonical_src_dir)
+            _canon_main = _canon / "main.py"
+            if _canon_main.exists() and self._is_real_app(_canon_main):
+                return _canon_main
+
         # Priority 1: backend codegen output
         priority_candidates = [
             project_dir / "src" / "main.py",

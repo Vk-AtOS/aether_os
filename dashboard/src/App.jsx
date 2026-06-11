@@ -138,6 +138,7 @@ function App() {
         <Route path="designer/:id" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
         <Route path="workspaces" element={<ErrorBoundary><Workspaces /></ErrorBoundary>} />
         <Route path="runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
+        <Route path="dashboard/runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
 

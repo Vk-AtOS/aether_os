@@ -42,6 +42,10 @@ async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noq
         "- Fix SQLAlchemy async syntax (use .scalars().all(), not .all())\n"
         "- Never use in-memory dicts/lists — use SQLAlchemy ORM only\n"
         "- Never store plaintext passwords — always use passlib bcrypt\n"
+        "- Use ABSOLUTE imports only. Do NOT use relative imports (no 'from .module import X'). "
+        "Import as 'from database import Base', 'from models import User', etc.\n"
+        "- The @asynccontextmanager decorator must be on the line IMMEDIATELY before "
+        "async def lifespan. Do NOT place any statements between the decorator and the function.\n"
         "Do not change working API endpoints or business logic."
     )
     try:

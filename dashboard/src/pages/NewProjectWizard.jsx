@@ -21,11 +21,12 @@ const PRIORITIES = ['High', 'Normal', 'Low'];
 const BACKEND_OPTIONS = ['FastAPI', 'Django', 'Express', 'Flask'];
 const FRONTEND_OPTIONS = ['React', 'Vue', 'Vanilla JS', 'None'];
 const DB_OPTIONS = ['PostgreSQL', 'MongoDB', 'SQLite', 'MySQL'];
-// Fallback models shown before LLM config loads — labels are generic to avoid hardcoding versions
+// Fallback models shown only when the /settings/active-provider API is unreachable.
+// Values use stable aliases (no version pin) so the backend picks the latest available.
 const DEFAULT_MODELS = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet (Anthropic)' },
-  { value: 'gemini-2.0-flash', label: 'Gemini Flash (Google)' },
-  { value: 'qwen2.5-coder:7b', label: 'Qwen Coder (Ollama)' },
+  { value: 'claude-sonnet', label: 'Claude Sonnet (Anthropic)' },
+  { value: 'gemini-flash', label: 'Gemini Flash (Google)' },
+  { value: 'qwen-coder', label: 'Qwen Coder (Local/Ollama)' },
 ];
 
 const StepIndicator = ({ step }) => {
