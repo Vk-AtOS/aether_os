@@ -59,10 +59,26 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     if spec.provider == "gemini":
         key = os.environ.get("GOOGLE_API_KEY", "").strip()
-        return bool(key) and len(key) > 10 and not key.startswith("REPLACE")
+        if bool(key) and len(key) > 10 and not key.startswith("REPLACE"):
+            return True
+        # Also check if any org key is cached (populated by init_org_llm_context)
+        try:
+            from aether_os.core.api_key_store import _cache as _KEY_CACHE
+            return any(k[1] == "google" for k in _KEY_CACHE)
+        except Exception:
+            return False
     if spec.provider == "openrouter":
-        return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+        if bool(os.environ.get("OPENROUTER_API_KEY", "").strip()):
+            return True
+        try:
+            from aether_os.core.api_key_store import _cache as _KEY_CACHE
+            return any(k[1] == "openrouter" for k in _KEY_CACHE)
+        except Exception:
+            return False
     if spec.provider == "bedrock":
+        # Respect explicit opt-out via BEDROCK_ENABLED=false
+        if os.environ.get("BEDROCK_ENABLED", "").lower() == "false":
+            return False
         # Auto-enable when explicit credentials are provided (most common setup)
         if os.environ.get("AWS_ACCESS_KEY_ID", "").strip():
             return True
@@ -193,6 +209,62 @@ def _mark_provider_dead(provider: str, exc: Exception) -> None:
             logger.warning("Router: circuit-breaker OPEN for %s — permanent failure, skipping for this process", provider)
 
 
+async def _apply_org_chain_overrides(
+    chain: List[ModelSpec], org_id: str
+) -> List[ModelSpec]:
+    """Filter/extend chain based on org's DB settings (bedrock_enabled, stored API keys)."""
+    try:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import LlmConfig
+        from aether_os.core.api_key_store import get_api_key
+        from sqlalchemy import select
+
+        async with get_session_factory()() as session:
+            cfg = (await session.execute(
+                select(LlmConfig).where(LlmConfig.org_id == org_id)
+            )).scalar_one_or_none()
+
+        filtered: List[ModelSpec] = []
+        has_gemini = False
+        has_openrouter = False
+
+        for spec in chain:
+            # Remove bedrock if DB says it's disabled for this org
+            if spec.provider == "bedrock" and cfg is not None and not cfg.bedrock_enabled:
+                logger.debug("Router: org %s has bedrock_enabled=False — removing from chain", org_id[:8])
+                continue
+            if spec.provider == "gemini":
+                has_gemini = True
+            if spec.provider == "openrouter":
+                has_openrouter = True
+            filtered.append(spec)
+
+        # Add gemini from DB key if not already in chain and env var is absent
+        if not has_gemini and not os.environ.get("GOOGLE_API_KEY", "").strip():
+            gemini_key = await get_api_key("google", org_id)
+            if gemini_key:
+                # Insert before openrouter / at end
+                insert_at = next(
+                    (i for i, s in enumerate(filtered) if s.provider == "openrouter"),
+                    len(filtered),
+                )
+                filtered.insert(insert_at, ModelSpec("gemini", "gemini-2.5-flash", 45, 2))
+                logger.info("Router: injected gemini into chain from org DB key (org=%s)", org_id[:8])
+
+        # Add openrouter from DB key if not already in chain and env var is absent
+        if not has_openrouter and not os.environ.get("OPENROUTER_API_KEY", "").strip():
+            or_key = await get_api_key("openrouter", org_id)
+            if or_key:
+                heavy = os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free")
+                filtered.append(ModelSpec("openrouter", heavy, 60, 2))
+                logger.info("Router: injected openrouter into chain from org DB key (org=%s)", org_id[:8])
+
+        return filtered if filtered else chain  # never return empty
+    except Exception as exc:
+        logger.debug("_apply_org_chain_overrides failed (using raw chain): %s", exc)
+        return chain
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 class ModelRouter:
@@ -288,6 +360,10 @@ class ModelRouter:
         chain = get_fallback_chain()
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
+
+        # ── Org-specific provider overrides (DB takes precedence over env) ────
+        if org_id and not enforce_local:
+            chain = await _apply_org_chain_overrides(chain, org_id)
 
         # ── 3. Plan-based model enforcement (P10) ─────────────────────────────
         if plan == "trial" and not enforce_local:
