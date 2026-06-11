@@ -112,9 +112,9 @@ class DecisionLedger:
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     async def async_log_audit_event(self, org_id: str, user_id: str, action: str,
-                                    resource_type: str, resource_id: str,
-                                    metadata: Dict[str, Any], ip_address: str,
-                                    user_agent: str = "-") -> None:
+                                    resource_type: str = "", resource_id: str = "",
+                                    metadata: Optional[Dict[str, Any]] = None,
+                                    ip_address: str = "", user_agent: str = "-") -> None:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import AuditLog
@@ -147,7 +147,7 @@ class DecisionLedger:
                     id=str(uuid.uuid4()), org_id=org_id, user_id=user_id,
                     action=action, resource_type=resource_type,
                     resource_id=resource_id,
-                    log_metadata=json.dumps(metadata),
+                    log_metadata=json.dumps(metadata or {}),
                     ip_address=ip_address, created_at=time.time(),
                     prev_hash=prev_hash,
                 ))
