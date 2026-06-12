@@ -403,101 +403,64 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
             errors.append(f"pass{pass_num}_llm_error: {exc}")
             return {}
 
-    logger.info("p02b: starting 4-pass Domain IR extraction for run %s", run_id)
+    logger.info("p02b: starting SINGLE-pass Domain IR extraction for run %s", run_id)
 
-    # Pass 1 — entities + fields
-    p1 = await _call(
-        _PASS1_PROMPT.format(requirements=requirements[:6000], seed_entities=seed),
-        1,
+    # Single combined prompt — one LLM call instead of four. Reduced from
+    # ~240-720s worst case to ~60s. The prompt asks for everything at once
+    # because Nova Pro / Llama 3.3 70B handle this in one shot.
+    _COMBINED_PROMPT = (
+        "You are a software architect extracting a Domain Intermediate Representation "
+        "from a requirements document.\n\n"
+        f"Requirements:\n{requirements[:6000]}\n\n"
+        f"Known entities from architecture analysis (use as starting point, add missing ones):\n{seed}\n\n"
+        "Produce ONE JSON object with EVERY field below. Return ONLY the JSON, no commentary, no markdown fences.\n\n"
+        "SCHEMA:\n"
+        "- entities: list of { name (PascalCase), table (snake_case plural), description, fields }\n"
+        "  where fields is a list of { name, type (string|text|integer|decimal|boolean|date|datetime|email|url|enum|fk|json), nullable, unique, index, ref_entity (PascalCase for fk), enum_values, default, confidence (0.0-1.0) }\n"
+        "  Exclude id/created_at/updated_at — those are auto-added.\n"
+        "- relationships: list of { from_entity, to_entity, cardinality (one-to-one|one-to-many|many-to-one|many-to-many), through_table, label }\n"
+        "- business_rules: list of { name (snake_case), expression, entity, error_message }\n"
+        "- permissions: list of { role, entity, actions: [read,create,update,delete] }\n"
+        "- workflows: list of { name (snake_case), trigger, entity, steps: [{name, actor, action}] }\n"
+        "- dashboard_metrics: list of { name (snake_case), label, query_hint, entity, aggregation (count|sum|avg|max|min) }\n"
+        "- notifications: list of { event, channel (email|in_app|webhook), recipient_role, template }\n"
+        "- clarifying_questions: list of { field_path, confidence, question, options } — EMPTY unless a field truly cannot be inferred\n\n"
+        "Rules:\n"
+        "1. Extract entities exhaustively. Every noun in the spec that is persisted gets an entity.\n"
+        "2. Every fk field MUST have ref_entity matching a PascalCase name in entities.\n"
+        "3. Permissions: include at minimum admin (full access) and one end-user role.\n"
+        "4. Dashboard metrics: at least 3 KPIs that a business owner would care about.\n"
     )
-    pass_results.append(p1)
-    logger.info("p02b pass 1 complete — %d entities", len(p1.get("entities", [])))
 
-    # Pass 2 — relationships
-    entities_json = json.dumps(p1.get("entities", []), indent=2)[:3000]
-    p2 = await _call(
-        _PASS2_PROMPT.format(requirements=requirements[:4000], entities_json=entities_json),
-        2,
+    combined_result = await _call(_COMBINED_PROMPT, 1)
+    logger.info(
+        "p02b single-pass complete — %d entities / %d relationships / %d rules / %d metrics",
+        len(combined_result.get("entities", [])),
+        len(combined_result.get("relationships", [])),
+        len(combined_result.get("business_rules", [])),
+        len(combined_result.get("dashboard_metrics", [])),
     )
-    pass_results.append(p2)
-    logger.info("p02b pass 2 complete — %d relationships", len(p2.get("relationships", [])))
+    p1 = p2 = p3 = p4 = combined_result
+    pass_results.append(combined_result)
 
-    # Pass 3 — rules, permissions, workflows, metrics, notifications
-    p3 = await _call(
-        _PASS3_PROMPT.format(requirements=requirements[:4000], entities_json=entities_json),
-        3,
-    )
-    pass_results.append(p3)
-    logger.info("p02b pass 3 complete — %d rules, %d metrics",
-                len(p3.get("business_rules", [])), len(p3.get("dashboard_metrics", [])))
-
-    # Pass 4 — consistency review over everything so far
-    combined = {**p1, **p2, **p3}
-    ir_so_far = json.dumps(combined, indent=2)[:6000]
-    p4 = await _call(
-        _PASS4_PROMPT.format(requirements=requirements[:4000], ir_json=ir_so_far),
-        4,
-    )
-    pass_results.append(p4)
-    logger.info("p02b pass 4 complete — %d clarifying questions",
-                len(p4.get("clarifying_questions", [])))
-
-    # --- Problem 25 fix: if all passes failed, attempt direct LLM extraction from raw spec ---
-    _any_entities = bool(p1.get("entities") or p4.get("entities"))
-    if not _any_entities:
-        logger.warning("p02b: all 4 passes yielded no entities — running fallback direct extraction")
-        _FALLBACK_EXTRACT_PROMPT = """You are a software architect. Given the following application specification, extract all business entities as JSON.
-
-Specification:
-{spec}
-
-Return ONLY valid JSON in this exact format:
-{{
-  "entities": [
-    {{
-      "name": "EntityName",
-      "table": "entity_names",
-      "description": "Brief description",
-      "fields": [
-        {{"name": "field_name", "type": "string", "nullable": false, "unique": false, "index": false, "ref_entity": null, "enum_values": [], "default": null, "confidence": 0.9}}
-      ]
-    }}
-  ],
-  "relationships": [],
-  "business_rules": [],
-  "permissions": [],
-  "workflows": [],
-  "dashboard_metrics": [],
-  "notifications": [],
-  "clarifying_questions": []
-}}"""
-        _fallback_result = await _call(
-            _FALLBACK_EXTRACT_PROMPT.format(spec=requirements[:6000]),
-            pass_num=0,
-        )
-        if _fallback_result.get("entities"):
-            p1 = _fallback_result
-            p2 = _fallback_result
-            p3 = _fallback_result
-            p4 = _fallback_result
-            logger.info("p02b: fallback extraction produced %d entities", len(p1["entities"]))
-        else:
-            logger.warning("p02b: fallback extraction also produced no entities — building stub IR")
-            # Build a minimal stub from app_name and raw spec
-            _stub_entity_name = "".join(w.capitalize() for w in app_name.split()[:2]) or "Item"
-            p1 = {
-                "entities": [{
-                    "name": _stub_entity_name,
-                    "table": _stub_entity_name.lower() + "s",
-                    "description": f"Primary entity for {app_name}",
-                    "fields": [
-                        {"name": "name", "type": "string", "nullable": False, "unique": False,
-                         "index": False, "ref_entity": None, "enum_values": [], "default": None, "confidence": 0.7},
-                        {"name": "description", "type": "text", "nullable": True, "unique": False,
-                         "index": False, "ref_entity": None, "enum_values": [], "default": None, "confidence": 0.7},
-                    ],
-                }],
-            }
+    # If the single call produced nothing, build a minimal stub from app_name (no extra LLM call).
+    if not combined_result.get("entities"):
+        logger.warning("p02b: LLM produced no entities — building stub IR")
+        _stub_entity_name = "".join(w.capitalize() for w in app_name.split()[:2]) or "Item"
+        p1 = {
+            "entities": [{
+                "name": _stub_entity_name,
+                "table": _stub_entity_name.lower() + "s",
+                "description": f"Primary entity for {app_name}",
+                "fields": [
+                    {"name": "name", "type": "string", "nullable": False, "unique": False,
+                     "index": False, "ref_entity": None, "enum_values": [], "default": None, "confidence": 0.7},
+                    {"name": "description", "type": "text", "nullable": True, "unique": False,
+                     "index": False, "ref_entity": None, "enum_values": [], "default": None, "confidence": 0.7},
+                ],
+            }],
+        }
+        p2 = p3 = p4 = p1
 
     # Merge all passes into DomainIR
     ir = _build_ir_from_passes(p1, p2, p3, p4, domain=domain, app_name=app_name)

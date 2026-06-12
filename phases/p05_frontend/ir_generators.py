@@ -360,7 +360,7 @@ def generate_ir_entity_page(entity: IREntity) -> str:
     for f in entity.fields:
         if f.type in (AetherType.INTEGER, AetherType.FK):
             payload_fields.append(f"      {f.name}: fd.get('{f.name}') ? parseInt(fd.get('{f.name}') as string, 10) : undefined,")
-        elif f.type in (AetherType.DECIMAL, AetherType.FLOAT):
+        elif f.type == AetherType.DECIMAL:
             payload_fields.append(f"      {f.name}: fd.get('{f.name}') ? parseFloat(fd.get('{f.name}') as string) : undefined,")
         elif f.type == AetherType.BOOLEAN:
             payload_fields.append(f"      {f.name}: fd.get('{f.name}') === 'on',")

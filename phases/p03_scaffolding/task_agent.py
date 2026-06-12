@@ -346,14 +346,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         try:
             ast.parse(_code)
         except SyntaxError as _exc:
-            logger.warning("p03: SyntaxError in %s: %s — attempting LLM correction", _py_file, _exc)
+            logger.warning("p03: SyntaxError in %s: %s — attempting single LLM correction", _py_file, _exc)
+            # Single-call-per-phase rule: cap to ONE correction attempt per file.
             await _write_python_file_validated(
                 _py_file, _code,
                 description=str(_py_file.relative_to(project_dir)),
                 llm=_llm,
-                max_retries=2,
+                max_retries=1,
             )
-            # Re-check after potential fix
             try:
                 ast.parse(_py_file.read_text())
             except SyntaxError as _exc2:

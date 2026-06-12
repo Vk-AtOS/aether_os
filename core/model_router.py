@@ -89,12 +89,18 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
 
 
 def get_fallback_chain() -> List[ModelSpec]:
-    """Build fallback chain from environment.  Re-called on every request so
-    settings changes take effect immediately without a server restart.
+    """Build fallback chain from environment.
 
-    When OFFLINE_MODE=true the chain is restricted to Ollama only, bypassing
-    all cloud providers.  This is the correct setting for air-gapped deployments
-    (government, hospitals, banks) where no outbound internet is available.
+    Design rules (post-2026-06 audit):
+      - **single retry** per provider — the previous 2-retry-per-tier policy
+        could blow a phase past 10 min when free-tier OpenRouter rotated 429s.
+      - **fast 60s timeout** per cloud provider — anything slower is not
+        acceptable in a 180s phase budget with one call per phase.
+      - **Bedrock heavy + fallback + Ollama** is the production default. The
+        Anthropic / OpenRouter / Gemini tiers are only added if their key is
+        configured.
+
+    OFFLINE_MODE=true restricts the chain to Ollama only (air-gapped deploys).
     """
     # ── Air-gapped / offline mode ─────────────────────────────────────────────
     if os.environ.get("OFFLINE_MODE", "").lower() == "true":
@@ -104,34 +110,34 @@ def get_fallback_chain() -> List[ModelSpec]:
             "OFFLINE_MODE=true — restricting LLM chain to Ollama only (model=%s)",
             ollama_model,
         )
-        return [ModelSpec("ollama", ollama_model, ollama_timeout, 2)]
+        return [ModelSpec("ollama", ollama_model, ollama_timeout, 1)]
 
-    primary = os.environ.get("PRIMARY_LLM", "anthropic").lower()
+    primary = os.environ.get("PRIMARY_LLM", "bedrock").lower()
     anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b")
     ollama_timeout = int(os.environ.get("OLLAMA_TIMEOUT", "120"))
 
-    # Ordered list of OpenRouter models to cycle through on rate-limit
+    # OpenRouter chain (only if explicitly configured — empty by default now)
     fallback_env = os.environ.get("OPENROUTER_FALLBACK_MODELS", "").strip()
+    openrouter_models: List[str] = []
     if fallback_env:
         openrouter_models = [m.strip() for m in fallback_env.split(",") if m.strip()]
-    else:
-        # Fall back to individual heavy/light env vars, then built-in defaults
-        heavy = os.environ.get("OPENROUTER_HEAVY_MODEL", "minimax/minimax-m2.5:free")
+    elif os.environ.get("OPENROUTER_HEAVY_MODEL", "").strip():
+        heavy = os.environ.get("OPENROUTER_HEAVY_MODEL", "").strip()
         defaults = [m.strip() for m in _DEFAULT_FALLBACK_MODELS.split(",")]
-        openrouter_models = list(dict.fromkeys([heavy] + defaults))  # dedup, preserve order
+        openrouter_models = list(dict.fromkeys([heavy] + defaults))
 
-    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.anthropic.claude-sonnet-4-6")
-    bedrock_light  = os.environ.get("BEDROCK_MODEL_LIGHT",  "us.anthropic.claude-haiku-4-5-20251001-v1:0")
-    bedrock_model  = bedrock_heavy  # model_router uses heavy by default; light selected in client.py
-    # Bedrock fallback: if heavy model fails, try Llama 3.3 70B before OpenRouter free tier
-    bedrock_fallback_model = os.environ.get("BEDROCK_MODEL_FALLBACK", "us.meta.llama3-3-70b-instruct-v1:0")
-    bedrock_timeout = int(os.environ.get("BEDROCK_TIMEOUT", "180"))
+    bedrock_heavy = os.environ.get("BEDROCK_MODEL_HEAVY", "us.amazon.nova-pro-v1:0")
+    bedrock_fallback_model = os.environ.get(
+        "BEDROCK_MODEL_FALLBACK", "us.meta.llama3-3-70b-instruct-v1:0"
+    )
+    bedrock_timeout = int(os.environ.get("BEDROCK_TIMEOUT", "60"))
+
     non_openrouter = {
-        "anthropic": ModelSpec("anthropic", anthropic_model, 30, 2),
-        "bedrock":   ModelSpec("bedrock",   bedrock_model,   bedrock_timeout, 2),
-        "bedrock_fb": ModelSpec("bedrock",  bedrock_fallback_model, 120, 2),
-        "gemini":    ModelSpec("gemini",    "gemini-2.5-flash", 45, 2),
+        "anthropic": ModelSpec("anthropic", anthropic_model, 60, 1),
+        "bedrock":   ModelSpec("bedrock",   bedrock_heavy,   bedrock_timeout, 1),
+        "bedrock_fb": ModelSpec("bedrock",  bedrock_fallback_model, bedrock_timeout, 1),
+        "gemini":    ModelSpec("gemini",    "gemini-2.5-flash", 45, 1),
         "ollama":    ModelSpec("ollama",    ollama_model, ollama_timeout, 1),
     }
 
@@ -141,22 +147,20 @@ def get_fallback_chain() -> List[ModelSpec]:
         chain.append(non_openrouter[primary])
 
     if primary == "openrouter":
-        # OpenRouter is primary — put all its models first
         for m in openrouter_models:
-            chain.append(ModelSpec("openrouter", m, 60, 2))
-        for p in ("anthropic", "bedrock", "gemini", "ollama"):
+            chain.append(ModelSpec("openrouter", m, 60, 1))
+        for p in ("bedrock", "anthropic", "gemini", "ollama"):
             if p != primary and _is_provider_configured(non_openrouter[p]):
                 chain.append(non_openrouter[p])
     else:
-        # Non-OpenRouter primary — cloud providers first, then OpenRouter, then Ollama
-        for p in ("anthropic", "bedrock", "gemini"):
+        # Bedrock fallback model (e.g. Llama 3.3 70B) before any 3rd-party tier
+        if primary == "bedrock" and bedrock_fallback_model != bedrock_heavy:
+            chain.append(non_openrouter["bedrock_fb"])
+        for p in ("anthropic", "gemini"):
             if p != primary and _is_provider_configured(non_openrouter[p]):
                 chain.append(non_openrouter[p])
-        # Bedrock fallback model (e.g. Llama 3.3 70B) before free OpenRouter tier
-        if primary == "bedrock" and bedrock_fallback_model != bedrock_model:
-            chain.append(non_openrouter["bedrock_fb"])
         for m in openrouter_models:
-            chain.append(ModelSpec("openrouter", m, 60, 2))
+            chain.append(ModelSpec("openrouter", m, 60, 1))
         if primary != "ollama":
             chain.append(non_openrouter["ollama"])
 
@@ -197,16 +201,47 @@ def _classify_error(exc: Exception) -> str:
 # Process-level circuit breaker — providers that have hit a permanent hard failure
 # (e.g. INVALID_PAYMENT_INSTRUMENT, bad key) are added here and skipped for the
 # remainder of the process lifetime, saving 1-2s per call on every subsequent request.
+# We also track DEAD MODELS so a single broken Bedrock model ID (e.g. an
+# Anthropic-on-Bedrock model the account isn't subscribed to) doesn't take down
+# every Bedrock call — only that specific model.
 _DEAD_PROVIDERS: set[str] = set()
-_PERMANENT_FAILURE_PATTERNS = ("invalid_payment_instrument", "invalidpaymentinstrument", "invalid_api_key", "invalid api key")
+_DEAD_MODELS: set[str] = set()
+_PERMANENT_FAILURE_PATTERNS = (
+    "invalid_payment_instrument", "invalidpaymentinstrument",
+    "invalid_api_key", "invalid api key",
+    "is not available for this account",
+    "resourcenotfoundexception",
+)
+# Patterns that mean THIS MODEL is broken, but the provider as a whole may still
+# work for other models (e.g. account has Nova but not Claude on Bedrock).
+_MODEL_SPECIFIC_FAILURE_PATTERNS = (
+    "is not available for this account",
+    "invalid_payment_instrument", "invalidpaymentinstrument",
+    "resourcenotfoundexception",
+    "marketplace",
+)
 
 
-def _mark_provider_dead(provider: str, exc: Exception) -> None:
+def _mark_provider_dead(provider: str, exc: Exception, model: str = "") -> None:
+    """Open the circuit breaker for either a single model or a whole provider.
+
+    Mark only the MODEL dead when the failure is account-specific (Bedrock
+    Marketplace subscription missing, invalid payment for one model family) —
+    other models on the same provider may still work.
+
+    Mark the PROVIDER dead only for credential-level failures (invalid key).
+    """
     msg = str(exc).lower()
-    if any(p in msg for p in _PERMANENT_FAILURE_PATTERNS):
+    if model and any(p in msg for p in _MODEL_SPECIFIC_FAILURE_PATTERNS):
+        key = f"{provider}/{model}"
+        if key not in _DEAD_MODELS:
+            _DEAD_MODELS.add(key)
+            logger.warning("Router: circuit-breaker OPEN for model %s — account-specific failure, skipping for this process", key)
+        return
+    if "invalid_api_key" in msg or "invalid api key" in msg:
         if provider not in _DEAD_PROVIDERS:
             _DEAD_PROVIDERS.add(provider)
-            logger.warning("Router: circuit-breaker OPEN for %s — permanent failure, skipping for this process", provider)
+            logger.warning("Router: circuit-breaker OPEN for %s — bad credentials, skipping for this process", provider)
 
 
 async def _apply_org_chain_overrides(
@@ -401,6 +436,9 @@ class ModelRouter:
             if spec.provider in _DEAD_PROVIDERS:
                 logger.debug("Router: skipping %s — circuit-breaker open (permanent failure)", spec.provider)
                 continue
+            if f"{spec.provider}/{spec.model}" in _DEAD_MODELS:
+                logger.debug("Router: skipping %s/%s — model-specific circuit-breaker open", spec.provider, spec.model)
+                continue
 
             # Every model after the first one is a fallback
             if models_tried > 0:
@@ -540,21 +578,21 @@ class ModelRouter:
                     except Exception:
                         pass
                     # ── Placeholder guard ────────────────────────────────────
-                    # Some models return "...", "TODO", bare whitespace, or
-                    # near-empty strings when they hit context limits or refuse
-                    # the task. These are treated as transient failures so we
-                    # retry the same model then fall back to the next tier.
+                    # Reject only outputs that look like the model gave up
+                    # ("...", "TODO", bare whitespace). Earlier versions had
+                    # `len(stripped) < 10` which rejected legitimate short
+                    # replies like "OK" or `{"x":1}`. The new rule rejects empty
+                    # output or known refusal/template tokens, nothing else.
                     _stripped = result.strip()
                     _PLACEHOLDER_PATTERNS = {
                         "...", "…", "todo", "n/a", "none", "null",
                         "[code here]", "[insert code]", "[your code here]",
-                        "# TODO", "# todo",
+                        "# todo", "// todo",
                     }
                     _is_placeholder = (
-                        len(_stripped) < 10  # truly empty / near-empty
+                        len(_stripped) == 0  # truly empty
                         or _stripped.lower() in _PLACEHOLDER_PATTERNS
-                        or _stripped in {"...", "…"}
-                        or (_stripped.endswith("...") and len(_stripped) < 120)
+                        or (_stripped.endswith("...") and len(_stripped) < 30)
                     )
                     if _is_placeholder:
                         msg = (
@@ -584,7 +622,7 @@ class ModelRouter:
                     error_class = _classify_error(exc)
                     # Open circuit breaker for permanent failures (bad key, no payment)
                     if error_class == "fallback":
-                        _mark_provider_dead(spec.provider, exc)
+                        _mark_provider_dead(spec.provider, exc, model=spec.model)
                     # For OpenRouter free-tier, a rate-limit on one model won't
                     # clear in 1-2 seconds — skip immediately to the next model.
                     if spec.provider == "openrouter" and error_class == "retry":

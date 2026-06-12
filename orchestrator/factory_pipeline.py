@@ -43,7 +43,9 @@ logger = logging.getLogger(__name__)
 CRITICAL_PHASES = frozenset({
     "p01_intake_requirements",  # no requirements → nothing to build
     "p02_architecture",         # no architecture → codegen produces garbage
+    "p02b_domain_ir",           # no IR → p04/p05 fall back to "items" stub everywhere
     "p04_backend",              # no backend → p05 integration fails completely
+    "p05_frontend",             # no frontend → deliverable is unusable
 })
 
 # Phase directories that exist on disk but are NOT registered in PHASE_SUPERVISORS
@@ -89,15 +91,19 @@ PHASE_SEQUENCE = [
     "p14_client_portal",    # Standalone client review portal
 ]
 
-# Phase name → supervisor class path (20 phases: 12 core + 8 post-deployment)
+# Phase name → supervisor class path (20 phases: 12 core + 8 post-deployment).
+# All paths use the "aether_os.phases.*" namespace. The aether_os package is
+# mapped to the repo root via pyproject.toml (`package-dir = {"aether_os" = "."}`).
+# _load_supervisor() also adds a fallback to "phases.*" in case the package
+# wasn't installed with `pip install -e .` — see _load_supervisor below.
 PHASE_SUPERVISORS: Dict[str, str] = {
-    "p00_research":            "phases.p00_research.supervisor_agent.ResearchSupervisor",
+    "p00_research":            "aether_os.phases.p00_research.supervisor_agent.ResearchSupervisor",
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
     "p02b_domain_ir":          "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
     "p03_scaffolding":         "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
     "p04_backend":             "aether_os.phases.p04_backend.BackendSupervisor",
-    "p04b_business_logic":     "phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
+    "p04b_business_logic":     "aether_os.phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
     "p05_frontend":            "aether_os.phases.p05_frontend.FrontendSupervisor",
     "p06_review_security":     "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
     "p07_testing":             "aether_os.phases.p07_testing.TestingSupervisor",
@@ -119,25 +125,36 @@ PHASE_SUPERVISORS: Dict[str, str] = {
 
 
 def _load_supervisor(phase_name: str):
-    """Dynamically import and instantiate the supervisor for a phase."""
+    """Dynamically import and instantiate the supervisor for a phase.
+
+    Tries the configured path first ("aether_os.phases.<phase>...") and falls
+    back to "phases.<phase>..." if the aether_os package isn't installed
+    (i.e. running from the source tree without `pip install -e .`).
+    """
     class_path = PHASE_SUPERVISORS.get(phase_name)
     if not class_path:
         return None
-    module_path, class_name = class_path.rsplit(".", 1)
-    try:
-        import importlib
-        module = importlib.import_module(module_path)
-        cls = getattr(module, class_name)
-        if not callable(cls):
-            raise TypeError(f"{class_path} is not callable — expected a Supervisor class")
-        return cls()
-    except (ImportError, AttributeError, TypeError) as exc:
-        logger.error(
-            "[pipeline] Cannot load supervisor %r for phase %r: %s — "
-            "phase will be skipped. Fix PHASE_SUPERVISORS or the module.",
-            class_path, phase_name, exc,
-        )
-        raise
+    import importlib
+    candidates = [class_path]
+    if class_path.startswith("aether_os.phases."):
+        candidates.append(class_path[len("aether_os."):])  # → phases.<phase>...
+    last_exc: Exception | None = None
+    for path in candidates:
+        module_path, class_name = path.rsplit(".", 1)
+        try:
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+            if not callable(cls):
+                raise TypeError(f"{path} is not callable — expected a Supervisor class")
+            return cls()
+        except (ImportError, AttributeError, TypeError) as exc:
+            last_exc = exc
+            logger.debug("[pipeline] supervisor candidate %r failed: %s", path, exc)
+    logger.error(
+        "[pipeline] Cannot load supervisor for phase %r — tried %s. Last error: %s",
+        phase_name, candidates, last_exc,
+    )
+    raise last_exc  # type: ignore
 
 
 class FactoryPipeline:
@@ -474,16 +491,10 @@ class FactoryPipeline:
                                 )
                                 async with _gsf_esc()() as _s_esc:
                                     _s_esc.add(_notif_esc)
-                                    # Fix 28: set escalation deadline in run metadata
-                                    _run_esc = await _s_esc.get(_Run_esc, _rid)
-                                    if _run_esc is not None:
-                                        _meta_esc = dict(_run_esc.metadata or {})
-                                        _meta_esc.setdefault("pending_escalations", {})[_pn] = {
-                                            "reason": _reason,
-                                            "deadline": time.time() + 600,
-                                            "auto_approve_at": datetime.datetime.utcnow().isoformat() + "Z",
-                                        }
-                                        _run_esc.metadata = _meta_esc
+                                    # Previously tried to write a pending_escalations dict to
+                                    # _run_esc.metadata — but Run has no metadata column.
+                                    # The notification + SSE event already carry the deadline,
+                                    # so we skip the (broken) persistence here.
                                     await _s_esc.commit()
                             except Exception as _ne_esc:
                                 logger.debug("[pipeline] escalation notification failed: %s", _ne_esc)
@@ -687,16 +698,12 @@ class FactoryPipeline:
                                 # Update metadata
                                 # (Assuming there's a function to update run metadata, 
                                 # if not, we can use a direct DB query here or via ledger)
-                                # Fix 34: use Python-level dict update (jsonb_set crashes on SQLite)
-                                from aether_os.core.db import get_session_factory as _gsf_warn
-                                from aether_os.core.models import Run as _Run_warn
-                                async with _gsf_warn()() as _s_warn:
-                                    _run_warn = await _s_warn.get(_Run_warn, run_id)
-                                    if _run_warn is not None:
-                                        _meta_warn = dict(_run_warn.metadata or {})
-                                        _meta_warn["pipeline_warning"] = "Gate decision wiped — check logs"
-                                        _run_warn.metadata = _meta_warn
-                                        await _s_warn.commit()
+                                # Previous code wrote a "pipeline_warning" string to
+                                # `_run_warn.metadata` — but `Run.metadata` does not
+                                # exist as a column; SQLAlchemy resolves it to the
+                                # `MetaData` schema object, which crashes on iter.
+                                # The warning is already in the SSE stream above; no
+                                # additional persistence needed.
 
                             await set_control(run_id, "spec_review")
                             await emit({"type": "spec_review_ready", "run_id": run_id}, run_id=run_id)

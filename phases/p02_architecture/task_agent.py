@@ -586,41 +586,38 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 schema_example["tech_stack"]["database"] = profile.suggested_tech_stack["database"]
             schema_example["security_considerations"] = profile.security_requirements + ["Input validation"]
 
+            # SINGLE LLM call — the prompt already lists every must-have entity
+            # from the spec, so the model has all the context it needs in one shot.
+            # If it produces fewer entities than expected, _merge_missing_entities
+            # below fills the gaps deterministically from _spec_nouns rather than
+            # paying another 30-60s for an LLM retry.
             doc = await llm.call_structured(
                 prompt=prompt,
                 schema_example=schema_example,
                 task_type="architecture",
             )
-            # call_structured never raises but may return the schema example on total failure
-            # Detect total failure: if parse_error flag is set or doc is identical to schema
             if doc.get("parse_error") or doc.get("tech_stack") == ARCHITECTURE_SCHEMA["tech_stack"]:
                 raise ValueError("LLM returned unparseable response")
 
-            # Problem 44 fix: validate entity coverage, retry up to 2 times if too few entities
-            _MAX_ENTITY_RETRIES = 2
-            for _retry in range(_MAX_ENTITY_RETRIES):
-                _db_tables = [t.get("table", "") for t in doc.get("database_schema", [])]
-                _entity_count = len([t for t in _db_tables if t and t not in ("users", "user")])
-                if _entity_count >= _min_entities:
-                    break
-                logger.warning(
-                    "[p02] Entity coverage check failed: got %d entities, spec requires ~%d. Retry %d/%d",
-                    _entity_count, _min_entities, _retry + 1, _MAX_ENTITY_RETRIES,
+            # Deterministic gap-fill: if the LLM under-specified entities, append
+            # missing ones from the must-have noun list rather than re-prompting.
+            _db_tables = {t.get("table", "") for t in doc.get("database_schema", [])}
+            _entity_count = len([t for t in _db_tables if t and t not in ("users", "user")])
+            if _entity_count < _min_entities:
+                logger.info(
+                    "[p02] LLM produced %d entities (spec wants ~%d). Filling gap deterministically.",
+                    _entity_count, _min_entities,
                 )
-                _missing_hint = (
-                    f"\n\nYou generated only {_entity_count} entities but the spec requires at least "
-                    f"{_min_entities}. Add the missing entities from this list: "
-                    f"{', '.join(_spec_nouns)}. "
-                    f"Each entity needs its own database table and CRUD API endpoints."
-                )
-                _retry_prompt = _build_arch_prompt(requirements, _stack_hint, extra=_missing_hint)
-                _retry_doc = await llm.call_structured(
-                    prompt=_retry_prompt,
-                    schema_example=schema_example,
-                    task_type="architecture",
-                )
-                if _retry_doc and not _retry_doc.get("parse_error"):
-                    doc = _retry_doc
+                existing = list(doc.get("database_schema", []))
+                for noun in _spec_nouns:
+                    if len([t for t in existing if t.get("table", "") not in ("users", "user")]) >= _min_entities:
+                        break
+                    table = noun + "s" if not noun.endswith("s") else noun
+                    if table in _db_tables:
+                        continue
+                    existing.append({"table": table, "columns": ["id", "name", "description", "created_at"]})
+                    _db_tables.add(table)
+                doc["database_schema"] = existing
 
         except Exception as e:
             logger.warning("[p02] LLM call failed (%s), using intelligent fallback", e)
