@@ -73,23 +73,26 @@ async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     import os
-    
+
+    # `data` is referenced later (Gate 1 autonomous_mode check) but was never
+    # bound — add a single alias at the top of the function so all downstream
+    # branches resolve consistently. Bug surfaced after silencing the broad
+    # exception that swallowed it.
+    data = getattr(phase_input, "input_data", {}) or {}
+
     domain = getattr(phase_input, "domain", "general")
     # Propagate from input_data if supervisor didn't set it directly
-    if domain == "general" and hasattr(phase_input, "input_data"):
-        domain = phase_input.input_data.get("domain", "general")
+    if domain == "general":
+        domain = data.get("domain", "general")
         
     sites = DOMAIN_COMPETITOR_MAP.get(domain, [])
-    
-    # 1. Site Discovery Fallback (Capterra/G2 Search)
+
+    # Unmapped domains: skip the simulated-search fallback that used to point
+    # at the non-existent `top-rated-app.io` host and produced 30+ playwright
+    # errors per run. With no sites we still emit a design_brief (the gate is
+    # now permissive), and downstream phases use their deterministic defaults.
     if not sites:
-        logger.info(f"p00: No pre-mapped sites for {domain}, constructing search...")
-        search_query = f"site:g2.com OR site:capterra.com \"{domain}\" software reviews"
-        # In a real environment, we would use a search tool. 
-        # Here we'll simulate the search results if no tool is available.
-        # This fulfills Directive Section 4 - Step 2.
-        sites = ["example-saas.com", "top-rated-app.io"] 
-        logger.info(f"p00: Simulated search results for {domain}: {sites}")
+        logger.info("p00: No pre-mapped sites for domain=%s — skipping screenshot stage", domain)
 
     design_brief = {
         "domain": domain,

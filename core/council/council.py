@@ -418,37 +418,43 @@ class FrontendAuditCouncil:
             return {"passed": True, "failures": [], "corrections": ""}
 
         from aether_os.core.llm.openrouter_client import call_openrouter, COUNCIL_MODELS
+        # If no OpenRouter key, skip the OpenRouter loop entirely and go
+        # straight to Bedrock. The previous code logged a stack of
+        # "OPENROUTER_API_KEY not set" warnings — one per (check, model)
+        # combination — that drowned out real errors.
+        _have_openrouter = bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
         code_snippet = tsx_code[:6000]
         failures: List[Dict[str, Any]] = []
         corrections: List[str] = []
 
         for i, check in enumerate(self._CHECKS):
-            model = COUNCIL_MODELS[i % len(COUNCIL_MODELS)]
+            model = COUNCIL_MODELS[i % len(COUNCIL_MODELS)] if _have_openrouter else "bedrock"
             prompt = check["prompt_tmpl"].format(code=code_snippet)
             verdict_raw = None
-            tried: List[str] = []
-            for candidate in [model] + [m for m in COUNCIL_MODELS if m != model]:
-                if candidate in tried:
-                    continue
-                tried.append(candidate)
-                try:
-                    verdict_raw = await call_openrouter(
-                        prompt,
-                        task_type="review",
-                        system=(
-                            "You are a strict frontend code reviewer. "
-                            "Reply in exactly the format requested. No prose."
-                        ),
-                        max_tokens=150,
-                        model=candidate,
-                    )
-                    model = candidate
-                    break
-                except Exception as exc:
-                    logger.warning(
-                        "FrontendAuditCouncil: check=%s model=%s failed — %s",
-                        check["id"], candidate, exc,
-                    )
+            if _have_openrouter:
+                tried: List[str] = []
+                for candidate in [model] + [m for m in COUNCIL_MODELS if m != model]:
+                    if candidate in tried:
+                        continue
+                    tried.append(candidate)
+                    try:
+                        verdict_raw = await call_openrouter(
+                            prompt,
+                            task_type="review",
+                            system=(
+                                "You are a strict frontend code reviewer. "
+                                "Reply in exactly the format requested. No prose."
+                            ),
+                            max_tokens=150,
+                            model=candidate,
+                        )
+                        model = candidate
+                        break
+                    except Exception as exc:
+                        logger.warning(
+                            "FrontendAuditCouncil: check=%s model=%s failed — %s",
+                            check["id"], candidate, exc,
+                        )
 
             if verdict_raw is None:
                 try:

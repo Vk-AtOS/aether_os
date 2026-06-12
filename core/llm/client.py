@@ -410,11 +410,12 @@ async def _call_ollama(prompt: str, task_type: str) -> str:
 # ── Amazon Bedrock ────────────────────────────────────────────────────────────
 
 # Bedrock default model IDs — Amazon Nova (first-party AWS, no Marketplace subscription).
-# Nova models work with standard AWS credits/billing; no separate subscription required.
-# To use Anthropic Claude on Bedrock, set BEDROCK_MODEL_HEAVY/LIGHT env vars to
-# us.anthropic.claude-sonnet-4-6 after completing the AWS Marketplace subscription.
-_BEDROCK_HEAVY_DEFAULT = "us.anthropic.claude-sonnet-4-6"
-_BEDROCK_LIGHT_DEFAULT = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+# Nova works on every AWS commercial account with no extra activation step.
+# Anthropic Claude on Bedrock requires the account to have a valid payment instrument
+# AND, for newer Claude models, an AWS Marketplace subscription. This codebase
+# defaults to Nova because that's the path that works out-of-the-box.
+_BEDROCK_HEAVY_DEFAULT = "us.amazon.nova-pro-v1:0"
+_BEDROCK_LIGHT_DEFAULT = "us.amazon.nova-lite-v1:0"
 
 
 def _select_bedrock_model(task_type: str) -> str:
@@ -454,11 +455,12 @@ async def _call_bedrock(
         _bdr_kwargs: dict = {
             "region_name": region,
             "config": _BotoConfig(
-                # read_timeout << model_router timeout (180s) so the boto3 thread
+                # read_timeout << model_router timeout (60s) so the boto3 thread
                 # raises ReadTimeoutError and exits BEFORE asyncio wait_for fires.
                 # Keeps the thread pool clear of zombie threads on slow models.
-                read_timeout=130,
-                connect_timeout=10,
+                # Nova Pro responses are typically 1-3s; 50s is generous headroom.
+                read_timeout=50,
+                connect_timeout=5,
                 retries={"max_attempts": 0},  # model_router owns retry logic
             ),
         }
@@ -502,8 +504,8 @@ async def _call_bedrock(
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            # 140s guard — fires after botocore read_timeout=130s so thread has already exited
-            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=140)
+            # 55s guard — fires after botocore read_timeout=50s so thread has already exited
+            text = await asyncio.wait_for(loop.run_in_executor(None, _invoke), timeout=55)
             # Record per-call LLM usage in DB (best-effort)
             try:
                 from aether_os.core.billing import get_billing_tracker as _gbt
@@ -843,14 +845,18 @@ class LLMClient:
         task_type: str = "code_generation",
         context: dict = None
     ) -> dict:
-        """Call LLM and guarantee JSON output (FIX 20)."""
+        """Call LLM ONCE and return JSON. No retries — model_router already retries.
+
+        On any failure (parse error, validation failure, call exception) the
+        schema_example is returned and the phase's deterministic fallback path
+        kicks in. The previous policy of 3 attempts × the full router chain
+        could make a single architecture phase take 30+ minutes.
+        """
 
         def _validate_architecture(data: dict) -> bool:
             """Ensure minimum required fields are present for architecture tasks."""
             if task_type != "architecture":
                 return True
-            # Relaxed validation: check for tech_stack instead of individual fields
-            # since the schema_example might be the whole ARCHITECTURE_SCHEMA.
             required = {"tech_stack", "database_schema", "api_endpoints"}
             if not required.issubset(data.keys()):
                 return False
@@ -860,41 +866,28 @@ class LLMClient:
             ts_required = {"backend", "frontend", "database"}
             return ts_required.issubset(ts.keys())
 
-        if is_local_llm():
-            # Minimal prompt for local models
-            full_prompt = f"""Reply ONLY with valid JSON matching this structure exactly:
-{json.dumps(schema_example, indent=2)}
+        # Always include the schema example in the prompt — Nova / Llama need it.
+        full_prompt = (
+            f"{prompt}\n\n"
+            f"Return ONLY valid JSON (no markdown fences, no commentary) matching this exact shape:\n"
+            f"{json.dumps(schema_example, indent=2)}"
+        )
 
-Do not include any explanation.
-Do not use markdown code blocks.
-Just the raw JSON object.
+        try:
+            response = await self.call(full_prompt, task_type, context or {})
+            result = safe_parse_json(response)
+            if not result.get("parse_error") and _validate_architecture(result):
+                return result
+            logger.info(
+                "Structured call returned result that did not pass validation [task=%s] — phase fallback will fire",
+                task_type,
+            )
+        except Exception as e:
+            logger.warning("Structured call failed [task=%s]: %s", task_type, e)
 
-Input: {prompt}"""
-        else:
-            full_prompt = prompt
-
-        for attempt in range(3):
-            try:
-                response = await self.call(
-                    full_prompt,
-                    task_type,
-                    context or {})
-                result = safe_parse_json(response)
-                if not result.get("parse_error") and _validate_architecture(result):
-                    return result
-                
-                # If parse failed or validation failed, try again with even simpler prompt
-                logger.warning(f"Structured call validation failed [task={task_type} attempt={attempt+1}]")
-                full_prompt = f"""Output ONLY this JSON with real values filled in:
-{json.dumps(schema_example)}
-Task: {prompt[:200]}"""
-            except Exception as e:
-                logger.warning(
-                    f"Structured call attempt {attempt+1} failed: {e}")
-
-        # Return schema with defaults after 3 fails
-        logger.error(
-            "All structured attempts failed or invalid, returning schema defaults")
+        # On any failure return the schema example so the caller's fallback fires.
+        # Caller MUST detect this case (e.g. tech_stack == ARCHITECTURE_SCHEMA["tech_stack"])
+        # and build a deterministic fallback.
         return schema_example
 
     async def call_json(

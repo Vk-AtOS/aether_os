@@ -269,7 +269,7 @@ def generate_schemas_py(ir: DomainIR) -> str:
     ])
 
     for entity in ir.entities:
-        # ... (rest of the loop)
+        name = entity.name
 
         fields_block_base = []
         fields_block_update = []
