@@ -86,12 +86,12 @@ const Marketplace = () => {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-bright">Marketplace</h1>
-          <p className="text-sm text-muted mt-0.5">{filtered.length} skills available</p>
+          <h1 className="text-2xl font-bold text-white">Marketplace</h1>
+          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} skills available</p>
         </div>
         <button
           onClick={() => { setShowPublish(v => !v); setPublishSuccess(null); }}
-          className="flex items-center gap-2 bg-accent hover:bg-accent/90 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-md shadow-violet-500/20"
         >
           <PlusCircle className="w-3.5 h-3.5" /> Publish Skill
         </button>
@@ -191,11 +191,11 @@ const Marketplace = () => {
       )}
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
         <input
           type="text"
           placeholder="Search skills, connectors, plugins…"
-          className="bg-panel border border-border p-2 pl-9 w-full rounded-lg focus:outline-none focus:ring-1 focus:ring-accent text-bright placeholder-muted text-sm"
+          className="bg-white/[0.04] border border-white/[0.08] p-2.5 pl-9 w-full rounded-xl focus:outline-none focus:border-violet-500/40 focus:bg-white/[0.06] text-white placeholder-slate-600 text-sm transition-all"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -211,54 +211,57 @@ const Marketplace = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(p => {
             const Icon = CATEGORY_ICONS[p.base_domain] ?? CATEGORY_ICONS.default;
+            const usageCount = p.usage_count ?? 0;
             return (
-              <div key={p.id} className="panel p-5 hover:border-accent/30 transition-all">
-                <div className="flex items-start space-x-3 mb-3">
-                  <div className="p-2 bg-accent/10 rounded-lg shrink-0">
-                    <Icon className="w-5 h-5 text-accent" />
+              <div key={p.id} className="group bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] rounded-2xl p-5 transition-all duration-300 hover:-translate-y-1 flex flex-col">
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600/20 to-indigo-600/20 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-5 h-5 text-violet-400" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold truncate text-bright">{p.name}</h3>
-                    <span className="text-xs bg-border/50 text-muted px-2 py-0.5 rounded-full">{p.base_domain}</span>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-white truncate">{p.name}</h3>
+                    <span className="inline-block mt-1 bg-white/[0.04] border border-white/[0.06] text-slate-400 text-xs px-2 py-0.5 rounded-full">{p.base_domain}</span>
                   </div>
                 </div>
-                <p className="text-sm text-muted line-clamp-2">{p.description}</p>
-                <div className="mt-4 flex items-center justify-between">
-                  <span className="font-bold text-sm">
-                    {(p.price_usd ?? p.price) === 0 ? (
-                      <span className="text-emerald-400">Free</span>
-                    ) : (
-                      <span className="text-bright">${p.price_usd ?? p.price}</span>
-                    )}
-                  </span>
-                  <div className="flex items-center space-x-3 text-xs text-muted">
+                <p className="text-slate-400 text-sm leading-relaxed line-clamp-2 mb-4 flex-1">{p.description}</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-sm">
+                      {(p.price_usd ?? p.price) === 0 ? (
+                        <span className="text-emerald-400">Free</span>
+                      ) : (
+                        <span className="text-white">${p.price_usd ?? p.price}</span>
+                      )}
+                    </span>
                     {p.rating && (
-                      <span className="flex items-center space-x-1">
+                      <span className="flex items-center gap-1 text-xs text-slate-500">
                         <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
                         <span>{p.rating}</span>
                       </span>
                     )}
-                    <span>{p.usage_count ?? 0} uses</span>
+                    {usageCount > 0 && (
+                      <span className="text-xs text-slate-600">{usageCount} uses</span>
+                    )}
                   </div>
+                  <button
+                    disabled={installingId === p.id}
+                    className="bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 disabled:opacity-50 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-all duration-200 shadow-md shadow-violet-500/20"
+                    onClick={async () => {
+                      setInstallingId(p.id);
+                      setInstallMessage(null);
+                      try {
+                        await api.client.post(`/marketplace/install/${p.id}`);
+                        setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
+                      } catch (err) {
+                        setInstallMessage({ text: 'Install failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
+                      } finally {
+                        setInstallingId(null);
+                      }
+                    }}
+                  >
+                    {installingId === p.id ? 'Installing…' : 'Install'}
+                  </button>
                 </div>
-                <button
-                  disabled={installingId === p.id}
-                  className="mt-3 w-full py-1.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-                  onClick={async () => {
-                    setInstallingId(p.id);
-                    setInstallMessage(null);
-                    try {
-                      await api.client.post(`/marketplace/install/${p.id}`);
-                      setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
-                    } catch (err) {
-                      setInstallMessage({ text: 'Install failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
-                    } finally {
-                      setInstallingId(null);
-                    }
-                  }}
-                >
-                  {installingId === p.id ? 'Installing…' : 'Install'}
-                </button>
               </div>
             );
           })}

@@ -1396,18 +1396,18 @@ const ProjectView = () => {
       )}
 
       {/* ── LEFT: Phase sidebar ──────────────────────────────────────────────── */}
-      <div className="w-52 bg-panel border-r border-border flex flex-col shrink-0 overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
+      <div className="w-56 bg-[#0a0a10] border-r border-white/[0.06] flex flex-col shrink-0 overflow-hidden">
+        <div className="px-3 py-3 border-b border-white/[0.06]">
           <button
             onClick={() => navigate('/projects')}
-            className="flex items-center space-x-1.5 text-xs text-muted hover:text-bright transition-colors"
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-white transition-colors px-2 py-1.5 rounded-lg hover:bg-white/[0.04] w-full"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             <span>All Projects</span>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto py-2 px-2 custom-scrollbar space-y-0.5">
           {PHASES.map((p) => {
             const st      = getPhaseStatus(p);
             const pData   = phases[p] || {};
@@ -1422,12 +1422,14 @@ const ProjectView = () => {
               <div key={p} className="relative group/phase">
                 <button
                   onClick={() => navigate(`/project/${id}/phase/${p}`)}
-                  className={`w-full flex items-center px-4 py-2.5 text-xs transition-colors group text-left ${
-                    isActive ? 'bg-accent/10 border-r-2 border-accent text-accent' : 'hover:bg-white/[0.03] text-muted hover:text-bright'
+                  className={`w-full flex items-center px-3 py-2.5 text-xs rounded-xl transition-all duration-200 text-left ${
+                    isActive
+                      ? 'bg-violet-500/10 text-violet-300 border border-violet-500/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 ${
-                    isDone2 ? 'bg-emerald-500' : isActive ? 'bg-accent animate-pulse' : isFailed ? 'bg-danger' : 'bg-slate-700'
+                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 flex-shrink-0 ${
+                    isDone2 ? 'bg-emerald-400' : isActive ? 'bg-blue-400 animate-pulse' : isFailed ? 'bg-red-400' : 'bg-slate-700'
                   }`} />
                   <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
                   {p === 'p07_testing' && pData?.output?.test_quality_flag && (
@@ -1444,7 +1446,7 @@ const ProjectView = () => {
                         : `${pData.output.passed_tests || 0}/${pData.output.total_tests || 0} FAILED`}
                     </span>
                   )}
-                  {dur && <span className="text-[9px] text-muted ml-1 shrink-0 font-mono">{dur}</span>}
+                  {dur && <span className="text-[9px] text-slate-600 ml-1 shrink-0 font-mono">{dur}</span>}
                 </button>
                 {(isDone2 || isFailed) && (
                   <button
@@ -1453,7 +1455,7 @@ const ProjectView = () => {
                       setAddFeatureText('');
                       setBranchPhaseState(p);
                     }}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/phase:opacity-100 p-1 rounded hover:bg-accent/20 text-muted hover:text-accent transition-all"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/phase:opacity-100 p-1 rounded-lg hover:bg-violet-500/20 text-slate-500 hover:text-violet-400 transition-all"
                     title={`Branch from ${PHASE_NAMES[p]}`}
                   >
                     <GitBranch className="w-3 h-3" />
@@ -1464,13 +1466,13 @@ const ProjectView = () => {
           })}
         </div>
 
-        <div className="px-4 py-3 border-t border-border">
-          <div className="flex justify-between text-[9px] font-bold text-muted uppercase mb-1.5">
+        <div className="px-3 py-3 border-t border-white/[0.06]">
+          <div className="flex justify-between text-[9px] font-bold text-slate-600 uppercase mb-1.5">
             <span>Progress</span>
             <span>{completedPhases}/{PHASES.length}</span>
           </div>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-accent transition-all duration-1000" style={{ width: `${progressPercent}%` }} />
+          <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-400 transition-all duration-1000" style={{ width: `${progressPercent}%` }} />
           </div>
         </div>
       </div>
@@ -1906,10 +1908,10 @@ const ProjectView = () => {
 
         {/* ── Artifacts / Preview / Live tabs ───────────────────────────────── */}
         <section>
-          <div className="panel overflow-hidden">
+          <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">
             {/* Tab header */}
-            <div className="bg-border/20 px-4 py-0 border-b border-border flex items-center justify-between">
-              <div className="flex">
+            <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
+              <div className="flex gap-1 overflow-x-auto custom-scrollbar pb-0.5">
                 {[
                   { id: 'live',      label: 'Live',      icon: Radio,    showDot: isRunning },
                   { id: 'logs',      label: 'Logs',      icon: List      },
@@ -1925,10 +1927,10 @@ const ProjectView = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveArtifactTab(tab.id)}
-                    className={`flex items-center space-x-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-200 ${
                       activeArtifactTab === tab.id
-                        ? 'border-accent text-accent'
-                        : 'border-transparent text-muted hover:text-bright'
+                        ? 'bg-white/[0.08] text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                     }`}
                   >
                     <tab.icon className={`w-3.5 h-3.5 ${tab.showDot ? 'text-emerald-400 animate-pulse' : ''}`} />
