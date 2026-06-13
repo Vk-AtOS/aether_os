@@ -88,6 +88,7 @@ PHASE_SEQUENCE = [
     "p11b_error_tracking",  # Sentry + structlog
     "p11c_analytics",       # PostHog events + dashboard
     "p11d_alerting",        # Alertmanager + runbooks
+    "p11e_enterprise_deployment",  # Helm charts, Terraform, operational scripts
     "p12a_feature_flags",   # Unleash feature flags
     "p12b_ab_testing",      # GrowthBook experiments
     "p13_app_memory",       # mem0 memory layer + knowledge graph
@@ -124,6 +125,7 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p11b_error_tracking":     "aether_os.phases.p11b_error_tracking.ErrorTrackingSupervisor",
     "p11c_analytics":          "aether_os.phases.p11c_analytics.AnalyticsSupervisor",
     "p11d_alerting":           "aether_os.phases.p11d_alerting.AlertingSupervisor",
+    "p11e_enterprise_deployment": "aether_os.phases.p11e_enterprise_deployment.supervisor_agent.EnterpriseDeploymentSupervisor",
     "p12a_feature_flags":      "aether_os.phases.p12a_feature_flags.FeatureFlagsSupervisor",
     "p12b_ab_testing":         "aether_os.phases.p12b_ab_testing.ABTestingSupervisor",
     "p13_app_memory":          "aether_os.phases.p13_app_memory.AppMemorySupervisor",
