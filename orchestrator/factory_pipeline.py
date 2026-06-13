@@ -67,6 +67,7 @@ INACTIVE_PHASE_DIRS = frozenset({
 # Ordered 23-phase sequence (12 core + 8 post-deployment + p00_research + p04b_business_logic + p07b_self_healing)
 PHASE_SEQUENCE = [
     "p00_research",
+    "p00b_data_archaeology",        # Analyze existing schema + generate ETL migration scripts
     "p01_intake_requirements",
     "p01b_integration_discovery",   # Discover external systems needed (after intake)
     "p02_architecture",
@@ -103,6 +104,7 @@ PHASE_SEQUENCE = [
 # wasn't installed with `pip install -e .` — see _load_supervisor below.
 PHASE_SUPERVISORS: Dict[str, str] = {
     "p00_research":            "aether_os.phases.p00_research.supervisor_agent.ResearchSupervisor",
+    "p00b_data_archaeology":   "aether_os.phases.p00b_data_archaeology.supervisor_agent.DataArchaeologySupervisor",
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
     "p01b_integration_discovery": "aether_os.phases.p01b_integration_discovery.supervisor_agent.IntegrationDiscoverySupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
