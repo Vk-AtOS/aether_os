@@ -1924,8 +1924,6 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
             env=_env,
             start_new_session=True,  # detach so process survives gateway restarts
         )
-        import time as _t
-        _t.sleep(2)
         if proc.poll() is not None:
             log_file.write("[AetherOS] Backend crashed — falling back to frontend-only server\n")
             log_file.flush()
@@ -2049,6 +2047,7 @@ if _DIST.is_dir():
 
     try:
         proc = _try_start_backend()
+        await asyncio.sleep(2)  # give the subprocess a moment to crash if it will
         mode = "backend"
         if proc is None:
             if frontend_dist and frontend_dist.is_dir():

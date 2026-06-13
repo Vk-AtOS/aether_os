@@ -4,10 +4,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
-import json
 
 from aether_os.phases.base import TaskResult
-from phases.p04b_business_logic.logic_generators import (
+from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_workflow_sm,
     generate_email_service,
     generate_stripe_service,
@@ -63,7 +62,7 @@ async def _recover_domain_ir(phase_input: Any, output_dir: Path) -> dict:
 
     # Try importing p02b extraction function first
     try:
-        from phases.p02b_domain_ir.task_agent import _PASS1_PROMPT, _PASS4_PROMPT, _extract_json, _seed_entities, _build_ir_from_passes
+        from aether_os.phases.p02b_domain_ir.task_agent import _PASS1_PROMPT, _PASS4_PROMPT, _extract_json, _seed_entities, _build_ir_from_passes
         from aether_os.core.llm.client import get_llm_client
 
         llm = get_llm_client()

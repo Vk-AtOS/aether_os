@@ -122,7 +122,7 @@ def get_flag(flag: str):
     )
 
     (ff_dir / "initial_flags.json").write_text(
-        '{"flags": {"enable_beta": false, "dark_mode": true, "new_dashboard": false}}\n'
+        '{"enable_beta": false, "dark_mode": true, "new_dashboard": false}\n'
     )
 
     # Migration with real SQL

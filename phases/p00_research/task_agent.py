@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from aether_os.phases.base import TaskResult
-from phases.p00_research.domain_sites import DOMAIN_COMPETITOR_MAP
-from phases.p00_research.vision_analyzer import analyze_screenshot
+from aether_os.phases.p00_research.domain_sites import DOMAIN_COMPETITOR_MAP
+from aether_os.phases.p00_research.vision_analyzer import analyze_screenshot
 
 logger = logging.getLogger(__name__)
 

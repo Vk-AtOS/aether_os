@@ -11,7 +11,7 @@ class ResearchSupervisor(PhaseBase):
     phase_name = "p00_research"
 
     async def run_task(self, phase_input: Any, memory_ctx: List[Dict]) -> TaskResult:
-        from phases.p00_research.task_agent import run as task_run
+        from aether_os.phases.p00_research.task_agent import run as task_run
         from aether_os.core.projects import get_project_manager
         pm = get_project_manager()
         output_dir = pm.get_output_dir(phase_input.project_id, self.phase_name)
@@ -19,5 +19,5 @@ class ResearchSupervisor(PhaseBase):
 
     async def validate_gate(self, result: TaskResult, phase_input: Any) -> GateOutcome:
         """Gate 1: Confirm research direction with the user."""
-        from phases.p00_research.gate import validate as gate_validate
+        from aether_os.phases.p00_research.gate import validate as gate_validate
         return gate_validate(result)
