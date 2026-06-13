@@ -68,12 +68,14 @@ INACTIVE_PHASE_DIRS = frozenset({
 PHASE_SEQUENCE = [
     "p00_research",
     "p01_intake_requirements",
+    "p01b_integration_discovery",   # Discover external systems needed (after intake)
     "p02_architecture",
     "p02b_domain_ir",
     "p02c_permission_modeling",  # ABAC permission model derived from domain IR
     "p03_scaffolding",
     "p04_backend",
     "p04b_business_logic",
+    "p04c_integration_codegen",     # Generate async clients for discovered integrations
     "p05_frontend",
     "p06_review_security",
     "p07_testing",
@@ -101,12 +103,14 @@ PHASE_SEQUENCE = [
 PHASE_SUPERVISORS: Dict[str, str] = {
     "p00_research":            "aether_os.phases.p00_research.supervisor_agent.ResearchSupervisor",
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
+    "p01b_integration_discovery": "aether_os.phases.p01b_integration_discovery.supervisor_agent.IntegrationDiscoverySupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
     "p02b_domain_ir":          "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
     "p02c_permission_modeling": "aether_os.phases.p02c_permission_modeling.supervisor_agent.PermissionModelingSupervisor",
     "p03_scaffolding":         "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
     "p04_backend":             "aether_os.phases.p04_backend.BackendSupervisor",
     "p04b_business_logic":     "aether_os.phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
+    "p04c_integration_codegen": "aether_os.phases.p04c_integration_codegen.supervisor_agent.IntegrationCodegenSupervisor",
     "p05_frontend":            "aether_os.phases.p05_frontend.FrontendSupervisor",
     "p06_review_security":     "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
     "p07_testing":             "aether_os.phases.p07_testing.TestingSupervisor",
@@ -766,6 +770,30 @@ class FactoryPipeline:
                     else:
                         logger.warning("[pipeline] architecture.json not found after p02 — "
                                        "downstream phases will use their own fallbacks")
+
+                # Load integration_map.json after p01b so all downstream phases receive it
+                if phase_name == "p01b_integration_discovery":
+                    import json as _json_p01b
+                    _p01b_dir = project_dir / "p01b_integration_discovery"
+                    _imap_path = _p01b_dir / "integration_map.json"
+                    if _imap_path.exists():
+                        try:
+                            accumulated_context["integration_map"] = _json_p01b.loads(_imap_path.read_text())
+                            logger.info("[pipeline] integration_map loaded from %s", _imap_path)
+                        except Exception as _e:
+                            logger.warning("[pipeline] Failed to load integration_map: %s", _e)
+
+                # Load permission_model.json after p02c so all downstream phases receive it
+                if phase_name == "p02c_permission_modeling":
+                    import json as _json_p02c
+                    _p02c_dir = project_dir / "p02c_permission_modeling"
+                    _perm_path = _p02c_dir / "permission_model.json"
+                    if _perm_path.exists():
+                        try:
+                            accumulated_context["permission_model"] = _json_p02c.loads(_perm_path.read_text())
+                            logger.info("[pipeline] permission_model loaded from %s", _perm_path)
+                        except Exception as _e:
+                            logger.warning("[pipeline] Failed to load permission_model: %s", _e)
 
                 # Load domain_ir.json after p02b so all downstream phases receive it
                 if phase_name == "p02b_domain_ir":
