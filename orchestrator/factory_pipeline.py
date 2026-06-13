@@ -70,6 +70,7 @@ PHASE_SEQUENCE = [
     "p01_intake_requirements",
     "p02_architecture",
     "p02b_domain_ir",
+    "p02c_permission_modeling",  # ABAC permission model derived from domain IR
     "p03_scaffolding",
     "p04_backend",
     "p04b_business_logic",
@@ -102,6 +103,7 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
     "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
     "p02b_domain_ir":          "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
+    "p02c_permission_modeling": "aether_os.phases.p02c_permission_modeling.supervisor_agent.PermissionModelingSupervisor",
     "p03_scaffolding":         "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
     "p04_backend":             "aether_os.phases.p04_backend.BackendSupervisor",
     "p04b_business_logic":     "aether_os.phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
