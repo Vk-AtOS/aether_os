@@ -32,22 +32,32 @@ const DEFAULT_MODELS = [
 const StepIndicator = ({ step }) => {
   const steps = ['Template', 'Describe', 'Configure', 'Launch'];
   return (
-    <div className="flex items-center justify-center mb-8 gap-0">
+    <div className="flex items-center justify-center mb-10">
       {steps.map((label, i) => {
         const idx = i + 1;
         const active = idx === step;
         const done = idx < step;
         return (
           <React.Fragment key={idx}>
-            <div className="flex flex-col items-center gap-1">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
-                done ? 'bg-emerald-500 text-white' : active ? 'bg-accent text-white' : 'bg-surface border border-border text-muted'
-              }`}>
-                {done ? '✓' : idx}
-              </div>
-              <span className={`text-[10px] uppercase tracking-wider font-semibold ${active ? 'text-accent' : 'text-muted'}`}>{label}</span>
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-all ${
+              done
+                ? 'text-violet-400'
+                : active
+                ? 'text-white bg-violet-600/20 border border-violet-500/30'
+                : 'text-slate-600'
+            }`}>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                done
+                  ? 'bg-violet-600 text-white'
+                  : active
+                  ? 'bg-violet-600/30 border border-violet-500 text-violet-300'
+                  : 'bg-white/[0.04] border border-white/[0.08] text-slate-600'
+              }`}>{done ? '✓' : idx}</span>
+              {label}
             </div>
-            {i < steps.length - 1 && <div className={`h-px w-16 mb-5 mx-1 transition-colors ${done ? 'bg-emerald-500' : 'bg-border'}`} />}
+            {i < steps.length - 1 && (
+              <div className={`w-10 h-px mx-1 transition-colors ${done ? 'bg-violet-600' : 'bg-white/[0.08]'}`} />
+            )}
           </React.Fragment>
         );
       })}
@@ -55,14 +65,37 @@ const StepIndicator = ({ step }) => {
   );
 };
 
-const TemplateCard = ({ tpl, selected, onClick }) => (
-  <button onClick={onClick} className={`p-4 rounded-xl border text-left transition-all ${
-    selected ? 'border-accent bg-accent/10 shadow-lg shadow-accent/10' : 'border-border bg-surface hover:border-accent/50 hover:bg-surface/80'
-  }`}>
-    <div className="text-2xl mb-2">{tpl.icon}</div>
-    <div className="text-sm font-semibold text-bright">{tpl.label}</div>
-  </button>
-);
+const TEMPLATE_COLORS = {
+  saas: 'from-violet-500 to-purple-600',
+  ecommerce: 'from-amber-500 to-orange-600',
+  dashboard: 'from-blue-500 to-indigo-600',
+  api: 'from-cyan-500 to-sky-600',
+  cms: 'from-emerald-500 to-teal-600',
+  social: 'from-pink-500 to-rose-600',
+  marketplace: 'from-orange-500 to-red-500',
+  healthcare: 'from-green-500 to-emerald-600',
+  fintech: 'from-violet-500 to-indigo-600',
+  lms: 'from-yellow-500 to-amber-600',
+  iot: 'from-slate-500 to-zinc-600',
+  custom: 'from-slate-500 to-slate-600',
+};
+
+const TemplateCard = ({ tpl, selected, onClick }) => {
+  const color = TEMPLATE_COLORS[tpl.id] || 'from-violet-500 to-indigo-600';
+  return (
+    <button onClick={onClick} className={`group p-4 rounded-2xl border text-left transition-all duration-200 hover:-translate-y-1 ${
+      selected
+        ? 'border-violet-500/60 bg-violet-500/10 shadow-lg shadow-violet-500/10'
+        : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12] hover:bg-white/[0.04]'
+    }`}>
+      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition-transform duration-300`}>
+        {tpl.icon}
+      </div>
+      <div className="text-sm font-semibold text-white">{tpl.label}</div>
+      {selected && <div className="mt-2 text-violet-400 text-xs font-medium">✓ Selected</div>}
+    </button>
+  );
+};
 
 const PillGroup = ({ options, value, onChange, multi = false }) => (
   <div className="flex gap-2 flex-wrap">
@@ -336,9 +369,9 @@ const NewProjectWizard = () => {
 
   return (
     <div className="max-w-3xl mx-auto py-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-bright">New Factory Run</h1>
-        <p className="text-sm text-muted mt-1">AetherOS will generate a complete working application from your requirements.</p>
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-white">New Factory Run</h1>
+        <p className="text-sm text-slate-500 mt-1">AetherOS will generate a complete working application from your requirements.</p>
       </div>
 
       <StepIndicator step={step} />
@@ -699,12 +732,12 @@ const NewProjectWizard = () => {
           )}
 
           {error && (
-            <div className="bg-danger/10 border border-danger/30 rounded-lg px-4 py-3 text-sm text-danger">{error}</div>
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">{error}</div>
           )}
 
           <div className="flex flex-col gap-3">
             <button onClick={handleLaunch} disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-accent hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-base transition-colors">
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-base transition-all shadow-xl shadow-violet-500/25 hover:shadow-violet-500/40 active:scale-[0.98]">
               {loading ? (
                 <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Starting Factory Run…</>
               ) : '🚀 Start Factory Run'}
@@ -721,7 +754,7 @@ const NewProjectWizard = () => {
                 params.set('db', dbChoice);
                 navigate(`/designer?${params.toString()}`);
               }}
-              className="w-full flex items-center justify-center gap-2 py-2.5 border border-border text-muted hover:text-bright hover:border-accent/50 text-sm font-semibold rounded-xl transition-colors">
+              className="w-full flex items-center justify-center gap-2 py-2.5 border border-white/[0.08] text-slate-400 hover:text-white hover:border-violet-500/30 hover:bg-violet-500/[0.05] text-sm font-semibold rounded-xl transition-all">
               🎨 Configure in Designer
             </button>
           </div>
@@ -731,12 +764,12 @@ const NewProjectWizard = () => {
       {/* ── Navigation ─── */}
       <div className="flex justify-between mt-8">
         <button onClick={() => step > 1 ? setStep(step - 1) : navigate('/projects')}
-          className="px-5 py-2.5 text-sm font-medium text-muted hover:text-bright border border-border rounded-lg transition-colors">
+          className="px-5 py-2.5 text-sm font-medium text-slate-400 hover:text-white border border-white/[0.08] rounded-xl hover:border-white/[0.16] hover:bg-white/[0.04] transition-all">
           {step === 1 ? 'Cancel' : '← Back'}
         </button>
         {step < 4 && (
           <button onClick={() => setStep(step + 1)} disabled={!canProceed()}
-            className="px-6 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-colors">
+            className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-violet-500/20 active:scale-95">
             {step === 3 ? 'Review →' : 'Next →'}
           </button>
         )}

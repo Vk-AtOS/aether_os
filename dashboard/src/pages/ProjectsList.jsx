@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api } from '../api';
-import PhaseBadge from '../components/PhaseBadge';
 import RerunDropdown from '../components/RerunDropdown';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { StatusBadge } from '../components/ui/StatusBadge';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { SkeletonTable } from '../components/Skeleton';
@@ -35,7 +35,6 @@ const PHASES = [
   'p14_client_portal',
 ];
 
-// Map run status/phases → number of completed phases for dot strip
 const getCompletedCount = (run) => {
   if (run.status === 'completed') return PHASES.length;
   const phases = run.phases || {};
@@ -43,7 +42,6 @@ const getCompletedCount = (run) => {
     const st = phases[p]?.status;
     return st === 'passed' || st === 'completed' || st === 'timeout';
   }).length;
-  // If there's a current_phase, count phases before it too
   if (run.current_phase && run.current_phase !== 'pipeline') {
     const idx = PHASES.indexOf(run.current_phase);
     return Math.max(completed, idx >= 0 ? idx : 0);
@@ -51,55 +49,46 @@ const getCompletedCount = (run) => {
   return completed;
 };
 
-// 23-dot progress strip
-const ProgressDots = ({ run }) => {
+// Gradient progress bar
+const ProgressBar = ({ run }) => {
   const completed = getCompletedCount(run);
+  const total = PHASES.length;
+  const pct = Math.round((completed / total) * 100);
   const isRunning = run.status === 'running';
 
   return (
-    <div className="flex items-center space-x-1">
-      {PHASES.map((_, i) => {
-        const done = i < completed;
-        const active = isRunning && i === completed;
-        return (
-          <span
-            key={i}
-            className={`inline-block rounded-full transition-all ${
-              done
-                ? 'w-2.5 h-2.5 bg-emerald-500'
-                : active
-                ? 'w-2.5 h-2.5 bg-indigo-500 animate-pulse'
-                : 'w-2 h-2 bg-slate-700'
-            }`}
-            title={PHASES[i]}
-          />
-        );
-      })}
+    <div className="flex items-center gap-3">
+      <div className="flex-1 bg-white/[0.06] rounded-full h-1.5">
+        <div
+          className={`h-1.5 rounded-full transition-all duration-500 ${
+            isRunning
+              ? 'bg-gradient-to-r from-blue-500 to-violet-500'
+              : run.status === 'completed' || run.status === 'passed'
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+              : 'bg-gradient-to-r from-violet-500 to-indigo-400'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-xs text-slate-500 min-w-[40px] text-right font-mono">{completed}/{total}</span>
     </div>
   );
 };
 
-// Hexagon logo for empty state
-const HexLogo = () => (
-  <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <polygon points="32,4 58,18 58,46 32,60 6,46 6,18" fill="none" stroke="#6366f1" strokeWidth="2" opacity="0.4" />
-    <polygon points="32,14 48,23 48,41 32,50 16,41 16,23" fill="#6366f1" opacity="0.15" />
-    <circle cx="32" cy="32" r="8" fill="#6366f1" opacity="0.6" />
-  </svg>
-);
-
 const EmptyState = ({ onNewProject }) => (
   <div className="flex flex-col items-center justify-center py-24 space-y-6">
-    <HexLogo />
+    <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-3xl">
+      ⚡
+    </div>
     <div className="text-center space-y-2">
-      <h3 className="text-xl font-bold text-bright">No projects yet</h3>
-      <p className="text-muted text-sm max-w-xs">
+      <h3 className="text-lg font-bold text-white">No projects yet</h3>
+      <p className="text-slate-500 text-sm max-w-xs">
         Start your first factory run and AetherOS will generate a complete production-ready codebase.
       </p>
     </div>
     <button
       onClick={onNewProject}
-      className="flex items-center space-x-2 bg-accent hover:bg-accent/90 transition-colors text-white font-bold px-6 py-3 rounded-lg"
+      className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 transition-all text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-violet-500/25"
     >
       <Rocket className="w-4 h-4" />
       <span>Start First Project</span>
@@ -114,8 +103,8 @@ const ProjectsList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [domainFilter, setDomainFilter] = useState('');
-  const [actionLoading, setActionLoading] = useState({}); // { [runId]: 'pause'|'resume'|'cancel' }
-  const [confirmCancel, setConfirmCancel] = useState(null); // run object pending cancel confirmation
+  const [actionLoading, setActionLoading] = useState({});
+  const [confirmCancel, setConfirmCancel] = useState(null);
   const navigate = useNavigate();
 
   const doAction = async (e, runId, action) => {
@@ -184,8 +173,8 @@ const ProjectsList = () => {
     return (
       <div className="space-y-6">
         <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-bright">Factory Projects</h1>
-          <div className="h-9 w-48 bg-border/40 rounded-lg animate-pulse" />
+          <h1 className="text-2xl font-bold text-white">Factory Projects</h1>
+          <div className="h-9 w-48 bg-white/[0.04] rounded-xl animate-pulse" />
         </header>
         <SkeletonTable rows={6} cols={5} />
       </div>
@@ -195,28 +184,28 @@ const ProjectsList = () => {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-bright">Factory Projects</h1>
-          <p className="text-muted text-sm mt-1">
+          <h1 className="text-2xl font-bold text-white">Factory Projects</h1>
+          <p className="text-slate-500 text-sm mt-1">
             {runs.length} {runs.length === 1 ? 'project' : 'projects'} total
           </p>
         </div>
-        <div className="flex items-center space-x-3 flex-wrap gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
               type="text"
               placeholder="Search projects…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-panel border border-border rounded-lg pl-10 pr-4 py-2 text-sm text-bright focus:outline-none focus:border-accent w-52 transition-colors"
+              className="bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500/40 focus:bg-white/[0.06] w-52 transition-all"
             />
           </div>
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="bg-panel border border-border rounded-lg px-3 py-2 text-xs text-bright focus:outline-none focus:border-accent"
+            className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
           >
             <option value="">All statuses</option>
             {['running', 'completed', 'failed', 'cancelled', 'paused', 'interrupted'].map(s => (
@@ -227,7 +216,7 @@ const ProjectsList = () => {
             <select
               value={domainFilter}
               onChange={e => setDomainFilter(e.target.value)}
-              className="bg-panel border border-border rounded-lg px-3 py-2 text-xs text-bright focus:outline-none focus:border-accent"
+              className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
             >
               <option value="">All domains</option>
               {domains.map(d => <option key={d} value={d}>{d}</option>)}
@@ -235,7 +224,7 @@ const ProjectsList = () => {
           )}
           <button
             onClick={onNewProject}
-            className="flex items-center space-x-1.5 bg-accent hover:bg-accent/90 transition-colors text-white text-xs font-bold px-4 py-2 rounded-lg"
+            className="flex items-center gap-1.5 bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 transition-all text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-md shadow-violet-500/20"
           >
             <Rocket className="w-3.5 h-3.5" />
             <span>New Project</span>
@@ -245,22 +234,22 @@ const ProjectsList = () => {
 
       {/* Empty state */}
       {runs.length === 0 ? (
-        <div className="panel">
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl">
           <EmptyState onNewProject={onNewProject} />
         </div>
       ) : (
-        <div className="panel overflow-hidden">
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-border/20 text-[10px] font-bold text-muted uppercase tracking-widest border-b border-border">
-                <th className="px-6 py-4">Project</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Progress</th>
-                <th className="px-6 py-4">Started</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+              <tr className="border-b border-white/[0.06]">
+                <th className="px-6 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Project</th>
+                <th className="px-6 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Status</th>
+                <th className="px-6 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Progress</th>
+                <th className="px-6 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Started</th>
+                <th className="px-6 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-white/[0.04]">
               {filtered.map((run) => (
                 <tr
                   key={run.run_id || run.id}
@@ -274,32 +263,32 @@ const ProjectsList = () => {
                   tabIndex={0}
                   role="button"
                   aria-label={run.project_name || 'Untitled Project'}
-                  className="hover:bg-white/[0.02] transition-colors cursor-pointer group focus:outline-none focus:bg-accent/5"
+                  className="hover:bg-white/[0.03] transition-colors cursor-pointer group focus:outline-none focus:bg-violet-500/5"
                 >
                   {/* Project name */}
                   <td className="px-6 py-4">
-                    <div className="font-semibold text-bright group-hover:text-accent transition-colors">
+                    <div className="font-semibold text-white group-hover:text-violet-300 transition-colors">
                       {truncate(run.project_name || 'Untitled Project', 40)}
                     </div>
-                    <div className="text-[10px] text-muted font-mono mt-0.5">
+                    <div className="text-[10px] text-slate-600 font-mono mt-0.5">
                       {(run.run_id || run.id || '').slice(0, 8)}
                     </div>
                   </td>
 
                   {/* Status badge */}
                   <td className="px-6 py-4">
-                    <PhaseBadge status={run.status} />
+                    <StatusBadge status={run.status} />
                   </td>
 
-                  {/* 10-dot progress strip */}
-                  <td className="px-6 py-4">
-                    <ProgressDots run={run} />
+                  {/* Progress bar */}
+                  <td className="px-6 py-4 min-w-[180px]">
+                    <ProgressBar run={run} />
                   </td>
 
                   {/* Started */}
                   <td className="px-6 py-4">
-                    <div className="flex items-center text-xs text-muted">
-                      <Clock className="w-3 h-3 mr-1.5 shrink-0" />
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <Clock className="w-3 h-3 shrink-0" />
                       {run.started_at
                         ? new Date(run.started_at).toLocaleString(undefined, {
                             month: 'short', day: 'numeric',
@@ -311,14 +300,13 @@ const ProjectsList = () => {
 
                   {/* Actions */}
                   <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end space-x-1">
-                      {/* Running → Pause + Cancel */}
+                    <div className="flex items-center justify-end gap-1">
                       {run.status === 'running' && (
                         <>
                           <button
                             onClick={(e) => doAction(e, run.run_id || run.id, 'pause')}
                             disabled={!!actionLoading[run.run_id || run.id]}
-                            className="p-1.5 rounded text-yellow-400 hover:bg-yellow-400/10 transition-colors"
+                            className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-400/10 transition-all"
                             title="Pause"
                           >
                             {actionLoading[run.run_id || run.id] === 'pause'
@@ -328,7 +316,7 @@ const ProjectsList = () => {
                           <button
                             onClick={(e) => { e.stopPropagation(); setConfirmCancel(run); }}
                             disabled={!!actionLoading[run.run_id || run.id]}
-                            className="p-1.5 rounded text-red-400 hover:bg-red-400/10 transition-colors"
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-400/10 transition-all"
                             title="Cancel run"
                             aria-label="Cancel run"
                           >
@@ -338,13 +326,12 @@ const ProjectsList = () => {
                           </button>
                         </>
                       )}
-                      {/* Paused → Resume + Cancel */}
                       {run.status === 'paused' && (
                         <>
                           <button
                             onClick={(e) => doAction(e, run.run_id || run.id, 'resume')}
                             disabled={!!actionLoading[run.run_id || run.id]}
-                            className="p-1.5 rounded text-green-400 hover:bg-green-400/10 transition-colors"
+                            className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-400/10 transition-all"
                             title="Resume"
                           >
                             {actionLoading[run.run_id || run.id] === 'resume'
@@ -354,7 +341,7 @@ const ProjectsList = () => {
                           <button
                             onClick={(e) => { e.stopPropagation(); setConfirmCancel(run); }}
                             disabled={!!actionLoading[run.run_id || run.id]}
-                            className="p-1.5 rounded text-red-400 hover:bg-red-400/10 transition-colors"
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-400/10 transition-all"
                             title="Cancel run"
                             aria-label="Cancel run"
                           >
@@ -364,7 +351,6 @@ const ProjectsList = () => {
                           </button>
                         </>
                       )}
-                      {/* Completed / failed / cancelled / interrupted → RerunDropdown */}
                       {['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) && (
                         <RerunDropdown
                           status={run.status}
@@ -377,23 +363,21 @@ const ProjectsList = () => {
                           onEditRestart={(req) => doEditRestart(run.run_id || run.id, run, req)}
                         />
                       )}
-                      {/* Live URL globe — shown when container is running */}
                       {run.live_url && (
                         <a
                           href={run.live_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors"
+                          className="p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-all"
                           title={`Open live app — ${run.live_url}`}
                         >
                           🌐
                         </a>
                       )}
-                      {/* Always show View eye */}
                       <button
                         onClick={(e) => { e.stopPropagation(); navigate(`/project/${run.run_id || run.id}`); }}
-                        className="p-1.5 rounded text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-violet-400 hover:bg-violet-500/10 transition-all opacity-0 group-hover:opacity-100"
                         title="View Details"
                       >
                         <Eye className="w-4 h-4" />
@@ -405,8 +389,8 @@ const ProjectsList = () => {
 
               {filtered.length === 0 && searchTerm && (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center text-muted text-sm">
-                    No projects match "<span className="text-bright">{searchTerm}</span>"
+                  <td colSpan="5" className="px-6 py-12 text-center text-slate-500 text-sm">
+                    No projects match "<span className="text-white">{searchTerm}</span>"
                   </td>
                 </tr>
               )}
@@ -420,14 +404,13 @@ const ProjectsList = () => {
         <div className="flex flex-col items-center gap-1 py-4">
           <button
             onClick={loadMore}
-            className="px-6 py-2 text-xs font-bold text-muted border border-border rounded-lg hover:text-bright hover:border-accent/40 transition-colors"
+            className="px-6 py-2 text-xs font-semibold text-slate-500 border border-white/[0.08] rounded-xl hover:text-white hover:border-violet-500/30 hover:bg-violet-500/[0.05] transition-all"
           >
             Load more ({runs.length} of {total} shown)
           </button>
         </div>
       )}
 
-      {/* Cancel run confirmation */}
       <ConfirmDialog
         open={!!confirmCancel}
         title="Cancel Run"

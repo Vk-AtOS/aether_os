@@ -3,9 +3,10 @@
 
 @theme {
   --color-surface: #0a0a0f;
-  --color-panel: #12121a;
-  --color-border: #1e1e2e;
-  --color-accent: #6366f1;
+  --color-panel: #0c0c14;
+  --color-border: #1a1a2e;
+  --color-accent: #7c3aed;
+  --color-accent-secondary: #4f46e5;
   --color-success: #10b981;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
@@ -13,6 +14,36 @@
   --color-bright: #f1f5f9;
 
   --font-mono: "JetBrains Mono", monospace;
+}
+
+:root {
+  --bg-base: #050507;
+  --bg-surface: #0c0c14;
+  --bg-card: rgba(255,255,255,0.02);
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.12);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --accent-primary: #7c3aed;
+  --accent-secondary: #4f46e5;
+  --accent-glow: rgba(124,58,237,0.3);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+@keyframes glow {
+  0% { box-shadow: 0 0 20px rgba(124,58,237,0.3); }
+  100% { box-shadow: 0 0 40px rgba(124,58,237,0.6); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 @layer base {

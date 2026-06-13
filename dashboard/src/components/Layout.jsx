@@ -9,13 +9,13 @@ import { Menu, X } from 'lucide-react';
 
 const PageSkeleton = () => (
   <div className="p-6 space-y-4 animate-pulse">
-    <div className="h-7 w-48 bg-border/40 rounded-lg" />
+    <div className="h-7 w-48 bg-white/[0.04] rounded-xl" />
     <div className="grid grid-cols-3 gap-4">
-      {[1,2,3].map(i => <div key={i} className="h-24 bg-border/30 rounded-xl" />)}
+      {[1,2,3].map(i => <div key={i} className="h-24 bg-white/[0.03] rounded-2xl" />)}
     </div>
-    <div className="h-64 bg-border/20 rounded-xl" />
+    <div className="h-64 bg-white/[0.02] rounded-2xl" />
     <div className="space-y-2">
-      {[1,2,3,4].map(i => <div key={i} className="h-12 bg-border/20 rounded-lg" style={{width:`${70+i*5}%`}} />)}
+      {[1,2,3,4].map(i => <div key={i} className="h-12 bg-white/[0.02] rounded-xl" style={{width:`${70+i*5}%`}} />)}
     </div>
   </div>
 );
@@ -30,7 +30,7 @@ function LayoutInner() {
   useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface">
+    <div className="flex h-screen overflow-hidden bg-[#050507]">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
@@ -65,8 +65,8 @@ function LayoutInner() {
             <Outlet context={{ openNewProject: () => setModalOpen(true) }} />
           </Suspense>
         </main>
-        <footer className="shrink-0 py-2 border-t border-border bg-panel text-center">
-          <p className="text-xs text-muted/50">
+        <footer className="shrink-0 py-2 border-t border-white/[0.06] bg-[#050507]/80 text-center">
+          <p className="text-xs text-slate-700">
             © 2026 VKatOS Private Limited — AetherOS Factory v1.0
           </p>
         </footer>
