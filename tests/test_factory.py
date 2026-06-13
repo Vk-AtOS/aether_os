@@ -270,11 +270,11 @@ def test_usage_tracker_record_llm_call(tmp_path):
     tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing.db")
     try:
         tracker.record_llm_call(
-            project_id="proj-1", phase="p01_requirements",
+            org_id="org-1", project_id="proj-1", phase="p01_requirements",
             model="claude-sonnet-4-6", input_tokens=500,
             output_tokens=200, cost_usd=0.003,
         )
-        summary = tracker.get_project_cost("proj-1")
+        summary = tracker.get_project_cost("org-1", "proj-1")
         assert summary.total_cost_usd > 0
         assert summary.total_input_tokens == 500
         assert summary.total_output_tokens == 200
@@ -287,7 +287,7 @@ def test_usage_tracker_record_phase_completion(tmp_path):
     tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing2.db")
     try:
         tracker.record_phase_completion("proj-2", "p03_scaffolding", duration_s=12.5)
-        phase_cost = tracker.get_phase_cost("proj-2", "p03_scaffolding")
+        phase_cost = tracker.get_phase_cost("org-2", "proj-2", "p03_scaffolding")
         assert phase_cost >= 0
     finally:
         _tracker_cleanup(_db_mod, old_db)
@@ -298,14 +298,14 @@ def test_usage_tracker_token_pricing(tmp_path):
     tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing3.db")
     try:
         tracker.record_llm_call(
-            project_id="proj-3", phase="p04a", model="claude-sonnet-4-6",
+            org_id="org-3", project_id="proj-3", phase="p04a", model="claude-sonnet-4-6",
             input_tokens=1000, output_tokens=500, cost_usd=0.01,
         )
         tracker.record_llm_call(
-            project_id="proj-3", phase="p06_security", model="claude-haiku-4-5",
+            org_id="org-3", project_id="proj-3", phase="p06_security", model="claude-haiku-4-5",
             input_tokens=500, output_tokens=100, cost_usd=0.001,
         )
-        summary = tracker.get_project_cost("proj-3")
+        summary = tracker.get_project_cost("org-3", "proj-3")
         assert abs(summary.total_cost_usd - 0.011) < 0.0001
         assert "p04a" in summary.phase_breakdown
         assert "p06_security" in summary.phase_breakdown
@@ -317,10 +317,10 @@ def test_usage_tracker_get_phase_cost(tmp_path):
     """get_phase_cost returns only the cost for that phase."""
     tracker, _db_mod, old_db = _tracker_with_sqlite(tmp_path, "billing4.db")
     try:
-        tracker.record_llm_call("p4", "p01", "claude-sonnet-4-6", 100, 50, 0.002)
-        tracker.record_llm_call("p4", "p02", "claude-sonnet-4-6", 200, 100, 0.004)
-        assert abs(tracker.get_phase_cost("p4", "p01") - 0.002) < 0.00001
-        assert abs(tracker.get_phase_cost("p4", "p02") - 0.004) < 0.00001
+        tracker.record_llm_call("org-4", "p4", "p01", "claude-sonnet-4-6", 100, 50, 0.002)
+        tracker.record_llm_call("org-4", "p4", "p02", "claude-sonnet-4-6", 200, 100, 0.004)
+        assert abs(tracker.get_phase_cost("org-4", "p4", "p01") - 0.002) < 0.00001
+        assert abs(tracker.get_phase_cost("org-4", "p4", "p02") - 0.004) < 0.00001
     finally:
         _tracker_cleanup(_db_mod, old_db)
 
@@ -431,12 +431,16 @@ async def test_factory_pipeline_start_phase(tmp_path):
 
 
 def test_factory_pipeline_phase_sequence():
-    """PHASE_SEQUENCE starts with intake and ends with deployment."""
+    """PHASE_SEQUENCE starts with research and ends with handoff."""
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
 
     assert len(PHASE_SEQUENCE) >= 10
-    assert PHASE_SEQUENCE[0] == "p01_intake_requirements"
-    assert PHASE_SEQUENCE[-1] == "p14_client_portal"
+    # Pipeline now starts with p00_research (pre-flight analysis) and ends with p15_handoff
+    assert PHASE_SEQUENCE[0] == "p00_research"
+    assert PHASE_SEQUENCE[-1] == "p15_handoff"
+    # Core phases must be present
+    assert "p01_intake_requirements" in PHASE_SEQUENCE
+    assert "p14_client_portal" in PHASE_SEQUENCE
 
 
 def test_factory_pipeline_phase_supervisors_mapped():

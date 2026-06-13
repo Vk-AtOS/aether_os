@@ -95,6 +95,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -102,7 +103,6 @@ logger = logging.getLogger(__name__)
 
 def validate(target_url: Optional[str] = None) -> bool:
     """Run validation queries against the migrated database."""
-    from typing import Optional
     target_url = target_url or os.getenv("DATABASE_URL", "")
     if not target_url:
         raise ValueError("DATABASE_URL must be set")

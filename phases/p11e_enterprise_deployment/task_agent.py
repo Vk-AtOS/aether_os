@@ -294,11 +294,11 @@ Expand the name of the chart.
 {{{{- end }}}}
 
 {{{{- define "{slug}.fullname" -}}}}
-{{{{- .Release.Name }}-{slug} }}
+{{{{- .Release.Name }}}}-{slug}
 {{{{- end }}}}
 
 {{{{- define "{slug}.labels" -}}}}
-helm.sh/chart: {{{{ .Chart.Name }}-{{{{ .Chart.Version }}}}
+helm.sh/chart: {{{{ .Chart.Name }}}}-{{{{ .Chart.Version }}}}
 app.kubernetes.io/name: {{{{ include "{slug}.name" . }}}}
 app.kubernetes.io/instance: {{{{ .Release.Name }}}}
 app.kubernetes.io/version: {{{{ .Chart.AppVersion | quote }}}}
