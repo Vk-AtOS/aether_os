@@ -305,7 +305,14 @@ export default function DomainWidget() {
 
 
 async def _generate_domain_component(
-    domain: str, entities: List[dict], project_name: str, mem_hint: str = ""
+    domain: str, entities: List[dict], project_name: str, mem_hint: str = "",
+    primary_hex: str = "",
+    secondary_hex: str = "",
+    background_hex: str = "",
+    surface_hex: str = "",
+    font_pairing: str = "",
+    border_radius: str = "",
+    density: str = "",
 ) -> Optional[str]:
     """Generate a domain-specific React component via one LLM call with hardcoded fallback."""
     from aether_os.core.llm.client import get_llm_client
@@ -348,7 +355,23 @@ async def _generate_domain_component(
         "sports":       "green-energy: bg-green-50, text-green-900, cards bg-white border-green-100, accents green-600",
         "library":      "stone: bg-stone-50, text-stone-900, cards bg-white border-stone-200, accents amber-700",
     }
-    _color_hint = _domain_color_hints.get(domain, "white/gray neutral: bg-white, text-gray-900, cards bg-white border-gray-100")
+    if primary_hex:
+        # Use user's actual designer colors
+        bg = background_hex or "#0f172a"
+        surface = surface_hex or "#1e293b"
+        primary = primary_hex
+        secondary = secondary_hex or primary_hex
+        _color_hint = (
+            f"EXACT brand colors — use these hex values via Tailwind arbitrary values: "
+            f"primary: {primary} (use as [background-color:{primary}] or bg-[{primary}]), "
+            f"secondary: {secondary}, "
+            f"background: {bg} (page bg), "
+            f"surface: {surface} (card/panel bg). "
+            f"Do NOT substitute generic Tailwind palette colors — use the exact hex values provided."
+        )
+    else:
+        # Fall back to domain-based color hints
+        _color_hint = _domain_color_hints.get(domain, "white/gray neutral: bg-white, text-gray-900, cards bg-white border-gray-100")
 
     prompt = (
         f'Generate a React functional component for a {domain} application called "{project_name}".\n\n'
@@ -366,8 +389,17 @@ async def _generate_domain_component(
         f"- Design personality: {domain} apps should feel visually distinct — avoid generic grey/white Bootstrap-style layouts\n\n"
         "- Responsive Design: Use Tailwind responsive prefixes (sm:, md:, lg:) on ALL grid/flex containers and text size declarations.\n"
         "- Accessibility: Use 'aria-label' on every icon-only button; use 'htmlFor' and 'aria-label' on all inputs.\n"
-        "- Loading/Empty states: Include an 'isLoading' branch showing a skeleton/spinner and an 'isEmpty' branch with an empty-state illustration/text.\n\n"
-        "Return ONLY the React component code. No markdown fences, no explanation."
+        "- Loading/Empty states: Include an 'isLoading' branch showing a skeleton/spinner and an 'isEmpty' branch with an empty-state illustration/text.\n"
+        "- Glassmorphism cards: use bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl for all card/panel elements\n"
+        "- Gradient buttons: primary action buttons must use bg-gradient-to-r from the primary color to secondary color, with shadow-lg and hover:scale-105 transition\n"
+        "- Skeleton loaders: every async/loading state must show animated skeleton placeholders using animate-pulse bg-white/10 rounded blocks, NOT a spinner\n"
+        "- Framer Motion animations: wrap page sections in motion.div with initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{type:'spring',stiffness:300,damping:30}}\n"
+        "- shadcn/ui components: use shadcn/ui primitives (Button, Card, Badge, Input, Table) — import from '@/components/ui/*' — do NOT build raw HTML form elements or buttons\n"
+        "- Visual depth: add at least one gradient orb or abstract shape in hero/header sections using absolute positioned divs with rounded-full blur-3xl opacity-20 bg-[primaryColor]\n"
+        + (f"- Typography: use '{font_pairing.split('+')[0].strip()}' as the primary font via className='font-sans' (ensure it's loaded in index.html)\n" if font_pairing else "- Typography: use Inter as the primary font\n")
+        + (f"- Border radius: apply '{border_radius}' consistently — if 'Rounded', use rounded-xl/2xl; if 'Sharp', use rounded-sm/none; if 'Pill', use rounded-full on buttons\n" if border_radius else "")
+        + (f"- Density: '{density}' — if 'Compact', use p-2/p-3 and text-sm; if 'Normal', use p-4/p-6; if 'Comfortable', use p-6/p-8 and text-base\n" if density else "")
+        + "\nReturn ONLY the React component code. No markdown fences, no explanation."
     )
 
     client = get_llm_client()
@@ -4589,6 +4621,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     scroll_reveal: bool = bool(_design.get("scroll_reveal", True))
     loading_style: str = _design.get("loading_style", "shimmer") or "shimmer"
     hover_lift: bool = bool(_design.get("hover_lift", True))
+    # Designer brand colors (user-set hex values)
+    primary_hex: str = _design.get("primary_hex", "") or ""
+    secondary_hex: str = _design.get("secondary_hex", "") or ""
+    background_hex: str = _design.get("background_hex", "") or ""
+    surface_hex: str = _design.get("surface_hex", "") or ""
+    font_pairing: str = _design.get("font_pairing", "") or ""
+    border_radius: str = _design.get("border_radius", "") or ""
+    density: str = _design.get("density", "") or ""
     # If no explicit theme was chosen via the Designer, derive one from the domain
     # so every build gets a distinct visual identity instead of always the default blue.
     _domain_theme_map = {
@@ -4855,7 +4895,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Domain-specific LLM component (non-fatal bonus step) ─────────────────
     domain_widget_generated = False
     try:
-        domain_component = await _generate_domain_component(domain, entities, project_name, mem)
+        domain_component = await _generate_domain_component(
+            domain, entities, project_name, mem,
+            primary_hex=primary_hex,
+            secondary_hex=secondary_hex,
+            background_hex=background_hex,
+            surface_hex=surface_hex,
+            font_pairing=font_pairing,
+            border_radius=border_radius,
+            density=density,
+        )
         if domain_component:
             domain_file = src_dir / "components" / "DomainWidget.jsx"
             domain_file.write_text(domain_component)
