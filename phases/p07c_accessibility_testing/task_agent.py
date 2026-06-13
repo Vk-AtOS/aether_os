@@ -62,8 +62,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     output_dir.mkdir(parents=True, exist_ok=True)
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
+
+    # Defer: this phase requires a running frontend, which is not available during pipeline build.
+    if not data.get("frontend_url") and not data.get("app_url"):
+        result = {
+            "success": True,
+            "skipped": True,
+            "reason": "deferred: requires running app — re-run after app start",
+        }
+        (output_dir / "a11y_results.json").write_text(json.dumps(result, indent=2))
+        return TaskResult(
+            output_path=str(output_dir / "a11y_results.json"),
+            confidence=1.0,
+            data=result,
+            metadata={"phase": "p07c_accessibility_testing", "skipped": True},
+        )
+
     frontend_port: int = data.get("frontend_port", 5173)
-    frontend_url = f"http://localhost:{frontend_port}"
+    frontend_url = data.get("frontend_url") or f"http://localhost:{frontend_port}"
 
     results: Dict = {
         "target": frontend_url,

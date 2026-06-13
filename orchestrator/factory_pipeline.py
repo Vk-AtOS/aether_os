@@ -1,5 +1,5 @@
 """
-AetherOS — 26-Phase Factory Pipeline
+AetherOS — 23-Phase Factory Pipeline
 
 Each phase is a completely independent module.
 All inter-phase communication goes through the MessageBus only.
@@ -64,7 +64,7 @@ INACTIVE_PHASE_DIRS = frozenset({
     "p07d_e2e_testing",
 })
 
-# Ordered 20-phase sequence (12 core + 8 post-deployment)
+# Ordered 23-phase sequence (12 core + 8 post-deployment + p00_research + p04b_business_logic + p07b_self_healing)
 PHASE_SEQUENCE = [
     "p00_research",
     "p01_intake_requirements",
@@ -91,7 +91,7 @@ PHASE_SEQUENCE = [
     "p14_client_portal",    # Standalone client review portal
 ]
 
-# Phase name → supervisor class path (20 phases: 12 core + 8 post-deployment).
+# Phase name → supervisor class path (23 phases: see PHASE_SEQUENCE above).
 # All paths use the "aether_os.phases.*" namespace. The aether_os package is
 # mapped to the repo root via pyproject.toml (`package-dir = {"aether_os" = "."}`).
 # _load_supervisor() also adds a fallback to "phases.*" in case the package

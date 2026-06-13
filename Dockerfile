@@ -33,6 +33,11 @@ COPY --from=frontend-builder /build/dist ./aether_os/dashboard/dist/
 
 ENV PYTHONPATH=/srv
 
+RUN pip install -e ./aether_os/
+
+RUN addgroup --system aether && adduser --system --ingroup aether aether
+USER aether
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \

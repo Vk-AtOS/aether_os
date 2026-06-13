@@ -8,13 +8,15 @@ import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-reac
 import { useRuns } from '../contexts/RunsContext';
 import { SkeletonTable } from '../components/Skeleton';
 
-// 21-phase list in order (matches factory_pipeline.py PHASE_SEQUENCE)
+// 23-phase list in order (matches factory_pipeline.py PHASE_SEQUENCE)
 const PHASES = [
+  'p00_research',
   'p01_intake_requirements',
   'p02_architecture',
   'p02b_domain_ir',
   'p03_scaffolding',
   'p04_backend',
+  'p04b_business_logic',
   'p05_frontend',
   'p06_review_security',
   'p07_testing',
@@ -49,7 +51,7 @@ const getCompletedCount = (run) => {
   return completed;
 };
 
-// 21-dot progress strip
+// 23-dot progress strip
 const ProgressDots = ({ run }) => {
   const completed = getCompletedCount(run);
   const isRunning = run.status === 'running';

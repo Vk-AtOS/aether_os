@@ -11,7 +11,7 @@ class BusinessLogicSupervisor(PhaseBase):
     phase_name = "p04b_business_logic"
 
     async def run_task(self, phase_input: Any, memory_ctx: List[Dict]) -> TaskResult:
-        from phases.p04b_business_logic.task_agent import run as task_run
+        from aether_os.phases.p04b_business_logic.task_agent import run as task_run
         from aether_os.core.projects import get_project_manager
         pm = get_project_manager()
         output_dir = pm.get_output_dir(phase_input.project_id, self.phase_name)
