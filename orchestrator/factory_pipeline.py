@@ -89,6 +89,7 @@ PHASE_SEQUENCE = [
     "p12b_ab_testing",      # GrowthBook experiments
     "p13_app_memory",       # mem0 memory layer + knowledge graph
     "p14_client_portal",    # Standalone client review portal
+    "p15_handoff",          # Complete technical delivery package (docs, runbook, Postman)
 ]
 
 # Phase name → supervisor class path (23 phases: see PHASE_SEQUENCE above).
@@ -121,6 +122,7 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p12b_ab_testing":         "aether_os.phases.p12b_ab_testing.ABTestingSupervisor",
     "p13_app_memory":          "aether_os.phases.p13_app_memory.AppMemorySupervisor",
     "p14_client_portal":       "aether_os.phases.p14_client_portal.ClientPortalSupervisor",
+    "p15_handoff":             "aether_os.phases.p15_handoff.supervisor_agent.HandoffSupervisor",
 }
 
 
