@@ -157,7 +157,13 @@ echo "Update successful."
         
         self._write_vps_scripts(project_dir, project_name)
         self._write_nginx_config(project_dir)
-        
+        # Always generate K8s manifests regardless of Docker availability
+        try:
+            self._write_k8s_manifests(project_dir, project_name)
+        except Exception as _k8s_exc:
+            import logging as _log11
+            _log11.getLogger(__name__).warning("p11: K8s manifest generation failed (non-fatal): %s", _k8s_exc)
+
         docker_available = await self._check_docker()
         if not docker_available:
             run_id: str = getattr(phase_input, "run_id", "unknown")
@@ -645,6 +651,153 @@ echo "Update successful."
         dev_compose_path.write_text(dev_content)
         
         return compose_path
+
+    def _write_k8s_manifests(self, project_dir: Path, app_name: str) -> None:
+        """Generate production-grade Kubernetes manifests: HPA, Deployment, Service, Ingress."""
+        k8s_dir = project_dir / "k8s"
+        k8s_dir.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^a-z0-9-]", "-", app_name.lower()).strip("-") or "app"
+
+        # HPA
+        (k8s_dir / "hpa.yaml").write_text(textwrap.dedent(f"""\
+            apiVersion: autoscaling/v2
+            kind: HorizontalPodAutoscaler
+            metadata:
+              name: {slug}-hpa
+              namespace: default
+            spec:
+              scaleTargetRef:
+                apiVersion: apps/v1
+                kind: Deployment
+                name: {slug}
+              minReplicas: 3
+              maxReplicas: 20
+              metrics:
+              - type: Resource
+                resource:
+                  name: cpu
+                  target:
+                    type: Utilization
+                    averageUtilization: 70
+              - type: Resource
+                resource:
+                  name: memory
+                  target:
+                    type: Utilization
+                    averageUtilization: 80
+        """))
+
+        # Deployment
+        (k8s_dir / "deployment.yaml").write_text(textwrap.dedent(f"""\
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: {slug}
+              namespace: default
+              labels:
+                app: {slug}
+            spec:
+              replicas: 3
+              selector:
+                matchLabels:
+                  app: {slug}
+              template:
+                metadata:
+                  labels:
+                    app: {slug}
+                spec:
+                  containers:
+                  - name: {slug}
+                    image: {slug}:latest
+                    ports:
+                    - containerPort: 8000
+                    envFrom:
+                    - secretRef:
+                        name: {slug}-secrets
+                    resources:
+                      requests:
+                        cpu: "500m"
+                        memory: "512Mi"
+                      limits:
+                        cpu: "2000m"
+                        memory: "2Gi"
+                    livenessProbe:
+                      httpGet:
+                        path: /health
+                        port: 8000
+                      initialDelaySeconds: 15
+                      periodSeconds: 10
+                    readinessProbe:
+                      httpGet:
+                        path: /ready
+                        port: 8000
+                      initialDelaySeconds: 5
+                      periodSeconds: 5
+        """))
+
+        # Service
+        (k8s_dir / "service.yaml").write_text(textwrap.dedent(f"""\
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: {slug}
+              namespace: default
+            spec:
+              selector:
+                app: {slug}
+              ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 8000
+              type: ClusterIP
+        """))
+
+        # Ingress
+        (k8s_dir / "ingress.yaml").write_text(textwrap.dedent(f"""\
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: {slug}-ingress
+              namespace: default
+              annotations:
+                nginx.ingress.kubernetes.io/rewrite-target: /
+                cert-manager.io/cluster-issuer: letsencrypt-prod
+            spec:
+              tls:
+              - hosts:
+                - app.yourdomain.com
+                secretName: {slug}-tls
+              rules:
+              - host: app.yourdomain.com
+                http:
+                  paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: {slug}
+                        port:
+                          number: 80
+        """))
+
+        # Secrets template
+        (k8s_dir / "secrets.yaml.template").write_text(textwrap.dedent(f"""\
+            # Fill in values and apply: kubectl apply -f k8s/secrets.yaml
+            # DO NOT commit this file with real values.
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: {slug}-secrets
+              namespace: default
+            type: Opaque
+            stringData:
+              DATABASE_URL: "postgresql+asyncpg://user:pass@postgres:5432/appdb"
+              SECRET_KEY: "replace-with-64-char-hex"
+              REDIS_URL: "redis://redis:6379"
+        """))
+
+        import logging as _logging
+        _logging.getLogger(__name__).info("p11: K8s manifests written to %s", k8s_dir)
 
     def _write_deploy_md(self, project_dir: Path) -> Path:
         """Write DEPLOYMENT.md with comprehensive instructions (10 sections)."""
