@@ -17,7 +17,9 @@ const OrgSwitcher = () => {
   const [open, setOpen] = useState(false);
   const [orgs, setOrgs] = useState([]);
   const [currentOrg, setCurrentOrg] = useState(null);
+  const [switching, setSwitching] = useState(null);
   const ref = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     api.getMyOrgs().then(res => {
@@ -32,6 +34,21 @@ const OrgSwitcher = () => {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  const handleSwitch = async (org) => {
+    if (org.is_current || switching) return;
+    setSwitching(org.id);
+    try {
+      const res = await api.switchOrg(org.id);
+      localStorage.setItem('aether_token', res.data.access_token);
+      if (res.data.refresh_token) localStorage.setItem('aether_refresh_token', res.data.refresh_token);
+      setOpen(false);
+      navigate('/');
+      window.location.reload();
+    } catch {
+      setSwitching(null);
+    }
+  };
 
   if (!currentOrg) return null;
 
@@ -60,19 +77,20 @@ const OrgSwitcher = () => {
             <button
               key={org.id}
               role="menuitem"
-              onClick={() => setOpen(false)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.04] transition-colors text-left"
+              onClick={() => handleSwitch(org)}
+              disabled={switching === org.id}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.04] transition-colors text-left disabled:opacity-60"
             >
               <div>
                 <p className="text-sm font-medium text-white">{org.name}</p>
                 <p className="text-[10px] text-slate-500 capitalize">{org.role} · {org.plan}</p>
               </div>
-              {org.is_current && <Check className="w-3.5 h-3.5 text-violet-400 shrink-0" aria-label="Current" />}
+              {org.is_current
+                ? <Check className="w-3.5 h-3.5 text-violet-400 shrink-0" aria-label="Current" />
+                : switching === org.id && <span className="text-[10px] text-slate-500">Switching…</span>
+              }
             </button>
           ))}
-          <div className="border-t border-white/[0.06] px-4 py-2">
-            <p className="text-[10px] text-slate-600">Multi-org support coming soon</p>
-          </div>
         </div>
       )}
     </div>

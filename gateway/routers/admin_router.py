@@ -101,7 +101,42 @@ async def invite_user(req: Dict[str, Any], user: Dict[str, Any] = _current_user(
         session.add(new_user)
         await session.commit()
         await session.refresh(new_user)
-    return {"id": new_user.id, "email": email, "role": role, "temp_password": temp_password}
+
+    # Send invite email with temp credentials
+    email_sent = False
+    try:
+        from aether_os.core.notifications.email import get_email_notifier
+        frontend_url = os.environ.get("FRONTEND_URL", "https://app.aetheros.ai").rstrip("/")
+        login_url = f"{frontend_url}/login"
+        inviter_name = user.get("sub", "Your organisation")
+        notifier = get_email_notifier()
+        body_html = (
+            f"<p>You've been invited to join <strong>AetherOS</strong> by {inviter_name}.</p>"
+            f"<p>Your temporary credentials:</p>"
+            f"<ul><li><strong>Email:</strong> {email}</li>"
+            f"<li><strong>Temporary password:</strong> <code>{temp_password}</code></li></ul>"
+            f"<p><a href='{login_url}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
+            f"border-radius:6px;text-decoration:none;display:inline-block'>Sign in to AetherOS</a></p>"
+            f"<p>Please change your password after your first login.</p>"
+            f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
+        )
+        body_text = (
+            f"You've been invited to join AetherOS by {inviter_name}.\n\n"
+            f"Your temporary credentials:\n  Email: {email}\n  Password: {temp_password}\n\n"
+            f"Sign in at: {login_url}\n\nPlease change your password after your first login."
+        )
+        email_sent = await notifier.send(email, "You've been invited to AetherOS", body_html, body_text)
+    except Exception as exc:
+        logger.warning("Invite email failed for %s: %s", email, exc)
+
+    return {
+        "id": new_user.id,
+        "email": email,
+        "role": role,
+        "email_sent": email_sent,
+        # Only include temp_password when email could not be sent so admin can share it manually
+        **({"temp_password": temp_password} if not email_sent else {}),
+    }
 
 
 @router.post("/admin/users/{user_id}/role")

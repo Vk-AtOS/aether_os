@@ -151,44 +151,69 @@ def demo(
     console.print(f"Requirement: [cyan]{requirement}[/cyan]\n")
 
     async def _run() -> None:
-        from aether_os.orchestrator.pipeline import Pipeline
-        pipeline = Pipeline()
+        import uuid as _uuid
+        from aether_os.orchestrator.factory_pipeline import FactoryPipeline
 
-        with console.status("[bold green]Running pipeline..."):
+        run_id = str(_uuid.uuid4())
+        pipeline = FactoryPipeline()
+
+        console.print(f"Run ID: [dim]{run_id}[/dim]\n")
+
+        phase_rows: list[tuple[str, str, str, str]] = []
+
+        async def _collect_events():
+            from aether_os.core.pipeline_state import get_event_queue
+            q = get_event_queue(run_id)
+            while True:
+                try:
+                    evt = await asyncio.wait_for(q.get(), timeout=0.5)
+                    etype = evt.get("type", "")
+                    phase = evt.get("phase", "")
+                    if etype == "phase_complete" and phase:
+                        passed = evt.get("passed", True)
+                        conf = evt.get("confidence", 0.0)
+                        dur = evt.get("duration_seconds", 0.0)
+                        icon = "[green]✓[/green]" if passed else "[red]✗[/red]"
+                        phase_rows.append((phase, icon, f"{conf:.0%}", f"{dur:.1f}s"))
+                    elif etype == "pipeline_complete":
+                        break
+                except asyncio.TimeoutError:
+                    continue
+
+        with console.status("[bold green]Running 29-phase factory pipeline..."):
             start_time = time.time()
-            result = await pipeline.run(
-                requirement=requirement,
-                project_name=project_name,
-                language="python",
+            result, _ = await asyncio.gather(
+                pipeline.run(
+                    client_id="cli-demo",
+                    raw_input=requirement,
+                    domain="general",
+                    project_name=project_name,
+                    run_id=run_id,
+                ),
+                _collect_events(),
             )
             duration = time.time() - start_time
 
-        # Show results
-        status_color = "green" if result["status"] == "complete" else "red"
+        run_status = result.get("status", "unknown")
+        status_color = "green" if run_status in ("complete", "completed") else "red"
+        output_dir = result.get("output_dir") or result.get("project_dir", "N/A")
         console.print(Panel(
-            f"[bold {status_color}]Status: {result['status'].upper()}[/bold {status_color}]\n"
-            f"Run ID: {result.get('run_id', 'N/A')}\n"
-            f"Duration: {result.get('duration_seconds', duration):.1f}s\n"
-            f"Output: {result.get('output_dir', 'N/A')}",
+            f"[bold {status_color}]Status: {run_status.upper()}[/bold {status_color}]\n"
+            f"Run ID: {run_id}\n"
+            f"Duration: {duration:.1f}s\n"
+            f"Output: {output_dir}",
             title="Pipeline Result",
             border_style=status_color,
         ))
 
-        if result.get("phases"):
+        if phase_rows:
             table = Table(title="Phase Summary")
             table.add_column("Phase", style="cyan")
             table.add_column("Status")
             table.add_column("Confidence")
             table.add_column("Duration")
-
-            for phase in result["phases"]:
-                status_icon = "[green]✓[/green]" if phase.get("passed") else "[red]✗[/red]"
-                table.add_row(
-                    phase.get("phase_name", "?"),
-                    status_icon,
-                    f"{phase.get('confidence', 0):.0%}",
-                    f"{phase.get('duration_seconds', 0):.1f}s",
-                )
+            for row in phase_rows:
+                table.add_row(*row)
             console.print(table)
 
         if result.get("errors"):

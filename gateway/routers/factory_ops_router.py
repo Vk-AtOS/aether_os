@@ -127,8 +127,20 @@ async def upload_requirement_file(
             except Exception as e:
                 return {"text": "", "error": f"PDF parsing unavailable: {e}"}
     elif ext in ("png", "jpg", "jpeg", "webp"):
-        # Return placeholder — vision extraction requires separate LLM call
-        return {"text": "", "error": "Image requirement extraction not yet supported — please paste text instead"}
+        try:
+            from aether_os.core.llm.client import get_llm_client
+            llm = get_llm_client()
+            prompt = (
+                "This image is a requirements document, wireframe, or specification screenshot. "
+                "Extract ALL visible text and describe every UI element, form field, button, and functional requirement in detail. "
+                "Return plain text only — no markdown fences, no commentary."
+            )
+            extracted = await llm.call_vision(prompt, content)
+            if not extracted:
+                return {"text": "", "error": "Could not extract text from image — please ensure the image is clear and readable"}
+        except Exception as e:
+            logger.warning("Vision extraction failed: %s", e)
+            return {"text": "", "error": f"Image extraction failed: {e} — please paste text instead"}
     elif ext in ("docx",):
         try:
             import docx

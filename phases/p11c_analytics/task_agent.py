@@ -85,14 +85,188 @@ async def analytics_middleware(request: Request, call_next):
 '''
     )
 
-    # Analytics dashboard placeholder
+    # Analytics dashboard — real-time event viewer backed by /analytics/events
     (analytics_dir / "analytics_dashboard.html").write_text(
-        "<!doctype html><html><body><h1>Analytics Dashboard</h1>"
-        "<p>Connect your analytics_events table to visualise data.</p></body></html>"
+        '''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Analytics Dashboard</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;background:#0f0f17;color:#e2e8f0;min-height:100vh;padding:24px}
+  h1{font-size:1.5rem;font-weight:700;color:#fff;margin-bottom:24px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
+  .card{background:#1a1a2e;border:1px solid #2d2d4e;border-radius:12px;padding:20px}
+  .card h2{font-size:.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+  .card p{font-size:2rem;font-weight:700;color:#7c3aed}
+  .table-wrap{background:#1a1a2e;border:1px solid #2d2d4e;border-radius:12px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th{background:#111128;color:#94a3b8;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;padding:12px 16px;text-align:left}
+  td{padding:12px 16px;border-top:1px solid #2d2d4e;font-size:.875rem;color:#cbd5e1}
+  tr:hover td{background:#1e1e35}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:600;background:#7c3aed22;color:#a78bfa}
+  #status{font-size:.8rem;color:#64748b;margin-bottom:16px}
+</style>
+</head>
+<body>
+<h1>Analytics Dashboard</h1>
+<p id="status">Loading…</p>
+<div class="cards">
+  <div class="card"><h2>Total Events (24h)</h2><p id="total">—</p></div>
+  <div class="card"><h2>Unique Users (24h)</h2><p id="users">—</p></div>
+  <div class="card"><h2>Avg Latency (ms)</h2><p id="latency">—</p></div>
+  <div class="card"><h2>Error Rate</h2><p id="errors">—</p></div>
+</div>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Time</th><th>Event</th><th>User</th><th>Path</th><th>Latency</th></tr></thead>
+    <tbody id="events"><tr><td colspan="5" style="text-align:center;color:#64748b;padding:32px">Loading events…</td></tr></tbody>
+  </table>
+</div>
+<script>
+const API = window.location.origin;
+async function load() {
+  try {
+    const r = await fetch(API + "/analytics/events?limit=50");
+    if (!r.ok) throw new Error(r.statusText);
+    const data = await r.json();
+    const events = data.events || data || [];
+    document.getElementById("total").textContent = data.total_24h ?? events.length;
+    document.getElementById("users").textContent = data.unique_users_24h ?? "—";
+    document.getElementById("latency").textContent = data.avg_latency_ms ? data.avg_latency_ms.toFixed(0) : "—";
+    document.getElementById("errors").textContent = data.error_rate != null ? (data.error_rate * 100).toFixed(1) + "%" : "—";
+    const tbody = document.getElementById("events");
+    if (!events.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#64748b;padding:32px">No events recorded yet</td></tr>';
+    } else {
+      tbody.innerHTML = events.map(e => {
+        const t = new Date(e.created_at || e.ts).toLocaleTimeString();
+        return `<tr><td>${t}</td><td><span class="badge">${e.event||e.name||"—"}</span></td><td>${e.user_id||"anon"}</td><td>${(e.data?.path||e.path||"—")}</td><td>${e.data?.duration_ms ?? e.latency_ms ?? "—"}ms</td></tr>`;
+      }).join("");
+    }
+    document.getElementById("status").textContent = "Last updated: " + new Date().toLocaleTimeString();
+  } catch(err) {
+    document.getElementById("status").textContent = "Could not load events: " + err.message;
+  }
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>'''
     )
 
     (analytics_dir / "analytics_insights.json").write_text(
         '{"insights": ["Track funnel effectiveness", "Monitor error rates", "Measure p95 latency"]}'
+    )
+
+    # Analytics API router — serves /analytics/events for the dashboard
+    (analytics_dir / "analytics_router.py").write_text(
+        '''"""Analytics API — event ingestion and query endpoints."""
+from __future__ import annotations
+import logging
+import os
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, Query
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+async def _get_db():
+    """Yield an async DB session (import from your project\'s database module)."""
+    from src.database import get_db  # type: ignore
+    async with get_db() as db:
+        yield db
+
+
+@router.post("/track")
+async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
+    """Ingest a single analytics event."""
+    event = body.get("event", "")
+    user_id = body.get("user_id")
+    data = body.get("data", {})
+    if not event:
+        return {"status": "ignored", "reason": "no event name"}
+    try:
+        from sqlalchemy import text
+        from src.database import get_db  # type: ignore
+        async with get_db() as db:
+            await db.execute(
+                text("INSERT INTO analytics_events (event, user_id, data) VALUES (:e, :u, :d::jsonb)"),
+                {"e": event, "u": user_id, "d": __import__("json").dumps(data)},
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Analytics DB write failed: %s", exc)
+    # Also forward to PostHog if configured
+    posthog_key = os.getenv("POSTHOG_API_KEY", "")
+    if posthog_key:
+        try:
+            import posthog as _ph
+            _ph.api_key = posthog_key
+            _ph.capture(str(user_id or "anon"), event=event, properties=data)
+        except Exception:
+            pass
+    return {"status": "ok"}
+
+
+@router.get("/events")
+async def list_events(
+    limit: int = Query(50, ge=1, le=500),
+    event: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Return recent analytics events with summary statistics."""
+    import json as _json
+    try:
+        from sqlalchemy import text
+        from src.database import get_db  # type: ignore
+        async with get_db() as db:
+            # Recent events
+            where = "WHERE event = :e" if event else ""
+            params: Dict[str, Any] = {"limit": limit}
+            if event:
+                params["e"] = event
+            rows = (await db.execute(
+                text(f"SELECT id, event, user_id, data, created_at FROM analytics_events {where} ORDER BY created_at DESC LIMIT :limit"),
+                params,
+            )).fetchall()
+
+            # 24h summary
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            stats = (await db.execute(
+                text("SELECT COUNT(*) as total, COUNT(DISTINCT user_id) as users, "
+                     "AVG((data->>'duration_ms')::float) as avg_ms, "
+                     "SUM(CASE WHEN event = \'error\' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) as err_rate "
+                     "FROM analytics_events WHERE created_at > :c"),
+                {"c": cutoff},
+            )).fetchone()
+
+        events_out = [
+            {
+                "id": r[0],
+                "event": r[1],
+                "user_id": r[2],
+                "data": r[3] if isinstance(r[3], dict) else (_json.loads(r[3]) if r[3] else {}),
+                "created_at": r[4].isoformat() if r[4] else None,
+            }
+            for r in rows
+        ]
+        return {
+            "events": events_out,
+            "total_24h": int(stats[0] or 0),
+            "unique_users_24h": int(stats[1] or 0),
+            "avg_latency_ms": round(float(stats[2]), 1) if stats[2] else None,
+            "error_rate": round(float(stats[3]), 4) if stats[3] else 0.0,
+        }
+    except Exception as exc:
+        logger.error("Analytics query failed: %s", exc)
+        return {"events": [], "total_24h": 0, "unique_users_24h": 0, "avg_latency_ms": None, "error_rate": 0.0}
+'''
     )
 
     # DB migration
@@ -149,7 +323,7 @@ async def analytics_middleware(request: Request, call_next):
     return TaskResult(
         output_path=str(analytics_dir),
         confidence=0.9,
-        metadata={"files_written": 6},
+        metadata={"files_written": 7},
         issues=issues,
         success=True
     )

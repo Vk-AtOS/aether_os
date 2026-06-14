@@ -103,18 +103,94 @@ async def stripe_webhook(request: Request) -> dict:
     if event_type == "checkout.session.completed":
         session = event["data"]["object"]
         customer_id = session.get("customer")
-        logger.info("Checkout completed: customer=%s", customer_id)
-        # TODO: update subscription status in DB
+        subscription_id = session.get("subscription")
+        logger.info("Checkout completed: customer=%s subscription=%s", customer_id, subscription_id)
+        if customer_id:
+            try:
+                from src.database import get_db  # type: ignore
+                from sqlalchemy import text
+                async with get_db() as db:
+                    await db.execute(
+                        text("UPDATE users SET stripe_customer_id = :cid, plan = 'pro', "
+                             "subscription_id = :sid WHERE stripe_customer_id = :cid OR stripe_customer_id IS NULL"),
+                        {"cid": customer_id, "sid": subscription_id},
+                    )
+                    await db.commit()
+                logger.info("DB updated: customer %s activated on pro plan", customer_id)
+            except Exception as db_exc:
+                logger.error("Failed to update subscription in DB: %s", db_exc)
 
     elif event_type in ("customer.subscription.deleted", "customer.subscription.updated"):
         sub = event["data"]["object"]
-        logger.info("Subscription %s: status=%s", sub.get("id"), sub.get("status"))
-        # TODO: update plan in DB based on sub.status
+        sub_status = sub.get("status", "unknown")
+        customer_id = sub.get("customer")
+        plan = "free" if sub_status in ("canceled", "unpaid", "incomplete_expired") else "pro"
+        logger.info("Subscription %s: status=%s → plan=%s", sub.get("id"), sub_status, plan)
+        if customer_id:
+            try:
+                from src.database import get_db  # type: ignore
+                from sqlalchemy import text
+                async with get_db() as db:
+                    await db.execute(
+                        text("UPDATE users SET plan = :plan, subscription_status = :status "
+                             "WHERE stripe_customer_id = :cid"),
+                        {"plan": plan, "status": sub_status, "cid": customer_id},
+                    )
+                    await db.commit()
+                logger.info("DB updated: customer %s plan=%s", customer_id, plan)
+            except Exception as db_exc:
+                logger.error("Failed to update plan in DB: %s", db_exc)
 
     elif event_type == "invoice.payment_failed":
         invoice = event["data"]["object"]
-        logger.warning("Payment failed: customer=%s", invoice.get("customer"))
-        # TODO: send dunning email
+        customer_id = invoice.get("customer")
+        attempt_count = invoice.get("attempt_count", 1)
+        next_payment_attempt = invoice.get("next_payment_attempt")
+        logger.warning("Payment failed: customer=%s attempt=%s", customer_id, attempt_count)
+        # Downgrade to free after 3 failed payment attempts
+        if customer_id:
+            try:
+                from src.database import get_db  # type: ignore
+                from sqlalchemy import text
+                async with get_db() as db:
+                    if attempt_count >= 3:
+                        await db.execute(
+                            text("UPDATE users SET plan = 'free', subscription_status = 'past_due' "
+                                 "WHERE stripe_customer_id = :cid"),
+                            {"cid": customer_id},
+                        )
+                        await db.commit()
+                        logger.warning("Customer %s downgraded to free after %s failed payments", customer_id, attempt_count)
+                    else:
+                        # Notify user of failed payment
+                        row = await db.execute(
+                            text("SELECT email FROM users WHERE stripe_customer_id = :cid LIMIT 1"),
+                            {"cid": customer_id},
+                        )
+                        user_row = row.fetchone()
+                        if user_row:
+                            import smtplib, email.mime.text as _emt
+                            _smtp_host = os.getenv("SMTP_HOST", "")
+                            if _smtp_host:
+                                try:
+                                    msg = _emt.MIMEText(
+                                        f"Payment failed for your subscription (attempt {attempt_count})."
+                                        f" Please update your payment method to avoid service interruption.",
+                                        "plain",
+                                    )
+                                    msg["Subject"] = "Action required: Payment failed"
+                                    msg["From"] = os.getenv("SMTP_FROM", "noreply@example.com")
+                                    msg["To"] = user_row[0]
+                                    with smtplib.SMTP(os.getenv("SMTP_HOST", "localhost"), int(os.getenv("SMTP_PORT", "587"))) as s:
+                                        if os.getenv("SMTP_USER"):
+                                            s.starttls()
+                                            s.login(os.getenv("SMTP_USER", ""), os.getenv("SMTP_PASSWORD", ""))
+                                        s.send_message(msg)
+                                    logger.info("Dunning email sent to %s", user_row[0])
+                                except Exception as mail_exc:
+                                    logger.warning("Dunning email failed: %s", mail_exc)
+            except Exception as db_exc:
+                logger.error("Failed to handle payment_failed event: %s", db_exc)
 
     return {"received": True, "event": event_type}
 

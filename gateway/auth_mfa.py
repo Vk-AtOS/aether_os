@@ -21,7 +21,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from aether_os.gateway.api import get_current_user
+from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 mfa_router = APIRouter(prefix="/auth/mfa", tags=["mfa"])

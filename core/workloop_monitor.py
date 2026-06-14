@@ -131,7 +131,7 @@ class WorkloopMonitor:
                 )
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
-                return [
+                self._last_known_runs = [
                     {
                         "id": str(r.id),
                         "status": r.status,
@@ -143,11 +143,12 @@ class WorkloopMonitor:
                     }
                     for r in rows
                 ]
+                return self._last_known_runs
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.warning("WorkloopMonitor: failed to fetch runs: %s", exc)
-            return []
+            logger.error("WorkloopMonitor: failed to fetch runs (DB may be unavailable): %s", exc)
+            return getattr(self, "_last_known_runs", [])
 
     # ── Pattern extraction ────────────────────────────────────────────────────
 
