@@ -248,10 +248,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         _frame_src = f"'self' {_cors_hosts} http://localhost:*".strip()
         # Nonce replaces unsafe-inline for script-src; unsafe-eval kept for Monaco editor.
         # style-src retains unsafe-inline (CSS injection risk lower than script injection).
+        # Landing page (/) uses plain 'self' — no strict-dynamic needed, and it blocks external .js
+        _is_landing = request.url.path in ("/", "/js/landing.js")
+        _script_src = (
+            "script-src 'self'; "
+            if _is_landing
+            else f"script-src 'self' 'nonce-{nonce}' 'strict-dynamic' 'unsafe-eval' https://cdn.jsdelivr.net; "
+        )
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            f"script-src 'self' 'nonce-{nonce}' 'strict-dynamic' 'unsafe-eval' https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+            + _script_src
+            + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
             "img-src 'self' data: blob:; "
             "connect-src 'self' https://cdn.jsdelivr.net; "
             "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
