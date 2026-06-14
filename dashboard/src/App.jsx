@@ -111,6 +111,7 @@ function App() {
         <Route path="dashboard/tools/costs" element={<Navigate to="/costs" replace />} />
         <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
         <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
+        <Route path="billing" element={<Navigate to="/admin/billing" replace />} />
         <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
