@@ -106,21 +106,22 @@ const AdminUsers = () => {
     if (!inviteEmail.trim()) return;
     setInviteStatus('sending');
     try {
-      await api.client.post('/admin/users/invite', { email: inviteEmail, role: inviteRole });
-      setInviteStatus('sent');
+      const res = await api.client.post('/admin/users/invite', { email: inviteEmail, role: inviteRole });
+      const data = res.data || {};
+      if (data.email_sent === false && data.temp_password) {
+        // Email failed — show temp password so admin can share it manually
+        const msg = `Invite created but email could not be sent.\n\nShare these credentials manually:\nEmail: ${inviteEmail}\nTemporary password: ${data.temp_password}`;
+        navigator.clipboard?.writeText(`Email: ${inviteEmail}\nPassword: ${data.temp_password}`).catch(() => {});
+        setInviteStatus('sent');
+        alert(msg);
+      } else {
+        setInviteStatus('sent');
+      }
       setInviteEmail('');
       setTimeout(() => { setInviteStatus(null); setShowInvite(false); }, 2000);
       fetchUsers();
     } catch (err) {
-      // If invite endpoint not yet implemented, show copy-link fallback
-      if (err.response?.status === 404 || err.response?.status === 405) {
-        const link = `${window.location.origin}/register?invite_email=${encodeURIComponent(inviteEmail)}`;
-        navigator.clipboard?.writeText(link);
-        setInviteStatus('link_copied');
-        setTimeout(() => { setInviteStatus(null); setShowInvite(false); }, 3000);
-      } else {
-        setInviteStatus('error');
-      }
+      setInviteStatus('error');
     }
   };
 

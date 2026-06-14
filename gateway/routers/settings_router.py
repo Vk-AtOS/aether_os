@@ -284,7 +284,51 @@ async def test_provider(
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-    raise HTTPException(status_code=400, detail="Provider test not implemented for this type")
+    elif req.provider in ("openai", "openrouter"):
+        try:
+            import httpx
+            base_url = (
+                "https://openrouter.ai/api/v1"
+                if req.provider == "openrouter"
+                else "https://api.openai.com/v1"
+            )
+            model = "openai/gpt-4o-mini" if req.provider == "openrouter" else "gpt-4o-mini"
+            async with httpx.AsyncClient(timeout=15) as hc:
+                r = await hc.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
+                )
+            if r.status_code == 401:
+                raise HTTPException(status_code=400, detail="Invalid API key")
+            if r.status_code == 429:
+                raise HTTPException(status_code=400, detail="Rate limited — key is valid but quota exceeded")
+            if not r.is_success:
+                raise HTTPException(status_code=400, detail=f"Provider returned {r.status_code}: {r.text[:200]}")
+            return {"success": True, "message": "Connected"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    elif req.provider == "bedrock":
+        try:
+            import boto3
+            bedrock = await asyncio.to_thread(
+                lambda: boto3.client("bedrock-runtime", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            )
+            import json as _json
+            resp = await asyncio.to_thread(lambda: bedrock.invoke_model(
+                modelId="amazon.titan-text-lite-v1",
+                body=_json.dumps({"inputText": "hi", "textGenerationConfig": {"maxTokenCount": 5}}),
+                contentType="application/json",
+                accept="application/json",
+            ))
+            return {"success": True, "message": "Connected"}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    raise HTTPException(status_code=400, detail=f"Provider '{req.provider}' is not supported for testing")
 
 
 # ── LLM config routes ─────────────────────────────────────────────────────────

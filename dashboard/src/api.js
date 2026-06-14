@@ -93,6 +93,7 @@ export const api = {
     localStorage.removeItem('aether_refresh_token');
   },
   getMyOrgs: () => client.get('/auth/my-orgs'),
+  switchOrg: (orgId) => client.post('/auth/switch-org', { org_id: orgId }),
 
   // Org settings
   getOrgSettings: () => client.get('/account/settings'),

@@ -602,11 +602,24 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
             # Send email
             from aether_os.core.notifications.email import get_email_notifier
             notifier = get_email_notifier()
-            # frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:8000")
-            # For simplicity, we use a placeholder or relative link if we don't have host
+            frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+            if not frontend_url:
+                # Derive from the request host when FRONTEND_URL is not set
+                scheme = request.headers.get("x-forwarded-proto", "https")
+                host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
+                frontend_url = f"{scheme}://{host}" if host else "https://app.aetheros.ai"
+            reset_link = f"{frontend_url}/reset-password?token={token}"
             subject = "AetherOS: Password Reset Request"
-            body = f"Click here to reset your password: /reset-password?token={token}\n\nThis link expires in 1 hour."
-            await notifier.send(user.email, subject, body)
+            body_html = (
+                f"<p>You requested a password reset for your AetherOS account.</p>"
+                f"<p><a href='{reset_link}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
+                f"border-radius:6px;text-decoration:none;display:inline-block'>Reset Password</a></p>"
+                f"<p>Or copy this link: <code>{reset_link}</code></p>"
+                f"<p>This link expires in 1 hour. If you did not request this, ignore this email.</p>"
+                f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
+            )
+            body_text = f"Click here to reset your password: {reset_link}\n\nThis link expires in 1 hour.\n\nIf you did not request this, ignore this email."
+            await notifier.send(user.email, subject, body_html, body_text)
 
     # Always return success to prevent email enumeration
     return {"message": "If an account exists for that email, a reset link has been sent."}
@@ -749,10 +762,7 @@ async def mfa_status(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
 
 @router.get("/my-orgs")
 async def get_my_orgs(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
-    """Return all organisations the current user belongs to.
-    AetherOS is currently single-org per user; this returns the current org
-    so the TopBar org switcher can display it and future multi-org joins work.
-    """
+    """Return all organisations the current user belongs to."""
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Organisation, User as _User
     from sqlalchemy import select
@@ -774,4 +784,48 @@ async def get_my_orgs(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
                 "is_current": True,
             }
         ],
+    }
+
+
+@router.post("/switch-org")
+async def switch_org(req: Dict[str, Any], user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """Switch the authenticated user's active organisation and issue new tokens.
+
+    Currently users belong to exactly one org; this endpoint validates the
+    request and reissues tokens for the requested org (supports future
+    multi-org membership via the UserOrg join table when added).
+    """
+    org_id = req.get("org_id", "")
+    if not org_id:
+        raise HTTPException(status_code=422, detail="org_id is required")
+
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Organisation, User as _User
+    sf = get_session_factory()
+    async with sf() as session:
+        u = await session.get(_User, user.get("user_id", user.get("sub", "")))
+        org = await session.get(Organisation, org_id)
+
+    if not u or not org:
+        raise HTTPException(status_code=404, detail="Organisation not found or access denied")
+
+    # Verify the user actually belongs to this org
+    if str(u.org_id) != str(org_id):
+        raise HTTPException(status_code=403, detail="You do not belong to that organisation")
+
+    from aether_os.gateway.auth import create_access_token, create_refresh_token
+    claims = {
+        "sub": u.email,
+        "user_id": u.id,
+        "org_id": org.id,
+        "org_slug": org.slug,
+        "role": u.role,
+        "plan": org.plan,
+    }
+    return {
+        "access_token": create_access_token(claims),
+        "refresh_token": create_refresh_token(claims),
+        "token_type": "bearer",
+        "org_id": org.id,
+        "org_slug": org.slug,
     }
