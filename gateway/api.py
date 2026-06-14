@@ -766,6 +766,13 @@ def create_app() -> FastAPI:
                 ) from _exc
             logger.warning("Optional router %s not loaded (non-fatal): %s", _rname, _exc)
 
+    # ── Public landing page static assets (js/, images/, etc.)
+    _public = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../public")
+    )
+    if os.path.isdir(_public):
+        app.mount("/js", StaticFiles(directory=os.path.join(_public, "js")), name="public-js")
+
     # ── Dashboard static files — served by spa_router (see gateway/routers/spa_router.py)
     # Static asset mount: needed so /dashboard/assets/* are served directly by StaticFiles
     _dist = os.path.abspath(
