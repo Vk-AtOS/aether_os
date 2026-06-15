@@ -208,12 +208,18 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 async def _run_tests(test_file: Path) -> Dict[str, Any]:
     proc = None
     try:
+        _test_env = {
+            **os.environ,
+            "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
+            "SECRET_KEY": "test-secret-key-not-for-production",
+        }
         proc = await asyncio.create_subprocess_exec(
             "python3", "-m", "pytest",
             str(test_file), "-v", "--tb=short", "--timeout=30",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(test_file.parent.parent),
+            env=_test_env,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=TEST_TIMEOUT)
         output = stdout.decode() + stderr.decode()
