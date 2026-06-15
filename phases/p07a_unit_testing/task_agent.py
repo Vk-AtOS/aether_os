@@ -225,9 +225,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "5. All test functions must be 'async def test_...(client):' decorated with @pytest.mark.asyncio\n"
             "6. Do NOT use 'TestClient' or 'with TestClient(app)' — use async httpx only.\n"
             "7. Do NOT use 'async with TestClient(...)' — that is wrong; use AsyncClient only.\n"
-            "8. Test real endpoints based on plural tables (e.g., table 'contacts' → test '/contacts').\n"
-            "9. Test: health endpoint, list (returns 200), create, get by id, update.\n"
-            "10. Use realistic test data for create payloads.\n"
+            "8. CRITICAL: All CRUD routes are registered under /api/ prefix. Test '/api/<table>' NOT '/<table>'. "
+            "Example: table 'contacts' → test GET /api/contacts, POST /api/contacts, GET /api/contacts/1.\n"
+            "9. Health endpoint is at /health (no /api prefix). Test it with GET /health, check status_code==200 only (don't assert exact body).\n"
+            "10. Test: list (GET /api/<table>, expect 200), create (POST /api/<table>, expect 201), get by id, update.\n"
+            "11. Use realistic test data for create payloads.\n"
             "Return ONLY the Python test file content. No markdown fences."
         )
         result = await llm.call(prompt, task_type="code_generation", max_tokens=3000)

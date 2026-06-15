@@ -225,12 +225,14 @@ def _patch_main_py(main_py: Path) -> None:
     else:
         source = import_line + source
 
-    # setup_logging() — inject before lifespan or at module level
+    # setup_logging() — inject inside lifespan body (first statement) or at module level
+    # NEVER between @asynccontextmanager and async def lifespan — that breaks the decorator
     if "setup_logging()" not in source:
         if "async def lifespan" in source:
+            # Inject as first line INSIDE the lifespan body
             source = re.sub(
-                r"(async def lifespan)",
-                "setup_logging()\n\n\\1",
+                r"(async def lifespan\([^)]*\):[ \t]*\n)([ \t]*)",
+                r"\1\2    setup_logging()\n\2",
                 source, count=1,
             )
         else:
