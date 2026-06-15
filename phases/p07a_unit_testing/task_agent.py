@@ -13,32 +13,47 @@ logger = logging.getLogger(__name__)
 
 
 def _find_src_dir(data: dict) -> Optional[Path]:
-    """Locate the backend src directory with main.py."""
+    """Locate the backend src directory with main.py.
+
+    Priority order mirrors p09._find_backend_src so both phases instrument
+    the same canonical generated code, not the p03 scaffolding stubs.
+    """
     project_dir = data.get("project_dir", "")
-    backend_src = data.get("backend_src_dir", "") or data.get("main_py", "")
-    if backend_src:
-        p = Path(backend_src)
-        if p.is_dir() and (p / "main.py").exists():
-            return p
-        if p.is_file():
-            return p.parent
+
+    # Priority 1+2: canonical path from pipeline context (set by p04a)
+    for key in ("canonical_src_dir", "backend_src_dir", "main_py"):
+        val = data.get(key, "")
+        if val:
+            p = Path(val)
+            if p.is_file():
+                p = p.parent
+            if p.is_dir() and (p / "main.py").exists():
+                # Reject scaffolding stubs — only accept real generated code
+                if "p03_scaffolding" not in str(p):
+                    return p
 
     if project_dir:
         base = Path(project_dir)
-        candidates = [
+        # Priority 3: standard p04a output locations
+        for candidate in [
             base / "p04_backend" / "backend_codegen" / "src",
+            base / "p04a_backend_codegen" / "src",
             base / "p04_backend" / "src",
             base / "src",
-            base,
+        ]:
+            if candidate.exists() and (candidate / "main.py").exists():
+                return candidate
+        # Priority 4: glob — prefer deeper paths, exclude scaffolding
+        found = [
+            p for p in base.rglob("main.py")
+            if "__pycache__" not in str(p)
+            and ".venv" not in str(p)
+            and "p03_scaffolding" not in str(p)
+            and "node_modules" not in str(p)
         ]
-        for c in candidates:
-            if c.exists() and (c / "main.py").exists():
-                return c
-        # Glob fallback
-        found = sorted(base.rglob("main.py"), key=lambda p: len(p.parts), reverse=True)
-        for f in found:
-            if "__pycache__" not in str(f) and ".venv" not in str(f):
-                return f.parent
+        if found:
+            found.sort(key=lambda p: len(p.parts), reverse=True)
+            return found[0].parent
     return None
 
 
