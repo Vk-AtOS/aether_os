@@ -1076,15 +1076,13 @@ def _fallback_models(project_name: str, entities: list) -> str:
             if fn in ("id", "created_at", "updated_at"):
                 continue
             sa_type = _col_to_sa_type(fn)
-            
-            # Enum constraint fallback logic
+
             if fn in ("status", "type", "stage", "priority"):
                 sa_type += f", CheckConstraint(\"{fn} IN ('active', 'inactive', 'pending', 'open', 'closed', 'new')\", name='ck_{table}_{fn}')"
 
             nullable = "False" if any(req in fn.lower() for req in ("name", "email", "title", "status")) else "True"
             cols.append(f"    {fn} = Column({sa_type}, nullable={nullable})")
-            
-            # Relationship fallback
+
             if fn.endswith("_id") and "user" not in fn:
                 ref_name = fn[:-3].capitalize()
                 rels.append(f"    {fn[:-3]} = relationship('{ref_name}', foreign_keys=[{fn}], lazy='selectin')")
@@ -1099,27 +1097,28 @@ def _fallback_models(project_name: str, entities: list) -> str:
             f"class {name}(Base):\n    __tablename__ = '{table}'\n" + "\n".join(cols)
         )
 
-    return textwrap.dedent(f"""\
-        from __future__ import annotations
-        from datetime import datetime, timezone
-        from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey, CheckConstraint, func
-        from sqlalchemy.orm import relationship
-        from .database import Base
-
-
-        class User(Base):
-            __tablename__ = "users"
-            id = Column(Integer, primary_key=True, index=True)
-            email = Column(String(255), unique=True, index=True, nullable=False)
-            password_hash = Column(String(255), nullable=False)
-            role = Column(String(50), nullable=False, default="user")
-            is_active = Column(Boolean, nullable=False, default=True)
-            created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-            updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-
-        {"".join(ec + chr(10) + chr(10) + chr(10) for ec in entity_classes)}
-    """)
+    # Build as a plain string to avoid textwrap.dedent misaligning dynamic class bodies.
+    # Entity class bodies use 4-space indent; f-string+dedent pattern is unsafe here.
+    entity_block = "\n\n\n".join(entity_classes)
+    return (
+        "from __future__ import annotations\n"
+        "from datetime import datetime, timezone\n"
+        "from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey, CheckConstraint, func\n"
+        "from sqlalchemy.orm import relationship\n"
+        "from database import Base\n"
+        "\n"
+        "\n"
+        "class User(Base):\n"
+        "    __tablename__ = \"users\"\n"
+        "    id = Column(Integer, primary_key=True, index=True)\n"
+        "    email = Column(String(255), unique=True, index=True, nullable=False)\n"
+        "    password_hash = Column(String(255), nullable=False)\n"
+        "    role = Column(String(50), nullable=False, default=\"user\")\n"
+        "    is_active = Column(Boolean, nullable=False, default=True)\n"
+        "    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)\n"
+        "    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)\n"
+        + ("\n\n\n" + entity_block + "\n" if entity_block else "\n")
+    )
 
 
 def _fallback_schemas(entities: list) -> str:
