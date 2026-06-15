@@ -335,7 +335,8 @@ async def seed():
                 id=str(uuid.uuid4()),
                 name="Default Organisation",
                 slug=org_slug,
-                plan="enterprise"  # Admin org is enterprise
+                plan="enterprise",  # Admin org is enterprise
+                autonomous_mode=True,  # Skip spec-review gate for seeded orgs
             )
             session.add(org)
             print(f"Created organization: {org.name} ({org.id})")

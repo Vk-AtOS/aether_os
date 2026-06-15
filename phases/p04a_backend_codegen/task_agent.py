@@ -1837,18 +1837,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         try:
             from aether_os.core.domain_ir import DomainIR as _DomainIR
             from aether_os.phases.p04a_backend_codegen.ir_generators import (
-                generate_models_py as _gen_models,
-                generate_schemas_py as _gen_schemas,
-                generate_crud_py as _gen_crud,
+                ir_to_models as _ir_to_models,
+                ir_to_schemas as _ir_to_schemas,
+                generate_stats_router as _gen_stats,
+                generate_seed_py as _gen_seed,
             )
             _ir = _DomainIR.load(Path(_ir_path_str))
             if _ir.entities:
-                from aether_os.phases.p04a_backend_codegen.ir_generators import (
-                    ir_to_models as _ir_to_models,
-                    ir_to_schemas as _ir_to_schemas,
-                    generate_stats_router as _gen_stats,
-                    generate_seed_py as _gen_seed,
-                )
                 models_code = _ir_to_models(_ir)
                 schemas_code = _ir_to_schemas(_ir)
                 stats_code = _gen_stats(_ir)

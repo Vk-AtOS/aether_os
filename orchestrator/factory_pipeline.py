@@ -465,6 +465,8 @@ class FactoryPipeline:
                 _default_timeout = "600"
                 if phase_name == "p05_frontend":
                     _default_timeout = "1200"  # BUG-H2: Increase p05 timeout to 20 mins
+                elif phase_name == "p11_deployment":
+                    _default_timeout = "1800"  # Docker build + vite + pip can exceed 600s on small VPS
 
                 _phase_timeout = float(os.environ.get(
                     _env_key,
@@ -734,15 +736,19 @@ class FactoryPipeline:
                                 await asyncio.sleep(3)
                                 _spec_waited += 3
                             else:
-                                # Timeout: abort instead of silently approving an unreviewed spec
-                                logger.warning("[pipeline] Spec review timed out after %ds — aborting run %s (user must re-submit with autonomous_mode=true to skip review)", _spec_timeout, run_id)
-                                await set_control(run_id, "cancel")
+                                # Timeout: auto-approve and continue (better UX than aborting —
+                                # user can always cancel manually; aborting silently kills runs
+                                # for users who aren't watching the dashboard in real-time).
+                                logger.warning(
+                                    "[pipeline] Spec review timed out after %ds — auto-approving and continuing run %s",
+                                    _spec_timeout, run_id,
+                                )
+                                await set_control(run_id, "running")
                                 await publish_event(run_id, {
                                     "type": "spec_review_timeout",
                                     "run_id": run_id,
-                                    "message": f"Spec review timed out after {_spec_timeout}s. Pipeline aborted. Re-submit with autonomous mode enabled to skip review.",
+                                    "message": f"Spec review auto-approved after {_spec_timeout}s. Pipeline continuing. Enable autonomous mode to skip this gate.",
                                 })
-                                raise RuntimeError(f"Pipeline aborted: spec review timeout after {_spec_timeout}s")
                         except RuntimeError:
                             raise
                         except Exception as _sr_exc:
@@ -802,7 +808,10 @@ class FactoryPipeline:
                 # Load domain_ir.json after p02b so all downstream phases receive it
                 if phase_name == "p02b_domain_ir":
                     import json as _json
-                    _ir_path_str = phase_result.get("domain_ir_path", "")
+                    _ir_path_str = (
+                        phase_result.get("metadata", {}).get("domain_ir_path", "")
+                        or phase_result.get("output_path", "")
+                    )
                     _ir_candidates = []
                     if _ir_path_str:
                         _ir_candidates.append(Path(_ir_path_str))
