@@ -73,7 +73,7 @@ async def record_global_pattern(
                     existing.success_rate = min(1.0, existing.success_rate + 0.05)
                 else:
                     existing.success_rate = max(0.0, existing.success_rate - 0.05)
-                existing.last_updated = datetime.now(timezone.utc)
+                existing.last_updated = datetime.now(timezone.utc).replace(tzinfo=None)
             else:
                 pattern_name = f"{domain}_{pattern_type}"
                 initial_success = 1.0 if quality_score_total > 60 else 0.5
@@ -85,7 +85,7 @@ async def record_global_pattern(
                         success_rate=initial_success,
                         usage_count=1,
                         avg_quality_score=float(quality_score_total),
-                        last_updated=datetime.now(timezone.utc),
+                        last_updated=datetime.now(timezone.utc).replace(tzinfo=None),
                     )
                 )
 
