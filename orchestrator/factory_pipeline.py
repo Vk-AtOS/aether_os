@@ -465,10 +465,13 @@ class FactoryPipeline:
                 _default_timeout = "600"
                 if phase_name == "p05_frontend":
                     # Skip p05 when no frontend was selected
+                    _ds = accumulated_context.get("designer_spec") or {}
+                    _tp = accumulated_context.get("tech_preferences") or {}
                     _frontend_selection = (
-                        accumulated_context.get("designer_spec", {}).get("frontend", {}).get("framework", "")
-                        or accumulated_context.get("tech_preferences", {}).get("frontend", "")
+                        (_ds.get("frontend") or {}).get("framework", "")
+                        or _tp.get("frontend", "")
                         or accumulated_context.get("frontend", "")
+                        or ""
                     )
                     if str(_frontend_selection).lower() in ("none", "", "no", "n/a"):
                         logger.info(
@@ -488,10 +491,7 @@ class FactoryPipeline:
                             {"type": "phase_complete", "phase": phase_name, "status": "skipped"},
                             run_id=run_id,
                         )
-                        ACTIVE_RUN_ID.reset(run_token)
-                        ACTIVE_PHASE.reset(phase_token)
-                        ACTIVE_ORG_ID.reset(org_token)
-                        continue
+                        continue  # finally block handles token reset
                     _default_timeout = "1200"  # BUG-H2: Increase p05 timeout to 20 mins
                 elif phase_name == "p11_deployment":
                     _default_timeout = "1800"  # Docker build + vite + pip can exceed 600s on small VPS
