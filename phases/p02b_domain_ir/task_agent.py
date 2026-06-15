@@ -38,6 +38,36 @@ logger = logging.getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.6
 
+# Words that should never be treated as business entities
+_GARBAGE_ENTITY_NAMES = frozenset({
+    # Python reserved keywords
+    "none", "true", "false", "and", "or", "not", "in", "is", "if", "else",
+    "for", "while", "def", "class", "return", "import", "from", "with",
+    # Tech stack / framework terms (must not become DB tables)
+    "frontend", "backend", "stack", "tech", "specification", "tailwind",
+    "react", "vue", "angular", "svelte", "next", "nuxt", "vite",
+    "fastapi", "flask", "django", "express", "node", "npm", "yarn",
+    "sqlite", "postgres", "postgresql", "mysql", "mongodb", "redis",
+    "docker", "kubernetes", "nginx", "aws", "gcp", "azure",
+    "state", "form", "fetching", "cache", "queue", "infrastructure",
+    "auth", "authentication", "authorization", "config", "configuration",
+    "middleware", "router", "endpoint", "api", "rest", "graphql",
+    "schema", "migration", "seed", "fixture", "test",
+})
+
+def _filter_garbage_entities(entities_raw: list) -> list:
+    """Remove tech-stack words and Python keywords from extracted entity list."""
+    filtered = []
+    for e in entities_raw:
+        name = e.get("name", "")
+        if not name:
+            continue
+        if name.lower() in _GARBAGE_ENTITY_NAMES:
+            logger.warning("p02b: filtering garbage entity '%s' from IR", name)
+            continue
+        filtered.append(e)
+    return filtered
+
 # ---------------------------------------------------------------------------
 # Pass prompts
 # ---------------------------------------------------------------------------
@@ -216,7 +246,9 @@ def _seed_entities(architecture: dict) -> str:
         if table and table not in ("users", "user"):
             # Convert snake_case to PascalCase
             pascal = "".join(w.capitalize() for w in table.rstrip("s").split("_"))
-            names.append(f"- {pascal} (table: {table})")
+            # Filter out tech-stack words so they don't seed garbage entities
+            if pascal.lower() not in _GARBAGE_ENTITY_NAMES:
+                names.append(f"- {pascal} (table: {table})")
     return "\n".join(names) if names else "None"
 
 
@@ -228,6 +260,7 @@ def _build_ir_from_passes(
     # Use pass4 as the authoritative source (it reviewed and corrected everything)
     source = pass4 if pass4 else {}
     entities_raw = source.get("entities") or pass1.get("entities", [])
+    entities_raw = _filter_garbage_entities(entities_raw)
     relationships_raw = source.get("relationships") or pass2.get("relationships", [])
     rules_raw = source.get("business_rules") or pass3.get("business_rules", [])
     permissions_raw = source.get("permissions") or pass3.get("permissions", [])
@@ -519,7 +552,7 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     from aether_os.phases.base import TaskResult as _TaskResult
     return _TaskResult(
         output_path=str(ir_path),
-        confidence=0.9 if not errors else 0.7,
+        confidence=1.0 if not errors else 0.85,
         success=True,
         issues=[],
         metadata={

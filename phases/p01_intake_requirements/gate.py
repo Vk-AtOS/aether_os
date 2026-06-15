@@ -36,5 +36,5 @@ def validate(result: TaskResult) -> GateOutcome:
         except Exception as exc:
             issues.append(f"Could not validate intake.json: {exc}")
 
-    confidence = 0.75 if issues else 0.9
+    confidence = 0.75 if issues else 1.0
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

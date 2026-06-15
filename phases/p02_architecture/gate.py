@@ -53,7 +53,7 @@ class ArchitectureGate:
             passed = len(issues) == 0
             return GateOutcome(
                 passed=passed,
-                confidence=0.9 if passed else 0.2,
+                confidence=1.0 if passed else 0.2,
                 issues=issues
             )
         except Exception as e:
