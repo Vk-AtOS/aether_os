@@ -1661,6 +1661,28 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
                 '\n',
                 content,
             )
+            # Add SPA root + catch-all so the frontend loads at / and all sub-paths.
+            # Need two routes: GET / (Starlette's {path:path} doesn't match empty path)
+            # and GET /{path:path} for all other paths.
+            content += f"""
+
+# AetherOS: serve the Vite-built frontend for all non-API paths (including root)
+import pathlib as _spa_pathlib
+_FRONTEND_DIST = _spa_pathlib.Path(r"{_dist_str}")
+
+from fastapi.responses import FileResponse as _SpaFileResponse
+
+@app.get("/", include_in_schema=False)
+def _spa_root():
+    return _SpaFileResponse(str(_FRONTEND_DIST / "index.html"))
+
+@app.get("/{{path:path}}", include_in_schema=False)
+def _spa_catchall(path: str = ""):
+    _f = _FRONTEND_DIST / path
+    if _f.is_file():
+        return _SpaFileResponse(str(_f))
+    return _SpaFileResponse(str(_FRONTEND_DIST / "index.html"))
+"""
         else:
             # Redirect root to /docs when no frontend is available
             content = _re.sub(
