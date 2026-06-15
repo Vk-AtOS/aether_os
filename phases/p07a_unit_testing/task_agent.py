@@ -99,7 +99,7 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
 
     parent = src_dir.parent  # backend root (has src/ as package)
     import os
-    env_patch = {"DATABASE_URL": "sqlite:///./test_exec_validate.db", "SECRET_KEY": "test-secret"}
+    env_patch = {"DATABASE_URL": "sqlite+aiosqlite:///./test_exec_validate.db", "SECRET_KEY": "test-secret"}
     test_env = {**os.environ, **env_patch}
 
     cmd = [
@@ -107,7 +107,7 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
         (
             "import sys, os\n"
             f"sys.path.insert(0, '{parent}')\n"
-            "os.environ['DATABASE_URL'] = 'sqlite:///./test_exec_validate.db'\n"
+            "os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///./test_exec_validate.db'\n"
             "os.environ['SECRET_KEY'] = 'test-secret'\n"
             "from src.main import app\n"
             "print('IMPORT_OK')"
@@ -268,12 +268,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Run pytest ────────────────────────────────────────────────────────────
     run_dir = src_dir if src_dir else output_dir
     try:
+        import os as _os
+        _test_env = {
+            **_os.environ,
+            "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
+            "SECRET_KEY": "test-secret-key-not-for-production",
+            "PYTHONPATH": str(run_dir),
+        }
         proc = await asyncio.create_subprocess_exec(
             "python3", "-m", "pytest", str(test_file), "-v", "--tb=short",
             "-p", "no:cacheprovider", "--timeout=30",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(run_dir),
+            env=_test_env,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
         output_text = stdout.decode() + stderr.decode()
