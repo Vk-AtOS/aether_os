@@ -1651,11 +1651,19 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
                     _sa_import_line.group(0) + ", " + ", ".join(_missing)
                 )
 
-        # Fix: remove explicit GET "/" root route only when we're adding the SPA catch-all.
-        # If the frontend build failed, keep the root route so / doesn't return 404.
-        _dist_str = str(frontend_dist).replace("\\", "/") if frontend_dist and frontend_dist.is_dir() else ""
+        # Fix: serve the frontend (Vite dist or _preview_ui fallback) from GET /.
+        # Check frontend_dist first, then _preview_ui from a prior run or current run.
+        _effective_dist = frontend_dist if (frontend_dist and frontend_dist.is_dir()) else None
+        if _effective_dist is None:
+            _preview_ui_fallback = root_dir / "_preview_ui"
+            if (_preview_ui_fallback / "index.html").exists():
+                _effective_dist = _preview_ui_fallback
+        _dist_str = str(_effective_dist).replace("\\", "/") if _effective_dist else ""
         _will_add_spa = bool(_dist_str)
+        with open(log_path, "a") as _lf:
+            _lf.write(f"[AetherOS] main.py patch: _will_add_spa={_will_add_spa}, _dist_str={_dist_str!r}\n")
         if _will_add_spa:
+            # Remove any existing GET "/" handler before appending the new one (idempotent).
             content = _re.sub(
                 r'\n@app\.get\(["\']\/["\'][^)]*\)\n(?:async )?def [^\n]+\n(?:    [^\n]+\n)*',
                 '\n',
@@ -1684,12 +1692,16 @@ def _spa_catchall(path: str = ""):
     return _SpaFileResponse(str(_FRONTEND_DIST / "index.html"))
 """
         else:
-            # Redirect root to /docs when no frontend is available
-            content = _re.sub(
-                r'(@app\.get\(["\']\/["\'][^)]*\)\n(?:async )?def [^\n]+\n)((?:    [^\n]+\n)*)',
-                lambda m: m.group(1) + '    from fastapi.responses import RedirectResponse\n    return RedirectResponse(url="/docs")\n',
-                content,
-            )
+            # No frontend at all: add GET / → /docs redirect if not already present.
+            # Generated main.py typically has no GET / handler, so regex-replace is a no-op;
+            # always ADD the route instead.
+            if not _re.search(r'@app\.get\(["\']\/["\']', content):
+                content += (
+                    '\n\n@app.get("/", include_in_schema=False)\n'
+                    'def _root_redirect():\n'
+                    '    from fastapi.responses import RedirectResponse\n'
+                    '    return RedirectResponse(url="/docs")\n'
+                )
 
         # Fix: LLM sometimes generates routes before `app = FastAPI()` — prepend boilerplate
         if _re.search(r'^@app\.', content, _re.MULTILINE) and not _re.search(
