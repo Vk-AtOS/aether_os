@@ -1889,6 +1889,8 @@ fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
     # ── Start uvicorn (with crash-detect fallback to frontend-only server) ──────
     _env = {**os.environ}
     _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
+    # Ensure generated app can import its own modules by flat name (e.g. from database import ...)
+    _env["PYTHONPATH"] = str(backend_dir / "src") + ":" + _env.get("PYTHONPATH", "")
 
     # ── Run Alembic migrations before starting (best-effort) ─────────────────
     _alembic_ini = backend_dir / "alembic.ini"
