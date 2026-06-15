@@ -102,7 +102,13 @@ p{color:#94a3b8;font-size:14px;text-align:center}a{color:#6366f1}</style>
         )
 
     _qs = f"?{request.url.query}" if request.url.query else ""
-    _target = f"http://127.0.0.1:{_port}/{path}{_qs}"
+    # Strip run_id UUID prefix from path so /app-preview/{run_id}/health → /health
+    import re as _re_uuid
+    _fwd_path = _re_uuid.sub(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/?/?",
+        "", path
+    )
+    _target = f"http://127.0.0.1:{_port}/{_fwd_path}{_qs}"
 
     try:
         async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True) as _c:
