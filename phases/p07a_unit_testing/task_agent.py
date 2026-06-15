@@ -257,7 +257,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "6. Do NOT use 'TestClient' or 'with TestClient(app)' — use async httpx only.\n"
             "7. Do NOT use 'async with TestClient(...)' — that is wrong; use AsyncClient only.\n"
             "8. CRITICAL: All CRUD routes are registered under /api/ prefix. Test '/api/<table>' NOT '/<table>'. "
-            "Example: table 'contacts' → test GET /api/contacts, POST /api/contacts, GET /api/contacts/1.\n"
+            f"Use the EXACT table names provided above. For example if table is '{entities[0].get('table','items') if entities else 'items'}', "
+            f"test GET /api/{entities[0].get('table','items') if entities else 'items'}, POST /api/{entities[0].get('table','items') if entities else 'items'}, etc. "
+            "NEVER use placeholder names like 'example_table', 'items', 'records' — use ONLY the exact table names from the entity list above.\n"
             "9. Health endpoint is at /health (no /api prefix). Test it with GET /health using 'client' fixture, check status_code==200 only (don't assert exact body).\n"
             "10. Test with auth_client: list (GET /api/<table>, expect 200), create (POST /api/<table>, expect 201), get by id (GET /api/<table>/1, expect 200 or 404).\n"
             "11. Use realistic test data for create payloads. Skip fields that are auto-generated (id, created_at, updated_at).\n"
@@ -281,6 +283,25 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if not test_code:
         # PIPELINE-034: use meaningful fallback instead of bare assert True
         test_code = _fallback_tests(src_dir, project_name)
+
+    # Post-process: replace generic placeholders with real entity table names
+    # LLMs sometimes emit "example_table", "items", "records" etc. instead of real names
+    if entities:
+        import re as _re
+        first_table = entities[0].get("table", "")
+        first_entity_fields = entities[0].get("fields", [])
+        non_id_fields = [f["name"] for f in first_entity_fields
+                         if f.get("name") not in ("id", "created_at", "updated_at", "user_id", "is_active")]
+        for _placeholder in ("example_table", "example_items", "items", "records", "example_records"):
+            if _placeholder in test_code and first_table and _placeholder != first_table:
+                test_code = test_code.replace(f"/api/{_placeholder}", f"/api/{first_table}")
+                test_code = test_code.replace(f"'/api/{_placeholder}'", f"'/api/{first_table}'")
+                logger.info("[p07a] Replaced generic table placeholder '%s' → '%s'", _placeholder, first_table)
+        # Replace generic field placeholders with real fields
+        if non_id_fields and '"field1": "value1"' in test_code:
+            real_payload = ", ".join(f'"{f}": "test_value"' for f in non_id_fields[:4])
+            test_code = test_code.replace('"field1": "value1",\n        "field2": "value2"', real_payload)
+            test_code = test_code.replace('"field1": "value1", "field2": "value2"', real_payload)
 
     tests_dir = output_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
