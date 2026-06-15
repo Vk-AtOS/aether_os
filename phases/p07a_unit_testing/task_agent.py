@@ -57,6 +57,96 @@ def _find_src_dir(data: dict) -> Optional[Path]:
     return None
 
 
+def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: list) -> str:
+    """Deterministic CRUD test generator — no LLM needed.
+
+    Generates 4 tests: health, list, create, get_by_id using the first entity's
+    table name and fields directly, so URLs are always correct.
+    """
+    src_abs = str(src_dir) if src_dir else ""
+    src_path_line = (
+        f"sys.path.insert(0, {src_abs!r})"
+        if src_abs else
+        "sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))"
+    )
+
+    # Pick first non-User entity for CRUD tests
+    first_entity = next(
+        (e for e in entities if e.get("name", "").lower() not in ("user", "users")),
+        entities[0] if entities else None,
+    )
+    if first_entity:
+        table = first_entity.get("table", first_entity.get("name", "items").lower() + "s")
+        fields = first_entity.get("fields", [])
+        # Build a minimal create payload from non-auto fields
+        payload_fields = [
+            f["name"] for f in fields
+            if isinstance(f, dict) and f.get("name") not in ("id", "created_at", "updated_at", "deleted_at", "user_id", "is_active")
+        ][:4]
+        payload = "{" + ", ".join(f'"{fn}": "test"' for fn in payload_fields) + "}" if payload_fields else '{"name": "test"}'
+    else:
+        table = "items"
+        payload = '{"name": "test"}'
+
+    return (
+        f'"""Auto-generated CRUD tests for {project_name}."""\n'
+        "from __future__ import annotations\n"
+        "import pytest\n"
+        "import pytest_asyncio\n"
+        "import sys\n"
+        "import os\n"
+        "\n"
+        f"{src_path_line}\n"
+        "from main import app\n"
+        "\n"
+        "\n"
+        "@pytest_asyncio.fixture\n"
+        "async def client():\n"
+        "    from database import engine, Base\n"
+        "    async with engine.begin() as conn:\n"
+        "        await conn.run_sync(Base.metadata.create_all)\n"
+        "    from httpx import AsyncClient\n"
+        "    from httpx._transports.asgi import ASGITransport\n"
+        "    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as ac:\n"
+        "        yield ac\n"
+        "\n"
+        "\n"
+        "@pytest_asyncio.fixture\n"
+        "async def auth_client(client):\n"
+        "    await client.post('/api/auth/register', json={'email': 'test@example.com', 'password': 'TestPass123!', 'name': 'Test User'})\n"
+        "    r = await client.post('/api/auth/login', json={'email': 'test@example.com', 'password': 'TestPass123!'})\n"
+        "    token = r.json().get('access_token', '')\n"
+        "    from httpx import AsyncClient\n"
+        "    from httpx._transports.asgi import ASGITransport\n"
+        "    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', headers={'Authorization': f'Bearer {token}'}) as ac:\n"
+        "        yield ac\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        "async def test_health(client):\n"
+        "    response = await client.get('/health')\n"
+        "    assert response.status_code == 200\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        f"async def test_list(auth_client):\n"
+        f"    response = await auth_client.get('/api/{table}/')\n"
+        "    assert response.status_code == 200\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        f"async def test_create(auth_client):\n"
+        f"    response = await auth_client.post('/api/{table}/', json={payload})\n"
+        "    assert response.status_code == 201\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        f"async def test_get_by_id(auth_client):\n"
+        f"    response = await auth_client.get('/api/{table}/1')\n"
+        "    assert response.status_code in (200, 404)\n"
+    )
+
+
 def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
     """PIPELINE-034: generate a meaningful fallback test (FIX 17)."""
     # Compute the absolute path to src/ so sys.path.insert works regardless of cwd
@@ -222,86 +312,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     tests_written = 0
     test_results: dict = {"passed": 0, "failed": 0, "errors": []}
 
-    # ── Generate test file via LLM ────────────────────────────────────────────
-    test_code = ""
-    try:
-        from aether_os.core.llm.client import get_llm_client
-        llm = get_llm_client()
-        entity_names = [e.get("name", "Item") for e in entities[:6]]
-        _src_abs = str(src_dir) if src_dir else ""
-        _src_path_insert = (
-            f"sys.path.insert(0, {_src_abs!r})"
-            if _src_abs else
-            "sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))"
-        )
-        prompt = (
-            f"Generate pytest unit tests for a FastAPI backend named '{project_name}'.\n"
-            f"Entities and their plural tables: {json.dumps([(e.get('name'), e.get('table')) for e in entities[:6]])}.\n\n"
-            "Rules for test generation:\n"
-            "1. Start with: import pytest, import pytest_asyncio, import sys, import os\n"
-            f"2. Insert src path: {_src_path_insert}\n"
-            "3. Import app: from main import app\n"
-            "4. Define TWO fixtures using @pytest_asyncio.fixture (NOT @pytest.fixture):\n"
-            "   a) 'async def client()' — unauthenticated client that also creates DB tables:\n"
-            "      FIRST: from database import engine, Base; async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)\n"
-            "      THEN: from httpx import AsyncClient; from httpx._transports.asgi import ASGITransport\n"
-            "      async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as ac: yield ac\n"
-            "   b) 'async def auth_client(client)' — client with a valid JWT token:\n"
-            "      r = await client.post('/api/auth/register', json={'email': 'test@example.com', 'password': 'TestPass123!', 'name': 'Test User'})\n"
-            "      r = await client.post('/api/auth/login', json={'email': 'test@example.com', 'password': 'TestPass123!'})\n"
-            "      token = r.json().get('access_token', '')\n"
-            "      from httpx import AsyncClient; from httpx._transports.asgi import ASGITransport\n"
-            "      async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', headers={'Authorization': f'Bearer {token}'}) as ac: yield ac\n"
-            "5. All test functions must be 'async def test_...(auth_client):' decorated with @pytest.mark.asyncio\n"
-            "   (except test_health which uses 'client' fixture — health is unauthenticated)\n"
-            "6. Do NOT use 'TestClient' or 'with TestClient(app)' — use async httpx only.\n"
-            "7. Do NOT use 'async with TestClient(...)' — that is wrong; use AsyncClient only.\n"
-            "8. CRITICAL: All CRUD routes are registered under /api/ prefix. Test '/api/<table>' NOT '/<table>'. "
-            f"Use the EXACT table names provided above. For example if table is '{entities[0].get('table','items') if entities else 'items'}', "
-            f"test GET /api/{entities[0].get('table','items') if entities else 'items'}, POST /api/{entities[0].get('table','items') if entities else 'items'}, etc. "
-            "NEVER use placeholder names like 'example_table', 'items', 'records' — use ONLY the exact table names from the entity list above.\n"
-            "9. Health endpoint is at /health (no /api prefix). Test it with GET /health using 'client' fixture, check status_code==200 only (don't assert exact body).\n"
-            "10. Test with auth_client: list (GET /api/<table>, expect 200), create (POST /api/<table>, expect 201), get by id (GET /api/<table>/1, expect 200 or 404).\n"
-            "11. Use realistic test data for create payloads. Skip fields that are auto-generated (id, created_at, updated_at).\n"
-            "12. If a test could fail due to empty DB (e.g. get by id), assert status_code in (200, 404) to handle both cases.\n"
-            "Return ONLY the Python test file content. No markdown fences."
-        )
-        result = await llm.call(prompt, task_type="code_generation", max_tokens=3000)
-        if result and len(result.strip()) > 100:
-            import re
-            m = re.search(r"```(?:python)?\s*\n?(.*?)```", result, re.DOTALL)
-            test_code = m.group(1).strip() if m else result.strip()
-            # Validate syntax
-            try:
-                import ast as _ast
-                _ast.parse(test_code)
-            except SyntaxError:
-                test_code = ""
-    except Exception as exc:
-        logger.warning("[p07a] LLM test gen failed: %s", exc)
-
-    if not test_code:
-        # PIPELINE-034: use meaningful fallback instead of bare assert True
-        test_code = _fallback_tests(src_dir, project_name)
-
-    # Post-process: replace generic placeholders with real entity table names
-    # LLMs sometimes emit "example_table", "items", "records" etc. instead of real names
+    # ── Generate test file deterministically (no LLM) ───────────────────────
+    # LLMs consistently get API URLs wrong (e.g. /api/ instead of /api/products/).
+    # Deterministic generation using the entity table names is faster and reliable.
     if entities:
-        import re as _re
-        first_table = entities[0].get("table", "")
-        first_entity_fields = entities[0].get("fields", [])
-        non_id_fields = [f["name"] for f in first_entity_fields
-                         if f.get("name") not in ("id", "created_at", "updated_at", "user_id", "is_active")]
-        for _placeholder in ("example_table", "example_items", "items", "records", "example_records"):
-            if _placeholder in test_code and first_table and _placeholder != first_table:
-                test_code = test_code.replace(f"/api/{_placeholder}", f"/api/{first_table}")
-                test_code = test_code.replace(f"'/api/{_placeholder}'", f"'/api/{first_table}'")
-                logger.info("[p07a] Replaced generic table placeholder '%s' → '%s'", _placeholder, first_table)
-        # Replace generic field placeholders with real fields
-        if non_id_fields and '"field1": "value1"' in test_code:
-            real_payload = ", ".join(f'"{f}": "test_value"' for f in non_id_fields[:4])
-            test_code = test_code.replace('"field1": "value1",\n        "field2": "value2"', real_payload)
-            test_code = test_code.replace('"field1": "value1", "field2": "value2"', real_payload)
+        test_code = _generate_crud_tests(src_dir, project_name, entities)
+        logger.info("[p07a] Generated deterministic CRUD tests for entities: %s",
+                    [e.get("name") for e in entities[:4]])
+    else:
+        test_code = _fallback_tests(src_dir, project_name)
 
     tests_dir = output_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
