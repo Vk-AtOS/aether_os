@@ -697,11 +697,20 @@ def create_app() -> FastAPI:
     from fastapi.responses import JSONResponse as _JSONResponse
     from fastapi.exceptions import RequestValidationError
 
+    def _json_safe(obj):
+        if isinstance(obj, bytes):
+            return obj.decode("utf-8", errors="replace")
+        if isinstance(obj, dict):
+            return {k: _json_safe(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_json_safe(v) for v in obj]
+        return obj
+
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(_req: _Request, exc: RequestValidationError):
         return _JSONResponse(
             status_code=422,
-            content={"detail": exc.errors(), "body": str(exc.body)[:200]},
+            content={"detail": _json_safe(exc.errors()), "body": str(exc.body)[:200]},
         )
 
     @app.exception_handler(Exception)
