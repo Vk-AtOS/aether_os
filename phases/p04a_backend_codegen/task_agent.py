@@ -1933,6 +1933,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except SyntaxError as _syn:
         logger.warning("[p04a] SyntaxError in crud.py: %s — using fallback", _syn)
         crud_code = _fallback_crud_routers(entities)
+    # Ensure all_routers is always present — LLM sometimes omits it
+    if "all_routers" not in crud_code:
+        _router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', crud_code, re.MULTILINE)
+        if _router_vars:
+            crud_code = crud_code.rstrip() + f"\n\nall_routers = [{', '.join(_router_vars)}]\n"
+            logger.info("[p04a] Auto-injected all_routers into crud.py: %s", _router_vars)
     (routers_dir / "crud.py").write_text(crud_code)
     logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
 
