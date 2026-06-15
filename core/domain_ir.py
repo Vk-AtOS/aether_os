@@ -50,7 +50,7 @@ SA_TYPE_MAP: dict[str, str] = {
     AetherType.TEXT:     "Text",
     AetherType.INTEGER:  "Integer",
     AetherType.DECIMAL:  "Numeric(14, 2)",
-    AetherType.BOOLEAN:  "Boolean, default=True",
+    AetherType.BOOLEAN:  "Boolean",
     AetherType.DATE:     "Date",
     AetherType.DATETIME: "DateTime(timezone=True)",
     AetherType.EMAIL:    "String(320), unique=True, index=True",
