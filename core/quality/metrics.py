@@ -221,21 +221,61 @@ def _check_security_bandit(src_dir: Path) -> float:
     except Exception:
         return 0.8
 
+def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
+    """Find the p04-generated backend src dir, NOT the p03 scaffolding stubs."""
+    # Priority: p04 canonical locations first
+    for candidate in [
+        project_dir / "p04_backend" / "backend_codegen" / "src",
+        project_dir / "p04a_backend_codegen" / "src",
+        project_dir / "p04_backend" / "src",
+        project_dir / "src",
+    ]:
+        if candidate.is_dir() and (candidate / "main.py").exists():
+            return candidate
+    # Glob fallback — exclude scaffolding stubs
+    candidates = [
+        p.parent for p in project_dir.rglob("main.py")
+        if "p03_scaffolding" not in str(p)
+        and "__pycache__" not in str(p)
+        and ".venv" not in str(p)
+    ]
+    if candidates:
+        candidates.sort(key=lambda p: len(p.parts), reverse=True)
+        return candidates[0]
+    return None
+
+
+def _check_test_score(project_dir: Path) -> float:
+    """Score tests based on actual pytest results from p07_testing output."""
+    for summary_path in [
+        project_dir / "p07_testing" / "unit_testing" / "summary.json",
+        project_dir / "p07a_unit_testing" / "summary.json",
+    ]:
+        if summary_path.exists():
+            try:
+                data = json.loads(summary_path.read_text())
+                passed = data.get("passed", 0)
+                failed = data.get("failed", 0)
+                errors = data.get("errors", [])
+                if passed + failed == 0:
+                    return 0.3 if not errors else 0.1
+                ratio = passed / (passed + failed)
+                return min(1.0, ratio)
+            except Exception:
+                pass
+    return 0.5  # No test results yet — give partial credit
+
+
 def score_project(project_dir: Path) -> QualityScore:
     """Return a real QualityScore based on AetherOS v2 Master Directive."""
-    src_dir = project_dir / "src"
-    if not src_dir.exists():
-        # Try finding src/ in subdirectories
-        found_src = list(project_dir.rglob("src"))
-        if found_src:
-            src_dir = found_src[0]
-        else:
-            return QualityScore(0, 0, 0, 0, 0, 0, 0, 0, 0)
+    src_dir = _find_real_src_dir(project_dir)
+    if src_dir is None:
+        return QualityScore(0, 0, 0, 0, 0, 0, 0, 0, 0)
 
     metrics = {
         "auth_coverage": _check_auth_coverage(src_dir),
         "validation": _check_validation_density(src_dir),
-        "test_score": 0.5,
+        "test_score": _check_test_score(project_dir),
         "domain_specificity": _check_domain_specificity(src_dir),
         "seed_data_quality": _check_seed_quality(src_dir),
         "frontend_complete": _check_frontend_complete(project_dir),
