@@ -86,7 +86,14 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
         async def client():
             if not app:
                 pytest.skip("App not found")
-            from httpx import AsyncClient, ASGITransport
+            try:
+                from database import engine, Base
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            except Exception:
+                pass
+            from httpx import AsyncClient
+            from httpx._transports.asgi import ASGITransport
             async with AsyncClient(
                 transport=ASGITransport(app=app),
                 base_url="http://test"
@@ -235,15 +242,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             f"2. Insert src path: {_src_path_insert}\n"
             "3. Import app: from main import app\n"
             "4. Define TWO fixtures using @pytest_asyncio.fixture (NOT @pytest.fixture):\n"
-            "   a) 'async def client()' — raw unauthenticated client:\n"
+            "   a) 'async def client()' — unauthenticated client that also creates DB tables:\n"
+            "      FIRST: from database import engine, Base; async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)\n"
+            "      THEN: from httpx import AsyncClient; from httpx._transports.asgi import ASGITransport\n"
             "      async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as ac: yield ac\n"
             "   b) 'async def auth_client(client)' — client with a valid JWT token:\n"
-            "      First register: r = await client.post('/api/auth/register', json={'username': 'testuser', 'email': 'test@example.com', 'password': 'TestPass123!'})\n"
-            "      Then login: r = await client.post('/api/auth/login', data={'username': 'testuser', 'password': 'TestPass123!'})\n"
-            "      If login fails try: r = await client.post('/api/auth/login', json={'email': 'test@example.com', 'password': 'TestPass123!'})\n"
-            "      Extract: token = r.json().get('access_token', '')\n"
-            "      Return a new AsyncClient with headers={'Authorization': f'Bearer {token}'}\n"
-            "   Import AsyncClient and ASGITransport from httpx inside each fixture.\n"
+            "      r = await client.post('/api/auth/register', json={'email': 'test@example.com', 'password': 'TestPass123!', 'name': 'Test User'})\n"
+            "      r = await client.post('/api/auth/login', json={'email': 'test@example.com', 'password': 'TestPass123!'})\n"
+            "      token = r.json().get('access_token', '')\n"
+            "      from httpx import AsyncClient; from httpx._transports.asgi import ASGITransport\n"
+            "      async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', headers={'Authorization': f'Bearer {token}'}) as ac: yield ac\n"
             "5. All test functions must be 'async def test_...(auth_client):' decorated with @pytest.mark.asyncio\n"
             "   (except test_health which uses 'client' fixture — health is unauthenticated)\n"
             "6. Do NOT use 'TestClient' or 'with TestClient(app)' — use async httpx only.\n"
