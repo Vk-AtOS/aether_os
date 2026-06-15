@@ -162,6 +162,18 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             logger.warning("[p07b_self_healing] LLM fix has syntax error: %s", e)
             continue
 
+        # Deterministically fix relative imports → flat absolute imports
+        # The generated app runs from src/ so all sibling modules are importable directly
+        fix = re.sub(r'from\s*\.+\s*(\w)', r'from \1', fix)   # from .foo → from foo
+        fix = re.sub(r'import\s*\.+\s*(\w)', r'import \1', fix)  # import .foo → import foo
+
+        # Re-validate after sanitization
+        try:
+            ast.parse(fix)
+        except SyntaxError as e:
+            logger.warning("[p07b_self_healing] Fix still has syntax error after sanitize: %s", e)
+            continue
+
         # Deterministically ensure crud.py always exports all_routers
         if failing_file.name == "crud.py" and "all_routers" not in fix:
             router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', fix, re.MULTILINE)
@@ -291,6 +303,7 @@ RULES:
 - All datetime defaults: `datetime.now(timezone.utc)`, never `datetime.utcnow()`
 - Import every name you use — no bare NameError references
 - After fixing, verify all imports exist and all referenced names are defined
+- CRITICAL: NEVER use relative imports. All imports MUST be flat absolute: `import models`, `from database import get_db`, `from auth import get_current_user`. NEVER write `from .database`, `from ..database`, `from .models`, `from..database` etc.
 - If fixing routers/crud.py: the LAST LINE must be `all_routers = [<router_var_1>, <router_var_2>, ...]` listing EVERY APIRouter variable defined in the file. Never remove this line.
 - If the error is "cannot import name 'all_routers'": add `all_routers = [<list all router variables defined above>]` as the last line.
 
