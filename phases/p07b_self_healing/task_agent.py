@@ -162,6 +162,13 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             logger.warning("[p07b_self_healing] LLM fix has syntax error: %s", e)
             continue
 
+        # Deterministically ensure crud.py always exports all_routers
+        if failing_file.name == "crud.py" and "all_routers" not in fix:
+            router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', fix, re.MULTILINE)
+            if router_vars:
+                fix = fix.rstrip() + f"\n\nall_routers = [{', '.join(router_vars)}]\n"
+                logger.info("[p07b_self_healing] Auto-injected all_routers: %s", router_vars)
+
         failing_file.write_text(fix)
 
     # Problem 45 fix: Max attempts reached — tests still failing → report failure accurately
