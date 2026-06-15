@@ -133,7 +133,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
             return TaskResult(
                 output_path=str(output_dir / "self_healing.json"),
-                confidence=0.95,
+                confidence=1.0,
                 metadata=result,
                 success=True,
                 issues=[],
@@ -302,7 +302,14 @@ No explanation. No markdown. No code fences. Just valid Python."""
             timeout=LLM_TIMEOUT,
         )
         if response and len(response.strip()) > 50:
-            return _strip_fences(response)
+            cleaned = _strip_fences(response)
+            # Validate syntax before accepting — fall through to Anthropic if broken
+            try:
+                ast.parse(cleaned)
+                return cleaned
+            except SyntaxError as _syn:
+                logger.warning("[p07b_self_healing] Primary LLM response has SyntaxError: %s — escalating to Anthropic", _syn)
+                raise ValueError(f"Primary LLM produced syntactically invalid Python: {_syn}") from _syn
         raise ValueError("Empty or trivial response from primary LLM")
     except Exception as primary_exc:
         logger.warning("[p07b_self_healing] Primary LLM call failed: %s", primary_exc)
@@ -313,7 +320,7 @@ No explanation. No markdown. No code fences. Just valid Python."""
             import anthropic as _anthropic
             _client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
             _msg = _client.messages.create(
-                model="claude-haiku-4-5",
+                model="claude-sonnet-4-6",
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
             )

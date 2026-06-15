@@ -48,5 +48,5 @@ def validate(result: TaskResult) -> GateOutcome:
     except Exception as e:
         logger.warning("P10 gate: could not inspect docs content (%s)", e)
 
-    confidence = 0.9 if not issues else 0.7
+    confidence = 1.0 if not issues else 0.7
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

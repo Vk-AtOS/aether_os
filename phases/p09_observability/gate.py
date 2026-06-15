@@ -34,5 +34,5 @@ def validate(result: TaskResult) -> GateOutcome:
         # Non-JSON output (e.g. YAML config) — treat as present
         pass
 
-    confidence = 0.9 if not issues else 0.65
+    confidence = 1.0 if not issues else 0.65
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

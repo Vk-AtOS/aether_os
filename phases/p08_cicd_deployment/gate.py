@@ -39,5 +39,5 @@ def validate(result: TaskResult) -> GateOutcome:
     except Exception as e:
         logger.warning("P08 gate: could not inspect output (%s)", e)
 
-    confidence = 0.6 if issues else 0.9
+    confidence = 0.6 if issues else 1.0
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

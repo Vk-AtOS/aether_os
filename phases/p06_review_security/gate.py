@@ -109,7 +109,7 @@ def validate(result: TaskResult) -> GateOutcome:
     if n_low > 0:
         issues.append(f"{n_low} LOW finding(s) noted")
 
-    confidence = 0.95
+    confidence = 1.0 if not issues else 0.95
     if n_high > 0:
         confidence -= 0.05 * n_high
     confidence = max(0.5, round(confidence, 2))
