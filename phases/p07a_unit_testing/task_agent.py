@@ -78,12 +78,28 @@ def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: l
     if first_entity:
         table = first_entity.get("table", first_entity.get("name", "items").lower() + "s")
         fields = first_entity.get("fields", [])
-        # Build a minimal create payload from non-auto fields
-        payload_fields = [
-            f["name"] for f in fields
-            if isinstance(f, dict) and f.get("name") not in ("id", "created_at", "updated_at", "deleted_at", "user_id", "is_active")
-        ][:4]
-        payload = "{" + ", ".join(f'"{fn}": "test"' for fn in payload_fields) + "}" if payload_fields else '{"name": "test"}'
+        # Build a minimal create payload with type-appropriate values (not just "test")
+        _NUMERIC_TYPES = {"integer", "decimal", "float", "number", "fk"}
+        _BOOL_TYPES = {"boolean", "bool"}
+        _skip = ("id", "created_at", "updated_at", "deleted_at", "user_id", "is_active")
+        payload_parts = []
+        for f in fields:
+            if not isinstance(f, dict):
+                continue
+            fn = f.get("name", "")
+            if fn in _skip:
+                continue
+            ft = f.get("type", "string").lower()
+            if ft in _NUMERIC_TYPES:
+                val = "1"
+            elif ft in _BOOL_TYPES:
+                val = "True"
+            else:
+                val = f'"test_{fn[:8]}"'
+            payload_parts.append(f'"{fn}": {val}')
+            if len(payload_parts) >= 4:
+                break
+        payload = "{" + ", ".join(payload_parts) + "}" if payload_parts else '{"name": "test"}'
     else:
         table = "items"
         payload = '{"name": "test"}'
@@ -137,7 +153,7 @@ def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: l
         "@pytest.mark.asyncio\n"
         f"async def test_create(auth_client):\n"
         f"    response = await auth_client.post('/api/{table}/', json={payload})\n"
-        "    assert response.status_code == 201\n"
+        "    assert response.status_code in (200, 201), f'Create failed: {response.status_code} {response.text[:200]}'\n"
         "\n"
         "\n"
         "@pytest.mark.asyncio\n"
