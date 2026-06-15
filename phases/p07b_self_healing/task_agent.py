@@ -155,9 +155,10 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
             continue
 
-        # Validate syntax before applying
+        # Validate syntax before applying — use compile() not ast.parse() because
+        # compile() catches duplicate keyword arguments that ast.parse() silently accepts.
         try:
-            ast.parse(fix)
+            compile(fix, failing_file.name, "exec")
         except SyntaxError as e:
             logger.warning("[p07b_self_healing] LLM fix has syntax error: %s", e)
             continue
@@ -169,7 +170,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 
         # Re-validate after sanitization
         try:
-            ast.parse(fix)
+            compile(fix, failing_file.name, "exec")
         except SyntaxError as e:
             logger.warning("[p07b_self_healing] Fix still has syntax error after sanitize: %s", e)
             continue
@@ -332,8 +333,9 @@ No explanation. No markdown. No code fences. Just valid Python."""
         if response and len(response.strip()) > 50:
             cleaned = _strip_fences(response)
             # Validate syntax before accepting — fall through to Anthropic if broken
+            # compile() not ast.parse(): catches duplicate keyword args that ast.parse misses
             try:
-                ast.parse(cleaned)
+                compile(cleaned, target_file.name, "exec")
                 return cleaned
             except SyntaxError as _syn:
                 logger.warning("[p07b_self_healing] Primary LLM response has SyntaxError: %s — escalating to Anthropic", _syn)

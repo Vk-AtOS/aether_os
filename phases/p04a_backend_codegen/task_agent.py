@@ -1898,13 +1898,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
             logger.info("[p04a] IR fast-path: using deterministic models/schemas (%d classes)", len(_llm_classes))
 
-        # P26: ast.parse validation before writing to disk
+        # P26: syntax validation before writing to disk
+        # Use compile() not ast.parse() — compile() catches duplicate keyword
+        # arguments (e.g. Column(default=True, ..., default=False)) which
+        # ast.parse() silently accepts on Python 3.10.
         for _fname, _code, _fallback_fn, _fallback_args in [
             ("models.py", models_code, _fallback_models, [project_name, entities]),
             ("schemas.py", schemas_code, _fallback_schemas, [entities]),
         ]:
             try:
-                ast.parse(_code)
+                compile(_code, _fname, "exec")
             except SyntaxError as _syn:
                 logger.warning("[p04a] SyntaxError in LLM-generated %s: %s — using fallback", _fname, _syn)
                 if _fname == "models.py":
@@ -1928,7 +1931,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if not crud_code:
         crud_code = _fallback_crud_routers(entities)
     try:
-        ast.parse(crud_code)
+        compile(crud_code, "crud.py", "exec")
     except SyntaxError as _syn:
         logger.warning("[p04a] SyntaxError in crud.py: %s — using fallback", _syn)
         crud_code = _fallback_crud_routers(entities)
