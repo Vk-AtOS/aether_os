@@ -56,8 +56,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         return TaskResult(
             output_path=str(output_dir / "e2e_results.json"),
             confidence=1.0,
-            data=result,
-            metadata={"phase": "p07d_e2e_testing", "skipped": True},
+            metadata={"phase": "p07d_e2e_testing", "skipped": True, "data": result},
         )
 
     project_name: str = data.get("project_name", "App")

@@ -56,17 +56,43 @@ _GARBAGE_ENTITY_NAMES = frozenset({
 })
 
 def _filter_garbage_entities(entities_raw: list) -> list:
-    """Remove tech-stack words and Python keywords from extracted entity list."""
-    filtered = []
+    """Remove tech-stack words, Python keywords, and field-extracted pseudo-entities."""
+    # Pass 1: name blocklist
+    name_filtered = []
     for e in entities_raw:
         name = e.get("name", "")
         if not name:
             continue
         if name.lower() in _GARBAGE_ENTITY_NAMES:
-            logger.warning("p02b: filtering garbage entity '%s' from IR", name)
+            logger.warning("p02b: filtering garbage entity '%s' from IR (blocklist)", name)
             continue
-        filtered.append(e)
-    return filtered
+        name_filtered.append(e)
+
+    # Pass 2: pseudo-entity detection — entity whose name is a field of another entity AND
+    # has ≤1 non-id/timestamp fields is almost certainly a field extracted as an entity
+    _ID_FIELDS = frozenset({"id", "created_at", "updated_at", "deleted_at", "is_active", "is_deleted"})
+    all_field_names: set = set()
+    for e in name_filtered:
+        for f in e.get("fields", []):
+            fname = f.get("name", "").lower()
+            if fname and fname not in _ID_FIELDS:
+                all_field_names.add(fname)
+
+    result = []
+    for e in name_filtered:
+        name = e.get("name", "")
+        non_id_fields = [
+            f for f in e.get("fields", [])
+            if f.get("name", "").lower() not in _ID_FIELDS
+        ]
+        if len(non_id_fields) <= 1 and name.lower() in all_field_names:
+            logger.warning(
+                "p02b: filtering pseudo-entity '%s' (name is a field of another entity, only %d own fields)",
+                name, len(non_id_fields),
+            )
+            continue
+        result.append(e)
+    return result
 
 # ---------------------------------------------------------------------------
 # Pass prompts

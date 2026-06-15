@@ -284,6 +284,8 @@ RULES:
 - All datetime defaults: `datetime.now(timezone.utc)`, never `datetime.utcnow()`
 - Import every name you use — no bare NameError references
 - After fixing, verify all imports exist and all referenced names are defined
+- If fixing routers/crud.py: the LAST LINE must be `all_routers = [<router_var_1>, <router_var_2>, ...]` listing EVERY APIRouter variable defined in the file. Never remove this line.
+- If the error is "cannot import name 'all_routers'": add `all_routers = [<list all router variables defined above>]` as the last line.
 
 No explanation. No markdown. No code fences. Just valid Python."""
 

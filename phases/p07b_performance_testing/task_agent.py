@@ -45,8 +45,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         return TaskResult(
             output_path=str(output_dir / "perf_results.json"),
             confidence=1.0,
-            data=result,
-            metadata={"phase": "p07b_performance_testing", "skipped": True},
+            metadata={"phase": "p07b_performance_testing", "skipped": True, "data": result},
         )
 
     base_url = f"http://localhost:{backend_port}"

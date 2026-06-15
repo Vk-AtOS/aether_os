@@ -74,8 +74,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         return TaskResult(
             output_path=str(output_dir / "a11y_results.json"),
             confidence=1.0,
-            data=result,
-            metadata={"phase": "p07c_accessibility_testing", "skipped": True},
+            metadata={"phase": "p07c_accessibility_testing", "skipped": True, "data": result},
         )
 
     frontend_port: int = data.get("frontend_port", 5173)
