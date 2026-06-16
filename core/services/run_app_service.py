@@ -50,5 +50,5 @@ async def _launch_generated_app(run_id: str, user: Dict[str, Any]) -> Dict[str, 
     business logic (vite build, SQLite swap, uvicorn start).  This indirection
     keeps the orchestrator layer from importing the HTTP router layer directly.
     """
-    from aether_os.gateway.routers.factory_runs_router import start_run_app
+    from aether_os.gateway.routers.run_app_router import start_run_app
     return await start_run_app(run_id=run_id, user=user)
