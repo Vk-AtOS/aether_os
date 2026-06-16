@@ -23,6 +23,25 @@ _SUBTASK_TIMEOUT = 150.0  # 2.5 min per sub-task
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Idempotency: if tests already ran and passed, return cached result to avoid re-running
+    # after a service restart that marks us interrupted mid-flight.
+    _cached = output_dir / "consolidated.json"
+    if _cached.exists():
+        try:
+            _prev = json.loads(_cached.read_text())
+            if _prev.get("pytest_actually_passed") and _prev.get("test_quality_flag") == "pass":
+                logger.info("p07_testing: cached result found (tests passed) — skipping re-run")
+                return TaskResult(
+                    output_path=str(_cached),
+                    confidence=0.95,
+                    metadata=_prev,
+                    success=True,
+                    issues=[],
+                )
+        except Exception:
+            pass
+
     results = {}
 
     for key, module_path, fn_name in _SUB_PHASES:
