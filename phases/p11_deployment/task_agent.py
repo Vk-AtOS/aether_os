@@ -1075,6 +1075,9 @@ echo "Update successful."
                 "--read-only",
                 "--tmpfs", "/tmp:size=64m,mode=1777",
                 "--tmpfs", "/app/data:size=256m,uid=1001,gid=1001",
+                # Redirect SQLite DB into the writable /app/data tmpfs mount so
+                # --read-only doesn't break apps that default to ./app.db
+                "-e", "DATABASE_URL=sqlite+aiosqlite:////app/data/app.db",
                 # D7: resource limits
                 "--memory", "512m",
                 "--cpus", "0.5",
