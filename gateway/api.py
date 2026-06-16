@@ -560,6 +560,15 @@ def create_app() -> FastAPI:
         except Exception as _exc:
             logger.warning("Marketplace seeding skipped: %s", _exc)
 
+        # ── SQS Pipeline Consumer ─────────────────────────────────────────────
+        # Long-polls aetheros-pipeline-jobs queue and executes runs off the
+        # HTTP request path. Only activates when SQS_QUEUE_URL is set in env.
+        try:
+            from aether_os.core.queue.pipeline_consumer import start_consumer as _start_sqs
+            _start_sqs()
+        except Exception as _sqs_exc:
+            logger.warning("SQS consumer failed to start: %s", _sqs_exc)
+
         # ── Workloop Monitor ─────────────────────────────────────────────────
         # Background self-healing: scans recent run failures every 5 minutes,
         # runs LLM diagnosis, and auto-applies safe platform fixes.
@@ -587,6 +596,11 @@ def create_app() -> FastAPI:
 
         # Shutdown
         logger.info("AetherOS API shutting down...")
+        try:
+            from aether_os.core.queue.pipeline_consumer import stop_consumer as _stop_sqs
+            _stop_sqs()
+        except Exception:
+            pass
         try:
             from aether_os.core.workloop_monitor import get_workloop_monitor
             get_workloop_monitor().stop()

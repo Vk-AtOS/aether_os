@@ -759,6 +759,46 @@ async def start_factory_run(
             except Exception as _le:
                 logger.debug("[post-build] Learning loop skipped: %s", _le)
 
+    # ── SQS queuing (when configured) vs. direct background execution ────────
+    from aether_os.core.queue.sqs_client import is_enabled as _sqs_enabled, send_pipeline_job
+    _use_sqs = _sqs_enabled()
+
+    if _use_sqs:
+        _queued = send_pipeline_job(run_id, {
+            "client_id": client_id,
+            "raw_input": raw_input,
+            "domain": domain,
+            "project_name": project_name,
+            "org_id": org_id,
+            "org_slug": org_slug if "org_slug" in dir() else None,
+            "github_url": github_url or None,
+            "designer_spec": designer_spec or {},
+            "tech_preferences": tech_preferences,
+            "model_preference": model_preference,
+            "priority": priority,
+            "codebase_mode": codebase_mode,
+            "existing_schema": existing_schema,
+        })
+        if _queued:
+            # Update run status to "queued" so the UI shows the correct state
+            try:
+                from aether_os.core.db import get_session_factory as _gsf_q
+                from aether_os.core.models import Run as _Run_q
+                from sqlalchemy import update as _upd_q
+                _sf_q = _gsf_q()
+                async with _sf_q() as _s_q:
+                    await _s_q.execute(_upd_q(_Run_q).where(_Run_q.id == run_id).values(status="queued"))
+                    await _s_q.commit()
+            except Exception as _qe:
+                logger.warning("SQS queue status update failed: %s", _qe)
+            return {
+                "run_id": run_id,
+                "status": "queued",
+                "message": f"Pipeline queued (SQS): {raw_input[:60]}",
+            }
+        else:
+            logger.warning("SQS send failed for run %s — falling back to direct execution", run_id)
+
     _t = asyncio.create_task(_run_bg())
     _background_tasks.add(_t)
     _t.add_done_callback(_background_tasks.discard)
