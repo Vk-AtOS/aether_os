@@ -4489,7 +4489,7 @@ async def _take_preview_screenshot(frontend_dir: Path, output_path: Path) -> boo
     if not dist_dir.exists():
         try:
             logger.info("p05: Building frontend for screenshot...")
-            subprocess.run(["npm", "install"], cwd=str(frontend_dir), capture_output=True, timeout=180)
+            subprocess.run(["npm", "install", "--cache", str(_NPM_SHARED_CACHE)], cwd=str(frontend_dir), capture_output=True, timeout=240)
             subprocess.run(["npm", "run", "build"], cwd=str(frontend_dir), capture_output=True, timeout=180)
         except Exception as build_err:
             logger.warning(f"p05: Build failed before screenshot: {build_err}")
@@ -4953,7 +4953,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Gate 2: Preview ──
     screenshot_path = ""
     preview_path = output_dir / "customer_portal_preview.png"
-    if await _take_preview_screenshot(frontend_dir, preview_path):
+    if not is_autonomous and await _take_preview_screenshot(frontend_dir, preview_path):
         screenshot_path = str(preview_path)
 
     try:
