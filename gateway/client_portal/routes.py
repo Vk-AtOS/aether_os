@@ -47,7 +47,8 @@ async def _portal_auth(request: Request, portal_token: Optional[str] = None) -> 
     Lightweight portal auth for write endpoints (approve / feedback).
     Accepts either:
       - A valid AetherOS JWT in the Authorization: Bearer header (dashboard users)
-      - A ?portal_token=<uuid> query param matching the run's stored portal token file
+      - An X-Portal-Token header matching the run's stored portal token file
+      - A ?portal_token=<uuid> query param (legacy; prefer header to avoid URL log exposure)
     """
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
@@ -60,14 +61,16 @@ async def _portal_auth(request: Request, portal_token: Optional[str] = None) -> 
         except Exception:
             pass
 
-    if portal_token:
+    # Prefer header-supplied token over query param to keep token out of server logs
+    effective_token = request.headers.get("x-portal-token") or portal_token
+    if effective_token:
         # Extract project_id from request path to validate the token
         path = request.url.path
         parts = path.strip("/").split("/")
         # Path is /portal/{project_id}/approve or /portal/{project_id}/feedback
         if len(parts) >= 2 and parts[0] == "portal":
             stored = _get_portal_token(parts[1])
-            if stored and stored == portal_token:
+            if stored and stored == effective_token:
                 return  # Valid portal token
 
     raise HTTPException(status_code=401, detail="Portal authentication required")

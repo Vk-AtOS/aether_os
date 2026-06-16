@@ -5111,26 +5111,43 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Step 6: Synchronous Build (FIX 33) ──────────────────────────────────
     # Now blocking to ensure artifacts exist for deployment.
     frontend_dir = project_dir / 'frontend'
-    build_cmd = "npm install && npm run build"
     log_file = output_dir / "npm_build.log"
-    
+
     frontend_build_failed = False
     try:
         logger.info("p05: Running synchronous frontend build...")
-        result = subprocess.run(
-            build_cmd, 
-            shell=True, 
-            cwd=str(frontend_dir), 
-            capture_output=True, 
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+
+        install_result = subprocess.run(
+            ["npm", "install"],
+            cwd=str(frontend_dir),
+            capture_output=True,
             text=True,
-            timeout=600 # 10 mins
+            timeout=300,
         )
-        with open(log_file, "w") as f:
-            f.write(f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}\n")
-        
-        if result.returncode != 0:
-            logger.error("p05: Frontend build failed with code %d", result.returncode)
+        stdout_parts.append(f"-- npm install --\n{install_result.stdout}")
+        stderr_parts.append(install_result.stderr)
+
+        if install_result.returncode != 0:
+            logger.error("p05: npm install failed with code %d", install_result.returncode)
             frontend_build_failed = True
+        else:
+            build_result = subprocess.run(
+                ["npm", "run", "build"],
+                cwd=str(frontend_dir),
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            stdout_parts.append(f"-- npm run build --\n{build_result.stdout}")
+            stderr_parts.append(build_result.stderr)
+            if build_result.returncode != 0:
+                logger.error("p05: npm run build failed with code %d", build_result.returncode)
+                frontend_build_failed = True
+
+        with open(log_file, "w") as f:
+            f.write(f"STDOUT:\n{''.join(stdout_parts)}\n\nSTDERR:\n{''.join(stderr_parts)}\n")
     except Exception as e:
         logger.error("p05: Frontend build exception: %s", e)
         frontend_build_failed = True

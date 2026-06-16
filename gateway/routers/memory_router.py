@@ -51,7 +51,7 @@ async def memory_search(
         return {"matches": normalised, "query": query}
     except Exception as exc:
         logger.warning("memory_search failed: %s", exc)
-        return {"matches": [], "query": query}
+        return {"matches": [], "query": query, "error": str(exc)}
 
 
 @router.get("/memory/graph")

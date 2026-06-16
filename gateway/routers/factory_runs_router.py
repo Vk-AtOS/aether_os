@@ -2873,7 +2873,7 @@ async def download_run_zip(run_id: str, user: Dict[str, Any] = _current_user()):
     )
 
 
-@router.get("/api/factory/runs/{run_id}/portal")
+@router.get("/factory/runs/{run_id}/portal")
 async def get_run_portal(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
