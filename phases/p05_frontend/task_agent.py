@@ -4991,4 +4991,4 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as e:
             logger.error("p05: Build failed: %s", e)
 
-    return TaskResult(output_path=str(frontend_dir_final), success=True, metadata=meta)
+    return TaskResult(output_path=str(frontend_dir_final), confidence=1.0, success=True, metadata=meta)
