@@ -567,8 +567,8 @@ async def restart_factory_run(
         )).scalar_one_or_none()
     if not _run_r:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    if _run_r.status not in ("failed", "cancelled", "error"):
-        raise HTTPException(status_code=409, detail=f"Run is {_run_r.status}; only failed/cancelled runs can be restarted")
+    if _run_r.status not in ("failed", "cancelled", "error", "interrupted"):
+        raise HTTPException(status_code=409, detail=f"Run is {_run_r.status}; only failed/cancelled/interrupted runs can be restarted")
     _ckpt = _run_r.checkpoint_data
     if not _ckpt or not isinstance(_ckpt, dict) or not _ckpt.get("last_completed_phase"):
         raise HTTPException(status_code=409, detail="No checkpoint saved for this run — use /rerun to start fresh")
