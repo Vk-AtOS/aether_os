@@ -588,6 +588,9 @@ async def restart_factory_run(
 
     async def _restart_bg():
         try:
+            # Clear any stale cancel/pause signal before resuming
+            from aether_os.core.pipeline_state import set_control as _sc_restart
+            await _sc_restart(run_id, "run")
             await _factory_r.run(
                 client_id=user.get("org_slug", "restart"),
                 raw_input=raw_input,
