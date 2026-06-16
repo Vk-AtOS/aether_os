@@ -1838,7 +1838,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
 
         lines.append("")
         lines.append(f"export const {camel}Api = {{")
-        lines.append(f"  list: () => apiClient.get<{type_name}[]>('{endpoint}').then(r => r.data),")
+        lines.append(f"  list: () => apiClient.get<{{items: {type_name}[]; total: number}}>( '{endpoint}').then(r => Array.isArray(r.data) ? r.data : (r.data?.items ?? [])),")
         lines.append(f"  create: (data: {type_name}Create) => apiClient.post<{type_name}>('{endpoint}', data).then(r => r.data),")
         lines.append(f"  update: (id: string | number, data: Partial<{type_name}Create>) =>")
         lines.append(f"    apiClient.patch<{type_name}>(`{endpoint}/${{id}}`, data).then(r => r.data),")
@@ -3560,7 +3560,7 @@ def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain:
         query_lines.append(
             f"  const {{ data: {camel}Data }} = useQuery({{\n"
             f"    queryKey: ['{table}'],\n"
-            f"    queryFn: () => apiClient.get<unknown[]>('{endpoint}').then(r => r.data),\n"
+            f"    queryFn: () => apiClient.get<{{items: unknown[]; total?: number}}>('{endpoint}').then(r => Array.isArray(r.data) ? r.data : (r.data?.items ?? [])),\n"
             f"  }})"
         )
         stat_cards.append(
@@ -4076,7 +4076,7 @@ export default function {pascal}Page() {{
 
   const handleExport = () => {{
     const headers = columns.map(c => c.header).filter(h => h).join(',')
-    const rows = all.map(item => columns.map(c => item[c.id] ?? '').join(',')).join('\\n')
+    const rows = data.map(item => columns.map(c => item[c.id] ?? '').join(',')).join('\\n')
     const blob = new Blob([headers + '\\n' + rows], {{ type: 'text/csv' }})
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
