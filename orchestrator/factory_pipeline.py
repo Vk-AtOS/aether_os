@@ -480,7 +480,7 @@ class FactoryPipeline:
                 _env_key = f"PHASE_TIMEOUT_{phase_name.upper()}"
                 _default_timeout = "600"
                 if phase_name == "p05_frontend":
-                    # Skip p05 when no frontend was selected
+                    # Skip p05 only when frontend is EXPLICITLY disabled; empty means "use default React"
                     _ds = accumulated_context.get("designer_spec") or {}
                     _tp = accumulated_context.get("tech_preferences") or {}
                     _frontend_selection = (
@@ -489,7 +489,7 @@ class FactoryPipeline:
                         or accumulated_context.get("frontend", "")
                         or ""
                     )
-                    if str(_frontend_selection).lower() in ("none", "", "no", "n/a"):
+                    if str(_frontend_selection).lower() in ("none", "no", "n/a"):
                         logger.info(
                             "[pipeline] Skipping p05_frontend — frontend=%r (no UI requested)",
                             _frontend_selection,
