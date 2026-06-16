@@ -14,11 +14,42 @@ import logging
 import re
 import os
 import asyncio
+import hashlib
 import time
 import textwrap
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# ── npm build concurrency limiter ─────────────────────────────────────────────
+# Cap at 2 concurrent Vite builds to prevent CPU saturation on shared hosts.
+# Semaphore is created lazily inside the running event loop.
+_NPM_SEMAPHORE: Optional[asyncio.Semaphore] = None
+
+def _get_npm_semaphore() -> asyncio.Semaphore:
+    global _NPM_SEMAPHORE
+    if _NPM_SEMAPHORE is None:
+        _NPM_SEMAPHORE = asyncio.Semaphore(2)
+    return _NPM_SEMAPHORE
+
+# ── Shared npm caches ─────────────────────────────────────────────────────────
+_NPM_SHARED_CACHE = Path.home() / ".aether_os" / "npm_cache"
+_NM_STAMP_FILE = ".nm_hash"
+
+def _pkg_hash(frontend_dir: Path) -> str:
+    """MD5 of package.json — used as node_modules cache key."""
+    pkg = frontend_dir / "package.json"
+    return hashlib.md5(pkg.read_bytes()).hexdigest() if pkg.exists() else ""
+
+def _node_modules_fresh(frontend_dir: Path, pkg_hash: str) -> bool:
+    """True if node_modules exists and its stamp matches the current package.json hash."""
+    nm = frontend_dir / "node_modules"
+    stamp = frontend_dir / _NM_STAMP_FILE
+    return bool(pkg_hash) and nm.exists() and stamp.exists() and stamp.read_text().strip() == pkg_hash
+
+def _stamp_node_modules(frontend_dir: Path, pkg_hash: str) -> None:
+    if pkg_hash:
+        (frontend_dir / _NM_STAMP_FILE).write_text(pkg_hash)
 
 from aether_os.phases.base import TaskResult
 
@@ -5108,49 +5139,65 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning(f"p05: Gate 2 approval/revision failed: {e}")
 
-    # ── Step 6: Synchronous Build (FIX 33) ──────────────────────────────────
-    # Now blocking to ensure artifacts exist for deployment.
+    # ── Step 6: Semaphore-gated, cache-aware frontend build ──────────────────
+    # Max 2 concurrent Vite builds (semaphore). node_modules is skipped when
+    # package.json hasn't changed since the last successful install (stamp file).
     frontend_dir = project_dir / 'frontend'
     log_file = output_dir / "npm_build.log"
+    _NPM_SHARED_CACHE.mkdir(parents=True, exist_ok=True)
 
     frontend_build_failed = False
-    try:
-        logger.info("p05: Running synchronous frontend build...")
-        stdout_parts: list[str] = []
-        stderr_parts: list[str] = []
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
 
-        install_result = subprocess.run(
-            ["npm", "install"],
-            cwd=str(frontend_dir),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        stdout_parts.append(f"-- npm install --\n{install_result.stdout}")
-        stderr_parts.append(install_result.stderr)
+    async with _get_npm_semaphore():
+        try:
+            logger.info("p05: Acquired npm semaphore — starting build...")
+            pkg_hash = _pkg_hash(frontend_dir)
 
-        if install_result.returncode != 0:
-            logger.error("p05: npm install failed with code %d", install_result.returncode)
+            # ── npm install (skip if node_modules is fresh) ───────────────
+            if _node_modules_fresh(frontend_dir, pkg_hash):
+                logger.info("p05: node_modules cache hit (hash=%s) — skipping install", pkg_hash)
+                stdout_parts.append("-- npm install skipped (node_modules up to date) --\n")
+            else:
+                install_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["npm", "install", "--cache", str(_NPM_SHARED_CACHE)],
+                    cwd=str(frontend_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                stdout_parts.append(f"-- npm install --\n{install_result.stdout}")
+                stderr_parts.append(install_result.stderr)
+                if install_result.returncode != 0:
+                    logger.error("p05: npm install failed (code %d)", install_result.returncode)
+                    frontend_build_failed = True
+                else:
+                    _stamp_node_modules(frontend_dir, pkg_hash)
+
+            # ── npm run build ─────────────────────────────────────────────
+            if not frontend_build_failed:
+                build_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["npm", "run", "build"],
+                    cwd=str(frontend_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+                stdout_parts.append(f"-- npm run build --\n{build_result.stdout}")
+                stderr_parts.append(build_result.stderr)
+                if build_result.returncode != 0:
+                    logger.error("p05: npm run build failed (code %d)", build_result.returncode)
+                    frontend_build_failed = True
+
+        except Exception as e:
+            logger.error("p05: Frontend build exception: %s", e)
             frontend_build_failed = True
-        else:
-            build_result = subprocess.run(
-                ["npm", "run", "build"],
-                cwd=str(frontend_dir),
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-            stdout_parts.append(f"-- npm run build --\n{build_result.stdout}")
-            stderr_parts.append(build_result.stderr)
-            if build_result.returncode != 0:
-                logger.error("p05: npm run build failed with code %d", build_result.returncode)
-                frontend_build_failed = True
 
-        with open(log_file, "w") as f:
-            f.write(f"STDOUT:\n{''.join(stdout_parts)}\n\nSTDERR:\n{''.join(stderr_parts)}\n")
-    except Exception as e:
-        logger.error("p05: Frontend build exception: %s", e)
-        frontend_build_failed = True
+    with open(log_file, "w") as f:
+        f.write(f"STDOUT:\n{''.join(stdout_parts)}\n\nSTDERR:\n{''.join(stderr_parts)}\n")
 
     # NB: A leftover `ctx.record_phase(PhaseOutput(...))` block used to live here
     # and threw NameError on every p05 run because `ctx` / `PhaseOutput` are not

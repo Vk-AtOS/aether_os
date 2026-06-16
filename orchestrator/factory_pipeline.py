@@ -37,6 +37,18 @@ from aether_os.core.project_memory import (
 
 logger = logging.getLogger(__name__)
 
+# ── Pipeline concurrency limiter ──────────────────────────────────────────────
+# Prevents CPU saturation when multiple users trigger simultaneous builds.
+# Default: 2 concurrent full pipeline runs. Override with PIPELINE_MAX_CONCURRENT env var.
+_PIPELINE_SEMAPHORE: Optional[asyncio.Semaphore] = None
+
+def _get_pipeline_semaphore() -> asyncio.Semaphore:
+    global _PIPELINE_SEMAPHORE
+    if _PIPELINE_SEMAPHORE is None:
+        limit = int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2"))
+        _PIPELINE_SEMAPHORE = asyncio.Semaphore(limit)
+    return _PIPELINE_SEMAPHORE
+
 # Phases whose failure must abort the pipeline — downstream phases depend on their output.
 # Self-healing (p07b) and observational phases (p08+) are deliberately excluded so
 # they don't block delivery on non-critical failures.
@@ -203,19 +215,23 @@ class FactoryPipeline:
                   existing_schema: Optional[Dict[str, Any]] = None) -> dict:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
-        try:
-            return await asyncio.wait_for(self._execute_pipeline(
-                client_id, raw_input, domain, project_name, start_phase,
-                run_id, org_id, org_slug, plan, is_change_request, memory_context,
-                council_preflight, github_url, designer_spec or {},
-                tech_preferences, model_preference, priority, codebase_mode, existing_schema,
-            ), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
-            if run_id:
-                await self.ledger.async_update_run_status(run_id, "timeout")
-                await publish_event(run_id, {"type": "pipeline_complete", "status": "timeout", "ts": time.time()})
-            return {"run_id": run_id, "status": "timeout"}
+        sem = _get_pipeline_semaphore()
+        logger.info("Pipeline %s waiting for concurrency slot (%d/%d in use)", run_id, sem._value ^ int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2")) - sem._value, int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2")))
+        async with sem:
+            logger.info("Pipeline %s acquired concurrency slot", run_id)
+            try:
+                return await asyncio.wait_for(self._execute_pipeline(
+                    client_id, raw_input, domain, project_name, start_phase,
+                    run_id, org_id, org_slug, plan, is_change_request, memory_context,
+                    council_preflight, github_url, designer_spec or {},
+                    tech_preferences, model_preference, priority, codebase_mode, existing_schema,
+                ), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
+                if run_id:
+                    await self.ledger.async_update_run_status(run_id, "timeout")
+                    await publish_event(run_id, {"type": "pipeline_complete", "status": "timeout", "ts": time.time()})
+                return {"run_id": run_id, "status": "timeout"}
 
     async def _execute_pipeline(self,
                   client_id: str,
