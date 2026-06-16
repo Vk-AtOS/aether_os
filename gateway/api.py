@@ -358,17 +358,19 @@ def create_app() -> FastAPI:
 
         # ── Field-level encryption key check ─────────────────────────────────
         if not os.environ.get("AETHER_FIELD_KEY", ""):
-            logger.warning(
+            _log_fn = logger.error if _is_production else logger.warning
+            _log_fn(
                 "\n"
                 "  ┌─────────────────────────────────────────────────────────────┐\n"
-                "  │  WARNING: AETHER_FIELD_KEY is not set.                      │\n"
+                "  │  %s AETHER_FIELD_KEY is not set.                      │\n"
                 "  │  LLM API keys and MFA secrets are stored UNENCRYPTED.       │\n"
                 "  │                                                             │\n"
                 "  │  Generate a key with:                                       │\n"
                 "  │    python -c \"from cryptography.fernet import Fernet;       │\n"
                 "  │    print(Fernet.generate_key().decode())\"                   │\n"
                 "  │  Then add AETHER_FIELD_KEY=<key> to your .env file.         │\n"
-                "  └─────────────────────────────────────────────────────────────┘"
+                "  └─────────────────────────────────────────────────────────────┘",
+                "ERROR:" if _is_production else "WARNING:",
             )
 
         # ── CORS startup validation ───────────────────────────────────────────
