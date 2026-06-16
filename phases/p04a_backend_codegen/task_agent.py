@@ -957,6 +957,9 @@ STRICT REQUIREMENTS — every violation causes runtime errors:
    - `PATCH /{{id}}` → partial update, `data: {Entity}Update`, returns `{Entity}Response`
    - `DELETE /{{id}}` → soft-delete or hard-delete, HTTP 204
 
+   SECURITY: Never include `password_hash` or `password` fields in any response dict or model.
+   If a model has a `password_hash` column, exclude it explicitly.
+
 3. Query pattern (async SQLAlchemy):
    - List:   `result = await db.execute(select({Model}).offset(skip).limit(limit))`
              `items = list(result.scalars().all())`
@@ -1209,7 +1212,7 @@ def _fallback_crud_routers(entities: list) -> str:
             f"    total = total_q.scalar_one()",
             f"    result = await db.execute(select(models.{name}).offset(offset).limit(limit))",
             f"    items = result.scalars().all()",
-            f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{name}.__table__.columns}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
+            f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
             "",
             f"@{var}.post('/', status_code=201, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
@@ -1217,7 +1220,7 @@ def _fallback_crud_routers(entities: list) -> str:
             f"    db.add(obj)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
-            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns}}",
+            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}}",
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
@@ -1225,7 +1228,7 @@ def _fallback_crud_routers(entities: list) -> str:
             f"    obj = result.scalar_one_or_none()",
             f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns}}",
+            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
             f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
@@ -1237,7 +1240,7 @@ def _fallback_crud_routers(entities: list) -> str:
             f"        setattr(obj, k, v)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
-            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns}}",
+            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}}",
             "",
             f"@{var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
             f"async def update_{table}_put(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
