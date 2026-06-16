@@ -17,6 +17,7 @@ token.json
 ACQUISITION_EMAILS.md
 AETHEROS_MASTER_PLAN.md
 DEPLOYMENT_READINESS_REPORT.md
+incomplete_features.txt
 
 # Playwright test artifacts and session screenshots
 .playwright-mcp/
