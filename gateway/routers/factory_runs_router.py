@@ -871,7 +871,11 @@ async def stream_run_events(
             # The pipeline writes to _local_history when Redis is down, so we
             # tail it here rather than abandoning the stream.
             seen = len(history)
+            _deadline = asyncio.get_event_loop().time() + 1800  # 30-min hard timeout
             while True:
+                if asyncio.get_event_loop().time() > _deadline:
+                    yield f"data: {json.dumps({'type': 'stream_timeout', 'message': 'SSE fallback stream timed out after 30 minutes'})}\n\n"
+                    return
                 buf = _local_history.get(run_id, [])
                 for raw in buf[seen:]:
                     seen += 1
@@ -905,8 +909,10 @@ async def stream_run_events(
                 _live_idx += 1
                 if event.get("type") == "pipeline_complete":
                     break
-        except Exception:
-            pass
+        except Exception as _sse_exc:
+            import logging as _log
+            _log.getLogger(__name__).warning("SSE Redis pubsub error for run %s: %s", run_id, _sse_exc)
+            yield f"data: {json.dumps({'type': 'stream_error', 'message': 'SSE connection lost; please reconnect'})}\n\n"
         finally:
             await pubsub.unsubscribe(f"pipeline:events:{run_id}")
             await pubsub.aclose()
