@@ -37,6 +37,24 @@ from aether_os.core.project_memory import (
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_project_name(raw_input: str, run_id: str) -> str:
+    """Extract a Python-safe project name from raw_input, fallback to RunId{run_id[:8]}.
+
+    Tries: "Build X" / "Build the X" pattern first, then first capitalised word
+    that looks like a product name. Returns a PascalCase identifier — no hyphens.
+    """
+    import re as _re
+    if raw_input:
+        m = _re.search(r'\bBuild(?:\s+the\s+|\s+)([A-Z][A-Za-z0-9]+)', raw_input)
+        if m:
+            return _re.sub(r'[^A-Za-z0-9]', '', m.group(1)) or f"Run{run_id[:8]}"
+        m = _re.search(r'([A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+)', raw_input)
+        if m:
+            return _re.sub(r'[^A-Za-z0-9]', '', m.group(1)) or f"Run{run_id[:8]}"
+    return f"Run{run_id[:8]}"
+
+
 # ── Pipeline concurrency limiter ──────────────────────────────────────────────
 # Prevents CPU saturation when multiple users trigger simultaneous builds.
 # Default: 2 concurrent full pipeline runs. Override with PIPELINE_MAX_CONCURRENT env var.
@@ -272,7 +290,7 @@ class FactoryPipeline:
         # D6: Initialize project living memory
         _pm_init(
             project_dir,
-            project_name=project_name or f"project-{run_id[:8]}",
+            project_name=project_name or _extract_project_name(raw_input, run_id),
             requirement=raw_input,
             domain=domain,
             run_id=run_id,
@@ -288,7 +306,7 @@ class FactoryPipeline:
                 run_id=run_id,
                 command=f"factory: {raw_input[:60]}",
                 org_id=org_id,
-                project_name=project_name or f"project-{run_id[:8]}",
+                project_name=project_name or _extract_project_name(raw_input, run_id),
                 domain=domain,
                 client_id=client_id,
                 raw_input=raw_input,
@@ -337,7 +355,7 @@ class FactoryPipeline:
             "client_id": client_id,
             "raw_input": raw_input,
             "domain": domain,
-            "project_name": project_name or f"project-{run_id[:8]}",
+            "project_name": project_name or _extract_project_name(raw_input, run_id),
             "project_dir": str(project_dir),
             "is_change_request": is_change_request,
             # Cross-run memory context injected from MemoryService (may be "")
@@ -1159,7 +1177,7 @@ class FactoryPipeline:
                 _delivery = await asyncio.wait_for(
                     _dc.run(
                         run_id=run_id,
-                        project_name=project_name or f"project-{run_id[:8]}",
+                        project_name=project_name or accumulated_context.get("project_name") or _extract_project_name(raw_input, run_id),
                         domain=domain,
                         phases_results=results,
                         org_id=org_id,
