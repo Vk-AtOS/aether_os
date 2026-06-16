@@ -57,10 +57,42 @@ logger = logging.getLogger(__name__)
 
 
 def _write_with_guard(path: Path, content: str) -> None:
-    """Checks if a file exists before writing (idempotent writes)."""
+    """Write file if it doesn't already exist; logs progress for the SSE live-log stream."""
     if path.exists():
         return
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
+    try:
+        parts = path.parts
+        rel = path.name
+        if "frontend" in parts:
+            idx = parts.index("frontend")
+            rel = "/".join(parts[idx + 1:])
+        logger.info("p05: wrote %s (%d bytes)", rel, len(content))
+    except Exception:
+        pass
+
+
+async def _generate_file(
+    filename: str,
+    prompt: str,
+    task_type: str = "code_generation",
+    timeout: float = 90.0,
+) -> Optional[str]:
+    """Single LLM call with hard per-file timeout — returns None on timeout/error so callers skip gracefully."""
+    from aether_os.core.llm.client import get_llm_client
+    client = get_llm_client()
+    try:
+        return await asyncio.wait_for(
+            client.call(prompt, task_type=task_type),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("p05: LLM call for %s timed out after %.0fs", filename, timeout)
+        return None
+    except Exception as exc:
+        logger.warning("p05: LLM call for %s failed: %s", filename, exc)
+        return None
 
 
 def _pluralise(word: str) -> str:
@@ -445,7 +477,7 @@ async def _generate_domain_component(
         # result = await client.call(prompt, task_type="ui_component", max_tokens=2000)
         result = await asyncio.wait_for(
             client.call(prompt, task_type="ui_component", max_tokens=2000),
-            timeout=10.0
+            timeout=90.0
         )
         if (
             result
@@ -4534,26 +4566,19 @@ async def _apply_gate2_revisions(
     if not files_to_edit:
         return
 
-    client = get_llm_client()
     for fpath in files_to_edit:
         try:
             current_code = fpath.read_text()
-            prompt = f"""You are a senior React developer. Refine the following component based on user feedback.
-Feedback: {instructions}
-Project: {project_name}
-Domain: {domain}
-
-Current Code:
-{current_code}
-
-Rules:
-- Keep the overall structure.
-- Only change visual styling (Tailwind classes) or wording to match feedback.
-- Return ONLY the updated code. No explanation. No markdown fences.
-"""
-            new_code = await client.call(prompt, task_type="code_refinement")
+            prompt = (
+                f"You are a senior React developer. Refine the following component based on user feedback.\n"
+                f"Feedback: {instructions}\nProject: {project_name}\nDomain: {domain}\n\n"
+                f"Current Code:\n{current_code}\n\n"
+                "Rules:\n- Keep the overall structure.\n"
+                "- Only change visual styling (Tailwind classes) or wording to match feedback.\n"
+                "- Return ONLY the updated code. No explanation. No markdown fences."
+            )
+            new_code = await _generate_file(fpath.name, prompt, task_type="code_refinement", timeout=90.0)
             if new_code and ("export" in new_code or "function" in new_code):
-                # Clean up markdown fences
                 new_code = new_code.strip()
                 if new_code.startswith("```"):
                     lines = new_code.splitlines()
@@ -4561,14 +4586,16 @@ Rules:
                     if lines and lines[-1].startswith("```"): lines = lines[:-1]
                     new_code = "\n".join(lines)
                 fpath.write_text(new_code)
-                logger.info(f"p05: Refined {fpath.name} based on user feedback")
-        except Exception as e:
-            logger.warning(f"p05: Failed to refine {fpath.name}: {e}")
+                logger.info("p05: Refined %s based on user feedback", fpath.name)
+        except Exception as exc:
+            logger.warning("p05: Failed to refine %s: %s", fpath.name, exc)
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     data = phase_input.input_data
+    _phase_start = asyncio.get_event_loop().time()
+    _PHASE_TIMEOUT = 1500.0  # 25 minutes — stop generating new files but still build what exists
 
     # 1. Read architecture
     arch = _read_architecture(data)
@@ -4814,6 +4841,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             except Exception: pass
 
         for ent in entities:
+            if asyncio.get_event_loop().time() - _phase_start > _PHASE_TIMEOUT:
+                logger.warning("p05: phase watchdog triggered (25m) — skipping remaining entity pages, proceeding to build")
+                break
             pascal = ent.get("name") or _to_pascal_case(ent["table"])
             if layout_mode == "storefront" and _is_product_entity(ent["table"]):
                 code = _generate_product_grid_page(ent, route_map)
@@ -4824,7 +4854,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Phase 7: Optional LLM Component (DomainWidget) ──
     domain_widget_generated = False
-    try:
+    if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
+      try:
         domain_component = await _generate_domain_component(
             domain, entities, project_name, mem,
             primary_hex=primary_hex, secondary_hex=secondary_hex,
@@ -4842,7 +4873,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     content = content.replace("{/* DOMAIN_WIDGET_SLOT */}", '<div className="mt-8"><DomainWidget /></div>', 1)
                     dashboard_file.write_text(content)
             domain_widget_generated = True
-    except Exception as _de:
+      except Exception as _de:
         logger.debug("p05_frontend: domain component failed: %s", _de)
         try:
             dashboard_file = src_dir / "pages" / "Dashboard.tsx"
@@ -4851,8 +4882,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception: pass
 
     # ── Phase 8: Customer Portal (Home, About) ──
-    logger.info("p05: generating customer portal for %s", domain)
-    await _generate_customer_portal(domain, design_brief, route_map, src_dir / "pages")
+    if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
+        logger.info("p05: generating customer portal for %s", domain)
+        await _generate_customer_portal(domain, design_brief, route_map, src_dir / "pages")
+    else:
+        logger.warning("p05: phase watchdog — skipping customer portal generation")
 
     # ── Phase 9: Tests ──
     tests_dir = src_dir / "__tests__"
