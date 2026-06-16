@@ -505,7 +505,8 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     # If the single call produced nothing, build a minimal stub from app_name (no extra LLM call).
     if not combined_result.get("entities"):
         logger.warning("p02b: LLM produced no entities — building stub IR")
-        _stub_entity_name = "".join(w.capitalize() for w in app_name.split()[:2]) or "Item"
+        import re as _re2b
+        _stub_entity_name = _re2b.sub(r'[^A-Za-z0-9]', '', "".join(w.capitalize() for w in app_name.split()[:2])) or "Item"
         p1 = {
             "entities": [{
                 "name": _stub_entity_name,
