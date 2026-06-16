@@ -139,7 +139,7 @@ p{color:#94a3b8;font-size:14px;text-align:center}a{color:#6366f1}</style>
         if _current_rid:
             _dead_run = _current_rid
             try:
-                from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
+                from aether_os.gateway.routers.run_app_router import start_run_app as _sar
                 _system_user = {"org_id": None, "user_id": "system", "role": "admin"}
                 asyncio.create_task(_sar(run_id=_dead_run, user=_system_user))
                 _restart_triggered = True

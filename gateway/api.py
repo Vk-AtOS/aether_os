@@ -505,7 +505,7 @@ def create_app() -> FastAPI:
                     logger.info("run_app: port %d still alive for run %s — no restart needed", _rport, _rid)
                     return
                 logger.info("run_app: restarting run %s after service restart (old port %d was dead)", _rid, _rport)
-                from aether_os.gateway.routers.factory_runs_router import start_run_app as _sar
+                from aether_os.gateway.routers.run_app_router import start_run_app as _sar
                 _system_user = {"org_id": None, "user_id": "system", "role": "admin"}
                 result = await _sar(run_id=_rid, user=_system_user)
                 logger.info("run_app: auto-restarted run %s → port %d", _rid, result.get("port"))
@@ -753,6 +753,9 @@ def create_app() -> FastAPI:
         ("health",        "aether_os.gateway.routers.health_router",        "router",       {},                        True),
         ("admin",         "aether_os.gateway.routers.admin_router",         "router",       {},                        True),
         ("factory_runs",  "aether_os.gateway.routers.factory_runs_router",  "router",       {},                        True),
+        ("run_app",       "aether_os.gateway.routers.run_app_router",       "router",       {},                        True),
+        ("run_decisions", "aether_os.gateway.routers.run_decisions_router", "router",       {},                        True),
+        ("run_deploy",    "aether_os.gateway.routers.run_deploy_router",    "router",       {},                        True),
         ("factory_ops",   "aether_os.gateway.routers.factory_ops_router",   "router",       {},                        True),
         ("account",       "aether_os.gateway.routers.account_router",       "router",       {},                        True),
         ("billing",       "aether_os.gateway.routers.billing_router",       "router",       {},                        True),
