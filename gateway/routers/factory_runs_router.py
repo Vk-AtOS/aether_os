@@ -1440,8 +1440,15 @@ async def start_run_app(
         if not _dist_already_built:
             with open(log_path, "a") as _lf:
                 _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
-            _sp.run([npm_bin, "install", "--silent", "--prefer-offline"], cwd=str(frontend_dir),
-                    capture_output=True, timeout=300)
+            _npm_cache = _os.path.expanduser("~/.aether_os/npm_cache")
+            _npm_install_r = _sp.run(
+                [npm_bin, "install", "--silent", "--cache", _npm_cache],
+                cwd=str(frontend_dir), capture_output=True, timeout=300,
+            )
+            if _npm_install_r.returncode != 0:
+                _npm_err = (_npm_install_r.stderr or b"").decode(errors="replace")[-400:]
+                with open(log_path, "a") as _lf:
+                    _lf.write(f"[AetherOS] npm install failed (rc={_npm_install_r.returncode}):\n{_npm_err}\n")
 
             # Patch tsconfig.json to suppress type errors in generated code.
             # Generated TypeScript often has minor type issues that block tsc but not vite.
@@ -1512,7 +1519,8 @@ async def start_run_app(
                     "ESBUILD_WORKER_THREADS": "false",
                 } if _oom else _node_env
                 _sp.run(
-                    [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent"],
+                    [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent",
+                     "--cache", _npm_cache],
                     cwd=str(frontend_dir), capture_output=True, timeout=120,
                 )
                 # On OOM-style failure, disable minification to cut esbuild peak RAM by ~40%.
