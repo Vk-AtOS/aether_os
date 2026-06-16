@@ -360,7 +360,8 @@ def _do_watch(cfg: dict, run_id: str) -> None:
                 ))
                 if st in ("completed", "failed", "interrupted"):
                     break
-            except Exception:
+            except Exception as _e:
+                console.print(f"[red]Watch error:[/red] {_e}")
                 break
             time.sleep(3)
 
