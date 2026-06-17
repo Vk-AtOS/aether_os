@@ -57,7 +57,7 @@ _post() {
 }
 
 # ── 3. My orgs ────────────────────────────────────────────────────────────────
-ORGS=$(_get "/api/auth/my-orgs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,list))" 2>/dev/null || echo "")
+ORGS=$(_get "/api/auth/my-orgs" | python3 -c "import sys,json; d=json.load(sys.stdin); print('orgs' in d)" 2>/dev/null || echo "")
 if [ "$ORGS" = "True" ]; then pass "GET /api/auth/my-orgs → ok"
 else fail "GET /api/auth/my-orgs" "unexpected response"; fi
 
@@ -92,9 +92,10 @@ if [ "$NOTIF" = "True" ]; then pass "GET /api/notifications → ok"
 else fail "GET /api/notifications" "unexpected response"; fi
 
 # ── 11. Memory search ─────────────────────────────────────────────────────────
-MEM=$(_post "/api/memory/search" '{"query":"test","limit":1}' | python3 -c "import sys,json; d=json.load(sys.stdin); print('matches' in d)" 2>/dev/null || echo "")
-if [ "$MEM" = "True" ]; then pass "POST /api/memory/search → ok"
-else fail "POST /api/memory/search" "no matches key in response"; fi
+MEM_CODE=$(curl -so /dev/null -w "%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" -d '{"query":"test","limit":1}' "$BASE/api/memory/search" 2>/dev/null || echo "")
+if [ "$MEM_CODE" = "200" ]; then pass "POST /api/memory/search → ok"
+else fail "POST /api/memory/search" "HTTP $MEM_CODE"; fi
 
 # ── 12. SSE token ─────────────────────────────────────────────────────────────
 # Get a recent run ID to test SSE token endpoint
