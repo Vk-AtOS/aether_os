@@ -410,6 +410,13 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("DB init failed: %s", exc)
 
+        # Ensure demo/admin user exists — survives Guardian restores and fresh deploys.
+        try:
+            from aether_os.core.seed import ensure_demo_user
+            await ensure_demo_user()
+        except Exception as _seed_exc:
+            logger.warning("Seed: demo user creation skipped: %s", _seed_exc)
+
         # Initialise LangSmith tracing (graceful degradation if key absent)
         try:
             from aether_os.core.telemetry.langsmith_tracer import init_langsmith
@@ -515,48 +522,8 @@ def create_app() -> FastAPI:
 
         # Seed marketplace with built-in skills if empty
         try:
-            from aether_os.core.db import get_session_factory as _sf_market
-            from aether_os.core.models import MarketplaceProfile as _MP
-            from sqlalchemy import select as _sel_m, func as _func_m
-            import uuid as _uuid_m
-            _sf_m = _sf_market()
-            async with _sf_m() as _ms:
-                _count = (await _ms.execute(
-                    _sel_m(_func_m.count()).select_from(_MP)
-                )).scalar()
-                if _count < 5:  # guard against partial seeds and race between workers
-                    _builtin_skills = [
-                        ("JWT Authentication", "auth", "Full JWT auth with refresh tokens, bcrypt hashing, and role-based access control"),
-                        ("CRUD Operations", "general", "Generic SQLAlchemy CRUD endpoints with filtering, pagination, and soft deletes"),
-                        ("Stripe Payments", "payments", "Stripe checkout, subscription management, webhook handler, and invoice generation"),
-                        ("Email Service", "general", "SMTP/SendGrid email sender with templating, queue, and delivery tracking"),
-                        ("Full-text Search", "general", "PostgreSQL full-text search with ranking, facets, and autocomplete"),
-                        ("File Upload", "general", "S3/local file upload with thumbnail generation and CDN URLs"),
-                        ("Push Notifications", "general", "Firebase FCM push notifications with topic subscriptions and delivery receipts"),
-                        ("Analytics Events", "general", "Event tracking pipeline with aggregation, funnel analysis, and retention metrics"),
-                        ("Admin Dashboard", "admin", "Role-gated admin panel with user management, audit log, and bulk actions"),
-                        ("Internationalisation", "general", "i18n middleware with locale detection, message catalogs, and date/number formatting"),
-                    ]
-                    # Clear any partial seed before re-inserting
-                    await _ms.execute(_sel_m(_func_m.count()).select_from(_MP))  # keep session alive
-                    for _nm, _dm, _ds in _builtin_skills:
-                        _existing = (await _ms.execute(
-                            _sel_m(_MP).where(_MP.name == _nm).where(_MP.org_id == "system")
-                        )).scalars().first()
-                        if _existing:
-                            continue
-                        _ms.add(_MP(
-                            id=str(_uuid_m.uuid4()),
-                            org_id="system",
-                            name=_nm,
-                            base_domain=_dm,
-                            description=_ds,
-                            profile_yaml=f"name: {_nm}\ndomain: {_dm}\ndescription: {_ds}\n",
-                            is_published=True,
-                            usage_count=0,
-                        ))
-                    await _ms.commit()
-                    logger.info("Marketplace seeded with %d built-in skills", len(_builtin_skills))
+            from aether_os.core.seed import ensure_marketplace
+            await ensure_marketplace()
         except Exception as _exc:
             logger.warning("Marketplace seeding skipped: %s", _exc)
 

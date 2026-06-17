@@ -122,16 +122,20 @@ class GuardianWatchdog:
         if "critical" in severities or "high" in severities:
             await self._take_snapshot("pre_threat")
 
-        # Auto-recover on CRITICAL service crashes or file tampering
+        # Auto-recover ONLY on CRITICAL service crashes — NOT on file_tamper.
+        # file_tamper events trigger alerts and snapshots but never pg_restore,
+        # because restoring the DB from snapshot deletes legitimate user data
+        # created after the snapshot was taken (false-positive deploy detection).
+        # Run post-deploy.sh after every deploy to refresh the file baseline.
         critical = [
             e for e in new_events
             if e.get("severity") == "critical"
-            and e.get("event_type") in ("service_crash", "file_tamper")
+            and e.get("event_type") == "service_crash"
         ]
         if critical:
             first_id = saved[0] if saved else None
             logger.warning(
-                "Guardian: CRITICAL threat — initiating auto-recovery (%d event(s))", len(critical)
+                "Guardian: CRITICAL service crash — initiating auto-recovery (%d event(s))", len(critical)
             )
             asyncio.create_task(self._run_recovery(first_id))
 
