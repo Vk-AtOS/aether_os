@@ -587,6 +587,51 @@ class FactoryPipeline:
                     # Spec review gate: pause here if decision_mode != "autonomous"
                     if accumulated_context.get("decision_mode") != "autonomous":
                         try:
+                            # LLM pre-critique pass: improve the spec before the human sees it.
+                            # Runs up to 2 passes to catch missing auth, undefined entities,
+                            # contradictions, missing error cases, and vague acceptance criteria.
+                            # Guard: any failure here is non-blocking — we continue with original spec.
+                            try:
+                                from aether_os.phases.p01_intake_requirements.spec_critique import critique_spec
+                                from aether_os.core.llm.client import get_llm_client as _get_llm
+                                _spec_llm = _get_llm()
+                                # Build spec text from accumulated context artifacts
+                                _p01_artifacts = accumulated_context.get("p01_intake_requirements_output") or {}
+                                _req_doc = _p01_artifacts.get("requirements_doc") or {}
+                                _intake = _p01_artifacts.get("intake") or {}
+                                _spec_lines = [
+                                    f"Project: {_intake.get('project_name', accumulated_context.get('project_name', ''))}",
+                                    f"Domain: {_intake.get('domain', accumulated_context.get('domain', ''))}",
+                                    f"Summary: {_intake.get('summary', accumulated_context.get('raw_input', '')[:500])}",
+                                ]
+                                _func_reqs = _req_doc.get("functional_requirements") or []
+                                if _func_reqs:
+                                    _spec_lines.append("Functional Requirements:")
+                                    _spec_lines.extend(f"  - {r}" for r in _func_reqs)
+                                _nfunc_reqs = _req_doc.get("non_functional_requirements") or []
+                                if _nfunc_reqs:
+                                    _spec_lines.append("Non-Functional Requirements:")
+                                    _spec_lines.extend(f"  - {r}" for r in _nfunc_reqs)
+                                _entities = _req_doc.get("entities") or []
+                                if _entities:
+                                    _spec_lines.append("Entities:")
+                                    _spec_lines.extend(f"  - {e.get('name', '')} ({e.get('table', '')}): {e.get('fields', [])}" for e in _entities)
+                                _raw_spec_text = "\n".join(_spec_lines) or accumulated_context.get("raw_input", "")
+                                _improved_spec = await critique_spec(_raw_spec_text, _spec_llm)
+                                if _improved_spec and _improved_spec != _raw_spec_text:
+                                    accumulated_context["spec_critique_improved"] = _improved_spec
+                                    logger.info(
+                                        "[pipeline] Spec pre-critique complete — spec improved from %d to %d chars (run=%s)",
+                                        len(_raw_spec_text), len(_improved_spec), run_id,
+                                    )
+                                else:
+                                    logger.info("[pipeline] Spec pre-critique complete — no changes needed (run=%s)", run_id)
+                            except Exception as _critique_exc:
+                                logger.warning(
+                                    "[pipeline] Spec pre-critique failed (non-fatal — proceeding with original spec, run=%s): %s",
+                                    run_id, _critique_exc,
+                                )
+
                             # Problem 34: Check if decision already exists.
                             _ctrl = await get_control(run_id)
                             # If it's already approved, just continue. If it's missing or unexpected, emit error.
@@ -600,9 +645,6 @@ class FactoryPipeline:
                                     "run_id": run_id,
                                     "message": "Gate decision not found. It may have been wiped by a system restore.",
                                 })
-                                # Update metadata
-                                # (Assuming there's a function to update run metadata, 
-                                # if not, we can use a direct DB query here or via ledger)
                                 # Previous code wrote a "pipeline_warning" string to
                                 # `_run_warn.metadata` — but `Run.metadata` does not
                                 # exist as a column; SQLAlchemy resolves it to the
