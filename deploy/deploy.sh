@@ -111,4 +111,9 @@ else
     echo "⚠ Health check returned: $HEALTH"
 fi
 
+# 9. Refresh Guardian file-integrity baseline in Redis so new file hashes are
+#    recorded as trusted. Without this, Guardian flags every deploy as file_tamper.
+echo "→ Running post-deploy Guardian baseline refresh..."
+bash "$INSTALL_DIR/scripts/post-deploy.sh" http://127.0.0.1:8000 || echo "⚠ post-deploy.sh failed — Guardian may alert on new file hashes"
+
 echo "=== Deploy done @ $(date) ==="
