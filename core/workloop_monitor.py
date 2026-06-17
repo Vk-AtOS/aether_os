@@ -296,8 +296,8 @@ Return ONLY the JSON array, no markdown."""
                 "findings": findings,
                 "fix_count": len([f for f in findings if f.get("auto_fixable")]),
             })
-        except Exception:
-            pass  # Non-fatal — event emission is best-effort
+        except Exception as exc:
+            logger.debug("Workloop event emission failed (non-fatal): %s", exc)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

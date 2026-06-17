@@ -40,8 +40,8 @@ def init_memory(
     if mem_file.exists():
         try:
             return json.loads(mem_file.read_text())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Project memory JSON parse failed, reinitializing: %s", exc)
 
     memory = {
         "project_name": project_name,

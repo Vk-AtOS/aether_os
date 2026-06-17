@@ -72,8 +72,8 @@ def put(domain: str, entity_tables: List[str], arch: Dict, req_text: str = "") -
         entries = sorted(_CACHE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
         while len(entries) >= _MAX_CACHE_ENTRIES:
             entries.pop(0).unlink(missing_ok=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Spec cache cleanup failed (non-fatal): %s", exc)
     key = _cache_key(domain, entity_tables, req_text)
     # PIPELINE-032: wrap entry with TTL metadata
     entry = {"data": arch, "created_at": time.time()}
