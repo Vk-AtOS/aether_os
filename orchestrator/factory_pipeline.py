@@ -1,13 +1,15 @@
 """
-AetherOS — 23-Phase Factory Pipeline
+AetherOS — 29-Phase Factory Pipeline
 
 Each phase is a completely independent module.
 All inter-phase communication goes through the MessageBus only.
 The orchestrator routes messages; it never calls phase logic directly.
+
+Phase registry data lives in orchestrator/phase_sequence.py.
+Run-state helpers live in orchestrator/run_state.py.
 """
 from __future__ import annotations
 import asyncio
-import datetime
 import logging
 import time
 import uuid
@@ -34,169 +36,28 @@ from aether_os.core.project_memory import (
     update_memory as _pm_update,
     add_changelog_entry as _pm_changelog,
 )
+from aether_os.orchestrator.phase_sequence import (
+    CRITICAL_PHASES,
+    INACTIVE_PHASE_DIRS,
+    PHASE_SEQUENCE,
+    PHASE_SUPERVISORS,
+    _load_supervisor,
+)
+from aether_os.orchestrator.run_state import (
+    _extract_project_name,
+    _get_pipeline_semaphore,
+    update_phase_state,
+    save_checkpoint,
+)
+from aether_os.orchestrator.artifact_collector import (
+    embed_artifacts,
+    upload_to_s3,
+    delivery_council_check,
+    extract_learning,
+    store_run_memory,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _extract_project_name(raw_input: str, run_id: str) -> str:
-    """Extract a Python-safe project name from raw_input, fallback to RunId{run_id[:8]}.
-
-    Tries: "Build X" / "Build the X" pattern first, then first capitalised word
-    that looks like a product name. Returns a PascalCase identifier — no hyphens.
-    """
-    import re as _re
-    if raw_input:
-        m = _re.search(r'\bBuild(?:\s+the\s+|\s+)([A-Z][A-Za-z0-9]+)', raw_input)
-        if m:
-            return _re.sub(r'[^A-Za-z0-9]', '', m.group(1)) or f"Run{run_id[:8]}"
-        m = _re.search(r'([A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+)', raw_input)
-        if m:
-            return _re.sub(r'[^A-Za-z0-9]', '', m.group(1)) or f"Run{run_id[:8]}"
-    return f"Run{run_id[:8]}"
-
-
-# ── Pipeline concurrency limiter ──────────────────────────────────────────────
-# Prevents CPU saturation when multiple users trigger simultaneous builds.
-# Default: 2 concurrent full pipeline runs. Override with PIPELINE_MAX_CONCURRENT env var.
-_PIPELINE_SEMAPHORE: Optional[asyncio.Semaphore] = None
-
-def _get_pipeline_semaphore() -> asyncio.Semaphore:
-    global _PIPELINE_SEMAPHORE
-    if _PIPELINE_SEMAPHORE is None:
-        limit = int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2"))
-        _PIPELINE_SEMAPHORE = asyncio.Semaphore(limit)
-    return _PIPELINE_SEMAPHORE
-
-# Phases whose failure must abort the pipeline — downstream phases depend on their output.
-# Self-healing (p07b) and observational phases (p08+) are deliberately excluded so
-# they don't block delivery on non-critical failures.
-CRITICAL_PHASES = frozenset({
-    "p01_intake_requirements",  # no requirements → nothing to build
-    "p02_architecture",         # no architecture → codegen produces garbage
-    "p02b_domain_ir",           # no IR → p04/p05 fall back to "items" stub everywhere
-    "p04_backend",              # no backend → p05 integration fails completely
-    "p05_frontend",             # no frontend → deliverable is unusable
-})
-
-# Phase directories that exist on disk but are NOT registered in PHASE_SUPERVISORS
-# and are therefore never executed by the active pipeline.  These are legacy
-# validator / gate-testing utilities from a v1→v2 consolidation.  Do not add
-# them to PHASE_SEQUENCE or PHASE_SUPERVISORS without implementing the
-# corresponding *Supervisor class.
-INACTIVE_PHASE_DIRS = frozenset({
-    "p00_intake",
-    "p01_requirements",
-    "p04a_backend_codegen",
-    "p04b_uiux_design",
-    "p07a_unit_testing",
-    "p07b_performance_testing",
-    "p07c_accessibility_testing",
-    "p07d_e2e_testing",
-})
-
-# Ordered 23-phase sequence (12 core + 8 post-deployment + p00_research + p04b_business_logic + p07b_self_healing)
-PHASE_SEQUENCE = [
-    "p00_research",
-    "p00b_data_archaeology",        # Analyze existing schema + generate ETL migration scripts
-    "p01_intake_requirements",
-    "p01b_integration_discovery",   # Discover external systems needed (after intake)
-    "p02_architecture",
-    "p02b_domain_ir",
-    "p02c_permission_modeling",  # ABAC permission model derived from domain IR
-    "p03_scaffolding",
-    "p04_backend",
-    "p04b_business_logic",
-    "p04c_integration_codegen",     # Generate async clients for discovered integrations
-    "p05_frontend",
-    "p06_review_security",
-    "p07_testing",
-    "p07b_self_healing",
-    "p08_cicd_deployment",
-    "p09_observability",
-    "p10_docs_delivery",
-    "p11_deployment",       # Docker build & run — delivers a live URL
-    "p11a_monitoring",      # Prometheus + Grafana + OTEL
-    "p11b_error_tracking",  # Sentry + structlog
-    "p11c_analytics",       # PostHog events + dashboard
-    "p11d_alerting",        # Alertmanager + runbooks
-    "p11e_enterprise_deployment",  # Helm charts, Terraform, operational scripts
-    "p12a_feature_flags",   # Unleash feature flags
-    "p12b_ab_testing",      # GrowthBook experiments
-    "p13_app_memory",       # mem0 memory layer + knowledge graph
-    "p14_client_portal",    # Standalone client review portal
-    "p15_handoff",          # Complete technical delivery package (docs, runbook, Postman)
-]
-
-# Phase name → supervisor class path (23 phases: see PHASE_SEQUENCE above).
-# All paths use the "aether_os.phases.*" namespace. The aether_os package is
-# mapped to the repo root via pyproject.toml (`package-dir = {"aether_os" = "."}`).
-# _load_supervisor() also adds a fallback to "phases.*" in case the package
-# wasn't installed with `pip install -e .` — see _load_supervisor below.
-PHASE_SUPERVISORS: Dict[str, str] = {
-    "p00_research":            "aether_os.phases.p00_research.supervisor_agent.ResearchSupervisor",
-    "p00b_data_archaeology":   "aether_os.phases.p00b_data_archaeology.supervisor_agent.DataArchaeologySupervisor",
-    "p01_intake_requirements": "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
-    "p01b_integration_discovery": "aether_os.phases.p01b_integration_discovery.supervisor_agent.IntegrationDiscoverySupervisor",
-    "p02_architecture":        "aether_os.phases.p02_architecture.ArchitectureSupervisor",
-    "p02b_domain_ir":          "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
-    "p02c_permission_modeling": "aether_os.phases.p02c_permission_modeling.supervisor_agent.PermissionModelingSupervisor",
-    "p03_scaffolding":         "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
-    "p04_backend":             "aether_os.phases.p04_backend.BackendSupervisor",
-    "p04b_business_logic":     "aether_os.phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
-    "p04c_integration_codegen": "aether_os.phases.p04c_integration_codegen.supervisor_agent.IntegrationCodegenSupervisor",
-    "p05_frontend":            "aether_os.phases.p05_frontend.FrontendSupervisor",
-    "p06_review_security":     "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
-    "p07_testing":             "aether_os.phases.p07_testing.TestingSupervisor",
-    "p07b_self_healing":       "aether_os.phases.p07b_self_healing.SelfHealingSupervisor",
-    "p08_cicd_deployment":     "aether_os.phases.p08_cicd_deployment.CICDDeploymentSupervisor",
-    "p09_observability":       "aether_os.phases.p09_observability.ObservabilitySupervisor",
-    "p10_docs_delivery":       "aether_os.phases.p10_docs_delivery.DocsDeliverySupervisor",
-    "p11_deployment":          "aether_os.phases.p11_deployment.DeploymentSupervisor",
-    # Post-deployment phases
-    "p11a_monitoring":         "aether_os.phases.p11a_monitoring.MonitoringSupervisor",
-    "p11b_error_tracking":     "aether_os.phases.p11b_error_tracking.ErrorTrackingSupervisor",
-    "p11c_analytics":          "aether_os.phases.p11c_analytics.AnalyticsSupervisor",
-    "p11d_alerting":           "aether_os.phases.p11d_alerting.AlertingSupervisor",
-    "p11e_enterprise_deployment": "aether_os.phases.p11e_enterprise_deployment.supervisor_agent.EnterpriseDeploymentSupervisor",
-    "p12a_feature_flags":      "aether_os.phases.p12a_feature_flags.FeatureFlagsSupervisor",
-    "p12b_ab_testing":         "aether_os.phases.p12b_ab_testing.ABTestingSupervisor",
-    "p13_app_memory":          "aether_os.phases.p13_app_memory.AppMemorySupervisor",
-    "p14_client_portal":       "aether_os.phases.p14_client_portal.ClientPortalSupervisor",
-    "p15_handoff":             "aether_os.phases.p15_handoff.supervisor_agent.HandoffSupervisor",
-}
-
-
-def _load_supervisor(phase_name: str):
-    """Dynamically import and instantiate the supervisor for a phase.
-
-    Tries the configured path first ("aether_os.phases.<phase>...") and falls
-    back to "phases.<phase>..." if the aether_os package isn't installed
-    (i.e. running from the source tree without `pip install -e .`).
-    """
-    class_path = PHASE_SUPERVISORS.get(phase_name)
-    if not class_path:
-        return None
-    import importlib
-    candidates = [class_path]
-    if class_path.startswith("aether_os.phases."):
-        candidates.append(class_path[len("aether_os."):])  # → phases.<phase>...
-    last_exc: Exception | None = None
-    for path in candidates:
-        module_path, class_name = path.rsplit(".", 1)
-        try:
-            module = importlib.import_module(module_path)
-            cls = getattr(module, class_name)
-            if not callable(cls):
-                raise TypeError(f"{path} is not callable — expected a Supervisor class")
-            return cls()
-        except (ImportError, AttributeError, TypeError) as exc:
-            last_exc = exc
-            logger.debug("[pipeline] supervisor candidate %r failed: %s", path, exc)
-    logger.error(
-        "[pipeline] Cannot load supervisor for phase %r — tried %s. Last error: %s",
-        phase_name, candidates, last_exc,
-    )
-    raise last_exc  # type: ignore
 
 
 class FactoryPipeline:
@@ -635,39 +496,7 @@ class FactoryPipeline:
                 })
 
                 # Persist checkpoint after every phase so a crashed run can resume
-                try:
-                    import json as _json_ckpt
-                    from aether_os.core.db import get_session_factory as _gsf_ckpt_w
-                    from aether_os.core.models import Run as _Run_ckpt_w
-                    from sqlalchemy import update as _sa_upd_ckpt_w
-
-                    def _serialisable(v: object) -> object:
-                        if isinstance(v, dict):
-                            return {k2: _serialisable(v2) for k2, v2 in v.items()}
-                        if isinstance(v, list):
-                            return [_serialisable(i) for i in v]
-                        if isinstance(v, (str, int, float, bool)) or v is None:
-                            return v
-                        return str(v)
-
-                    _ckpt_ctx = {
-                        k: _serialisable(v)
-                        for k, v in accumulated_context.items()
-                        if k not in ("phase_summaries",)
-                    }
-                    _ckpt_payload = {
-                        "last_completed_phase": phase_name,
-                        "accumulated_context": _ckpt_ctx,
-                    }
-                    async with _gsf_ckpt_w()() as _sess_ckpt_w:
-                        await _sess_ckpt_w.execute(
-                            _sa_upd_ckpt_w(_Run_ckpt_w)
-                            .where(_Run_ckpt_w.id == run_id)
-                            .values(checkpoint_data=_ckpt_payload)
-                        )
-                        await _sess_ckpt_w.commit()
-                except Exception as _ckpt_w_exc:
-                    logger.debug("[pipeline] checkpoint save failed (non-fatal): %s", _ckpt_w_exc)
+                await save_checkpoint(run_id, phase_name, accumulated_context)
 
                 # After p07_testing: Quality Gate (Fix 9)
                 if phase_name == "p07_testing":
@@ -1167,122 +996,15 @@ class FactoryPipeline:
         duration = time.time() - pipeline_start
 
         # LLM Council delivery check (background — stores result and flags run if quality fails)
-        async def _delivery_council_check():
-            try:
-                from aether_os.core.council import DeliveryCouncil
-                from aether_os.core.db import get_session_factory as _gsf
-                from aether_os.core.models import Run as _Run
-                from sqlalchemy import update as _sa_update
-                _dc = DeliveryCouncil()
-                _delivery = await asyncio.wait_for(
-                    _dc.run(
-                        run_id=run_id,
-                        project_name=project_name or accumulated_context.get("project_name") or _extract_project_name(raw_input, run_id),
-                        domain=domain,
-                        phases_results=results,
-                        org_id=org_id,
-                    ),
-                    timeout=120,
-                )
-                # Determine final status: completed or needs_review
-                _council_passed = _delivery.get("passed", False)
-                _council_score = _delivery.get("score", 1.0)
-                _final_status = "completed" if _council_passed else "needs_review"
-                _sf = _gsf()
-                async with _sf() as _s:
-                    await _s.execute(
-                        _sa_update(_Run)
-                        .where(_Run.id == run_id)
-                        .values(
-                            council_delivery=_delivery,
-                            status=_final_status,
-                            message=(
-                                None if _council_passed
-                                else f"DeliveryCouncil flagged issues (score={_council_score:.2f}): "
-                                     f"{_delivery.get('reason', '')} — "
-                                     f"Suggestions: {'; '.join(_delivery.get('suggestions', []))}"
-                            ),
-                        )
-                    )
-                    await _s.commit()
-                if not _council_passed:
-                    logger.warning(
-                        "DeliveryCouncil: run %s flagged as needs_review (score=%.2f): %s | suggestions: %s",
-                        run_id, _council_score, _delivery.get("reason", ""),
-                        _delivery.get("suggestions", []),
-                    )
-                    # Emit an SSE event so the UI can show the council feedback immediately
-                    await publish_event(run_id, {
-                        "type": "council_delivery_review",
-                        "passed": False,
-                        "score": _council_score,
-                        "reason": _delivery.get("reason", ""),
-                        "suggestions": _delivery.get("suggestions", []),
-                    })
-                    # Fix 16: council_fail notification (score < 0.5)
-                    if _council_score < 0.5 and org_id:
-                        try:
-                            from aether_os.core.db import get_session_factory as _gsf_cn
-                            from aether_os.core.models import Notification as _Notif_cn
-                            _pname_cn = project_name or f"run-{run_id[:8]}"
-                            _notif_cn = _Notif_cn(
-                                org_id=org_id,
-                                type="council_fail",
-                                title=f"❌ Council failed for {_pname_cn}",
-                                message=f"DeliveryCouncil score {_council_score:.2f} < 0.5: {_delivery.get('reason', '')}",
-                                link=f"/dashboard/runs/{run_id}",
-                            )
-                            async with _gsf_cn()() as _s_cn:
-                                _s_cn.add(_notif_cn)
-                                await _s_cn.commit()
-                        except Exception as _ne_cn:
-                            logger.debug("[pipeline] council_fail notification failed: %s", _ne_cn)
-                else:
-                    logger.info(
-                        "DeliveryCouncil: run %s passed (score=%.2f)", run_id, _council_score
-                    )
-                    # Notify frontend so it doesn't stay stuck in "council_review" state
-                    await publish_event(run_id, {
-                        "type": "council_delivery_passed",
-                        "passed": True,
-                        "score": _council_score,
-                        "status": "completed",
-                    })
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "DeliveryCouncil timed out after 120s for run %s — marking completed", run_id
-                )
-                try:
-                    from aether_os.core.db import get_session_factory as _gsf2t
-                    from aether_os.core.models import Run as _Run2t
-                    from sqlalchemy import update as _sa_update2t
-                    _sf2t = _gsf2t()
-                    async with _sf2t() as _s2t:
-                        await _s2t.execute(
-                            _sa_update2t(_Run2t).where(_Run2t.id == run_id).values(status="completed")
-                        )
-                        await _s2t.commit()
-                except Exception:
-                    pass
-                await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_timeout"})
-            except Exception as _exc:
-                logger.warning("DeliveryCouncil check failed: %s", _exc)
-                # Council unavailable — promote to completed so run is not stuck in council_review
-                try:
-                    from aether_os.core.db import get_session_factory as _gsf2
-                    from aether_os.core.models import Run as _Run2
-                    from sqlalchemy import update as _sa_update2
-                    _sf2 = _gsf2()
-                    async with _sf2() as _s2:
-                        await _s2.execute(
-                            _sa_update2(_Run2).where(_Run2.id == run_id).values(status="completed")
-                        )
-                        await _s2.commit()
-                except Exception:
-                    pass
-                await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_error"})
-
-        _dc_task = asyncio.create_task(_delivery_council_check())
+        _dc_task = asyncio.create_task(delivery_council_check(
+            run_id=run_id,
+            project_name=project_name,
+            raw_input=raw_input,
+            domain=domain,
+            results=results,
+            org_id=org_id,
+            accumulated_context=accumulated_context,
+        ))
         self._background_tasks.add(_dc_task)
         _dc_task.add_done_callback(self._background_tasks.discard)
 
@@ -1352,72 +1074,14 @@ class FactoryPipeline:
             _wh_t.add_done_callback(self._background_tasks.discard)
 
         # ── Extract and persist learning patterns (background, non-blocking) ────
-        async def _extract_learning():
-            if not org_id or not client_id:
-                return
-            try:
-                from aether_os.core.db import get_session_factory as _gsf_l
-                from aether_os.core.services import learning_service as _ls
-                from aether_os.core.models import GlobalPattern as _GP
-                from sqlalchemy import select as _sel_l
-                async with _gsf_l()() as _sl:
-                    # 1. Per-user patterns (tech stack + quality preferences)
-                    _run_tech = accumulated_context.get("architecture_json", {}).get("tech_stack", {})
-                    if _run_tech:
-                        await _ls.upsert_pattern(
-                            org_id, client_id, "tech_stack", "preferred_stack",
-                            {"stack": _run_tech, "domain": domain}, run_id, _sl,
-                        )
-                    if domain and domain != "general":
-                        await _ls.upsert_pattern(
-                            org_id, client_id, "domain_expertise", domain,
-                            {"domain": domain, "run_id": run_id}, run_id, _sl,
-                        )
-                    _q_flag = None
-                    for _ph in results.values():
-                        if isinstance(_ph, dict) and "test_quality_flag" in _ph:
-                            _q_flag = _ph["test_quality_flag"]
-                    if _q_flag:
-                        await _ls.upsert_pattern(
-                            org_id, client_id, "deployment_preference", "last_successful_deploy",
-                            {"status": "completed", "quality": _q_flag, "domain": domain}, run_id, _sl,
-                        )
-                    # 2. Global patterns table (shared intelligence across all users)
-                    _stack_key = str(_run_tech.get("backend", domain or "unknown"))
-                    _existing_gp = (await _sl.execute(
-                        _sel_l(_GP).where(
-                            _GP.org_id == org_id,
-                            _GP.domain == domain,
-                            _GP.pattern_name == _stack_key,
-                        )
-                    )).scalar_one_or_none()
-                    _q_score = 0.7 if _q_flag == "pass" else (0.4 if _q_flag == "warn" else 0.2)
-                    if _existing_gp:
-                        _existing_gp.usage_count += 1
-                        _existing_gp.avg_quality_score = round(
-                            (_existing_gp.avg_quality_score * (_existing_gp.usage_count - 1) + _q_score)
-                            / _existing_gp.usage_count, 3
-                        )
-                        _existing_gp.success_rate = round(
-                            (_existing_gp.success_rate * (_existing_gp.usage_count - 1) + (1.0 if _q_flag == "pass" else 0.0))
-                            / _existing_gp.usage_count, 3
-                        )
-                    else:
-                        _sl.add(_GP(
-                            org_id=org_id,
-                            domain=domain or "general",
-                            pattern_name=_stack_key,
-                            pattern_type="tech_stack",
-                            success_rate=1.0 if _q_flag == "pass" else 0.5,
-                            usage_count=1,
-                            avg_quality_score=_q_score,
-                        ))
-                    await _sl.commit()
-                    logger.info("[pipeline] Learning patterns extracted for run %s (domain=%s)", run_id, domain)
-            except Exception as _le:
-                logger.debug("[pipeline] Learning extraction skipped: %s", _le)
-
-        _lt = asyncio.create_task(_extract_learning())
+        _lt = asyncio.create_task(extract_learning(
+            run_id=run_id,
+            org_id=org_id,
+            client_id=client_id,
+            domain=domain,
+            results=results,
+            accumulated_context=accumulated_context,
+        ))
         self._background_tasks.add(_lt)
         _lt.add_done_callback(self._background_tasks.discard)
 
@@ -1435,99 +1099,28 @@ class FactoryPipeline:
         _t.add_done_callback(self._background_tasks.discard)
 
         # ── Store outcome in cross-run memory for future learning (background) ──
-        async def _store_memory():
-            if not org_id:
-                return
-            try:
-                from aether_os.core.services.memory_service import get_memory_service
-                ms = get_memory_service()
-                await ms.store_run_outcome(
-                    org_id=org_id,
-                    run_id=run_id,
-                    raw_input=raw_input,
-                    status="completed",
-                    domain=domain,
-                    phase_outputs={k: v.get("artifacts", {}) for k, v in results.items()},
-                )
-            except Exception as _me:
-                logger.debug("[pipeline] Memory store skipped: %s", _me)
-        _t2 = asyncio.create_task(_store_memory())
+        _t2 = asyncio.create_task(store_run_memory(
+            run_id=run_id,
+            org_id=org_id,
+            raw_input=raw_input,
+            domain=domain,
+            results=results,
+        ))
         self._background_tasks.add(_t2)
         _t2.add_done_callback(self._background_tasks.discard)
 
         # ── PART 2: Embed artifacts for semantic search (background, non-blocking)
-        async def _embed_artifacts():
-            if await get_control(run_id) == "cancel":
-                return
-            try:
-                from aether_os.core.artifact_store import get_artifact_store
-                store = get_artifact_store()
-                _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
-                _count = 0
-                _errors = 0
-                _MAX_ARTIFACTS = int(os.environ.get("ARTIFACT_EMBED_LIMIT", "5000"))
-                _total_files = 0
-                for _phase in results:
-                    if await get_control(run_id) == "cancel":
-                        break
-                    _phase_dir = project_dir / _phase
-                    if _phase_dir.exists():
-                        for f in _phase_dir.rglob("*"):
-                            if f.is_file() and f.suffix in _extensions:
-                                _total_files += 1
-                                try:
-                                    await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text(), org_id=org_id)
-                                    _count += 1
-                                    if _count >= _MAX_ARTIFACTS:
-                                        break
-                                except Exception as _ef:
-                                    _errors += 1
-                                    logger.debug("[pipeline] artifact embed failed %s: %s", f.name, _ef)
-                                    continue
-                    if _count >= _MAX_ARTIFACTS:
-                        break
-                # Count remaining files not yet iterated
-                if _count >= _MAX_ARTIFACTS:
-                    _skipped = _total_files - _count
-                    logger.warning(
-                        "[pipeline] Semantic search indexed %d of %d files — %d were skipped due to volume limits (ARTIFACT_EMBED_LIMIT=%d) for run %s.",
-                        _count, _total_files, _skipped, _MAX_ARTIFACTS, run_id,
-                    )
-                    await publish_event(run_id, {
-                        "type": "artifact_embed_truncated",
-                        "limit": _MAX_ARTIFACTS,
-                        "indexed": _count,
-                        "total": _total_files,
-                        "skipped": _skipped,
-                        "run_id": run_id,
-                        "message": f"Semantic search indexed {_count} of {_total_files} files — {_skipped} were skipped due to volume limits.",
-                    })
-                if _errors:
-                    logger.warning("[pipeline] Embedded %d artifacts (%d failed) for run %s", _count, _errors, run_id)
-                else:
-                    logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
-            except Exception as e:
-                logger.warning("[pipeline] Artifact embedding skipped: %s", e)
-        _t3 = asyncio.create_task(_embed_artifacts())
+        _t3 = asyncio.create_task(embed_artifacts(
+            run_id=run_id,
+            project_dir=project_dir,
+            results=results,
+            org_id=org_id,
+        ))
         self._background_tasks.add(_t3)
         _t3.add_done_callback(self._background_tasks.discard)
 
         # ── PART 3: Upload artifacts to S3 (background, non-blocking)
-        async def _upload_to_s3():
-            if await get_control(run_id) == "cancel":
-                return
-            try:
-                from aether_os.core.artifact_store import get_artifact_store as _gas_s3
-                _s3_count = await _gas_s3().upload_run_to_s3(run_id, project_dir)
-                if _s3_count:
-                    await publish_event(run_id, {
-                        "type": "s3_upload_complete",
-                        "run_id": run_id,
-                        "count": _s3_count,
-                    })
-            except Exception as _s3_exc:
-                logger.warning("[pipeline] S3 upload skipped: %s", _s3_exc)
-        _t4 = asyncio.create_task(_upload_to_s3())
+        _t4 = asyncio.create_task(upload_to_s3(run_id=run_id, project_dir=project_dir))
         self._background_tasks.add(_t4)
         _t4.add_done_callback(self._background_tasks.discard)
 
@@ -1624,25 +1217,8 @@ class FactoryPipeline:
             logger.error("[pipeline] Human approval gate failed (%s) — continuing pipeline", exc)
 
     async def _update_state(self, run_id: str, phase: str, status: str):
-        """Persist phase status via ORM (FIX-017)."""
-        try:
-            from aether_os.core.db import get_session_factory as _gsf_us
-            from aether_os.core.models import PhaseCompletion as _PC_us
-            async with _gsf_us()() as _sess_us:
-                existing_pc = (await _sess_us.get(_PC_us, (run_id, phase)))
-                if existing_pc:
-                    existing_pc.status = status
-                    existing_pc.updated_at = time.time()
-                else:
-                    _sess_us.add(_PC_us(
-                        run_id=run_id,
-                        phase_name=phase,
-                        status=status,
-                        updated_at=time.time(),
-                    ))
-                await _sess_us.commit()
-        except Exception as e:
-            logger.warning("State update failed: %s", e)
+        """Persist phase status via ORM — delegates to run_state.update_phase_state."""
+        await update_phase_state(run_id, phase, status)
 
     async def run_change_request(
         self,
