@@ -811,37 +811,121 @@ class FactoryPipeline:
                     except Exception as _pat_exc:
                         logger.warning("[pipeline] Pattern library injection failed (non-fatal): %s", _pat_exc)
 
-                    # BackendAuditCouncil — autonomous multi-model code review of generated main.py
-                    async def _backend_audit_council():
-                        try:
-                            from aether_os.core.council.council_reviewer import run_council
-                            _main_candidates = [
-                                project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
-                                project_dir / "p04_backend" / "src" / "main.py",
-                                project_dir / "src" / "main.py",
-                            ]
-                            _main_py = next((p for p in _main_candidates if p.exists()), None)
-                            if not _main_py:
-                                logger.debug("[BackendAuditCouncil] main.py not found, skipping")
-                                return
-                            _src = _main_py.read_text()
-                            _report = await asyncio.wait_for(
-                                run_council(_src, run_id, accumulated_context.get("project_name", "Project"), domain or "general"),
-                                timeout=90.0,
-                            )
-                            from dataclasses import asdict as _asdict
-                            _report_dict = _asdict(_report)
-                            _out = project_dir / "council_review.json"
-                            import json as _cj
-                            _out.write_text(_cj.dumps(_report_dict, indent=2))
-                            accumulated_context["council_review"] = _report_dict
-                            await emit({"type": "council_review_complete", "score": _report.average_score, "issues": len(_report.consensus_issues)}, run_id=run_id)
-                            logger.info("[BackendAuditCouncil] run %s: avg_score=%.1f consensus_issues=%d", run_id, _report.average_score, len(_report.consensus_issues))
-                        except Exception as _bac_exc:
-                            logger.warning("[BackendAuditCouncil] non-fatal: %s", _bac_exc)
-                    _bac_task = asyncio.create_task(_backend_audit_council())
-                    self._background_tasks.add(_bac_task)
-                    _bac_task.add_done_callback(self._background_tasks.discard)
+                    # BackendAuditCouncil — blocking re-generation feedback loop.
+                    # If avg_score < threshold, council issues are injected into
+                    # accumulated_context and p04_backend re-runs (max 2 retries).
+                    _BAC_THRESHOLD = float(os.environ.get("COUNCIL_THRESHOLD", "0.70"))
+                    _bac_main_candidates = [
+                        project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
+                        project_dir / "p04_backend" / "src" / "main.py",
+                        project_dir / "src" / "main.py",
+                    ]
+                    _bac_main_py = next((p for p in _bac_main_candidates if p.exists()), None)
+                    if _bac_main_py:
+                        for _bac_attempt in range(3):  # initial review + max 2 re-gens
+                            try:
+                                from aether_os.core.council.council_reviewer import run_council
+                                import json as _bac_cj
+                                from dataclasses import asdict as _bac_asdict
+                                _bac_src = _bac_main_py.read_text()
+                                _bac_report = await asyncio.wait_for(
+                                    run_council(
+                                        _bac_src, run_id,
+                                        accumulated_context.get("project_name", "Project"),
+                                        domain or "general",
+                                    ),
+                                    timeout=90.0,
+                                )
+                                _bac_report_dict = _bac_asdict(_bac_report)
+                                (project_dir / "council_review.json").write_text(
+                                    _bac_cj.dumps(_bac_report_dict, indent=2)
+                                )
+                                accumulated_context["council_review"] = _bac_report_dict
+                                await emit({
+                                    "type": "council_review_complete",
+                                    "score": _bac_report.average_score,
+                                    "issues": len(_bac_report.consensus_issues),
+                                    "attempt": _bac_attempt + 1,
+                                }, run_id=run_id)
+                                logger.info(
+                                    "[BackendAuditCouncil] run %s attempt %d: avg_score=%.2f issues=%d",
+                                    run_id, _bac_attempt + 1,
+                                    _bac_report.average_score, len(_bac_report.consensus_issues),
+                                )
+
+                                if _bac_report.average_score >= _BAC_THRESHOLD or _bac_attempt >= 2:
+                                    break  # score acceptable or retry cap reached
+
+                                # Score below threshold — inject issues and re-run p04_backend
+                                _bac_issues_text = "\n".join(
+                                    f"- {iss}" for iss in (_bac_report.consensus_issues or [])
+                                )
+                                accumulated_context["council_feedback"] = (
+                                    f"BackendAuditCouncil scored {_bac_report.average_score:.2f}/1.0 "
+                                    f"(attempt {_bac_attempt + 1}). Fix before generating:\n"
+                                    f"{_bac_issues_text}"
+                                )
+                                await emit({
+                                    "type": "council_p04_retry",
+                                    "attempt": _bac_attempt + 1,
+                                    "score": _bac_report.average_score,
+                                }, run_id=run_id)
+                                logger.info(
+                                    "[BackendAuditCouncil] score %.2f < %.2f — re-running p04_backend (retry %d/2)",
+                                    _bac_report.average_score, _BAC_THRESHOLD, _bac_attempt + 1,
+                                )
+                                _bac_retry_input = PhaseInput(
+                                    run_id=run_id,
+                                    project_id=run_id,
+                                    phase="p04_backend",
+                                    input_data=accumulated_context,
+                                    output_dir=str(project_dir),
+                                    domain=domain,
+                                    client_id=client_id,
+                                )
+                                try:
+                                    _bac_retry_result = await asyncio.wait_for(
+                                        self._run_phase("p04_backend", _bac_retry_input),
+                                        timeout=600.0,
+                                    )
+                                    results["p04_backend"] = _bac_retry_result
+                                    # Re-do S11 merge so downstream phases see improved code
+                                    import shutil as _bac_shutil
+                                    _bac_p04_src = project_dir / "p04_backend" / "backend_codegen" / "src"
+                                    _bac_p03_dir = project_dir / "p03_scaffolding"
+                                    _bac_scaffold_dirs = (
+                                        [d for d in _bac_p03_dir.iterdir() if d.is_dir()]
+                                        if _bac_p03_dir.exists() else []
+                                    )
+                                    if _bac_p04_src.exists() and _bac_scaffold_dirs:
+                                        _bac_dest = _bac_scaffold_dirs[0] / "src"
+                                        _bac_dest.mkdir(parents=True, exist_ok=True)
+                                        _bac_shutil.copytree(
+                                            str(_bac_p04_src), str(_bac_dest),
+                                            dirs_exist_ok=True,
+                                            ignore=_bac_shutil.ignore_patterns("__pycache__", "*.pyc"),
+                                        )
+                                        accumulated_context["backend_src_dir"] = str(_bac_dest)
+                                        accumulated_context["backend_main_py"] = str(_bac_dest / "main.py")
+                                        logger.info("[BackendAuditCouncil] S11 re-merge → %s", _bac_dest)
+                                    # Refresh main.py reference for next council pass
+                                    _bac_main_py = next(
+                                        (p for p in _bac_main_candidates if p.exists()), None
+                                    )
+                                    if not _bac_main_py:
+                                        logger.warning("[BackendAuditCouncil] main.py missing after retry")
+                                        break
+                                except Exception as _bac_retry_exc:
+                                    logger.warning(
+                                        "[BackendAuditCouncil] p04 retry failed: %s — stopping loop",
+                                        _bac_retry_exc,
+                                    )
+                                    break
+                            except Exception as _bac_exc:
+                                logger.warning("[BackendAuditCouncil] council failed (non-fatal): %s", _bac_exc)
+                                break
+                    else:
+                        logger.debug("[BackendAuditCouncil] main.py not found, skipping")
 
                 # Update state
                 p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
