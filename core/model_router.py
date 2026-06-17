@@ -458,12 +458,13 @@ class ModelRouter:
             models_tried += 1
             error_class = "fallback"  # default if no attempt completes
 
+            _active_prompt = prompt  # augmented with self-critique on placeholder retry
             for attempt in range(spec.retry_count):
                 try:
                     async with trace_call(
                         name=trace_name,
                         inputs={
-                            "prompt": prompt[:400],
+                            "prompt": _active_prompt[:400],
                             "model": spec.model,
                             "provider": spec.provider,
                             "task_type": task_type,
@@ -471,7 +472,7 @@ class ModelRouter:
                         },
                     ):
                         result = await asyncio.wait_for(
-                            self._call_provider(spec, prompt, task_type, system, max_tokens),
+                            self._call_provider(spec, _active_prompt, task_type, system, max_tokens),
                             timeout=spec.timeout_seconds,
                         )
 
@@ -495,7 +496,7 @@ class ModelRouter:
                         except Exception:
                             pass
                     # Record token usage for budget tracking (approximate)
-                    _est_input = len(prompt) // 4
+                    _est_input = len(_active_prompt) // 4
                     _est_output = len(result) // 4
                     if org_id:
                         try:
@@ -599,10 +600,19 @@ class ModelRouter:
                             f"{spec.provider}/{spec.model} returned placeholder "
                             f"response (len={len(_stripped)}): {_stripped[:80]!r}"
                         )
-                        logger.warning("Router: %s — will retry", msg)
+                        logger.warning("Router: %s — will retry with self-critique", msg)
                         errors.append(msg)
                         error_class = "retry"
                         if attempt < spec.retry_count - 1:
+                            # Inject self-critique so the next attempt gets context
+                            # that its previous response was rejected
+                            _active_prompt = (
+                                "Your previous response was rejected as a placeholder "
+                                "(returned '...', 'TODO', or template text). "
+                                "Do NOT return stubs, comments-only, or incomplete code. "
+                                "Provide a complete, working implementation.\n\n"
+                                + prompt
+                            )
                             await asyncio.sleep(1.5 ** attempt)
                         continue
                     # ─────────────────────────────────────────────────────────
