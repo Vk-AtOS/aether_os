@@ -98,6 +98,128 @@ async def upload_to_s3(
         logger.warning("[pipeline] S3 upload skipped: %s", _s3_exc)
 
 
+# Mapping from DeliveryCouncil criterion name → phase(s) to re-run.
+# When a criterion fails, we re-run these phases once to attempt auto-remediation.
+_CRITERION_TO_PHASES = {
+    "security":     ["p06_review_security"],
+    "testing":      ["p07_testing", "p07b_self_healing"],
+    "quality":      ["p07_testing", "p07b_self_healing"],
+    "frontend":     ["p05_frontend"],
+    "completeness": ["p05_frontend", "p10_docs_delivery"],
+    "docs":         ["p10_docs_delivery"],
+}
+
+
+async def _run_council_remediation_phases(
+    run_id: str,
+    failing_criteria: list,
+    accumulated_context: Dict,
+    council_reason: str,
+) -> None:
+    """
+    Re-run only the phases that own the failing council criteria.
+
+    This is called at most once per pipeline run (guarded by _council_retry_count
+    in accumulated_context).  Injects the council critique as context so each
+    re-run phase knows what to fix.
+    """
+    import asyncio
+    from aether_os.orchestrator.messages import PhaseInput
+    from aether_os.orchestrator.phase_sequence import _load_supervisor
+    import time
+
+    run_id_str = run_id
+    # Deduplicate phases while preserving dependency order
+    seen: set = set()
+    phases_to_rerun = []
+    for criterion in failing_criteria:
+        for phase in _CRITERION_TO_PHASES.get(criterion, []):
+            if phase not in seen:
+                seen.add(phase)
+                phases_to_rerun.append(phase)
+
+    if not phases_to_rerun:
+        logger.info("[council_remediation] No remediable phases for criteria: %s", failing_criteria)
+        return
+
+    logger.info(
+        "[council_remediation] Re-running %d phase(s) for failing criteria %s: %s",
+        len(phases_to_rerun), failing_criteria, phases_to_rerun,
+    )
+
+    # Inject council critique so re-run phases know what to fix
+    remediation_context = dict(accumulated_context)
+    remediation_context["council_critique"] = (
+        f"DeliveryCouncil identified failures in: {', '.join(failing_criteria)}. "
+        f"Reason: {council_reason}. "
+        "Please address the above issues in this re-run."
+    )
+    remediation_context["is_council_remediation"] = True
+
+    project_dir_str = accumulated_context.get("project_dir", "")
+    domain = accumulated_context.get("domain", "general")
+    client_id = accumulated_context.get("client_id", "system")
+
+    for phase_name in phases_to_rerun:
+        supervisor = _load_supervisor(phase_name)
+        if not supervisor:
+            logger.warning("[council_remediation] No supervisor for phase %r — skipping", phase_name)
+            continue
+
+        phase_input = PhaseInput(
+            run_id=run_id_str,
+            project_id=run_id_str,
+            phase=phase_name,
+            input_data=remediation_context,
+            output_dir=project_dir_str,
+            domain=domain,
+            client_id=client_id,
+        )
+        start_t = time.time()
+        try:
+            task_result = await asyncio.wait_for(
+                supervisor.run(phase_input),
+                timeout=600,
+            )
+            dur = round(time.time() - start_t, 2)
+            logger.info(
+                "[council_remediation] %s re-run complete in %.1fs success=%s",
+                phase_name, dur, task_result.success,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[council_remediation] %s re-run timed out after 600s", phase_name)
+        except Exception as _re_exc:
+            logger.warning("[council_remediation] %s re-run failed: %s", phase_name, _re_exc)
+
+
+async def _persist_run_status(run_id: str, delivery: Dict, council_passed: bool) -> None:
+    """Persist council_delivery and final status to the Run record."""
+    from aether_os.core.db import get_session_factory as _gsf
+    from aether_os.core.models import Run as _Run
+    from sqlalchemy import update as _sa_update
+    _council_score = delivery.get("score", 1.0)
+    _final_status = "completed" if council_passed else "needs_review"
+    try:
+        async with _gsf()() as _s:
+            await _s.execute(
+                _sa_update(_Run)
+                .where(_Run.id == run_id)
+                .values(
+                    council_delivery=delivery,
+                    status=_final_status,
+                    message=(
+                        None if council_passed
+                        else f"DeliveryCouncil flagged issues (score={_council_score:.2f}): "
+                             f"{delivery.get('reason', '')} — "
+                             f"Suggestions: {'; '.join(delivery.get('suggestions', []))}"
+                    ),
+                )
+            )
+            await _s.commit()
+    except Exception as _db_exc:
+        logger.warning("[council] Failed to persist run status for %s: %s", run_id, _db_exc)
+
+
 async def delivery_council_check(
     run_id: str,
     project_name: Optional[str],
@@ -107,47 +229,121 @@ async def delivery_council_check(
     org_id: Optional[str],
     accumulated_context: Dict,
 ) -> None:
-    """Run the DeliveryCouncil check and persist the final run status."""
+    """
+    Run the DeliveryCouncil check and persist the final run status.
+
+    If score < 0.5 on the first evaluation AND this is the first council
+    check (guard: _council_retry_count not set), we:
+      1. Identify which criteria failed (from criteria_failures in the response)
+      2. Re-run the phases that own those criteria (once, max 1 cycle)
+      3. Run the council again — if it still fails, mark as needs_review
+    """
     import asyncio
     from aether_os.core.pipeline_state import publish_event
     from aether_os.orchestrator.run_state import _extract_project_name
 
-    try:
+    async def _run_council(phases_results: Dict) -> Dict:
         from aether_os.core.council import DeliveryCouncil
-        from aether_os.core.db import get_session_factory as _gsf
-        from aether_os.core.models import Run as _Run
-        from sqlalchemy import update as _sa_update
         _dc = DeliveryCouncil()
-        _delivery = await asyncio.wait_for(
+        return await asyncio.wait_for(
             _dc.run(
                 run_id=run_id,
                 project_name=project_name or accumulated_context.get("project_name") or _extract_project_name(raw_input, run_id),
                 domain=domain,
-                phases_results=results,
+                phases_results=phases_results,
                 org_id=org_id,
             ),
             timeout=120,
         )
+
+    async def _send_council_fail_notification(score: float, reason: str) -> None:
+        """Fire in-app notification on council_score < 0.5 — non-blocking."""
+        if not (score < 0.5 and org_id):
+            return
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_cn
+            from aether_os.core.models import Notification as _Notif_cn
+            _pname_cn = project_name or f"run-{run_id[:8]}"
+            _notif_cn = _Notif_cn(
+                org_id=org_id,
+                type="council_fail",
+                title=f"Council failed for {_pname_cn}",
+                message=f"DeliveryCouncil score {score:.2f} < 0.5: {reason}",
+                link=f"/dashboard/runs/{run_id}",
+            )
+            async with _gsf_cn()() as _s_cn:
+                _s_cn.add(_notif_cn)
+                await _s_cn.commit()
+        except Exception as _ne_cn:
+            logger.debug("[pipeline] council_fail notification failed: %s", _ne_cn)
+
+    try:
+        # ── First council evaluation ──────────────────────────────────────────
+        _delivery = await _run_council(results)
         _council_passed = _delivery.get("passed", False)
         _council_score = _delivery.get("score", 1.0)
-        _final_status = "completed" if _council_passed else "needs_review"
-        _sf = _gsf()
-        async with _sf() as _s:
-            await _s.execute(
-                _sa_update(_Run)
-                .where(_Run.id == run_id)
-                .values(
-                    council_delivery=_delivery,
-                    status=_final_status,
-                    message=(
-                        None if _council_passed
-                        else f"DeliveryCouncil flagged issues (score={_council_score:.2f}): "
-                             f"{_delivery.get('reason', '')} — "
-                             f"Suggestions: {'; '.join(_delivery.get('suggestions', []))}"
-                    ),
-                )
+        _criteria_failures = _delivery.get("criteria_failures") or []
+
+        logger.info(
+            "DeliveryCouncil [pass 1]: run=%s passed=%s score=%.2f criteria_failures=%s reason=%s",
+            run_id, _council_passed, _council_score, _criteria_failures, _delivery.get("reason", ""),
+        )
+
+        # ── Targeted phase re-runs when score < 0.5 (first evaluation only) ──
+        # Guard: _council_retry_count prevents re-entering this block on the
+        # second council evaluation triggered by our own remediation re-runs.
+        _retry_count = accumulated_context.get("_council_retry_count", 0)
+        if not _council_passed and _council_score < 0.5 and _retry_count == 0 and _criteria_failures:
+            logger.info(
+                "DeliveryCouncil: score %.2f < 0.5 with remediable criteria %s — "
+                "triggering targeted phase re-runs for run %s",
+                _council_score, _criteria_failures, run_id,
             )
-            await _s.commit()
+            await publish_event(run_id, {
+                "type": "council_remediation_start",
+                "run_id": run_id,
+                "criteria_failures": _criteria_failures,
+                "score": _council_score,
+            })
+
+            # Mark that we have started remediation (guard against infinite loop)
+            accumulated_context["_council_retry_count"] = 1
+
+            # Re-run phases that own the failing criteria
+            await _run_council_remediation_phases(
+                run_id=run_id,
+                failing_criteria=_criteria_failures,
+                accumulated_context=accumulated_context,
+                council_reason=_delivery.get("reason", ""),
+            )
+
+            # ── Second council evaluation (post-remediation) ──────────────────
+            logger.info("DeliveryCouncil [pass 2]: evaluating post-remediation results for run %s", run_id)
+            try:
+                _delivery2 = await _run_council(results)
+                _council_passed = _delivery2.get("passed", False)
+                _council_score = _delivery2.get("score", _council_score)
+                _delivery = _delivery2  # use second result for final persistence
+                logger.info(
+                    "DeliveryCouncil [pass 2]: run=%s passed=%s score=%.2f reason=%s",
+                    run_id, _council_passed, _council_score, _delivery.get("reason", ""),
+                )
+            except Exception as _dc2_exc:
+                logger.warning(
+                    "DeliveryCouncil [pass 2] failed for run %s — using pass-1 result: %s",
+                    run_id, _dc2_exc,
+                )
+
+            await publish_event(run_id, {
+                "type": "council_remediation_complete",
+                "run_id": run_id,
+                "score_after": _council_score,
+                "passed": _council_passed,
+            })
+
+        # ── Persist final status ──────────────────────────────────────────────
+        await _persist_run_status(run_id, _delivery, _council_passed)
+
         if not _council_passed:
             logger.warning(
                 "DeliveryCouncil: run %s flagged as needs_review (score=%.2f): %s | suggestions: %s",
@@ -161,24 +357,7 @@ async def delivery_council_check(
                 "reason": _delivery.get("reason", ""),
                 "suggestions": _delivery.get("suggestions", []),
             })
-            # Fix 16: council_fail notification (score < 0.5)
-            if _council_score < 0.5 and org_id:
-                try:
-                    from aether_os.core.db import get_session_factory as _gsf_cn
-                    from aether_os.core.models import Notification as _Notif_cn
-                    _pname_cn = project_name or f"run-{run_id[:8]}"
-                    _notif_cn = _Notif_cn(
-                        org_id=org_id,
-                        type="council_fail",
-                        title=f"❌ Council failed for {_pname_cn}",
-                        message=f"DeliveryCouncil score {_council_score:.2f} < 0.5: {_delivery.get('reason', '')}",
-                        link=f"/dashboard/runs/{run_id}",
-                    )
-                    async with _gsf_cn()() as _s_cn:
-                        _s_cn.add(_notif_cn)
-                        await _s_cn.commit()
-                except Exception as _ne_cn:
-                    logger.debug("[pipeline] council_fail notification failed: %s", _ne_cn)
+            await _send_council_fail_notification(_council_score, _delivery.get("reason", ""))
         else:
             logger.info("DeliveryCouncil: run %s passed (score=%.2f)", run_id, _council_score)
             await publish_event(run_id, {
@@ -187,36 +366,47 @@ async def delivery_council_check(
                 "score": _council_score,
                 "status": "completed",
             })
+
     except asyncio.TimeoutError:
         logger.warning("DeliveryCouncil timed out after 120s for run %s — marking completed", run_id)
         try:
             from aether_os.core.db import get_session_factory as _gsf2t
             from aether_os.core.models import Run as _Run2t
             from sqlalchemy import update as _sa_update2t
-            _sf2t = _gsf2t()
-            async with _sf2t() as _s2t:
+            async with _gsf2t()() as _s2t:
                 await _s2t.execute(
                     _sa_update2t(_Run2t).where(_Run2t.id == run_id).values(status="completed")
                 )
                 await _s2t.commit()
-        except Exception:
-            pass
-        await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_timeout"})
+        except Exception as _to_db_exc:
+            logger.warning("[council] Timeout fallback DB update failed for run %s: %s", run_id, _to_db_exc)
+        await publish_event(run_id, {
+            "type": "council_delivery_passed",
+            "passed": True,
+            "score": 0.0,
+            "status": "completed",
+            "note": "council_timeout",
+        })
     except Exception as _exc:
         logger.warning("DeliveryCouncil check failed: %s", _exc)
         try:
             from aether_os.core.db import get_session_factory as _gsf2
             from aether_os.core.models import Run as _Run2
             from sqlalchemy import update as _sa_update2
-            _sf2 = _gsf2()
-            async with _sf2() as _s2:
+            async with _gsf2()() as _s2:
                 await _s2.execute(
                     _sa_update2(_Run2).where(_Run2.id == run_id).values(status="completed")
                 )
                 await _s2.commit()
-        except Exception:
-            pass
-        await publish_event(run_id, {"type": "council_delivery_passed", "passed": True, "score": 0.0, "status": "completed", "note": "council_error"})
+        except Exception as _err_db_exc:
+            logger.warning("[council] Error fallback DB update failed for run %s: %s", run_id, _err_db_exc)
+        await publish_event(run_id, {
+            "type": "council_delivery_passed",
+            "passed": True,
+            "score": 0.0,
+            "status": "completed",
+            "note": "council_error",
+        })
 
 
 async def store_run_memory(

@@ -585,61 +585,18 @@ class FactoryPipeline:
                         logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
 
                     # Spec review gate: pause here if decision_mode != "autonomous"
+                    # Gate logic + LLM pre-critique extracted to spec_review_gate.py
                     if accumulated_context.get("decision_mode") != "autonomous":
                         try:
-                            # Problem 34: Check if decision already exists.
-                            _ctrl = await get_control(run_id)
-                            # If it's already approved, just continue. If it's missing or unexpected, emit error.
-                            if _ctrl == "spec_approved":
-                                logger.info("[pipeline] Spec already approved — continuing (run=%s)", run_id)
-                            elif _ctrl is None or _ctrl not in ("spec_review", "spec_approved"):
-                                # Wiped or never created
-                                logger.error("[pipeline] Gate decision not found for run %s. Emitting gate_error.", run_id)
-                                await publish_event(run_id, {
-                                    "type": "gate_error",
-                                    "run_id": run_id,
-                                    "message": "Gate decision not found. It may have been wiped by a system restore.",
-                                })
-                                # Update metadata
-                                # (Assuming there's a function to update run metadata, 
-                                # if not, we can use a direct DB query here or via ledger)
-                                # Previous code wrote a "pipeline_warning" string to
-                                # `_run_warn.metadata` — but `Run.metadata` does not
-                                # exist as a column; SQLAlchemy resolves it to the
-                                # `MetaData` schema object, which crashes on iter.
-                                # The warning is already in the SSE stream above; no
-                                # additional persistence needed.
-
-                            await set_control(run_id, "spec_review")
-                            await emit({"type": "spec_review_ready", "run_id": run_id}, run_id=run_id)
-                            logger.info("[pipeline] Spec review gate: waiting for approval (run=%s)", run_id)
-                            _spec_timeout = int(os.environ.get("SPEC_REVIEW_TIMEOUT", "600"))
-                            _spec_waited = 0
-                            while _spec_waited < _spec_timeout:
-                                _ctrl = await get_control(run_id)
-                                if _ctrl == "spec_approved":
-                                    logger.info("[pipeline] Spec approved — continuing (run=%s)", run_id)
-                                    await set_control(run_id, "running")
-                                    break
-                                if _ctrl == "cancel":
-                                    logger.warning("[pipeline] Spec review cancelled (run=%s)", run_id)
-                                    raise RuntimeError("Pipeline cancelled at spec review")
-                                await asyncio.sleep(3)
-                                _spec_waited += 3
-                            else:
-                                # Timeout: auto-approve and continue (better UX than aborting —
-                                # user can always cancel manually; aborting silently kills runs
-                                # for users who aren't watching the dashboard in real-time).
-                                logger.warning(
-                                    "[pipeline] Spec review timed out after %ds — auto-approving and continuing run %s",
-                                    _spec_timeout, run_id,
-                                )
-                                await set_control(run_id, "running")
-                                await publish_event(run_id, {
-                                    "type": "spec_review_timeout",
-                                    "run_id": run_id,
-                                    "message": f"Spec review auto-approved after {_spec_timeout}s. Pipeline continuing. Enable autonomous mode to skip this gate.",
-                                })
+                            from aether_os.orchestrator.spec_review_gate import run_spec_review_gate
+                            await run_spec_review_gate(
+                                run_id=run_id,
+                                accumulated_context=accumulated_context,
+                                emit_fn=emit,
+                                get_control_fn=get_control,
+                                set_control_fn=set_control,
+                                publish_event_fn=publish_event,
+                            )
                         except RuntimeError:
                             raise
                         except Exception as _sr_exc:
