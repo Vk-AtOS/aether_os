@@ -100,7 +100,7 @@ growthbook>=1.0.0
 posthog>=3.0.0
 sentry-sdk[fastapi]>=1.40.0
 prometheus-client>=0.20.0
-prometheus-fastapi-instrumentator>=6.1.0,<8.0.0
+prometheus-fastapi-instrumentator==6.1.0
 structlog>=24.0.0
 langsmith>=0.1.0                # LangSmith tracing (explicit — also a transitive dep of langchain-core)
 

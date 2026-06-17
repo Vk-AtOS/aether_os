@@ -624,13 +624,14 @@ def create_app() -> FastAPI:
 
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
+        from aether_os.core.prometheus_patch import apply as _apply_prom_patch
+        _apply_prom_patch()  # must run before .instrument() — see core/prometheus_patch.py
         from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore
         instrumentator = Instrumentator(
             should_group_status_codes=True,
             should_ignore_untemplated=True,
             excluded_handlers=["/health", "/metrics"],
         ).instrument(app)
-        # Expose raw Prometheus data at an internal endpoint; metrics_router handles /metrics
         instrumentator.expose(app, endpoint="/_metrics_internal", include_in_schema=False)
         logger.info("Prometheus instrumentation enabled (handler: metrics_router)")
     except ImportError:
