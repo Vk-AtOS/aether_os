@@ -64,19 +64,23 @@ Phases completed: {phases_completed}
 Phase results summary: {phases_summary}
 
 Evaluate on these criteria:
-1. Completeness — did all required phases complete successfully?
-2. Quality — are there any obvious failures or critical errors?
-3. Consistency — do phase results indicate a coherent deliverable?
-4. Security — were security and review phases passed?
+1. completeness — did all required phases complete successfully?
+2. quality — are there any obvious failures or critical errors?
+3. security — were security and review phases passed?
+4. frontend — does the deliverable include a working frontend?
+5. testing — did tests pass without failures?
+6. docs — are documentation and delivery phases complete?
 
 Return ONLY valid JSON (no markdown, no fences):
 {{
   "passed": true|false,
   "score": 0.0-1.0,
   "reason": "one sentence summary",
-  "suggestions": ["follow-up action if any", "..."]
+  "suggestions": ["follow-up action if any", "..."],
+  "criteria_failures": ["completeness"|"quality"|"security"|"frontend"|"testing"|"docs"]
 }}
 
+criteria_failures must list only the criterion names (from the list above) that failed.
 Pass if score >= 0.5 and no critical phase failures.
 """
 
