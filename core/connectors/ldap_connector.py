@@ -188,8 +188,8 @@ class LDAPConnector(BaseConnector):
                                     user[attr] = [str(v) for v in raw]
                                 elif raw is not None:
                                     user[attr] = str(raw)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("LDAP user attribute parse error for attr %s: %s", attr, exc)
                     users.append(user)
                 return users
             finally:

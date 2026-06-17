@@ -8,11 +8,14 @@ All functions are safe to await from async FastAPI route handlers.
 """
 from __future__ import annotations
 import asyncio
+import logging
 import time
 import uuid
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, text, update, delete, func
+
+logger = logging.getLogger(__name__)
 
 # Strong reference set so background notification tasks are not garbage collected
 _background_notify_tasks: set = set()
@@ -293,8 +296,8 @@ def _emit_run_notification(run, status: str) -> None:
                             await notifier.notify_run_failed(
                                 db_user.email, run.project_name or run.id[:8], run.id, frontend_url,
                             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Run status email notification failed (non-fatal): %s", exc)
     try:
         loop = asyncio.get_running_loop()
         _t = asyncio.create_task(_create())

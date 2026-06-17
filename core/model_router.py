@@ -65,7 +65,8 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         try:
             from aether_os.core.api_key_store import _cache as _KEY_CACHE
             return any(k[1] == "google" for k in _KEY_CACHE)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Google org key cache check failed: %s", exc)
             return False
     if spec.provider == "openrouter":
         if bool(os.environ.get("OPENROUTER_API_KEY", "").strip()):
@@ -73,7 +74,8 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         try:
             from aether_os.core.api_key_store import _cache as _KEY_CACHE
             return any(k[1] == "openrouter" for k in _KEY_CACHE)
-        except Exception:
+        except Exception as exc:
+            logger.debug("OpenRouter org key cache check failed: %s", exc)
             return False
     if spec.provider == "bedrock":
         # Respect explicit opt-out via BEDROCK_ENABLED=false
@@ -493,8 +495,8 @@ class ModelRouter:
                             )
                             _background_tasks.add(_ct)
                             _ct.add_done_callback(_background_tasks.discard)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("LLM semantic cache set failed (non-fatal): %s", exc)
                     # Record token usage for budget tracking (approximate)
                     _est_input = len(_active_prompt) // 4
                     _est_output = len(result) // 4
@@ -512,8 +514,8 @@ class ModelRouter:
                             )
                             _background_tasks.add(_ct2)
                             _ct2.add_done_callback(_background_tasks.discard)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Budget token record failed (non-fatal): %s", exc)
                     # Record cost to billing ledger using active run context vars
                     try:
                         from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID
@@ -559,7 +561,8 @@ class ModelRouter:
                                             r = await _s.execute(_sel_mr(_Run_mr.org_id).where(_Run_mr.id == _run_id))
                                             return r.scalar_one_or_none()
                                     _resolved_org = await _get_org()
-                                except Exception:
+                                except Exception as exc:
+                                    logger.debug("Org ID resolve from run failed: %s", exc)
                                     _resolved_org = None
                             else:
                                 _resolved_org = org_id
@@ -576,8 +579,8 @@ class ModelRouter:
                                 )
                                 _background_tasks.add(_ct4)
                                 _ct4.add_done_callback(_background_tasks.discard)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Billing ledger record failed (non-fatal): %s", exc)
                     # ── Placeholder guard ────────────────────────────────────
                     # Reject only outputs that look like the model gave up
                     # ("...", "TODO", bare whitespace). Earlier versions had

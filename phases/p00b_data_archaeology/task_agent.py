@@ -65,8 +65,8 @@ def migrate(source_url: str, target_url: str, dry_run: bool = False) -> dict:
     logger.info("Source: %s", source_url.split("@")[-1])  # redact credentials
     logger.info("Target: %s", target_url.split("@")[-1])
 
-    # TODO: Replace with actual field mapping from 02_field_mapping.json
-    # This is a stub — the LLM-generated version will have real SQL queries
+    # Fallback stub: LLM failed to generate migration code. Real field mapping
+    # comes from 02_field_mapping.json and is rendered into this template by p00b.
     rows_migrated = 0
     rows_failed = 0
 
@@ -110,7 +110,8 @@ def validate(target_url: Optional[str] = None) -> bool:
     all_passed = True
     logger.info("Running post-migration validation...")
 
-    # TODO: Add actual row-count and constraint checks derived from schema analysis
+    # Fallback stub: row-count and constraint checks are injected here by the
+    # LLM during p00b generation. This runs only if LLM generation fails entirely.
 
     if all_passed:
         logger.info("All validation checks PASSED")

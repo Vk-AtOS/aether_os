@@ -83,7 +83,8 @@ def _sync_inspect(connection_string: str) -> Dict[str, Any]:
             try:
                 cols_info = inspector.get_columns(table_name)
                 columns = [col["name"] for col in cols_info]
-            except Exception:
+            except Exception as exc:
+                logger.debug("Column inspection failed for %s: %s", table_name, exc)
                 columns = []
 
             # Foreign keys
@@ -101,8 +102,8 @@ def _sync_inspect(connection_string: str) -> Dict[str, Any]:
                             "column": local_col,
                             "references": f"{referred_table}.{ref_col}",
                         })
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("FK inspection failed for %s: %s", table_name, exc)
 
             tables.append({
                 "name": table_name,

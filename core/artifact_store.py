@@ -191,8 +191,8 @@ class ArtifactStore:
                                     "score": 0.8,
                                     "type": "artifact",
                                 })
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Artifact file scan error: %s", exc)
             return results[:limit]
         except Exception as exc:
             logger.error("Text search failed: %s", exc)
@@ -247,7 +247,8 @@ class ArtifactStore:
             s3 = self._s3_client()
             obj = s3.get_object(Bucket=_S3_BUCKET, Key=self._s3_key(run_id, file_path))
             return obj["Body"].read().decode("utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            logger.debug("S3 download failed for %s/%s: %s", run_id, file_path, exc)
             return None
 
     async def upload_run_to_s3(self, run_id: str, project_dir: Path) -> int:
