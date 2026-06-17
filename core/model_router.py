@@ -95,8 +95,8 @@ class ModelRouter:
                                 org_id=org_id, input_tokens=0, output_tokens=0,
                                 model="cache", cache_hit=True,
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Cache-hit zero-cost budget record failed: %s", exc)
                     return cached, "cache", "cache"
             except Exception as _ce:
                 logger.debug("Cache check failed (continuing): %s", _ce)
@@ -132,7 +132,8 @@ class ModelRouter:
                 phase = ACTIVE_PHASE.get() or "unknown_phase"
                 run_id = (ACTIVE_RUN_ID.get() or "no-run")[:8]
                 trace_name = f"{phase}_{run_id}_{task_type}"
-            except Exception:
+            except Exception as exc:
+                logger.debug("Trace name resolution failed, using fallback: %s", exc)
                 trace_name = f"llm_{task_type}"
 
         errors: List[str] = []
