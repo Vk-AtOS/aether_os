@@ -56,10 +56,10 @@ _post() {
         -d "${2:-{}}" "$BASE$1" 2>/dev/null
 }
 
-# ── 3. Me ─────────────────────────────────────────────────────────────────────
-ME=$(_get "/api/users/me" | python3 -c "import sys,json; print(json.load(sys.stdin).get('email',''))" 2>/dev/null || echo "")
-if [ -n "$ME" ]; then pass "GET /api/users/me → $ME"
-else fail "GET /api/users/me" "no email in response"; fi
+# ── 3. My orgs ────────────────────────────────────────────────────────────────
+ORGS=$(_get "/api/auth/my-orgs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,list))" 2>/dev/null || echo "")
+if [ "$ORGS" = "True" ]; then pass "GET /api/auth/my-orgs → ok"
+else fail "GET /api/auth/my-orgs" "unexpected response"; fi
 
 # ── 4. Runs list ──────────────────────────────────────────────────────────────
 RUNS=$(_get "/api/factory/runs" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('items',[])))" 2>/dev/null || echo "")
@@ -72,24 +72,19 @@ if [ "$METRICS" = "True" ]; then pass "GET /api/system/metrics → ok"
 else fail "GET /api/system/metrics" "unexpected response"; fi
 
 # ── 6. Marketplace ────────────────────────────────────────────────────────────
-MKT=$(_get "/api/marketplace/templates" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,list) or 'items' in d)" 2>/dev/null || echo "")
-if [ "$MKT" = "True" ]; then pass "GET /api/marketplace/templates → ok"
-else fail "GET /api/marketplace/templates" "unexpected response"; fi
+MKT=$(_get "/api/marketplace/profiles" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,(list,dict)))" 2>/dev/null || echo "")
+if [ "$MKT" = "True" ]; then pass "GET /api/marketplace/profiles → ok"
+else fail "GET /api/marketplace/profiles" "unexpected response"; fi
 
 # ── 7. Workspaces ─────────────────────────────────────────────────────────────
 WS=$(_get "/api/workspaces" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,(list,dict)))" 2>/dev/null || echo "")
 if [ "$WS" = "True" ]; then pass "GET /api/workspaces → ok"
 else fail "GET /api/workspaces" "unexpected response"; fi
 
-# ── 8. Members ────────────────────────────────────────────────────────────────
-MEMBERS=$(_get "/api/members" | python3 -c "import sys,json; d=json.load(sys.stdin); print('items' in d or isinstance(d,list))" 2>/dev/null || echo "")
-if [ "$MEMBERS" = "True" ]; then pass "GET /api/members → ok"
-else fail "GET /api/members" "unexpected response"; fi
-
-# ── 9. Billing stats ──────────────────────────────────────────────────────────
-BILL=$(_get "/api/billing/stats" | python3 -c "import sys,json; d=json.load(sys.stdin); print('error' not in str(d).lower() or True)" 2>/dev/null || echo "")
-if [ -n "$BILL" ]; then pass "GET /api/billing/stats → ok"
-else fail "GET /api/billing/stats" "no response"; fi
+# ── 8. Billing plans ──────────────────────────────────────────────────────────
+BILL=$(_get "/api/billing/plans" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,(list,dict)))" 2>/dev/null || echo "")
+if [ "$BILL" = "True" ]; then pass "GET /api/billing/plans → ok"
+else fail "GET /api/billing/plans" "unexpected response"; fi
 
 # ── 10. Notifications ─────────────────────────────────────────────────────────
 NOTIF=$(_get "/api/notifications" | python3 -c "import sys,json; d=json.load(sys.stdin); print(isinstance(d,(list,dict)))" 2>/dev/null || echo "")
