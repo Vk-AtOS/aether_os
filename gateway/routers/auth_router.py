@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -121,7 +122,9 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
 
         # Create org — plan is always "trial" regardless of request body (B1)
         _org_name = req.org_name or req.email.split("@")[0]
-        slug = _org_name.lower().replace(" ", "-")
+        _base_slug = re.sub(r"[^a-z0-9-]", "-", _org_name.lower().strip()).strip("-") or "org"
+        # Guarantee slug uniqueness by appending a random 6-char suffix
+        slug = f"{_base_slug}-{uuid.uuid4().hex[:6]}"
         org = Organisation(
             id=str(uuid.uuid4()),
             name=_org_name,
@@ -161,11 +164,20 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
         except Exception:
             pass
 
-        # Send verification email
+        # Send verification email with absolute URL
         from aether_os.core.notifications.email import get_email_notifier
+        import os as _os
+        _base_url = _os.environ.get("PUBLIC_BASE_URL", str(request.base_url).rstrip("/"))
         notifier = get_email_notifier()
-        subject = "AetherOS: Verify your email"
-        body = f"Welcome to AetherOS! Please verify your email by clicking here: /auth/verify-email?token={verify_token}"
+        subject = "Welcome to AetherOS — verify your email"
+        body = (
+            f"Welcome to AetherOS, {req.name or _org_name}!\n\n"
+            f"Your organisation '{_org_name}' is ready. "
+            f"Please verify your email by clicking the link below:\n\n"
+            f"{_base_url}/auth/verify-email?token={verify_token}\n\n"
+            f"This link expires in 24 hours.\n\n"
+            f"If you didn't create this account, you can safely ignore this email."
+        )
         await notifier.send(user.email, subject, body)
 
         # Audit: user_registered
