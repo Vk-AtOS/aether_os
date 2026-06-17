@@ -120,9 +120,9 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
     # Note: domain detection uses keyword scoring; ecommerce requires explicit
     # commerce signals (cart, sku, storefront) not just "checkout" (library false positive).
     if domain in ("ecommerce", "marketplace"):
-        from aether_os.phases.p05_frontend.task_agent import _generate_storefront_home
+        from aether_os.phases.p05_frontend.code_writer import generate_storefront_home
         route_map = {e["table"]: f"/{e['table']}" for e in entities}
-        return _generate_storefront_home(entities, route_map)
+        return generate_storefront_home(entities, route_map)
 
     # ── All other domains: rich KPI admin dashboard ─────────────────────────────
     _colors6 = ["blue", "green", "purple", "orange", "red", "teal"]
