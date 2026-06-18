@@ -110,7 +110,8 @@ async def stop_run_app(
     proc.terminate()
     try:
         proc.wait(timeout=5)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Process wait timed out for run %s, sending SIGKILL: %s", run_id, exc)
         proc.kill()
     del _run_procs[run_id]
     _run_ports.pop(run_id, None)
@@ -118,8 +119,8 @@ async def stop_run_app(
         from aether_os.core.app_state import clear_app_state as _cas, del_proc as _dp
         _dp(run_id)
         await _cas(run_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to clear app state after stopping run %s: %s", run_id, exc)
     return {"status": "stopped", "run_id": run_id}
 
 
@@ -169,12 +170,12 @@ async def run_app_status(
                                 mode=_s.get("mode", "backend"),
                                 app_dir=str(root_dir),
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Failed to re-register app state from disk for run %s: %s", run_id, exc)
                     except (ProcessLookupError, PermissionError):
                         pass
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to restore run-app state from disk for run %s: %s", run_id, exc)
 
     return {
         "running": running,
@@ -200,7 +201,8 @@ async def get_preview_credentials(
         async with _gsf_pc()() as _sess_pc:
             _p11 = await _sess_pc.get(_PC_pc, (run_id, "p11_deployment"))
             _p11_status = _p11.status if _p11 else "pending"
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to check p11_deployment phase status for run %s: %s", run_id, exc)
         _p11_status = "unknown"
 
     if _p11_status not in ("passed", "completed"):

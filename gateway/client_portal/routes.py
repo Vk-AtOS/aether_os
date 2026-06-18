@@ -38,7 +38,8 @@ def _get_portal_token(project_id: str) -> str:
         project_dir.mkdir(parents=True, exist_ok=True)
         token_file.write_text(token)
         return token
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to get/create portal token for project %s: %s", project_id, exc)
         return ""
 
 
@@ -58,8 +59,8 @@ async def _portal_auth(request: Request, portal_token: Optional[str] = None) -> 
             payload = decode_access_token(jwt_val)
             if payload and payload.get("org_id"):
                 return  # Valid JWT
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Portal JWT validation failed, falling through to portal token check: %s", exc)
 
     # Prefer header-supplied token over query param to keep token out of server logs
     effective_token = request.headers.get("x-portal-token") or portal_token
@@ -179,8 +180,8 @@ async def get_project_status(project_id: str):
             if delivery_json.exists():
                 delivery_data = json.loads(delivery_json.read_text())
                 compliance_score = delivery_data.get("compliance_score")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to load compliance_score from delivery.json for run %s: %s", project_id, exc)
 
         # Construct GitHub Codespaces deep-link if the run has a github_repo_url
         github_url = rec.get("metadata", {}).get("github_repo_url", "")
@@ -225,8 +226,8 @@ async def get_phase_output(project_id: str, phase_name: str):
             if f.is_file() and f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
                 try:
                     files[f.name] = f.read_text()[:5000]
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to read phase output file %s: %s", f.name, exc)
         return {"project_id": project_id, "phase": phase_name, "files": files}
     except Exception as e:
         raise HTTPException(500, str(e))

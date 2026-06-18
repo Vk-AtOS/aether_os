@@ -57,8 +57,9 @@ DASHBOARD_DIST = pathlib.Path(__file__).parent.parent / "dashboard" / "dist"
 try:
     from aether_os.core.logging_config import configure_logging
     configure_logging()
-except Exception:
+except Exception as exc:
     logging.basicConfig(level=logging.INFO)
+    logging.warning("Failed to load structured logging config, using basicConfig fallback: %s", exc)
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +290,8 @@ def create_app() -> FastAPI:
                             await _sas_r(_rid, port=_rport, pid=_st.get("pid", 0),
                                          mode=_st.get("mode", "backend"), app_dir=str(Path(_sf).parent))
                             return
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("Failed to parse/probe run_app_state.json: %s", exc)
                         continue
 
                 # Fallback: check Redis

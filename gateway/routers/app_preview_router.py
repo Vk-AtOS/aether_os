@@ -46,8 +46,8 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
                 _state = await _gas(_current_rid)
                 if _state and _state.get("port"):
                     _port = _state["port"]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to fetch app state from Redis for run %s: %s", _current_rid, exc)
 
     # Fallback: scan run_app_state.json files on disk (handles gateway restarts
     # and multi-worker deployments where only one worker ran auto-restore)
@@ -84,11 +84,12 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
                                       mode=_st.get("mode", "backend"),
                                       app_dir=str(_Pth(_sf).parent))
                         await _scr_fb(_rid)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Failed to register app state from disk for run %s: %s", _rid, exc)
                     logger.info("app-preview: resolved port %d for run %s from disk", _rport, _rid)
                     break
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to parse run_app_state.json at %s: %s", _sf, exc)
                 continue
 
     if _port is None:

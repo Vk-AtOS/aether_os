@@ -8,8 +8,11 @@ at module level.
 """
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -75,8 +78,8 @@ async def get_current_user(
                     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
             except HTTPException:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("JWT blacklist check failed (Redis unavailable?): %s", exc)
         return payload
 
     # 2. Try API Key

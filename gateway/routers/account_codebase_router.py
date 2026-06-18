@@ -8,8 +8,11 @@ Routes for importing and listing codebase profiles:
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
@@ -177,8 +180,8 @@ async def import_codebase(
                 if readme_resp.status_code == 200:
                     encoded = readme_resp.json().get("content", "")
                     readme_content = base64.b64decode(encoded).decode("utf-8", errors="replace")[:2000]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to fetch/decode README for codebase import: %s", exc)
     except HTTPException:
         raise
     except Exception as exc:

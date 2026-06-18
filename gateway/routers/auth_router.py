@@ -144,8 +144,8 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
             if r:
                 # Store verification token in Redis (24 hours expiry)
                 await r.setex(f"email_verify:{verify_token}", 86400, user.id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to store email verification token in Redis for user %s: %s", user.id, exc)
 
         # Send verification email with absolute URL
         from aether_os.core.notifications.email import get_email_notifier
@@ -320,8 +320,8 @@ async def logout(request: Request, user: Dict[str, Any] = _auth()) -> Dict[str, 
             if r:
                 ttl = max(1, int(exp - time.time()))
                 await r.setex(f"jwt:blacklist:{jti}", ttl, "1")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to add JWT jti=%s to Redis blacklist on logout: %s", jti, exc)
     return {"message": "Logged out"}
 
 

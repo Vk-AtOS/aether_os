@@ -63,7 +63,8 @@ async def get_quality_trend(
             from datetime import datetime as _dt, timezone as _tz
             _ts = float(started_at_qt) if started_at_qt else 0.0
             created_at_iso = _dt.fromtimestamp(_ts, tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to convert started_at timestamp %r to ISO string: %s", started_at_qt, exc)
             created_at_iso = str(started_at_qt)
 
         # Use cached DB quality_score first; fall back to on-demand compute only if absent
@@ -75,8 +76,8 @@ async def get_quality_trend(
                     from aether_os.core.quality.metrics import score_project as _score_qt
                     _qs = _score_qt(run_dir)
                     quality_score = _qs.total
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Quality score calculation failed for run %s: %s", run_id_qt, exc)
 
         # Compliance score from pre-built scan JSON
         compliance_score: Optional[int] = None
@@ -86,8 +87,8 @@ async def get_quality_trend(
             try:
                 _cd = json.loads(_comp_json.read_text(encoding="utf-8"))
                 compliance_score = _cd.get("score")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to read compliance_scan.json for run %s: %s", run_id_qt, exc)
 
         if quality_score is not None:
             points.append({
@@ -175,6 +176,6 @@ async def list_deployments(
                     "ports":  parts[1] if len(parts) > 1 else "",
                     "status": parts[2] if len(parts) > 2 else "",
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Docker container listing failed (docker may not be in PATH): %s", exc)
     return {"deployments": db_deployments, "containers": containers}

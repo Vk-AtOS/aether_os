@@ -67,7 +67,8 @@ async def verify_email(token: str, request: Request) -> Dict[str, str]:
         await r.delete(f"email_verify:{token}")
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.warning("Email verify token validation failed: %s", exc)
         raise HTTPException(status_code=500, detail="Internal error during token validation")
 
     sf = get_session_factory()
@@ -121,8 +122,8 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
                 if r:
                     # Store token in Redis with 1 hour expiry
                     await r.setex(f"pw_reset:{token}", 3600, user.id)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to store password reset token in Redis for user %s: %s", user.id, exc)
 
             # Audit: password_reset_request
             asyncio.create_task(get_ledger().async_log_audit_event(
@@ -187,7 +188,8 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
         await r.delete(f"pw_reset:{req.token}")
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.warning("Password reset token validation failed: %s", exc)
         raise HTTPException(status_code=500, detail="Internal error during token validation")
 
     # Password safety: complexity + HIBP breach check

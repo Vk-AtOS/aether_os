@@ -79,9 +79,9 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
         for org in orgs:
             if org.scim_token and secrets.compare_digest(token, org.scim_token):
                 return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
-    except Exception:
+    except Exception as exc:
         # scim_token column may not exist yet (pre-migration) — fall through
-        pass
+        logger.debug("SCIM per-org token lookup failed (column may not exist yet): %s", exc)
 
     # 3. Fallback: standard JWT (dev / backward-compat)
     from aether_os.gateway.auth import decode_access_token

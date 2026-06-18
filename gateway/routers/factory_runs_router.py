@@ -291,8 +291,8 @@ async def get_factory_run(
                     phase_val["output_file"] = f"{phase_key}/{fname}"
                     loaded = True
                     break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to parse phase output file %s: %s", fpath, exc)
         # Fallback: first .json file directly in the phase dir
         if not loaded:
             for fpath in sorted(phase_dir.glob("*.json")):
@@ -300,8 +300,8 @@ async def get_factory_run(
                     phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
                     phase_val["output_file"] = f"{phase_key}/{fpath.name}"
                     break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to parse fallback phase output file %s: %s", fpath, exc)
 
     # Load gate_result.json for each phase if it exists
     for _pk, _pv in phases.items():
@@ -309,8 +309,8 @@ async def get_factory_run(
         if _gate_file.exists():
             try:
                 _pv["gate_result"] = json.loads(_gate_file.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to parse gate_result.json for phase %s: %s", _pk, exc)
 
     # Strip absolute server paths from all phase output (S8 security fix)
     def _strip_server_paths(obj):
@@ -332,8 +332,8 @@ async def get_factory_run(
                 detail["phases"]["p06_review_security"].setdefault("output", {})
                 detail["phases"]["p06_review_security"]["output"]["security_findings"] = _sec_data.get("findings", [])
                 detail["phases"]["p06_review_security"]["output"]["security_total"] = _sec_data.get("total", 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to load security_report.json for run %s: %s", run_id, exc)
 
     # Load priority and live_url via ORM (FIX-017)
     priority = "normal"
@@ -713,8 +713,8 @@ async def stream_run_events(
                 d.id for d in _decisions
                 if getattr(d, "status", None) in ("approved", "rejected")
             }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to load existing decisions for SSE replay (run %s): %s", run_id, exc)
 
         replay_start = _last_seen + 1
         for idx, past_event in enumerate(history[replay_start:], start=replay_start):
@@ -744,8 +744,8 @@ async def stream_run_events(
                     try:
                         if json.loads(raw).get("type") == "pipeline_complete":
                             return
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Failed to parse SSE event from local history buffer: %s", exc)
                 await asyncio.sleep(0.5)
             return
 
@@ -758,7 +758,8 @@ async def stream_run_events(
                     continue
                 try:
                     event = json.loads(message["data"])
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to parse SSE Redis pubsub message for run %s: %s", run_id, exc)
                     continue
                 # Fix 22: also gate spec_review_ready on live events
                 _etype = event.get("type", "")
@@ -1087,7 +1088,8 @@ async def patch_envvars(
             with os.fdopen(fd, 'w', encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
             os.replace(tmp_name, env_path)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to write env vars to tmp file for run %s, cleaning up: %s", run_id, exc)
             os.unlink(tmp_name)
             raise
     except Exception as e:
@@ -1124,8 +1126,8 @@ async def get_run_compliance(
             pdf_sibling = pre_built.with_name("compliance_report.pdf")
             data["pdf_path"] = str(pdf_sibling) if pdf_sibling.exists() else None
             return data
-        except Exception:
-            pass  # fall through to on-demand scan
+        except Exception as exc:
+            logger.debug("Failed to read pre-built compliance_scan.json for run %s, falling through to on-demand scan: %s", run_id, exc)
 
     # On-demand scan: find src/main.py
     main_py: Optional[pathlib.Path] = None
@@ -1161,8 +1163,8 @@ async def get_run_compliance(
             if _run_rc:
                 _project_name = getattr(_run_rc, "project_name", "") or ""
                 _domain = getattr(_run_rc, "domain", "general") or "general"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("DB lookup for compliance project_name/domain failed (run %s): %s", run_id, exc)
 
     scan_result = scan_file(main_py, project_name=_project_name, domain=_domain)
 
@@ -1177,7 +1179,8 @@ async def get_run_compliance(
         )
         pdf_path = scan_dir / "compliance_report.pdf"
         generate_pdf(scan_result, pdf_path)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to persist compliance scan result to disk for run %s: %s", run_id, exc)
         pdf_path = None
 
     result_dict = asdict(scan_result)
