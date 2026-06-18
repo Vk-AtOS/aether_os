@@ -254,8 +254,8 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
     except asyncio.TimeoutError:
         try:
             proc.kill()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("p07a: failed to kill timed-out validation process (non-fatal): %s", exc)
         return {"passed": True, "error": None, "fixed": False}  # timeout ≈ app blocking on startup = OK
 
     out = stdout.decode()

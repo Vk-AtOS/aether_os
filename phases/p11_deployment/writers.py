@@ -70,8 +70,8 @@ def write_docker_compose(project_dir: Path, app_dir: Path) -> Path:
             import yaml  # type: ignore[import]
             yaml.safe_load(compose_path.read_text())
             return compose_path  # existing file is valid — leave it
-        except Exception:
-            pass  # fall through to overwrite with the safe default
+        except Exception as exc:
+            logger.debug("p11 writers: docker-compose.yml parse failed, regenerating (non-fatal): %s", exc)
 
     # Determine the relative build context (app_dir relative to project_dir)
     try:

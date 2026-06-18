@@ -423,8 +423,8 @@ async def wait_for_ready(port: int, timeout: int = 30) -> bool:
                     async with session.get(url, timeout=aiohttp.ClientTimeout(total=2)) as resp:
                         if resp.status < 500:
                             return True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p11 helpers: health probe attempt failed (retrying): %s", exc)
             await asyncio.sleep(2)
     except ImportError:
         # aiohttp not available — just wait a fixed time

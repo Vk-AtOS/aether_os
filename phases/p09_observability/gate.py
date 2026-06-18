@@ -30,9 +30,9 @@ def validate(result: TaskResult) -> GateOutcome:
         missing = _EXPECTED_KEYS - present
         if missing:
             issues.append(f"Missing observability components: {', '.join(sorted(missing))}")
-    except Exception:
+    except Exception as exc:
         # Non-JSON output (e.g. YAML config) — treat as present
-        pass
+        logger.debug("p09 gate: output_path parse failed (non-fatal, treating as present): %s", exc)
 
     confidence = 1.0 if not issues else 0.65
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

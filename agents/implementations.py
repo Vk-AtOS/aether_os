@@ -375,8 +375,8 @@ class SecurityAnalyzerAgent(Agent):
             )
             decision = ComplianceEngine().evaluate(_ctx)
             risk_summary = decision.to_dict()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("SecurityScannerAgent: compliance evaluation failed (non-fatal): %s", exc)
 
         return _ok(self.name, f"Security analysis: {len(findings)} findings", {
             "findings": findings,

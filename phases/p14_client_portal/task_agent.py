@@ -1,7 +1,10 @@
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 from aether_os.phases.base import TaskResult
+
+logger = logging.getLogger(__name__)
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
@@ -22,8 +25,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             try:
                 import json as _json_p80
                 _p10_consolidated = _json_p80.loads(_p10_candidate.read_text())
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p14: failed to read p10 consolidated.json (non-fatal): %s", exc)
             break
 
     if _p10_consolidated:
@@ -53,8 +56,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                         if _inject:
                             _html = _html.replace("</div>\n</body>", f"{_inject}\n  </div>\n</body>")
                             _portal_html.write_text(_html)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("p14: portal HTML enhancement failed (non-fatal): %s", exc)
                 return TaskResult(
                     output_path=str(_existing_portal_dir),
                     confidence=0.95,

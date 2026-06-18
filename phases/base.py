@@ -122,8 +122,8 @@ class PhaseBase:
                         project_name=project_name_val,
                         winning_approach=summary[:500],
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.debug("Memory store (inner) failed (non-fatal): %s", exc)
         except Exception as e:
             self.logger.debug("Memory store skipped: %s", e)
 
@@ -200,8 +200,8 @@ class PhaseBase:
                                 "confidence": gate.confidence,
                                 "issues": gate.issues,
                             }, indent=2))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        self.logger.debug("gate_result.json write failed (non-fatal): %s", exc)
                     await self.memory_after(
                         self.phase_name, input_hash, result.output_path,
                         result.confidence, getattr(phase_input, "domain", "general"),

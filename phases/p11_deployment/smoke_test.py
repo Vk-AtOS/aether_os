@@ -40,8 +40,8 @@ def _read_domain_ir(project_dir: Path) -> Optional[Dict]:
         if cand.exists():
             try:
                 return json.loads(cand.read_text())
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("smoke_test: failed to read domain_ir from %s (non-fatal): %s", cand, exc)
     return None
 
 
@@ -54,8 +54,8 @@ def _read_credentials(project_dir: Path) -> tuple[str, str]:
             try:
                 c = json.loads(cred_path.read_text())
                 return c.get("email", "demo@example.com"), c.get("password", "Admin1234!")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("smoke_test: failed to read credentials from %s (non-fatal): %s", cred_path, exc)
     return "demo@example.com", "Admin1234!"
 
 

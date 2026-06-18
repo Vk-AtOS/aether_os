@@ -141,8 +141,8 @@ def run_in_sandbox(
         finally:
             try:
                 os.unlink(tmp_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p08 docker: failed to unlink temp file %s (non-fatal): %s", tmp_path, exc)
     
     except Exception as e:
         return SandboxResult(

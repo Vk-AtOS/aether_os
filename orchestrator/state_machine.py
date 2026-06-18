@@ -187,8 +187,8 @@ class PipelineStateMachine:
                 actor="state_machine", action="state_transition",
                 details=record, session_id=self.run_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Audit log for state transition failed (non-fatal): %s", exc)
         old = self.current_state
         self.current_state = new_state
         self._state_entered_at = time.time()

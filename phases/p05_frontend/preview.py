@@ -17,8 +17,8 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
     # 1. Ensure Playwright browsers are installed
     try:
         subprocess.run(["python3", "-m", "playwright", "install", "chromium"], capture_output=True, timeout=120)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("p05: playwright install failed (non-fatal): %s", exc)
 
     dist_dir = frontend_dir / "dist"
     # 2. Try building it if not already built

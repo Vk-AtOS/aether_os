@@ -123,8 +123,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     aria_issues.append(f"{f.name}: <img> missing alt attribute")
                 if "<button" in content and "aria-label" not in content and ">Submit" not in content:
                     pass  # buttons with text content are fine
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p07c: ARIA scan failed for file %s (non-fatal): %s", f.name, exc)
         results["aria_issues"] = aria_issues[:10]
 
     results["passed"] = results["violations"] == 0

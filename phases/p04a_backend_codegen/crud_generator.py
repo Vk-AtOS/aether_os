@@ -6,10 +6,12 @@ and seed data when the IR fast-path is unavailable.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import textwrap
 from typing import Tuple
 
+logger = logging.getLogger(__name__)
 
 # ── LLM generation functions ───────────────────────────────────────────────────
 
@@ -26,8 +28,8 @@ async def _llm_models_and_schemas(
         from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p04
         examples = await get_golden_examples(domain, limit=2)
         golden_hint = format_golden_hint_p04(examples)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("p04a crud_generator: golden examples retrieval failed (non-fatal): %s", exc)
 
     prompt = f"""\
 You are a senior backend engineer. Generate SQLAlchemy async ORM models and Pydantic v2 schemas \
