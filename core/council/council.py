@@ -118,16 +118,16 @@ def _parse_council_response(raw: str) -> Dict[str, Any]:
     # Try direct parse
     try:
         return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning("council: direct JSON parse of council response failed: %s", e)
 
     # Extract JSON object from prose
     match = re.search(r'\{.*\}', raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning("council: JSON extraction from prose failed: %s", e)
 
     logger.warning("Council: could not parse LLM response as JSON: %s", raw[:200])
     return _ERROR_RESULT.copy()

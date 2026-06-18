@@ -155,7 +155,7 @@ class DecisionEngine:
                     logger.debug("[decisions] could not parse Redis message: %s", exc)
                     continue
         except asyncio.TimeoutError:
-            pass
+            logger.warning("[decisions] Redis pub/sub wait timed out after %ss for decision %s", timeout, decision.id)
         finally:
             try:
                 await pubsub.unsubscribe(channel)

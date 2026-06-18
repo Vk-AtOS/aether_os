@@ -405,8 +405,8 @@ class DeviceSandboxBackend:
                 remote_dir = f"{base}/run_{int(time.time())}"
                 try:
                     sftp.mkdir(base)
-                except IOError:
-                    pass  # ignore if exists
+                except IOError as e:
+                    logger.warning("sandbox/manager: sftp mkdir %s failed (likely already exists): %s", base, e)
                 sftp.mkdir(remote_dir)
 
                 # Decide commands & script path

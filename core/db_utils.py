@@ -303,8 +303,8 @@ def _emit_run_notification(run, status: str) -> None:
         _t = asyncio.create_task(_create())
         _background_notify_tasks.add(_t)
         _t.add_done_callback(_background_notify_tasks.discard)
-    except RuntimeError:
-        pass  # no running event loop — skip background notification
+    except RuntimeError as e:
+        logger.warning("db_utils: no running event loop — background notification skipped: %s", e)
 
 
 async def create_run(

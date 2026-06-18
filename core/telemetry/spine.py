@@ -21,6 +21,7 @@ This module is self-contained and safe to import from any component.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -28,6 +29,8 @@ import uuid
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -255,9 +258,9 @@ class TelemetrySpine:
         rotated = f"{self._log_path}.{ts}.bak"
         try:
             os.rename(self._log_path, rotated)
-        except OSError:
+        except OSError as e:
             # If rename fails, we simply keep the existing file
-            pass
+            logger.warning("telemetry/spine: log rotation failed for %s: %s", self._log_path, e)
 
     # --- Query helpers ------------------------------------------------------
 

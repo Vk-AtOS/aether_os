@@ -24,16 +24,16 @@ def safe_parse_json(text: str) -> dict:
     # Try direct parse
     try:
         return json.loads(text.strip())
-    except (json.JSONDecodeError, ValueError, AttributeError):
-        pass
+    except (json.JSONDecodeError, ValueError, AttributeError) as e:
+        logger.warning("token_counter: direct JSON parse failed: %s", e)
     # Find JSON block anywhere in response
     for pattern in [r'\{[^{}]*\}', r'\{.*?\}']:
         match = re.search(pattern, text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
-            except (json.JSONDecodeError, ValueError):
-                pass
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning("token_counter: failed to parse JSON block from pattern %r: %s", pattern, e)
     # Last resort — return structured default
     return {"content": text.strip(), "parse_error": True, "raw": text[:1000]}
 
