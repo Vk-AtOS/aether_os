@@ -26,11 +26,14 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import logging
 import os
 import shutil
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +269,8 @@ def create_snapshot(
 
         try:
             total_size += os.path.getsize(src)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning("snapshot/manager: could not get file size for %s: %s", src, e)
         file_count += 1
 
     info = SnapshotInfo(

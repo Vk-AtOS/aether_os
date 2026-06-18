@@ -199,8 +199,8 @@ class MemoryService:
                     if user.user_preferences:
                         try:
                             existing = json.loads(user.user_preferences)
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            logger.warning("memory_service: failed to parse user_preferences JSON for user %s: %s", user_id, e)
                     existing.update(prefs)
                     user.user_preferences = json.dumps(existing)
                     await session.commit()
