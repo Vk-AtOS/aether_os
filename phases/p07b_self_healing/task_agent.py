@@ -61,8 +61,8 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
             try:
                 if os.path.isabs(candidate_str):
                     candidate_str = os.path.relpath(candidate_str, str(project_dir))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p07b: relpath conversion failed (non-fatal): %s", exc)
             candidate = Path(candidate_str)
             if not candidate.is_absolute():
                 candidate = (project_dir / candidate).resolve()
@@ -231,15 +231,15 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
             try:
                 proc.kill()
                 await asyncio.wait_for(proc.wait(), timeout=5)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p07b: failed to kill timed-out pytest process (non-fatal): %s", exc)
         return {"passed": False, "output": f"pytest timed out after {TEST_TIMEOUT}s"}
     except Exception as e:
         if proc is not None:
             try:
                 proc.kill()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("p07b: failed to kill pytest process on error (non-fatal): %s", exc)
         return {"passed": False, "output": str(e)}
 
 

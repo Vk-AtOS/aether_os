@@ -78,8 +78,8 @@ def read_architecture(data: dict) -> dict:
     if arch_path:
         try:
             arch = json.loads(Path(arch_path).read_text())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("p05: failed to read architecture from path %s (non-fatal): %s", arch_path, exc)
 
     if arch is None:
         _arch_inline = data.get("architecture_json")

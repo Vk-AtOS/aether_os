@@ -42,8 +42,8 @@ def _ctx_summary(data: dict) -> str:
         try:
             ir = json.loads(Path(ir_path).read_text())
             entities = [e.get("name", "") for e in ir.get("entities", [])[:15]]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("p15: failed to read domain_ir for entity list (non-fatal): %s", exc)
     if not entities:
         arch = data.get("architecture_json", {})
         if isinstance(arch, dict):

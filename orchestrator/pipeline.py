@@ -211,8 +211,8 @@ class Pipeline:
                             try:
                                 findings = ctx.review_findings if isinstance(ctx.review_findings, list) else []
                                 security_findings = [f for f in findings if isinstance(f, dict) and f.get("severity") in ("HIGH", "CRITICAL")]
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.debug("security_findings filter failed (non-fatal): %s", exc)
 
                         ctx.self_test_report = {
                             "tests_passed": test_phase_output.get("tests_passed", 0),
@@ -268,8 +268,8 @@ class Pipeline:
             ctx.add_error(str(exc))
             try:
                 sm.transition_to(PipelineState.FAILED, reason=str(exc))
-            except Exception:
-                pass
+            except Exception as sm_exc:
+                logger.debug("State machine transition to FAILED failed (non-fatal): %s", sm_exc)
             self.ledger.update_run_status(ctx.run_id, "failed")
             logger.error("Pipeline FAILED [run=%s]: %s", ctx.run_id, exc)
             return {
@@ -284,8 +284,8 @@ class Pipeline:
             try:
                 from aether_os.orchestrator.monitor import get_dcsp_bridge
                 get_dcsp_bridge().stop_monitoring()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("DCSP bridge stop_monitoring failed (non-fatal): %s", exc)
 
 
 _pipeline_instance: Optional[Pipeline] = None

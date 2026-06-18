@@ -57,8 +57,8 @@ def route_failure(
         if target_idx > current_idx:
             logger.warning("Router tried to route forward (%s→%s), refusing", current_phase, target)
             return None
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Phase sequence check failed (non-fatal): %s", exc)
 
     logger.info("Routing failure '%s' from %s → %s", failure_type, current_phase.value, target.value)
     return target

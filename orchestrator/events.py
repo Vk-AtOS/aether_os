@@ -9,9 +9,12 @@ asyncio.Queue. All workers share the same event stream.
 """
 from __future__ import annotations
 import asyncio
+import logging
 import time
 from contextvars import ContextVar
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Set by factory_pipeline before each phase so LLM calls can emit to the right queue.
 ACTIVE_RUN_ID: ContextVar[Optional[str]] = ContextVar("active_run_id", default=None)
@@ -44,5 +47,5 @@ async def emit(event: dict, run_id: Optional[str] = None) -> None:
     try:
         from aether_os.core.pipeline_state import publish_event
         await publish_event(run_id, {**event, "ts": time.time()})
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("emit failed for run_id=%s (non-fatal): %s", run_id, exc)

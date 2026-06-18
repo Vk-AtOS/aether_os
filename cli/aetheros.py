@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import time
 import webbrowser
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 import typer
 import requests
@@ -148,8 +151,8 @@ def logout():
     if cfg:
         try:
             _post(cfg, "/auth/logout")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("CLI logout: server-side logout call failed (non-fatal): %s", exc)
     _save_cfg({})
     console.print("[green]Logged out.[/green]")
 

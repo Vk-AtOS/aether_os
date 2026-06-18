@@ -60,8 +60,8 @@ async def get_phase_output(project_id: str, phase_name: str):
             if f.is_file() and f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
                 try:
                     files[f.name] = f.read_text()[:5000]
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("portal routes: failed to read phase file %s (non-fatal): %s", f.name, exc)
         return {"project_id": project_id, "phase": phase_name, "files": files}
     except Exception as e:
         raise HTTPException(500, str(e))

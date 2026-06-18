@@ -100,8 +100,8 @@ class MessageBus:
                          "run_id": message.result.run_id},
                 session_id=message.result.run_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Audit log for bus publish failed (non-fatal): %s", exc)
 
         logger.info("Bus: %s → %s [%s]", message.from_phase, target or "broadcast",
                     message.result.status)

@@ -39,8 +39,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     success=True,
                     issues=[],
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("p07: idempotent cache read failed (non-fatal): %s", exc)
 
     results = {}
 

@@ -757,8 +757,8 @@ class FactoryPipeline:
                                 from pathlib import Path as _P
                                 try:
                                     _ir_for_patterns = _j.loads(_P(_ir_path_for_patterns).read_text())
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    logger.debug("Pattern library: failed to read domain_ir file (non-fatal): %s", exc)
                         if _ir_for_patterns:
                             _ps = _PS(_ir_for_patterns)
                             _applied = _ps.apply_all(project_dir)
@@ -930,8 +930,8 @@ class FactoryPipeline:
                             if _r_fa:
                                 _r_fa.finished_at = time.time()
                                 await _s_fa.commit()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("finished_at persist failed on timeout (non-fatal): %s", exc)
                     await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
                                                       "error": f"Critical phase {phase_name} timed out", "ts": time.time()})
 
@@ -961,8 +961,8 @@ class FactoryPipeline:
                             if _r_fb:
                                 _r_fb.finished_at = time.time()
                                 await _s_fb.commit()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("finished_at persist failed on phase abort (non-fatal): %s", exc)
                     await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
                                                   "error": f"Critical phase {phase_name} failed: {e}", "ts": time.time()})
 
@@ -987,8 +987,8 @@ class FactoryPipeline:
                         if _r_canc:
                             _r_canc.finished_at = time.time()
                             await _s_canc.commit()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("finished_at persist failed on cancel (non-fatal): %s", exc)
                 await publish_event(run_id, {"type": "pipeline_complete", "status": "cancelled", "ts": time.time()})
                 return {
                     "run_id": run_id, "status": "cancelled",
@@ -1060,8 +1060,8 @@ class FactoryPipeline:
                 if _r_fin:
                     _r_fin.finished_at = time.time()
                     await _s_fin.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("finished_at persist failed on pipeline completion (non-fatal): %s", exc)
         _complete_event = {
             "type": "pipeline_complete",
             "status": "council_review",

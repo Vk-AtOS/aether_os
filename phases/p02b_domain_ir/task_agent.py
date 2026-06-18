@@ -434,8 +434,8 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     if not architecture and arch_path.exists():
         try:
             architecture = json.loads(arch_path.read_text())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("p02b: failed to read architecture from arch_path (non-fatal): %s", exc)
     # If architecture is still not a dict (e.g. came in as something unexpected), reset
     if not isinstance(architecture, dict):
         logger.warning("p02b: architecture resolved to non-dict type %s — resetting to {}", type(architecture))

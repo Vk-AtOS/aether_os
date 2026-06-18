@@ -2,10 +2,13 @@
 from __future__ import annotations
 import ast
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def _find_backend_dir(result: TaskResult) -> Path | None:
@@ -81,8 +84,8 @@ def validate(result: TaskResult) -> GateOutcome:
             if proc.returncode != 0 and proc.stderr:
                 err = proc.stderr.strip()[:300]
                 main_issues.append(f"main.py import-level error: {err}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("p04 gate: main.py syntax check subprocess failed (non-fatal): %s", exc)
     else:
         main_issues.append("main.py not found — generated app may not be runnable")
 
