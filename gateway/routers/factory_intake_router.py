@@ -164,8 +164,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
                 ip = ipaddress.ip_address(host)
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
                     raise HTTPException(status_code=422, detail=f"{label} must not point to internal networks")
-            except ValueError:
-                pass  # hostname string (not a raw IP) — DNS resolves at request time; block known patterns
+            except ValueError as e:
+                logger.warning("factory_intake_router: %r is not a raw IP (hostname, DNS resolves at request time): %s", host, e)
             if host in ("metadata.google.internal", "169.254.169.254"):
                 raise HTTPException(status_code=422, detail=f"{label} is a blocked cloud metadata endpoint")
         except HTTPException:

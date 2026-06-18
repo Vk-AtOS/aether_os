@@ -120,8 +120,8 @@ async def prune_artifacts(
                 if p.is_dir():
                     try:
                         p.rmdir()
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.warning("admin_platform_router: could not remove empty dir %s: %s", p, e)
     return {
         "dry_run": dry_run,
         "ttl_days": ttl_days,

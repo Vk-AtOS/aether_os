@@ -44,8 +44,8 @@ async def guardian_status(
     if credentials:
         try:
             user = await get_current_user(credentials)
-        except HTTPException:
-            pass
+        except HTTPException as e:
+            logger.warning("guardian_router: authentication failed (will return public stub): %s", e.detail)
 
     # Unauthenticated callers get only a safe stub — no DB query, no data leak
     if not user:

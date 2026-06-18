@@ -282,8 +282,8 @@ def create_app() -> FastAPI:
                         try:
                             with _sock.create_connection(("127.0.0.1", _rport), timeout=1):
                                 _alive = True
-                        except OSError:
-                            pass
+                        except OSError as e:
+                            logger.warning("api: probe connection failed for run %s on port %d: %s", _rid, _rport, e)
                         if _alive:
                             logger.info("run_app: port %d still alive for run %s — registering (no restart)", _rport, _rid)
                             from aether_os.core.app_state import set_app_state as _sas_r
@@ -303,8 +303,8 @@ def create_app() -> FastAPI:
                 try:
                     with _sock.create_connection(("127.0.0.1", _rport), timeout=1):
                         _dead = False
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("api: Redis fallback probe failed for run %s on port %d: %s", _rid, _rport, e)
                 if not _dead:
                     logger.info("run_app: port %d still alive for run %s — no restart needed", _rport, _rid)
                     return

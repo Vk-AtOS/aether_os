@@ -73,8 +73,8 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
                 try:
                     with _sk.create_connection(("127.0.0.1", _rport), timeout=0.5):
                         _alive = True
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("app_preview_router: probe failed for run %s on port %d: %s", _rid, _rport, e)
                 if _alive:
                     _port = _rport
                     _current_rid = _rid
