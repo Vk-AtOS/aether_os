@@ -28,6 +28,7 @@ Design
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 import shlex
 import signal
@@ -37,6 +38,8 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import resource  # type: ignore[attr-defined]
@@ -221,16 +224,16 @@ class LocalSandboxBackend:
         if limits.cpu_time_sec > 0:
             try:
                 resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_time_sec, limits.cpu_time_sec))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("_apply_resource_limits: could not set RLIMIT_CPU: %s", exc)
 
         # Address space limit (rough bound)
         if limits.memory_mb > 0:
             limit_bytes = limits.memory_mb * 1024 * 1024
             try:
                 resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("_apply_resource_limits: could not set RLIMIT_AS: %s", exc)
 
     def run(self, req: SandboxRequest) -> SandboxResult:
         if req.target_type != "local":
@@ -294,8 +297,8 @@ class LocalSandboxBackend:
                         else:
                             proc.kill()
                         killed = True
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("LocalSandboxBackend: could not kill timed-out process: %s", exc)
                     stdout_text, stderr_text = proc.communicate()
                     exit_code = proc.returncode
 
@@ -468,8 +471,8 @@ class DeviceSandboxBackend:
                         try:
                             chan.close()
                             killed = True
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("DeviceSandboxBackend: could not close timed-out channel: %s", exc)
                         break
 
                     time.sleep(0.1)  # sync poll — caller must run this in asyncio.to_thread()
@@ -480,8 +483,8 @@ class DeviceSandboxBackend:
                         stdout_chunks.append(chan.recv(4096).decode("utf-8", errors="replace"))
                     while chan.recv_stderr_ready():
                         stderr_chunks.append(chan.recv_stderr(4096).decode("utf-8", errors="replace"))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("DeviceSandboxBackend: error flushing channel buffers: %s", exc)
 
                 stdout_text = "".join(stdout_chunks)
                 stderr_text = "".join(stderr_chunks)
@@ -489,7 +492,8 @@ class DeviceSandboxBackend:
                 if not timed_out:
                     try:
                         exit_code = chan.recv_exit_status()
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug("DeviceSandboxBackend: could not get exit status: %s", exc)
                         exit_code = None
 
             finally:
@@ -500,8 +504,8 @@ class DeviceSandboxBackend:
         finally:
             try:
                 client.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("DeviceSandboxBackend: error closing SSH client: %s", exc)
 
         finished = datetime.now(timezone.utc)
         duration = (finished - started).total_seconds()

@@ -5,10 +5,13 @@ Parses generated FastAPI code and checks each route against compliance framework
 Returns structured findings used to generate compliance reports and inject fixes.
 """
 from __future__ import annotations
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -103,8 +106,8 @@ def scan_file(
             )
             routes.extend(_extract_routes(_expanded))
             source += "\n" + _router_src
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("code_scanner: skipping router file %s: %s", _router_file, exc)
 
     findings = _run_compliance_checks(routes, source, domain)
     score = _calculate_score(routes, findings)

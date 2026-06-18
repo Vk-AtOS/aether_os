@@ -151,7 +151,8 @@ class DecisionEngine:
                 try:
                     data = json.loads(message["data"])
                     return Decision.from_dict(data)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("[decisions] could not parse Redis message: %s", exc)
                     continue
         except asyncio.TimeoutError:
             pass
@@ -159,8 +160,8 @@ class DecisionEngine:
             try:
                 await pubsub.unsubscribe(channel)
                 await pubsub.aclose()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[decisions] error closing Redis pubsub: %s", exc)
 
         decision.status = "timeout"
         decision.decided_at = time.time()

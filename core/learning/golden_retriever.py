@@ -108,8 +108,8 @@ async def _build_golden_record(run, avg_rating: float, session) -> Optional[Any]
                     "entity_names": [e.get("name", "") for e in entities[:10]],
                     "entity_count": len(entities),
                 }
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("golden_retriever: domain IR summary extraction failed: %s", exc)
 
     return GoldenBuild(
         id=str(uuid.uuid4()),

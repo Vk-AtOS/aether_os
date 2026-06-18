@@ -249,8 +249,8 @@ class RunAppManager:
                                 "noUnusedParameters": False,
                             })
                             _ts_path.write_text(_json_ts.dumps(_ts, indent=2))
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.warning("RunAppManager: could not patch %s: %s", _ts_name, exc)
 
                 for _vc_name in ("vite.config.ts", "vite.config.js"):
                     _vc_path = frontend_dir / _vc_name
@@ -474,8 +474,8 @@ class RunAppManager:
                 from aether_os.core.app_state import set_app_state as _sas, set_proc as _sp_fn
                 _sp_fn(run_id, proc)
                 await _sas(run_id, port=port, pid=proc.pid, mode=mode, app_dir=str(root_dir))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("RunAppManager: could not update app_state for %s: %s", run_id, exc)
 
             import time as _ts_state
             _state_file = root_dir / "run_app_state.json"
@@ -487,14 +487,14 @@ class RunAppManager:
                     "started_at": _ts_state.time(),
                     "mode": mode,
                 }))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("RunAppManager: could not write run_app_state.json for %s: %s", run_id, exc)
 
             try:
                 from aether_os.core.db_utils import async_update_run_live_url as _aulul
                 await _aulul(run_id, "/app-preview/")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("RunAppManager: could not update live_url for %s: %s", run_id, exc)
 
             return {
                 "status": "started",

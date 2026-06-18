@@ -87,8 +87,8 @@ async def _execute_job(run_id: str, params: Dict[str, Any], receipt_handle: str)
             async with sf() as s:
                 await s.execute(_upd(Run).where(Run.id == run_id).values(status="failed", message=str(exc)))
                 await s.commit()
-        except Exception:
-            pass
+        except Exception as db_exc:
+            logger.warning("SQS consumer: could not mark run %s as failed in DB: %s", run_id, db_exc)
     finally:
         if heartbeat_task and not heartbeat_task.done():
             heartbeat_task.cancel()
