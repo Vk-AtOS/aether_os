@@ -6,11 +6,13 @@ DELETE /webhooks/{webhook_id}
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["webhooks"])
 
 
@@ -67,8 +69,8 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
             _addr = _ip.ip_address(_host)
             if _addr.is_private or _addr.is_loopback or _addr.is_link_local or _addr.is_reserved:
                 raise HTTPException(status_code=422, detail="Webhook URL must not target a private or reserved IP")
-        except ValueError:
-            pass  # hostname — DNS resolution happens at delivery time, not here
+        except ValueError as e:
+            logger.warning("webhooks_router: %r is not a raw IP (hostname, DNS resolves at delivery time): %s", _host, e)
     except HTTPException:
         raise
     except Exception:

@@ -34,8 +34,8 @@ def emit_sync(event: dict, run_id: Optional[str] = None) -> None:
         loop = asyncio.get_running_loop()
         from aether_os.core.pipeline_state import publish_event
         loop.create_task(publish_event(run_id, {**event, "ts": time.time()}))
-    except RuntimeError:
-        pass  # No running event loop — sync context, skip
+    except RuntimeError as e:
+        logger.warning("orchestrator/events: no running event loop in emit_sync for run_id=%s: %s", run_id, e)
 
 
 async def emit(event: dict, run_id: Optional[str] = None) -> None:
