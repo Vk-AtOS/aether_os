@@ -7,10 +7,13 @@ Create Date: 2026-05-15
 T2-09: Add org_id to phase_configs so each org has its own phase settings.
 T3-06: Add missing FK indexes on events, snapshots, decisions, webhooks, workspaces.
 """
+import logging
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+
+logger = logging.getLogger(__name__)
 
 
 revision: str = "revision_b1c2d3e4f5a6"
@@ -34,8 +37,8 @@ def upgrade() -> None:
         batch_op.drop_constraint("pk_phase_configs", type_="primary") if False else None
         try:
             batch_op.create_primary_key("pk_phase_configs", ["org_id", "phase_name"])
-        except Exception:
-            pass  # PostgreSQL handles this differently; constraint may already be updated
+        except Exception as exc:
+            logger.debug("PK constraint creation skipped (may already exist on PostgreSQL): %s", exc)
 
     # T3-06: Add missing FK indexes
     with op.batch_alter_table("events", schema=None) as batch_op:
