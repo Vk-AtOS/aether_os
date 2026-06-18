@@ -13,9 +13,12 @@ Settings and org lifecycle routes live in account_settings_router.py.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
@@ -233,8 +236,8 @@ async def delete_account(user: Dict[str, Any] = _current_user()) -> Dict[str, st
             if r:
                 ttl = max(1, int(exp - time.time()))
                 await r.setex(f"jwt:blacklist:{jti}", ttl, "1")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to blacklist JWT jti=%s in Redis during account deletion: %s", jti, exc)
 
     await get_ledger().async_log_audit_event(
         org_id=org_id, user_id=user_id, action="account.deleted",

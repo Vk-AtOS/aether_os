@@ -113,8 +113,8 @@ async def fetch_github_repo(req: Dict[str, Any], user: Dict[str, Any] = _current
                 try:
                     text = base64.b64decode(blob_data.get("content", "")).decode("utf-8", errors="ignore")[:2000]
                     context_parts.append(f"\n--- {f['path']} ---\n{text}")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to decode blob content for file %s: %s", f.get("path"), exc)
     return {"context": "\n".join(context_parts), "repo": f"{owner}/{repo}"}
 
 
@@ -170,7 +170,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
                 raise HTTPException(status_code=422, detail=f"{label} is a blocked cloud metadata endpoint")
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("SSRF URL validation failed for %s=%r: %s", label, raw_url, exc)
             raise HTTPException(status_code=422, detail=f"Invalid {label}")
 
     rtype = req.get("type", "github").lower()
@@ -245,8 +246,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
                         try:
                             text = base64.b64decode(blob_res.json().get("content", "")).decode("utf-8", errors="ignore")[:3000]
                             context_parts.append(f"\n--- {f['path']} ---\n{text}")
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Failed to decode GitHub blob content for %s: %s", f.get("path"), exc)
 
     elif rtype == "ssh":
         # Clone via SSH with ephemeral key
@@ -280,8 +281,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
                             rel = os.path.relpath(fpath, clone_dir)
                             context_parts.append(f"\n--- {rel} ---\n{text}")
                             found += 1
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Failed to read cloned file %s: %s", fpath, exc)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
     else:

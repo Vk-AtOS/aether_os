@@ -37,7 +37,8 @@ async def _count_security_decisions(sf, org_id: str) -> int:
                 ),
                 {"oid": org_id},
             )).scalar() or 0
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to count security decisions for org %s: %s", org_id, exc)
         return 0
 
 
@@ -164,8 +165,8 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_
             if _run_ca:
                 _project_name = getattr(_run_ca, "project_name", "") or ""
                 _domain = getattr(_run_ca, "domain", "general") or "general"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("DB lookup for compliance project_name/domain failed (run %s): %s", run_id, exc)
 
     gen = ComplianceArtifactGenerator()
     artifact = await gen.generate_artifact(
@@ -209,7 +210,8 @@ async def get_compliance_report(user: Dict[str, Any] = _current_user()):
             total_decisions = (await session.execute(
                 _ct("SELECT COUNT(*) FROM decisions WHERE org_id=:oid"), {"oid": org_id}
             )).scalar() or 1
-        except Exception:
+        except Exception as exc:
+            logger.debug("Compliance org-report DB queries failed for org %s: %s", org_id, exc)
             total, domains, approved, total_decisions = 0, [], 0, 1
     # Determine deployment region from env (supports AWS, Fly.io, Railway, generic)
     _region = (
@@ -231,8 +233,8 @@ async def get_compliance_report(user: Dict[str, Any] = _current_user()):
                 _org = await _s2.get(_Org, org_id)
                 if _org and _org.data_region:
                     _org_settings["data_region"] = _org.data_region
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to load org data_region for compliance report (org %s): %s", org_id, exc)
         _ctx = ComplianceContext(
             country_code="",
             region=_org_settings.get("data_region", "global").upper(),
@@ -257,8 +259,8 @@ async def get_compliance_report(user: Dict[str, Any] = _current_user()):
             _eu_ai_risk = "LIMITED"
         else:
             _eu_ai_risk = "MINIMAL"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("ComplianceEngine evaluation failed for org %s: %s", org_id, exc)
     return {
         "total_runs": total,
         "domains_used": list(domains),

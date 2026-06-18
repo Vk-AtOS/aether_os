@@ -196,8 +196,8 @@ async def saml_callback(request: Request) -> RedirectResponse:
         try:
             parsed = urllib.parse.parse_qs(urllib.parse.urlparse(relay_state).query)
             org_slug = parsed.get("org", [None])[0]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to parse org slug from SAML RelayState %r: %s", relay_state, exc)
 
     idp = await _get_idp_config_for_org(org_slug)
     if not idp:
