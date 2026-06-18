@@ -2,30 +2,26 @@
 AetherOS — Factory Ops Router
 Extracted from gateway/api.py (inline routes → APIRouter).
 
-Routes:
-  POST /factory/upload-requirement
-  POST /factory/fetch-github-repo
-  POST /factory/import-schema
-  POST /factory/fetch-repo
+Routes (core run operations):
   GET  /templates
   POST /factory/estimate
   POST /factory/start
-  GET  /factory/search
-  GET  /factory/analytics/quality-trend
-  GET  /factory/deployments
   GET  /pipeline/status/{run_id}
   POST /pipeline/approve/{ticket_id}
+
+See also:
+  factory_intake_router.py   — upload/fetch/import routes
+  factory_analytics_router.py — search, quality-trend, deployments
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
-import asyncio
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File as FastAPIFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
 
@@ -37,7 +33,7 @@ def _current_user():
     return Depends(get_current_user)
 
 
-# ── Pydantic models used by these routes ─────────────────────────────────────
+# ── Pydantic models ───────────────────────────────────────────────────────────
 
 class ApproveRequest(BaseModel):
     ticket_id: str
@@ -101,275 +97,6 @@ async def approve_action(
         }
 
 
-@router.post("/factory/upload-requirement")
-async def upload_requirement_file(
-    file: UploadFile = FastAPIFile(...),
-    user: Dict[str, Any] = _current_user(),
-):
-    """Parse an uploaded file (PDF/MD/TXT/image) and return extracted requirement text."""
-    import io
-    content = await file.read()
-    filename = file.filename or ""
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    extracted = ""
-    if ext in ("txt", "md", "rst"):
-        extracted = content.decode("utf-8", errors="ignore")
-    elif ext == "pdf":
-        try:
-            import pypdf
-            reader = pypdf.PdfReader(io.BytesIO(content))
-            extracted = "\n".join(p.extract_text() or "" for p in reader.pages)
-        except ImportError:
-            try:
-                import pdfplumber
-                with pdfplumber.open(io.BytesIO(content)) as pdf:
-                    extracted = "\n".join(p.extract_text() or "" for p in pdf.pages)
-            except Exception as e:
-                return {"text": "", "error": f"PDF parsing unavailable: {e}"}
-    elif ext in ("png", "jpg", "jpeg", "webp"):
-        try:
-            from aether_os.core.llm.client import get_llm_client
-            llm = get_llm_client()
-            prompt = (
-                "This image is a requirements document, wireframe, or specification screenshot. "
-                "Extract ALL visible text and describe every UI element, form field, button, and functional requirement in detail. "
-                "Return plain text only — no markdown fences, no commentary."
-            )
-            extracted = await llm.call_vision(prompt, content)
-            if not extracted:
-                return {"text": "", "error": "Could not extract text from image — please ensure the image is clear and readable"}
-        except Exception as e:
-            logger.warning("Vision extraction failed: %s", e)
-            return {"text": "", "error": f"Image extraction failed: {e} — please paste text instead"}
-    elif ext in ("docx",):
-        try:
-            import docx
-            doc = docx.Document(io.BytesIO(content))
-            extracted = "\n".join(p.text for p in doc.paragraphs)
-        except Exception as e:
-            return {"text": "", "error": f"DOCX parsing failed: {e}"}
-    else:
-        extracted = content.decode("utf-8", errors="ignore")
-    return {"text": extracted[:8000], "filename": filename}
-
-
-@router.post("/factory/fetch-github-repo")
-async def fetch_github_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
-    """Fetch key files from a GitHub repo to use as codebase context."""
-    import httpx
-    repo_url = req.get("repo_url", "").strip().rstrip("/")
-    github_token = req.get("github_token", "")
-    if not repo_url:
-        raise HTTPException(status_code=422, detail="repo_url required")
-    # Parse owner/repo from URL
-    parts = repo_url.replace("https://github.com/", "").split("/")
-    if len(parts) < 2:
-        raise HTTPException(status_code=422, detail="Invalid GitHub URL format")
-    owner, repo = parts[0], parts[1]
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    if github_token:
-        headers["Authorization"] = f"token {github_token}"
-    async with httpx.AsyncClient(timeout=20) as gh:
-        # Get file tree
-        tree_res = await gh.get(f"https://api.github.com/repos/{owner}/{repo}/git/trees/HEAD?recursive=1", headers=headers)
-        if tree_res.status_code == 404:
-            raise HTTPException(status_code=404, detail="Repository not found or private (provide github_token)")
-        tree = tree_res.json().get("tree", [])
-        # Pick key files: README, main files, package.json, requirements.txt
-        _KEY = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "index.js", "index.ts",
-                "package.json", "requirements.txt", "pyproject.toml", "schema.sql"}
-        key_files = [f for f in tree if f.get("type") == "blob" and f["path"].lower().split("/")[-1] in _KEY][:10]
-        context_parts = [f"Repository: {owner}/{repo}"]
-        for f in key_files:
-            blob_res = await gh.get(f"https://api.github.com/repos/{owner}/{repo}/contents/{f['path']}", headers=headers)
-            if blob_res.status_code == 200:
-                import base64
-                blob_data = blob_res.json()
-                try:
-                    text = base64.b64decode(blob_data.get("content", "")).decode("utf-8", errors="ignore")[:2000]
-                    context_parts.append(f"\n--- {f['path']} ---\n{text}")
-                except Exception:
-                    pass
-    return {"context": "\n".join(context_parts), "repo": f"{owner}/{repo}"}
-
-
-@router.post("/factory/import-schema")
-async def import_existing_schema(
-    req: Dict[str, Any],
-    user: Dict[str, Any] = _current_user(),
-):
-    """Import schema from an existing database to use as p02 architecture input."""
-    connection_string = req.get("connection_string", "")
-    if not connection_string:
-        raise HTTPException(400, "connection_string required")
-    # Basic safety: only allow known drivers, reject file paths outside /tmp
-    allowed = ("postgresql://", "mysql+pymysql://", "mysql://", "sqlite:///")
-    if not any(connection_string.startswith(p) for p in allowed):
-        raise HTTPException(400, "Unsupported connection string format")
-
-    from aether_os.core.schema_importer import import_schema
-    result = await import_schema(connection_string)
-    return result
-
-
-@router.post("/factory/fetch-repo")
-async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
-    """Fetch codebase context from GitHub, GitLab, or an SSH-accessible repository.
-
-    Body:
-      type: 'github' | 'gitlab' | 'ssh'
-      url:  repo URL or SSH remote
-      token:      personal access token (GitHub / GitLab)
-      ssh_key:    PEM private key string (SSH type)
-      gitlab_url: self-hosted GitLab base URL (optional, default https://gitlab.com)
-      max_files:  max files to include (default 15)
-    """
-    import httpx, base64, asyncio, tempfile, subprocess, shutil
-    import ipaddress
-    from urllib.parse import urlparse as _urlparse
-
-    def _assert_not_ssrf(raw_url: str, label: str = "url") -> None:
-        """Block requests to private/loopback/link-local IP ranges (SSRF prevention)."""
-        try:
-            parsed = _urlparse(raw_url)
-            host = parsed.hostname or ""
-            if not host:
-                raise HTTPException(status_code=422, detail=f"Invalid {label}: no hostname")
-            try:
-                ip = ipaddress.ip_address(host)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-                    raise HTTPException(status_code=422, detail=f"{label} must not point to internal networks")
-            except ValueError:
-                pass  # hostname string (not a raw IP) — DNS resolves at request time; block known patterns
-            if host in ("metadata.google.internal", "169.254.169.254"):
-                raise HTTPException(status_code=422, detail=f"{label} is a blocked cloud metadata endpoint")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=422, detail=f"Invalid {label}")
-
-    rtype = req.get("type", "github").lower()
-    url   = (req.get("url") or req.get("repo_url") or "").strip().rstrip("/")
-    token = req.get("token") or req.get("github_token") or ""
-    ssh_key = req.get("ssh_key", "")
-    gitlab_base = (req.get("gitlab_url") or "https://gitlab.com").rstrip("/")
-    max_files = min(int(req.get("max_files", 15)), 30)
-
-    if not url:
-        raise HTTPException(status_code=422, detail="url required")
-
-    # SSRF: validate gitlab_url before making server-side requests to it
-    if rtype == "gitlab":
-        _assert_not_ssrf(gitlab_base, "gitlab_url")
-
-    # SSRF/injection: SSH URLs must be actual git remotes, not file:// or local paths
-    if rtype == "ssh":
-        _lower = url.lower()
-        if _lower.startswith("file://") or _lower.startswith("/") or _lower.startswith("../"):
-            raise HTTPException(status_code=422, detail="SSH url must be a remote git address, not a local path")
-
-    _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
-                  "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
-                  "pyproject.toml", "schema.sql", "docker-compose.yml", "dockerfile",
-                  ".env.example", "openapi.yaml", "openapi.json"}
-
-    context_parts: list[str] = []
-
-    if rtype in ("github", "gitlab"):
-        is_gitlab = rtype == "gitlab"
-        if is_gitlab:
-            # Support self-hosted GitLab
-            path = url.replace(gitlab_base + "/", "").replace("https://gitlab.com/", "")
-            api_base = f"{gitlab_base}/api/v4"
-            encoded = path.replace("/", "%2F")
-            hdrs: Dict[str, str] = {}
-            if token:
-                hdrs["PRIVATE-TOKEN"] = token
-            async with httpx.AsyncClient(timeout=20) as gl:
-                tree_res = await gl.get(f"{api_base}/projects/{encoded}/repository/tree?recursive=true&per_page=200", headers=hdrs)
-                if tree_res.status_code == 404:
-                    raise HTTPException(status_code=404, detail="GitLab project not found or private (provide token)")
-                tree = tree_res.json()
-                key_files = [f for f in tree if f.get("type") == "blob" and f["name"].lower() in _KEY_FILES][:max_files]
-                context_parts.append(f"Repository: {path} (GitLab)")
-                for f in key_files:
-                    fpath = f["path"]
-                    raw_res = await gl.get(f"{api_base}/projects/{encoded}/repository/files/{fpath.replace('/',  '%2F')}/raw?ref=HEAD", headers=hdrs)
-                    if raw_res.status_code == 200:
-                        text = raw_res.text[:3000]
-                        context_parts.append(f"\n--- {fpath} ---\n{text}")
-        else:
-            # GitHub (existing logic unified here)
-            parts = url.replace("https://github.com/", "").split("/")
-            if len(parts) < 2:
-                raise HTTPException(status_code=422, detail="Invalid GitHub URL")
-            owner, repo_name = parts[0], parts[1]
-            hdrs = {"Accept": "application/vnd.github.v3+json"}
-            if token:
-                hdrs["Authorization"] = f"token {token}"
-            async with httpx.AsyncClient(timeout=20) as gh:
-                tree_res = await gh.get(f"https://api.github.com/repos/{owner}/{repo_name}/git/trees/HEAD?recursive=1", headers=hdrs)
-                if tree_res.status_code == 404:
-                    raise HTTPException(status_code=404, detail="Repository not found or private (provide token)")
-                tree = tree_res.json().get("tree", [])
-                key_files = [f for f in tree if f.get("type") == "blob" and f["path"].lower().split("/")[-1] in _KEY_FILES][:max_files]
-                context_parts.append(f"Repository: {owner}/{repo_name} (GitHub)")
-                for f in key_files:
-                    blob_res = await gh.get(f"https://api.github.com/repos/{owner}/{repo_name}/contents/{f['path']}", headers=hdrs)
-                    if blob_res.status_code == 200:
-                        try:
-                            text = base64.b64decode(blob_res.json().get("content", "")).decode("utf-8", errors="ignore")[:3000]
-                            context_parts.append(f"\n--- {f['path']} ---\n{text}")
-                        except Exception:
-                            pass
-
-    elif rtype == "ssh":
-        # Clone via SSH with ephemeral key
-        if not ssh_key:
-            raise HTTPException(status_code=422, detail="ssh_key (PEM) required for SSH type")
-        tmpdir = tempfile.mkdtemp(prefix="aether_repo_")
-        key_file = os.path.join(tmpdir, "id_rsa")
-        clone_dir = os.path.join(tmpdir, "repo")
-        try:
-            with open(key_file, "w") as kf:
-                kf.write(ssh_key)
-            os.chmod(key_file, 0o600)
-            env = {**os.environ, "GIT_SSH_COMMAND": f"ssh -i {key_file} -o StrictHostKeyChecking=no -o BatchMode=yes"}
-            proc = await asyncio.create_subprocess_exec(
-                "git", "clone", "--depth=1", url, clone_dir,
-                env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-            if proc.returncode != 0:
-                raise HTTPException(status_code=422, detail=f"Git clone failed: {stderr.decode()[:500]}")
-            context_parts.append(f"Repository: {url} (SSH clone)")
-            found = 0
-            for root, _dirs, files in os.walk(clone_dir):
-                if "/.git" in root or "/node_modules" in root or "/__pycache__" in root:
-                    continue
-                for fn in files:
-                    if fn.lower() in _KEY_FILES and found < max_files:
-                        fpath = os.path.join(root, fn)
-                        try:
-                            text = open(fpath, errors="ignore").read(3000)
-                            rel = os.path.relpath(fpath, clone_dir)
-                            context_parts.append(f"\n--- {rel} ---\n{text}")
-                            found += 1
-                        except Exception:
-                            pass
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-    else:
-        raise HTTPException(status_code=422, detail=f"Unknown repo type: {rtype}")
-
-    return {
-        "context": "\n".join(context_parts),
-        "url": url,
-        "type": rtype,
-        "files_included": len(context_parts) - 1,
-    }
-
-
 @router.get("/templates")
 async def list_templates(user: Dict[str, Any] = _current_user()):
     """Return available project templates."""
@@ -393,7 +120,6 @@ async def list_templates(user: Dict[str, Any] = _current_user()):
 async def estimate_cost(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     """Estimate monthly hosting cost based on tech stack and domain."""
     domain = req.get("domain", "general")
-    backend = req.get("backend", "fastapi")
     db = req.get("database", "postgresql")
     scale = req.get("scale", "small")  # small / medium / large
     base = {"small": 15, "medium": 45, "large": 120}.get(scale, 15)
@@ -419,12 +145,15 @@ async def start_factory_run(
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Organisation
     from aether_os.core.rate_limiter import get_rate_limiter
+    from aether_os.gateway.routers.factory_run_background import (
+        build_spec_preamble, run_compliance_precheck, run_pipeline_background,
+    )
     from sqlalchemy import select
     import uuid as _uuid
 
     org_id = user.get("org_id")
 
-    # ── Rate limiting on factory/start ────────────────────────────────────
+    # ── Rate limiting ─────────────────────────────────────────────────────────
     _rl = get_rate_limiter()
     if not await _rl.check_factory_start(org_id):
         raise HTTPException(
@@ -501,114 +230,18 @@ async def start_factory_run(
     # Prepend structured spec preamble when designer_spec is provided
     if designer_spec and isinstance(designer_spec, dict):
         try:
-            fe = designer_spec.get("frontend", {})
-            be = designer_spec.get("backend", {})
-            inf = designer_spec.get("infra", {})
-            ft = designer_spec.get("features", {})
-            ds = designer_spec.get("design", {})
-            preamble = (
-                "=== PROJECT SPECIFICATION ===\n"
-                "Tech Stack:\n"
-                f"  Frontend: {fe.get('framework','')} + {fe.get('styling','')}\n"
-                f"  State: {fe.get('state_management','')}\n"
-                f"  Forms: {fe.get('form_library','')}\n"
-                f"  Data Fetching: {fe.get('data_fetching','')}\n"
-                f"  Backend: {be.get('framework','')} + {be.get('database','')} + {be.get('orm','')}\n"
-                f"  Auth: {be.get('auth','')}\n"
-                f"  API: {be.get('api_style','')}\n"
-                f"  Infrastructure: {inf.get('deployment','')}, cache={inf.get('cache','')}, queue={inf.get('queue','')}\n"
-                f"  File Storage: {inf.get('file_storage','')}, Email: {inf.get('email','')}\n"
-                f"  Features: multi_tenant={ft.get('multi_tenancy',False)}, audit_log={ft.get('audit_log',False)}, "
-                f"rate_limiting={ft.get('rate_limiting',True)}, webhooks={ft.get('webhooks_out',False)}, "
-                f"realtime={ft.get('realtime','None')}, payments={ft.get('payments','None')}, "
-                f"i18n={ft.get('internationalization',False)}\n"
-                "\nDesign Tokens:\n"
-                f"  Primary color: {ds.get('primary_hex','#6366f1')}\n"
-                f"  Secondary color: {ds.get('secondary_hex','#8b5cf6')}\n"
-                f"  Background: {ds.get('background_hex','#0f172a')}\n"
-                f"  Surface: {ds.get('surface_hex','#1e293b')}\n"
-                f"  Font pairing: {ds.get('font_pairing','Inter + Inter')}\n"
-                f"  Border radius: {ds.get('border_radius','Rounded (8px)')}\n"
-                f"  Layout: {ds.get('layout','sidebar-topbar')}\n"
-                f"  Component density: {ds.get('density','Normal')}\n"
-                f"  UI Theme: {ds.get('ui_theme','default')}\n"
-                "\n=== PROJECT REQUIREMENT ===\n"
-            )
-            if existing_schema and isinstance(existing_schema, dict):
-                tables = existing_schema.get("tables", [])
-                if tables:
-                    schema_lines = ["", "=== EXISTING DATABASE SCHEMA (use this, do not invent tables) ==="]
-                    for t in tables[:20]:
-                        cols = ", ".join(c.get("name", c) if isinstance(c, dict) else c for c in t.get("columns", [])[:10])
-                        schema_lines.append(f"  Table: {t.get('name', '?')} — columns: {cols}")
-                    preamble += "\n".join(schema_lines) + "\n"
-            raw_input = preamble + raw_input
+            raw_input = build_spec_preamble(designer_spec, existing_schema) + raw_input
         except Exception as _spec_exc:
             logger.warning("Failed to build designer_spec preamble: %s", _spec_exc)
 
-    # ── Compliance pre-check — block embargoed countries, enforce jurisdiction ──
-    _EMBARGOED = {"CU", "IR", "KP", "SY", "RU", "BY"}
-    if production_country and production_country in _EMBARGOED:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Production in '{production_country}' is blocked — embargoed jurisdiction."
-        )
+    # Compliance pre-check — block embargoed countries, enforce jurisdiction
     if production_country:
-        try:
-            from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
-            _region_map = {
-                "AT":"EU","BE":"EU","CZ":"EU","DE":"EU","DK":"EU","ES":"EU","FI":"EU","FR":"EU",
-                "GR":"EU","HR":"EU","HU":"EU","IE":"EU","IT":"EU","NL":"EU","PL":"EU","PT":"EU",
-                "RO":"EU","SE":"EU","SK":"EU","CH":"EU","NO":"EU","GB":"UK",
-                "US":"US","CA":"CANADA","BR":"LATAM","MX":"LATAM","AR":"LATAM","CL":"LATAM","CO":"LATAM",
-                "AU":"APAC","NZ":"APAC","IN":"APAC","SG":"APAC","JP":"APAC","KR":"APAC","TH":"APAC",
-                "PH":"APAC","ID":"APAC","MY":"APAC","VN":"APAC","HK":"APAC","TW":"APAC",
-                "AE":"MENA","SA":"MENA","IL":"MENA","EG":"MENA","NG":"AFRICA","ZA":"AFRICA",
-                "CN":"CHINA",
-            }
-            _region = _region_map.get(production_country, "global")
-            _ctx = ComplianceContext(
-                country_code=production_country,
-                region=_region,
-                deployment_type=compliance_flags.get("deployment_type", "saas"),
-                data_sensitivity=compliance_flags.get("data_sensitivity", "moderate"),
-                handles_personal_data=compliance_flags.get("handles_personal_data", True),
-                handles_biometric_data=compliance_flags.get("handles_biometric_data", False),
-                handles_children_data=compliance_flags.get("handles_children_data", False),
-                industries=[domain] if domain else [],
-                high_risk_use_cases=[],
-                uses_strong_crypto=True,
-                uses_weak_crypto=False,
-                customer_requires_data_residency=compliance_flags.get("requires_data_residency", False),
-                uses_third_country_cloud=False,
-                model_providers=[],
-                repo_tags=[],
-            )
-            _decision = ComplianceEngine().evaluate(_ctx)
-            if _decision.denied:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Compliance check denied: {'; '.join(_decision.reasons)}"
-                )
-            # Inject compliance context so all phases can access it
-            if not isinstance(designer_spec, dict):
-                designer_spec = {}
-            designer_spec["compliance_context"] = {
-                "country_code": production_country,
-                "region": _region,
-                "allowed": _decision.allowed,
-                "requires_approval": _decision.requires_approval,
-                "violations": [{"rule_id": v.rule_id, "severity": v.severity, "message": v.message} for v in _decision.violations],
-                **compliance_flags,
-            }
-            logger.info(
-                "Compliance pre-check: country=%s region=%s allowed=%s requires_approval=%s violations=%d",
-                production_country, _region, _decision.allowed, _decision.requires_approval, len(_decision.violations),
-            )
-        except HTTPException:
-            raise
-        except Exception as _comp_exc:
-            logger.warning("Compliance pre-check non-fatal error: %s", _comp_exc)
+        designer_spec = run_compliance_precheck(
+            production_country=production_country,
+            compliance_flags=compliance_flags,
+            domain=domain,
+            designer_spec=designer_spec or {},
+        )
 
     # B7: Prompt injection guard — block jailbreak and shell injection attempts
     from aether_os.core.security.prompt_guard import guard as _guard
@@ -624,8 +257,7 @@ async def start_factory_run(
         from aether_os.core.db import get_session_factory as _gsf_pre
         from aether_os.core.models import Run as _Run_pre
         import time as _time_pre
-        _sf_pre = _gsf_pre()
-        async with _sf_pre() as _s_pre:
+        async with _gsf_pre()() as _s_pre:
             _s_pre.add(_Run_pre(
                 id=run_id,
                 org_id=org_id,
@@ -641,136 +273,16 @@ async def start_factory_run(
     except Exception as _pre_exc:
         logger.warning("Pre-insert run record failed: %s", _pre_exc)
 
-    async def _run_bg():
-        # LLM Council pre-flight check (non-blocking — runs inside background task)
-        _preflight = {"passed": True, "score": 1.0, "reason": "skipped", "suggestions": []}
-        try:
-            import os as _os
-            from aether_os.core.council import PreFlightCouncil
-            _council = PreFlightCouncil()
-            # Cap the council call at 60s total — if LLM is slow, skip it
-            _preflight = await asyncio.wait_for(
-                _council.run(raw_input=raw_input, domain=domain, org_id=org_id),
-                timeout=60.0,
-            )
-            if not _preflight.get("passed", True):
-                if _os.environ.get("COUNCIL_STRICT_MODE", "false").lower() == "true":
-                    logger.warning(
-                        "PreFlightCouncil STRICT: run %s rejected (score=%.2f): %s",
-                        run_id, _preflight.get("score", 0.0), _preflight.get("reason", ""),
-                    )
-                    # Mark the run as rejected so the UI shows it clearly
-                    try:
-                        from aether_os.core.db import get_session_factory as _gsf_rej
-                        from aether_os.core.models import Run as _Run_rej
-                        from sqlalchemy import update as _upd_rej
-                        _sf_rej = _gsf_rej()
-                        async with _sf_rej() as _s_rej:
-                            await _s_rej.execute(
-                                _upd_rej(_Run_rej).where(_Run_rej.id == run_id)
-                                .values(
-                                    status="rejected",
-                                    message=f"PreFlightCouncil rejected: {_preflight.get('reason','')}",
-                                    council_preflight=_preflight,
-                                )
-                            )
-                            await _s_rej.commit()
-                    except Exception as _rej_exc:
-                        logger.warning("Failed to mark run as rejected: %s", _rej_exc)
-                    return  # Abort pipeline in strict mode
-                logger.warning(
-                    "PreFlightCouncil: run %s did not pass (score=%.2f) — proceeding (non-strict): %s",
-                    run_id, _preflight.get("score", 0.0), _preflight.get("reason", ""),
-                )
-        except (asyncio.TimeoutError, Exception) as _ce:
-            logger.warning("PreFlightCouncil skipped (timeout/error): %s", type(_ce).__name__)
-
-        try:
-            await factory.run(
-                client_id=client_id,
-                raw_input=raw_input,
-                domain=domain,
-                project_name=project_name,
-                run_id=run_id,
-                org_id=org_id,
-                council_preflight=_preflight,
-                github_url=github_url or None,
-                designer_spec=designer_spec or {},
-                tech_preferences=tech_preferences,
-                model_preference=model_preference,
-                priority=priority,
-                codebase_mode=codebase_mode,
-                existing_schema=existing_schema,
-            )
-        except Exception as exc:
-            logger.error("Background factory run failed: %s", exc)
-
-        # ── Post-completion hooks (non-fatal) ─────────────────────────────
-        # 1. Persist quality score to runs table
-        try:
-            from aether_os.core.quality.metrics import score_project
-            from aether_os.core.projects import get_project_manager
-            from aether_os.core.db import get_session_factory as _gsf_qs
-            from aether_os.core.models import Run as _Run_qs
-            from sqlalchemy import update as _upd_qs
-            _project_dir = get_project_manager().get_project_dir(run_id)
-            if _project_dir.exists():
-                _qscore = score_project(_project_dir)
-                _sf_qs = _gsf_qs()
-                async with _sf_qs() as _s_qs:
-                    await _s_qs.execute(
-                        _upd_qs(_Run_qs).where(_Run_qs.id == run_id)
-                        .values(quality_score=int(_qscore.total))
-                    )
-                    await _s_qs.commit()
-                logger.info("[post-build] quality_score=%d saved for run %s", _qscore.total, run_id)
-        except Exception as _qse:
-            logger.debug("[post-build] quality score persist skipped: %s", _qse)
-
-        # 2. Record GlobalPattern aggregate learning
-        try:
-            from aether_os.core.quality.metrics import score_project as _sp2
-            from aether_os.core.projects import get_project_manager as _gpm2
-            from aether_os.core.db import get_session_factory as _gsf_gp2
-            from aether_os.core.services.global_pattern_service import record_global_pattern
-            _project_dir2 = _gpm2().get_project_dir(run_id)
-            if _project_dir2.exists():
-                _qscore2 = _sp2(_project_dir2)
-                async with _gsf_gp2()() as _s_gp:
-                    await record_global_pattern(
-                        run_id=run_id,
-                        domain=domain or "general",
-                        quality_score_total=float(_qscore2.total),
-                        quality_details=_qscore2.details,
-                        session=_s_gp,
-                    )
-                logger.info("[post-build] GlobalPattern recorded domain=%s score=%.1f", domain, _qscore2.total)
-        except Exception as _gpe:
-            logger.debug("[post-build] GlobalPattern skipped: %s", _gpe)
-
-        # 3. Learning loop — extract patterns from completed run
-        if user_id and org_id:
-            try:
-                from aether_os.core.services import learning_service as _ls2
-                from aether_os.core.db import get_session_factory as _gsf_ls
-                async with _gsf_ls()() as _s_ls:
-                    await _ls2.extract_patterns_from_run(run_id, org_id, user_id, _s_ls)
-                logger.info("[post-build] Learning patterns extracted for user %s", user_id)
-            except Exception as _le:
-                logger.debug("[post-build] Learning loop skipped: %s", _le)
-
-    # ── SQS queuing (when configured) vs. direct background execution ────────
+    # ── SQS queuing (when configured) vs. direct background execution ─────────
     from aether_os.core.queue.sqs_client import is_enabled as _sqs_enabled, send_pipeline_job
-    _use_sqs = _sqs_enabled()
-
-    if _use_sqs:
+    if _sqs_enabled():
         _queued = send_pipeline_job(run_id, {
             "client_id": client_id,
             "raw_input": raw_input,
             "domain": domain,
             "project_name": project_name,
             "org_id": org_id,
-            "org_slug": org_slug if "org_slug" in dir() else None,
+            "org_slug": org_id,
             "github_url": github_url or None,
             "designer_spec": designer_spec or {},
             "tech_preferences": tech_preferences,
@@ -780,26 +292,36 @@ async def start_factory_run(
             "existing_schema": existing_schema,
         })
         if _queued:
-            # Update run status to "queued" so the UI shows the correct state
             try:
                 from aether_os.core.db import get_session_factory as _gsf_q
                 from aether_os.core.models import Run as _Run_q
                 from sqlalchemy import update as _upd_q
-                _sf_q = _gsf_q()
-                async with _sf_q() as _s_q:
+                async with _gsf_q()() as _s_q:
                     await _s_q.execute(_upd_q(_Run_q).where(_Run_q.id == run_id).values(status="queued"))
                     await _s_q.commit()
             except Exception as _qe:
                 logger.warning("SQS queue status update failed: %s", _qe)
-            return {
-                "run_id": run_id,
-                "status": "queued",
-                "message": f"Pipeline queued (SQS): {raw_input[:60]}",
-            }
+            return {"run_id": run_id, "status": "queued", "message": f"Pipeline queued (SQS): {raw_input[:60]}"}
         else:
             logger.warning("SQS send failed for run %s — falling back to direct execution", run_id)
 
-    _t = asyncio.create_task(_run_bg())
+    _t = asyncio.create_task(run_pipeline_background(
+        factory=factory,
+        run_id=run_id,
+        client_id=client_id,
+        raw_input=raw_input,
+        domain=domain,
+        project_name=project_name,
+        org_id=org_id,
+        user_id=user_id,
+        github_url=github_url or None,
+        designer_spec=designer_spec or {},
+        tech_preferences=tech_preferences,
+        model_preference=model_preference,
+        priority=priority,
+        codebase_mode=codebase_mode,
+        existing_schema=existing_schema,
+    ))
     _background_tasks.add(_t)
     _t.add_done_callback(_background_tasks.discard)
 
@@ -808,161 +330,3 @@ async def start_factory_run(
         "status": "started",
         "message": f"Pipeline started for: {raw_input[:60]}",
     }
-
-
-@router.get("/factory/analytics/quality-trend")
-async def get_quality_trend(
-    limit: int = 50,
-    user: Dict[str, Any] = _current_user(),
-) -> Dict[str, Any]:
-    """Return quality + compliance scores for recent completed runs — proves cross-run improvement."""
-    from aether_os.core.db import get_session_factory as _gsf_qt
-    from sqlalchemy import text as _qt_text
-    import pathlib as _pathlib
-
-    org_id = user["org_id"]
-    _limit = max(1, min(limit, 200))
-
-    # Fetch recent completed runs from DB — include cached quality_score column
-    try:
-        async with _gsf_qt()() as _sess:
-            rows = (await _sess.execute(
-                _qt_text(
-                    "SELECT id, project_name, started_at, quality_score FROM runs "
-                    "WHERE org_id=:oid AND status IN ('completed','passed') "
-                    "ORDER BY started_at DESC LIMIT :lim"
-                ),
-                {"oid": org_id, "lim": _limit},
-            )).all()
-    except Exception as _qt_exc:
-        logger.debug("quality-trend DB query failed: %s", _qt_exc)
-        rows = []
-
-    points = []
-    projects_dir = _pathlib.Path.home() / ".aether_os" / "projects"
-
-    for row in rows:
-        run_id_qt, proj_name, started_at_qt, db_quality_score = row[0], row[1], row[2], row[3]
-
-        # Convert epoch float to ISO string
-        try:
-            from datetime import datetime as _dt, timezone as _tz
-            _ts = float(started_at_qt) if started_at_qt else 0.0
-            created_at_iso = _dt.fromtimestamp(_ts, tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except Exception:
-            created_at_iso = str(started_at_qt)
-
-        # Use cached DB quality_score first; fall back to on-demand compute only if absent
-        quality_score: Optional[int] = db_quality_score
-        if quality_score is None:
-            run_dir = projects_dir / run_id_qt
-            if run_dir.exists():
-                try:
-                    from aether_os.core.quality.metrics import score_project as _score_qt
-                    _qs = _score_qt(run_dir)
-                    quality_score = _qs.total
-                except Exception:
-                    pass
-
-        # Compliance score from pre-built scan JSON
-        compliance_score: Optional[int] = None
-        run_dir = projects_dir / run_id_qt
-        _comp_json = run_dir / "p06_review_security" / "compliance" / "compliance_scan.json"
-        if _comp_json.exists():
-            try:
-                _cd = json.loads(_comp_json.read_text(encoding="utf-8"))
-                compliance_score = _cd.get("score")
-            except Exception:
-                pass
-
-        if quality_score is not None:
-            points.append({
-                "run_id": run_id_qt,
-                "project_name": proj_name or f"run-{run_id_qt[:8]}",
-                "created_at": created_at_iso,
-                "quality_score": quality_score,
-                "compliance_score": compliance_score,
-            })
-
-    # Reverse so oldest is first (for chart to trend left→right in time)
-    points.reverse()
-    return {"points": points, "total": len(points)}
-
-
-@router.get("/factory/search")
-async def search_artifacts(
-    q: str,
-    limit: int = 30,
-    user: Dict[str, Any] = _current_user(),
-) -> List[Dict[str, Any]]:
-    """Semantic search across all generated artifacts for the organisation."""
-    from aether_os.core.artifact_store import get_artifact_store
-    org_id = user.get("org_id")
-    store = get_artifact_store()
-    return await store.search(q, org_id, limit=limit)
-
-
-@router.get("/factory/deployments")
-async def list_deployments(
-    user: Dict[str, Any] = _current_user(),
-) -> Dict[str, Any]:
-    """List deployments: completed runs from DB plus running Docker containers."""
-    import subprocess as _sp
-    import asyncio as _aio
-
-    org_id = user.get("org_id")
-
-    # 1. Query completed/running runs from DB
-    db_deployments: List[Dict[str, Any]] = []
-    try:
-        from aether_os.core.db import get_session_factory as _gsf_dep
-        from aether_os.core.models import Run as _RunDep
-        from sqlalchemy import select as _sel_dep
-        _sf_dep = _gsf_dep()
-        async with _sf_dep() as _sess_dep:
-            _run_rows = (await _sess_dep.execute(
-                _sel_dep(_RunDep)
-                .where(
-                    _RunDep.org_id == org_id,
-                    _RunDep.status.in_(["completed", "needs_review", "running"]),
-                )
-                .order_by(_RunDep.started_at.desc())
-                .limit(50)
-            )).scalars().all()
-        for _r in _run_rows:
-            # Note: _APP_PROCS lives in api.py; proc_status defaults to stopped in this router context
-            _proc_status = "stopped"
-            db_deployments.append({
-                "run_id":       _r.id,
-                "project_name": _r.project_name or f"run-{_r.id[:8]}",
-                "domain":       _r.domain or "general",
-                "status":       _r.status,
-                "proc_status":  _proc_status,
-                "started_at":   _r.started_at,
-                "live_url":     getattr(_r, "live_url", None),
-            })
-    except Exception as _dep_exc:
-        logger.debug("Deployments DB query failed: %s", _dep_exc)
-
-    # 2. List running Docker containers (best-effort — docker may not be in PATH inside container)
-    containers = []
-    try:
-        def _list():
-            return _sp.run(
-                ["docker", "ps", "--filter", "name=aetheros-app",
-                 "--format", "{{.Names}}\t{{.Ports}}\t{{.Status}}"],
-                capture_output=True, text=True,
-            )
-
-        result = await _aio.to_thread(_list)
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                parts = line.split("\t")
-                containers.append({
-                    "name":   parts[0] if len(parts) > 0 else "",
-                    "ports":  parts[1] if len(parts) > 1 else "",
-                    "status": parts[2] if len(parts) > 2 else "",
-                })
-    except Exception:
-        pass
-    return {"deployments": db_deployments, "containers": containers}
