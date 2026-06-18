@@ -23,11 +23,14 @@ This module does NOT:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 TICKET_STATUS_PENDING = "PENDING"
@@ -98,7 +101,8 @@ class ApprovalTicket:
         data = asdict(self)
         try:
             data["payload"] = json.loads(self.payload_json)
-        except Exception:
+        except Exception as exc:
+            logger.debug("ApprovalTicket.to_dict: payload_json parse failed: %s", exc)
             data["payload"] = None
         return data
 
@@ -219,8 +223,8 @@ class ApprovalsStore:
     def close(self) -> None:
         try:
             self._conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("ApprovalsStore.close: error closing DB connection: %s", exc)
 
     # ------------------------------------------------------------------
     # Ticket helpers

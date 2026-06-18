@@ -49,8 +49,8 @@ def _get_anthropic_client():
         try:
             from core.api_key_store import _cache_get
             api_key = _cache_get(org_id, "anthropic")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_get_anthropic_client: org key cache lookup failed for %s: %s", org_id, exc)
 
     if not api_key:
         # Support ANTHROPIC_AUTH_TOKEN as alias (used by Claude Code's settings.local.json)
@@ -175,8 +175,8 @@ async def _call_gemini(
         try:
             from core.api_key_store import _cache_get
             api_key = _cache_get(org_id, "google")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_call_gemini: org key cache lookup failed for %s: %s", org_id, exc)
     if not api_key:
         api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -248,7 +248,8 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
         from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
         run_id = ACTIVE_RUN_ID.get()
         phase  = ACTIVE_PHASE.get()
-    except Exception:
+    except Exception as exc:
+        logger.debug("_call_ollama_with_model: could not get active run context: %s", exc)
         run_id = None
         phase  = None
 
@@ -268,15 +269,16 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
                             continue
                         try:
                             obj = json.loads(line)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("_call_ollama_with_model: could not parse stream line: %s", exc)
                             continue
                         token = obj.get("response", "")
                         if token:
                             chunks.append(token)
                             try:
                                 await _publish_event(run_id, {"type": "llm_chunk", "phase": phase, "text": token})
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.debug("_call_ollama_with_model: SSE publish failed (non-blocking): %s", exc)
                         if obj.get("done"):
                             break
             except Exception as exc:
@@ -404,8 +406,8 @@ async def _call_bedrock(
                         cost_usd=0.0,
                     )
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("_call_bedrock: billing record failed (non-blocking): %s", exc)
             return text
         except Exception as exc:
             last_exc = exc

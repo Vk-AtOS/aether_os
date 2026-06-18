@@ -100,8 +100,8 @@ Return a JSON object with this structure:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("AuthSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"auth/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -154,8 +154,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("CRUDSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"crud/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -198,8 +198,8 @@ Return JSON: {{"files": {{}}, "dependencies": ["stripe"], "env_vars": ["STRIPE_S
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("PaymentSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"payments/generated.py": raw},
                 "dependencies": ["stripe"],
                 "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]}
@@ -240,8 +240,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("EmailSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"email/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -280,8 +280,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("SearchSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"search/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -324,8 +324,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("FileUploadSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"uploads/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -365,8 +365,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("NotificationsSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"notifications/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -407,8 +407,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("AnalyticsSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"analytics/generated.py": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -447,8 +447,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("AdminSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"admin/generated.jsx": raw}, "dependencies": [], "env_vars": []}
 
 
@@ -491,8 +491,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("I18nSkill._parse_output: JSON parse failed, returning raw: %s", exc)
         return {"files": {"i18n/generated.js": raw}, "dependencies": [], "env_vars": []}
 
 

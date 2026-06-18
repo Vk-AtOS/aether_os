@@ -304,8 +304,8 @@ class SnapshotManager:
         bak = db_path.with_suffix(".bak")
         try:
             shutil.copy2(str(db_path), str(bak))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Guardian: could not create pre-restore backup at %s: %s", bak, exc)
 
         def _do_restore():
             backup_conn = sqlite3.connect(str(src))
@@ -322,8 +322,8 @@ class SnapshotManager:
             # Roll back to pre-restore backup
             try:
                 shutil.copy2(str(bak), str(db_path))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.error("Guardian: rollback to pre-restore backup failed: %s", exc)
             return False
 
     async def _prune_old(self) -> None:
@@ -349,8 +349,8 @@ class SnapshotManager:
                 p = Path(snap.snapshot_path)
                 if p.exists():
                     p.unlink()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Guardian: could not delete old snapshot file %s: %s", snap.snapshot_path, exc)
 
         ids = [s.id for s in to_delete]
         async with sf() as sess:

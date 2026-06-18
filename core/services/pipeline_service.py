@@ -148,8 +148,8 @@ class PipelineService:
                 resource_type="run", resource_id=resource_id,
                 metadata={}, ip_address="internal",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("PipelineService._log_audit: audit event %s failed (non-blocking): %s", action, exc)
 
 
 _pipeline_service: Optional[PipelineService] = None

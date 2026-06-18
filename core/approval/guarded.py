@@ -27,8 +27,11 @@ which returns a GuardedDecisionResult with:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, asdict, is_dataclass
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +107,15 @@ def _ticket_to_dict(ticket: Any) -> Dict[str, Any]:
     if is_dataclass(ticket):
         try:
             return asdict(ticket)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_ticket_to_dict: asdict() failed, falling back to __dict__: %s", exc)
 
     # Generic object with __dict__
     if hasattr(ticket, "__dict__"):
         try:
             data = dict(ticket.__dict__)
-        except Exception:
+        except Exception as exc:
+            logger.debug("_ticket_to_dict: __dict__ copy failed: %s", exc)
             data = {}
     else:
         data = {}
@@ -138,7 +142,8 @@ def _store_get_ticket(approvals_store: Any, ticket_id: int) -> Optional[Dict[str
 
     try:
         ticket_obj = getter(ticket_id)  # type: ignore[call-arg]
-    except Exception:
+    except Exception as exc:
+        logger.debug("_store_get_ticket: get_ticket(%s) raised: %s", ticket_id, exc)
         return None
 
     if ticket_obj is None:
@@ -190,7 +195,8 @@ def _store_create_ticket(
             payload=payload,
             requester=requester,
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("_store_create_ticket: create_ticket() raised for %s: %s", operation_type, exc)
         return None
 
     return _ticket_to_dict(ticket_obj)

@@ -114,8 +114,8 @@ def _check_domain_specificity(src_dir: Path) -> float:
         try:
             if len(widget_path.read_text().strip().splitlines()) > 10:
                 score += 0.25
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_check_domain_specificity: could not read widget file: %s", exc)
     
     # +0.25 if seed.py exists and has more than 20 lines (real seed data, not stub)
     seed_path = src_dir / "seed.py"
@@ -123,8 +123,8 @@ def _check_domain_specificity(src_dir: Path) -> float:
         try:
             if len(seed_path.read_text().strip().splitlines()) > 20:
                 score += 0.25
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_check_domain_specificity: could not read seed file: %s", exc)
     
     # +0.25 if Dashboard page contains no generic "Item" or "Record" text in stat labels
     dashboard_path = frontend_dir / "src" / "pages" / "Dashboard.tsx"
@@ -133,8 +133,8 @@ def _check_domain_specificity(src_dir: Path) -> float:
             content = dashboard_path.read_text(errors="ignore")
             if "Item 1" not in content and "Test Record" not in content:
                 score += 0.25
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_check_domain_specificity: could not read dashboard file: %s", exc)
     
     # +0.25 if primary entity list page has domain-appropriate column headers
     pages_dir = frontend_dir / "src" / "pages"
@@ -146,8 +146,8 @@ def _check_domain_specificity(src_dir: Path) -> float:
                     if len(f.read_text(errors="ignore").splitlines()) > 30:
                         score += 0.25
                         break
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_check_domain_specificity: could not read page files: %s", exc)
     
     return min(1.0, score)
 
@@ -185,8 +185,8 @@ def _check_frontend_complete(project_dir: Path) -> float:
                 return 0.7  # In progress — partial credit
             if status_data.get("status") == "failed":
                 return 0.4
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_check_frontend_complete: could not read build_status.json: %s", exc)
 
     # Attempt build only if source files exist and no prior attempt
     import tempfile, subprocess
@@ -201,7 +201,8 @@ def _check_frontend_complete(project_dir: Path) -> float:
             return 1.0 if result.returncode == 0 else 0.6
     except subprocess.TimeoutExpired:
         return 0.6
-    except Exception:
+    except Exception as exc:
+        logger.debug("_check_frontend_complete: vite build attempt failed: %s", exc)
         return 0.6
 
 def _check_security_bandit(src_dir: Path) -> float:
@@ -218,7 +219,8 @@ def _check_security_bandit(src_dir: Path) -> float:
         high = sum(1 for r in findings if r.get("issue_severity") == "HIGH")
         score = 1.0 - (high * 0.2)
         return max(0.0, score)
-    except Exception:
+    except Exception as exc:
+        logger.debug("_check_security_bandit: bandit scan failed, returning default score: %s", exc)
         return 0.8
 
 def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
@@ -261,8 +263,8 @@ def _check_test_score(project_dir: Path) -> float:
                     return 0.3 if not errors else 0.1
                 ratio = passed / (passed + failed)
                 return min(1.0, ratio)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("_check_test_score: could not parse summary at %s: %s", summary_path, exc)
     return 0.5  # No test results yet — give partial credit
 
 

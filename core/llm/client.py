@@ -152,8 +152,8 @@ class LLMClient:
                         enforce_local = True
                         context = context or {}
                         context["enforce_local"] = True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("LLMClient.call: org data_region lookup failed (non-blocking): %s", exc)
 
         if context:
             ctx_str = json.dumps(context, indent=2)
@@ -166,8 +166,8 @@ class LLMClient:
             try:
                 from aether_os.core.llm.compressor import compress_context
                 full_prompt, _compressed = await compress_context(full_prompt, task_type=task_type)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("LLMClient.call: context compression failed (non-blocking): %s", exc)
 
         # Problem 59: per-model cost pricing (USD per 1K tokens)
         _BEDROCK_PRICING: Dict[str, Dict[str, float]] = {
