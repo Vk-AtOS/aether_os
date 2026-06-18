@@ -505,6 +505,7 @@ def create_app() -> FastAPI:
     _ROUTERS = [
         # --- Required: core auth & user-facing API ---
         ("auth",              "aether_os.gateway.routers.auth_router",              "router",       {},                        True),
+        ("auth_refresh",      "aether_os.gateway.routers.auth_refresh_router",      "router",       {},                        True),
         ("auth_keys",         "aether_os.gateway.routers.auth_keys_router",         "router",       {},                        True),
         ("auth_password",     "aether_os.gateway.routers.auth_password_router",     "router",       {},                        True),
         ("health",            "aether_os.gateway.routers.health_router",            "router",       {},                        True),
@@ -513,10 +514,12 @@ def create_app() -> FastAPI:
         ("run_app",           "aether_os.gateway.routers.run_app_router",           "router",       {},                        True),
         ("run_decisions",     "aether_os.gateway.routers.run_decisions_router",     "router",       {},                        True),
         ("run_deploy",        "aether_os.gateway.routers.run_deploy_router",        "router",       {},                        True),
+        ("run_preview",       "aether_os.gateway.routers.run_preview_router",       "router",       {},                        True),
         ("factory_ops",       "aether_os.gateway.routers.factory_ops_router",       "router",       {},                        True),
         ("factory_intake",    "aether_os.gateway.routers.factory_intake_router",    "router",       {},                        True),
         ("factory_analytics", "aether_os.gateway.routers.factory_analytics_router", "router",       {},                        True),
         ("account",           "aether_os.gateway.routers.account_router",           "router",       {},                        True),
+        ("account_settings",  "aether_os.gateway.routers.account_settings_router",  "router",       {},                        True),
         ("account_codebase",  "aether_os.gateway.routers.account_codebase_router",  "router",       {},                        True),
         ("billing",       "aether_os.gateway.routers.billing_router",       "router",       {},                        True),
         ("settings",      "aether_os.gateway.routers.settings_router",      "router",       {},                        True),
