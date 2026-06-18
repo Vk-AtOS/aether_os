@@ -62,8 +62,8 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
                 cov = float(coverage)
                 if cov < 60:
                     issues.append(f"Coverage {cov:.0f}% is low — aim for ≥ 80%")
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as e:
+                logger.warning("p07 gate: could not parse coverage_pct %r (quality_flag path): %s", coverage, e)
         confidence = 0.95 if not issues else 0.75
         return GateOutcome(passed=True, confidence=confidence, issues=issues)
 
@@ -102,8 +102,8 @@ def validate(result: TaskResult | Dict[str, Any]) -> GateOutcome:
             cov = float(coverage)
             if cov < 60:
                 issues.append(f"Coverage {cov:.0f}% is low — aim for ≥ 80%")
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as e:
+            logger.warning("p07 gate: could not parse coverage_pct %r (legacy path): %s", coverage, e)
 
     confidence = 0.95 if not issues else 0.75
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

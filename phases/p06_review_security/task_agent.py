@@ -19,8 +19,8 @@ def _extract_json(text: str) -> dict:
     # Try direct parse first
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning("[p06] _extract_json: direct parse failed: %s", e)
     # Walk through each '{' and find the matching '}'
     for match in re.finditer(r'\{', text):
         start = match.start()
@@ -174,8 +174,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                             "[p06] bandit skipped %d file(s) due to parse errors: %s",
                             _skip_n, _skip_names,
                         )
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.warning("[p06] failed to parse bandit JSON output for skipped-files detection: %s", e)
 
         sub_dir = output_dir / "security"
         sub_dir.mkdir(parents=True, exist_ok=True)

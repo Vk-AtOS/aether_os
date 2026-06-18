@@ -1,6 +1,9 @@
 """P07a Gate — validates unit test generation and results."""
 from __future__ import annotations
+import logging
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:
@@ -19,8 +22,8 @@ def validate(result: TaskResult) -> GateOutcome:
             cov = float(coverage)
             if cov < 60:
                 issues.append(f"Coverage {cov:.0f}% is below 60% — add more test cases")
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as e:
+            logger.warning("p07a gate: could not parse coverage_pct %r: %s", coverage, e)
 
     test_files = meta.get("test_files", 0)
     if test_files == 0 and not meta.get("pytest_passed"):

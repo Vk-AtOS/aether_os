@@ -293,7 +293,7 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
             if proc.returncode != 0:
                 errors.append(f"SyntaxError in {f.name}: {stderr.decode()[:300]}")
         except asyncio.TimeoutError:
-            pass
+            logger.warning("p04a helpers: py_compile timed out for %s — skipping syntax check", f.name)
 
     # Pass 2: AST import validation (catch hallucinated aether_os.* imports)
     if not errors:
@@ -385,8 +385,8 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
                 with _sock.create_connection(("127.0.0.1", probe_port), timeout=0.3):
                     _ready = True
                     break
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("p04a helpers: live HTTP probe connection attempt failed on port %d: %s", probe_port, e)
 
         if not _ready:
             _log_tail = _log_path.read_text()[-1000:] if _log_path.exists() else ""
