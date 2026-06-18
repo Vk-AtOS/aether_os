@@ -361,23 +361,23 @@ def create_app() -> FastAPI:
         try:
             from aether_os.core.queue.pipeline_consumer import stop_consumer as _stop_sqs
             _stop_sqs()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("SQS consumer stop failed during shutdown: %s", exc)
         try:
             from aether_os.core.workloop_monitor import get_workloop_monitor
             get_workloop_monitor().stop()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Workloop monitor stop failed during shutdown: %s", exc)
         try:
             from aether_os.core.guardian.watchdog import get_watchdog as _get_guardian_stop
             _get_guardian_stop().stop()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Guardian watchdog stop failed during shutdown: %s", exc)
         try:
             from aether_os.core.db import close_db
             await close_db()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("DB close failed during shutdown: %s", exc)
 
     # B11: disable interactive docs in production — prevents API schema exposure
     _env = os.getenv("ENVIRONMENT", "development")
@@ -467,8 +467,8 @@ def create_app() -> FastAPI:
                                 or (request.client.host if request.client else "unknown")
                             ),
                         ))
-            except Exception:
-                pass  # Audit logging must never break the request
+            except Exception as exc:
+                logger.debug("Audit log write failed (non-fatal): %s", exc)  # Audit logging must never break the request
         return response
 
     # ── Global exception handler — prevents stack traces leaking to clients ────
@@ -510,9 +510,11 @@ def create_app() -> FastAPI:
         ("auth_password",     "aether_os.gateway.routers.auth_password_router",     "router",       {},                        True),
         ("health",            "aether_os.gateway.routers.health_router",            "router",       {},                        True),
         ("admin",             "aether_os.gateway.routers.admin_router",             "router",       {},                        True),
+        ("admin_platform",    "aether_os.gateway.routers.admin_platform_router",    "router",       {},                        True),
         ("factory_runs",      "aether_os.gateway.routers.factory_runs_router",      "router",       {},                        True),
         ("run_app",           "aether_os.gateway.routers.run_app_router",           "router",       {},                        True),
         ("run_decisions",     "aether_os.gateway.routers.run_decisions_router",     "router",       {},                        True),
+        ("run_spec",          "aether_os.gateway.routers.run_spec_router",          "router",       {},                        True),
         ("run_deploy",        "aether_os.gateway.routers.run_deploy_router",        "router",       {},                        True),
         ("run_preview",       "aether_os.gateway.routers.run_preview_router",       "router",       {},                        True),
         ("factory_ops",       "aether_os.gateway.routers.factory_ops_router",       "router",       {},                        True),
@@ -542,9 +544,11 @@ def create_app() -> FastAPI:
         ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),
         ("agents",        "aether_os.gateway.routers.agents_router",        "router",       {},                        False),
         ("guardian",      "aether_os.gateway.routers.guardian_router",      "router",       {},                        False),
+        ("guardian_snapshots", "aether_os.gateway.routers.guardian_snapshots_router", "router", {},                    False),
         ("app_preview",   "aether_os.gateway.routers.app_preview_router",   "router",       {},                        False),
         # --- Plugin / optional integrations ---
         ("plugins",       "aether_os.gateway.routers.plugins_router",       "router",       {"prefix": "/v2"},         False),
+        ("plugins_connectors", "aether_os.gateway.routers.plugins_connectors_router", "router", {"prefix": "/v2"},    False),
         ("cicd_webhook",  "aether_os.phases.p08_cicd.webhook",              "router",       {"tags": ["CI/CD"]},       False),
         ("client_portal", "aether_os.gateway.client_portal.routes",         "router",       {},                        False),
         ("mcp",           "aether_os.gateway.mcp_router",                   "router",       {},                        False),
