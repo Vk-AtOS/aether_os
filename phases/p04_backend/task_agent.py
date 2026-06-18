@@ -139,13 +139,13 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
                         ]):
                             errors.append(f"ImportError: {stderr_text[:500]}")
                 except asyncio.TimeoutError:
-                    pass  # timeout in import check is OK — app likely starts fine
+                    logger.warning("p04 task_agent: import check timed out — app likely starts fine")
             finally:
                 # Clean up temp DB file
                 try:
                     _os.unlink(_db_tmp)
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("p04 task_agent: failed to remove temp DB file %s: %s", _db_tmp, e)
 
         if not errors:
             await emit({

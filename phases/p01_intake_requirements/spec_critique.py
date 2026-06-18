@@ -62,8 +62,8 @@ def _parse_critique_response(raw: str, original_spec: str) -> Dict[str, Any]:
     parsed: Optional[Dict[str, Any]] = None
     try:
         parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning("[spec_critique] direct JSON parse failed: %s", e)
 
     if parsed is None:
         # Extract JSON object from prose
@@ -71,8 +71,8 @@ def _parse_critique_response(raw: str, original_spec: str) -> Dict[str, Any]:
         if match:
             try:
                 parsed = json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                logger.warning("[spec_critique] JSON extraction from prose failed: %s", e)
 
     if parsed is None:
         logger.warning("[spec_critique] Could not parse LLM response as JSON: %s", raw[:200])
