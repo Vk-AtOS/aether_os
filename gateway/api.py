@@ -37,6 +37,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+# Pydantic models and middleware classes live in api_helpers.py to keep this
+# file under 600 lines. They are re-imported here for backwards compatibility
+# with any code that imports them from gateway.api directly.
+from aether_os.gateway.api_helpers import (  # noqa: F401 (re-export)
+    PipelineStartRequest, PipelineStartResponse,
+    ApproveRequest, ApiKeyRequest, TestProviderRequest,
+    PhaseConfigUpdate, PriorityRequest, RerunRequest,
+    FileWriteBody, EnvVarItem, EnvVarsBody,
+    SamlConfigRequest, WorkspaceCreate, WorkspaceUpdate,
+    OrgIDLoggingMiddleware, SecurityHeadersMiddleware, HttpsRedirectMiddleware,
+)
 
 load_dotenv(pathlib.Path(__file__).parent.parent / ".env", override=False)
 
@@ -51,27 +62,8 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-# C10: Sentry error tracking
-def _init_sentry() -> None:
-    dsn = os.environ.get("SENTRY_DSN")
-    if not dsn:
-        return
-    try:
-        import sentry_sdk
-        from sentry_sdk.integrations.fastapi import FastApiIntegration
-        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-        sentry_sdk.init(
-            dsn=dsn,
-            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
-            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
-            environment=os.environ.get("ENVIRONMENT", "development"),
-            send_default_pii=False,
-        )
-        logger.info("Sentry error tracking enabled")
-    except ImportError:
-        logger.warning("sentry-sdk not installed — error tracking disabled")
-    except Exception as exc:
-        logger.warning("Sentry init failed: %s", exc)
+# Utility helpers live in api_utils.py to keep this file under 600 lines.
+from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402
 
 _init_sentry()
 
@@ -83,206 +75,9 @@ _background_tasks: set = set()
 from aether_os.gateway.dependencies import security_scheme, get_current_user  # noqa: E402
 
 
-# ── CORS configuration (Bug 3 fix) ────────────────────────────────────────────
-
-def _get_cors_origins() -> list:
-    """
-    Bug 3 fix: CORS origins come from env var only. Never wildcard in production.
-    Default is localhost for development.
-    """
-    raw = os.environ.get("CORS_ORIGINS", "")
-    if raw:
-        return [o.strip() for o in raw.split(",") if o.strip()]
-
-    # Default development origins
-    return [
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "http://localhost:5173",  # Vite default
-    ]
-
-
-# ── Pydantic models ────────────────────────────────────────────────────────────
-
-class PipelineStartRequest(BaseModel):
-    requirement: str
-    project_name: str = "untitled"
-    language: str = "python"
-    output_dir: Optional[str] = None
-    max_retries: int = 3
-
-
-class PipelineStartResponse(BaseModel):
-    run_id: str
-    status: str
-    message: str
-
-
-class ApproveRequest(BaseModel):
-    ticket_id: str
-    decision: str  # "approve" | "deny"
-    reason: Optional[str] = None
-
-
-class ApiKeyRequest(BaseModel):
-    provider: str
-    key: str
-
-
-class TestProviderRequest(BaseModel):
-    provider: str
-
-
-class PhaseConfigUpdate(BaseModel):
-    enabled: bool
-    priority: str
-
-
-class PriorityRequest(BaseModel):
-    priority: str  # "high" | "normal" | "low"
-
-
-class RerunRequest(BaseModel):
-    from_phase: str
-
-
-class FileWriteBody(BaseModel):
-    path: str
-    content: str
-
-
-class EnvVarItem(BaseModel):
-    key: str
-    value: str
-
-
-class EnvVarsBody(BaseModel):
-    vars: List[EnvVarItem]
-
-
-class SamlConfigRequest(BaseModel):
-    idp_entity_id: str
-    idp_sso_url: str
-    idp_cert: str
-
-
-class WorkspaceCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    is_shared: bool = False
-    preferences: Optional[Dict[str, Any]] = None
-
-
-class WorkspaceUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    is_shared: Optional[bool] = None
-    preferences: Optional[Dict[str, Any]] = None
-
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import RedirectResponse
-import os
-
-class OrgIDLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        import structlog
-        from aether_os.gateway.auth import decode_access_token
-        
-        org_id = request.headers.get("X-Org-ID")
-        user_id = None
-        
-        if not org_id:
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                token = auth_header[7:]
-                payload = decode_access_token(token)
-                if payload:
-                    org_id = payload.get("org_id")
-                    user_id = payload.get("user_id")
-        
-        if org_id:
-            structlog.contextvars.bind_contextvars(org_id=org_id)
-        if user_id:
-            structlog.contextvars.bind_contextvars(user_id=user_id)
-            
-        try:
-            response = await call_next(request)
-            return response
-        finally:
-            structlog.contextvars.clear_contextvars()
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        import secrets as _sec
-        # Generate a per-request nonce to replace unsafe-inline for script-src (M-10)
-        nonce = _sec.token_urlsafe(16)
-        request.state.csp_nonce = nonce
-
-        response = await call_next(request)
-
-        # app-preview proxy handles its own permissive CSP — don't overwrite it
-        if request.url.path.startswith("/app-preview"):
-            return response
-
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # Rate limit headers on factory start and /auth/login routes
-        response.headers["X-RateLimit-Factory-Limit"] = os.getenv("MAX_FACTORY_STARTS_PER_MIN", "10")
-        response.headers["X-RateLimit-Hourly-Limit"] = os.getenv("MAX_STARTS_PER_ORG_PER_HOUR", "20")
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # Build frame-src dynamically from CORS_ORIGINS so app preview iframes
-        # work in any deployment without hardcoding IPs.
-        from urllib.parse import urlparse as _urlparse
-        _cors_hosts = " ".join(
-            f"{_urlparse(o.strip()).scheme}://{_urlparse(o.strip()).hostname}:*"
-            for o in os.getenv("CORS_ORIGINS", "").split(",")
-            if o.strip() and not o.strip().startswith("http://localhost")
-            and _urlparse(o.strip()).hostname
-        )
-        _frame_src = f"'self' {_cors_hosts} http://localhost:*".strip()
-        # Nonce replaces unsafe-inline for script-src; unsafe-eval kept for Monaco editor.
-        # style-src retains unsafe-inline (CSS injection risk lower than script injection).
-        # Landing page (/) uses plain 'self' — no strict-dynamic needed, and it blocks external .js
-        _is_landing = request.url.path in ("/", "/js/landing.js")
-        _script_src = (
-            "script-src 'self'; "
-            if _is_landing
-            else f"script-src 'self' 'nonce-{nonce}' 'strict-dynamic' 'unsafe-eval' https://cdn.jsdelivr.net; "
-        )
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            + _script_src
-            + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-            "img-src 'self' data: blob:; "
-            "connect-src 'self' https://cdn.jsdelivr.net; "
-            "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; "
-            f"frame-src {_frame_src}; "
-            "worker-src 'self' blob: https://cdn.jsdelivr.net; "
-            "frame-ancestors 'none'"
-        )
-        # B11: HSTS only in production — prevents breaking local dev over HTTP
-        if os.getenv("ENVIRONMENT") == "production":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
-
-class HttpsRedirectMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        if os.environ.get("FORCE_HTTPS", "false").lower() == "true":
-            proto = request.headers.get("X-Forwarded-Proto")
-            if proto == "http":
-                url = str(request.url).replace("http://", "https://", 1)
-                return RedirectResponse(url=url, status_code=301)
-        return await call_next(request)
-
-# NOTE: These are registered inside create_app() below — do not remove this comment.
-# SecurityHeadersMiddleware and HttpsRedirectMiddleware are always-on in production.
-# HttpsRedirectMiddleware is gated by FORCE_HTTPS env var so local dev still works.
+# NOTE: _get_cors_origins, Pydantic models, and middleware classes all live in
+# api_helpers.py / api_utils.py — imported above. Duplicate definitions removed
+# to keep this file under 600 lines.
 
 # get_current_user is now defined in gateway/dependencies.py and re-exported above.
 
@@ -677,18 +472,10 @@ def create_app() -> FastAPI:
         return response
 
     # ── Global exception handler — prevents stack traces leaking to clients ────
+    # _json_safe() is imported from api_utils at module level above.
     from fastapi import Request as _Request
     from fastapi.responses import JSONResponse as _JSONResponse
     from fastapi.exceptions import RequestValidationError
-
-    def _json_safe(obj):
-        if isinstance(obj, bytes):
-            return obj.decode("utf-8", errors="replace")
-        if isinstance(obj, dict):
-            return {k: _json_safe(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_json_safe(v) for v in obj]
-        return obj
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(_req: _Request, exc: RequestValidationError):
@@ -717,17 +504,23 @@ def create_app() -> FastAPI:
 
     _ROUTERS = [
         # --- Required: core auth & user-facing API ---
-        ("auth",          "aether_os.gateway.routers.auth_router",          "router",       {},                        True),
-        ("health",        "aether_os.gateway.routers.health_router",        "router",       {},                        True),
-        ("admin",         "aether_os.gateway.routers.admin_router",         "router",       {},                        True),
-        ("factory_runs",  "aether_os.gateway.routers.factory_runs_router",  "router",       {},                        True),
-        ("run_app",       "aether_os.gateway.routers.run_app_router",       "router",       {},                        True),
-        ("run_decisions", "aether_os.gateway.routers.run_decisions_router", "router",       {},                        True),
-        ("run_deploy",    "aether_os.gateway.routers.run_deploy_router",    "router",       {},                        True),
-        ("factory_ops",   "aether_os.gateway.routers.factory_ops_router",   "router",       {},                        True),
-        ("account",       "aether_os.gateway.routers.account_router",       "router",       {},                        True),
+        ("auth",              "aether_os.gateway.routers.auth_router",              "router",       {},                        True),
+        ("auth_keys",         "aether_os.gateway.routers.auth_keys_router",         "router",       {},                        True),
+        ("auth_password",     "aether_os.gateway.routers.auth_password_router",     "router",       {},                        True),
+        ("health",            "aether_os.gateway.routers.health_router",            "router",       {},                        True),
+        ("admin",             "aether_os.gateway.routers.admin_router",             "router",       {},                        True),
+        ("factory_runs",      "aether_os.gateway.routers.factory_runs_router",      "router",       {},                        True),
+        ("run_app",           "aether_os.gateway.routers.run_app_router",           "router",       {},                        True),
+        ("run_decisions",     "aether_os.gateway.routers.run_decisions_router",     "router",       {},                        True),
+        ("run_deploy",        "aether_os.gateway.routers.run_deploy_router",        "router",       {},                        True),
+        ("factory_ops",       "aether_os.gateway.routers.factory_ops_router",       "router",       {},                        True),
+        ("factory_intake",    "aether_os.gateway.routers.factory_intake_router",    "router",       {},                        True),
+        ("factory_analytics", "aether_os.gateway.routers.factory_analytics_router", "router",       {},                        True),
+        ("account",           "aether_os.gateway.routers.account_router",           "router",       {},                        True),
+        ("account_codebase",  "aether_os.gateway.routers.account_codebase_router",  "router",       {},                        True),
         ("billing",       "aether_os.gateway.routers.billing_router",       "router",       {},                        True),
         ("settings",      "aether_os.gateway.routers.settings_router",      "router",       {},                        True),
+        ("settings_advanced", "aether_os.gateway.routers.settings_advanced_router", "router", {},                   True),
         # --- Optional: present in most deployments but non-critical ---
         ("metrics",       "aether_os.gateway.routers.metrics_router",       "router",       {},                        False),
         ("spa",           "aether_os.gateway.routers.spa_router",           "router",       {},                        False),
