@@ -114,6 +114,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             )
             logger.info("[p02] build_profile injected into arch prompt: %s", _bp.get("name"))
 
+        # Inject domain entity schema hints from knowledge pack
+        _dk = data.get("domain_knowledge") or {}
+        if _dk.get("domain") and _dk["domain"] != "general":
+            from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
+            _dk_pack = _load_pack(_dk["domain"])
+            if _dk_pack:
+                _stack_hint += "\n\n" + _dk_pack.schema_hints()
+                logger.info("[p02] domain schema_hints injected for domain=%s", _dk["domain"])
+
         # Problem 44 fix: extract must-have nouns from spec to validate entity coverage
         _spec_nouns = extract_spec_nouns(raw_input or requirements)
         _min_entities = max(1, int(len(_spec_nouns) * 0.8))

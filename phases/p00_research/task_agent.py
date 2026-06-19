@@ -16,6 +16,7 @@ from aether_os.phases.p00_research.domain_sites import DOMAIN_COMPETITOR_MAP
 from aether_os.phases.p00_research.vision_analyzer import analyze_screenshot
 from aether_os.phases.p00_research.stack_selector import classify_build, inject_into_brief
 from aether_os.phases.p00_research.prompts import DESIGN_BRIEF_LLM_FALLBACK_PROMPT
+from aether_os.core.domain_knowledge.loader import load_pack
 
 logger = logging.getLogger(__name__)
 
@@ -156,8 +157,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.warning(f"p00: LLM synthesis fallback failed: {e}")
             design_brief["layout_patterns"] = {"navigation": "sticky"}
 
-    # 4. Inject build_profile and save artifacts
+    # 4. Inject build_profile and domain knowledge pack, then save artifacts
     inject_into_brief(design_brief, build_profile)
+    domain_pack = load_pack(domain)
+    if domain_pack:
+        design_brief["domain_knowledge"] = domain_pack.to_dict()
+        logger.info("p00: domain_knowledge injected for domain=%s (%d entities, %d rules)",
+                    domain, len(domain_pack.entities), len(domain_pack.compliance))
     out_json = output_dir / "design_brief.json"
     out_json.write_text(json.dumps(design_brief, indent=2))
 
