@@ -622,6 +622,25 @@ class FactoryPipeline:
                         except Exception as _e:
                             logger.warning("[pipeline] Failed to load build_profile from design_brief: %s", _e)
 
+                # After p00c: read service_map.json and store in accumulated_context.
+                # go_generator and node_generator use this to produce N service dirs
+                # instead of a single monolith when architecture == "microservices".
+                if phase_name == "p00c_architecture_planner":
+                    import json as _json_p00c
+                    _sm_path = project_dir / "p00c_architecture_planner" / "service_map.json"
+                    if _sm_path.exists():
+                        try:
+                            _sm = _json_p00c.loads(_sm_path.read_text())
+                            if _sm.get("services"):
+                                accumulated_context["service_map"] = _sm
+                                logger.info(
+                                    "[pipeline] service_map loaded: %d services, bus=%s",
+                                    len(_sm["services"]),
+                                    _sm.get("message_bus", ""),
+                                )
+                        except Exception as _e:
+                            logger.warning("[pipeline] Failed to load service_map: %s", _e)
+
                 # Eagerly load architecture.json after p02 so all downstream
                 # phases receive it via data.get("architecture_json", {}).
                 if phase_name == "p02_architecture":
