@@ -1,11 +1,14 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 import asyncio
+import logging
 import re
 import os
 import json
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Finding:
@@ -50,7 +53,7 @@ class CodeScanner:
                         message=issue["issue_text"]
                     ))
         except Exception as e:
-            print(f"Bandit scan failed: {e}")
+            logger.error("Bandit scan failed: %s", e)
 
         # Hardcoded secret detector (Regex)
         patterns = {
