@@ -14,6 +14,8 @@ import httpx
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p00_research.domain_sites import DOMAIN_COMPETITOR_MAP
 from aether_os.phases.p00_research.vision_analyzer import analyze_screenshot
+from aether_os.phases.p00_research.stack_selector import classify_build, inject_into_brief
+from aether_os.phases.p00_research.prompts import DESIGN_BRIEF_LLM_FALLBACK_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Propagate from input_data if supervisor didn't set it directly
     if domain == "general":
         domain = data.get("domain", "general")
-        
+
+    # Classify the build type before screenshot analysis so all downstream
+    # phases know what language/architecture to target.
+    raw_spec = data.get("raw_input", "") or data.get("project_description", "")
+    build_profile = await classify_build(raw_spec, domain)
+
     sites = DOMAIN_COMPETITOR_MAP.get(domain, [])
 
     # Unmapped domains: skip the simulated-search fallback that used to point
@@ -134,16 +141,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     else:
         # LLM-guided fallback if no screenshots could be analyzed
         logger.info(f"p00: No vision analysis results, falling back to LLM-guided design")
-        analysis_prompt = f"""
-        Envision the design patterns for a top-tier {domain} web application.
-        Think about sites like {', '.join(sites)}.
-        Extract:
-        1. Navigation style (e.g. sticky top nav, sidebar)
-        2. Primary color family (e.g. indigo-600, slate-900)
-        3. Essential customer features
-        4. Key UI components (e.g. hero search, data tables, Kanban)
-        Return JSON.
-        """
+        analysis_prompt = DESIGN_BRIEF_LLM_FALLBACK_PROMPT.format(
+            domain=domain,
+            competitor_sites=", ".join(sites),
+        )
         try:
             from aether_os.core.llm.client import get_llm_client
             llm = get_llm_client()
@@ -155,7 +156,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.warning(f"p00: LLM synthesis fallback failed: {e}")
             design_brief["layout_patterns"] = {"navigation": "sticky"}
 
-    # 4. Save artifacts
+    # 4. Inject build_profile and save artifacts
+    inject_into_brief(design_brief, build_profile)
     out_json = output_dir / "design_brief.json"
     out_json.write_text(json.dumps(design_brief, indent=2))
 
@@ -218,6 +220,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     return TaskResult(
         output_path=str(out_json),
         confidence=0.9,
-        metadata={"domain": domain},
+        metadata={"domain": domain, "build_profile": build_profile.name},
         success=True,
     )
