@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.services import account_service
 
 router = APIRouter(tags=["account"])
 
@@ -32,134 +33,52 @@ async def get_usage(
 ) -> Dict[str, Any]:
     """Get current usage and limits for the organisation."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-    from sqlalchemy import select
 
     org_id = user.get("org_id")
     session_factory = get_session_factory()
     async with session_factory() as session:
-        stmt = select(Organisation).where(Organisation.id == org_id)
-        result = await session.execute(stmt)
-        org = result.scalar_one_or_none()
-        if not org:
+        result = await account_service.get_org_usage(session, org_id)
+        if not result:
             raise HTTPException(status_code=404, detail="Organisation not found")
-
-        return {
-            "org_name": org.name,
-            "org_slug": org.slug,
-            "plan": org.plan,
-            "runs_used": org.trial_runs_used,
-            "runs_limit": org.trial_runs_limit if org.plan == "trial" else None,
-            "runs_remaining": max(0, org.trial_runs_limit - org.trial_runs_used) if org.plan == "trial" else None,
-            "country": os.environ.get("ORG_COUNTRY", "IN"),
-            "org_country": os.environ.get("ORG_COUNTRY", "IN"),
-        }
+        return result
 
 
 @router.get("/account/storage")
 async def get_account_storage(user: Dict[str, Any] = _current_user()):
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-    from sqlalchemy import select
+
     async with get_session_factory()() as session:
-        stmt = select(Organisation).where(Organisation.id == user["org_id"])
-        org = (await session.execute(stmt)).scalar_one_or_none()
-        if not org:
+        result = await account_service.get_org_storage(session, user["org_id"])
+        if not result:
             raise HTTPException(status_code=404)
-        limit = -1
-        if org.plan == "trial": limit = 500
-        elif org.plan == "pro": limit = 10000
-        return {"used_mb": org.storage_used_mb, "limit_mb": limit, "percent_used": (org.storage_used_mb / limit * 100) if limit > 0 else 0, "plan": org.plan}
+        return result
 
 
 @router.get("/account/projects")
 async def list_projects(user: Dict[str, Any] = _current_user()) -> List[Dict[str, Any]]:
     """List all generated projects for the org."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run
-    from sqlalchemy import select, func
 
     org_id = user["org_id"]
-    sf = get_session_factory()
-    async with sf() as session:
-        rows = (await session.execute(
-            select(
-                Run.project_name,
-                Run.domain,
-                Run.status,
-                func.count().label("run_count"),
-                func.max(Run.started_at).label("last_run_at"),
-                func.max(Run.id).label("run_id"),
-            )
-            .where(Run.org_id == org_id)
-            .group_by(Run.project_name, Run.domain, Run.status)
-            .order_by(func.max(Run.started_at).desc())
-        )).all()
-    return [
-        {
-            "project_name": r.project_name,
-            "domain": r.domain,
-            "run_count": r.run_count,
-            "last_run_at": r.last_run_at,
-            "status": r.status,
-            "run_id": r.run_id,
-        }
-        for r in rows
-    ]
+    async with get_session_factory()() as session:
+        return await account_service.list_projects(session, org_id)
 
 
 @router.get("/account/projects/search")
 async def search_projects(q: str, user: Dict[str, Any] = _current_user()) -> List[Dict[str, Any]]:
     """Search projects by name or requirement text."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run
-    from sqlalchemy import select, func, or_
 
     org_id = user["org_id"]
-    pattern = f"%{q}%"
-    sf = get_session_factory()
-    async with sf() as session:
-        rows = (await session.execute(
-            select(
-                Run.project_name,
-                Run.domain,
-                Run.status,
-                func.count().label("run_count"),
-                func.max(Run.started_at).label("last_run_at"),
-                func.max(Run.id).label("run_id"),
-            )
-            .where(
-                Run.org_id == org_id,
-                or_(
-                    Run.project_name.ilike(pattern),
-                    Run.command.ilike(pattern),
-                    Run.raw_input.ilike(pattern) if hasattr(Run, "raw_input") else Run.command.ilike(pattern),
-                )
-            )
-            .group_by(Run.project_name, Run.domain, Run.status)
-            .order_by(func.max(Run.started_at).desc())
-            .limit(50)
-        )).all()
-    return [
-        {
-            "project_name": r.project_name or f"run-{r.run_id[:8]}",
-            "domain": r.domain or "general",
-            "run_count": r.run_count,
-            "last_run_at": r.last_run_at,
-            "status": r.status,
-            "run_id": r.run_id,
-        }
-        for r in rows
-    ]
+    async with get_session_factory()() as session:
+        return await account_service.search_projects(session, org_id, q)
 
 
 @router.get("/account/data-export")
 async def data_export(user: Dict[str, Any] = _current_user()):
     """GDPR portability: return all user data as a downloadable JSON file."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User, Run
     from aether_os.core.audit.ledger import get_ledger
-    from sqlalchemy import select
     from fastapi.responses import StreamingResponse
     import json as _json
 
@@ -167,11 +86,7 @@ async def data_export(user: Dict[str, Any] = _current_user()):
     org_id = user.get("org_id", "")
     sf = get_session_factory()
     async with sf() as session:
-        db_user = await session.get(User, user_id)
-        runs = (await session.execute(
-            select(Run).where(Run.org_id == org_id)
-            .order_by(Run.started_at.desc()).limit(500)
-        )).scalars().all()
+        db_user, runs = await account_service.get_user_for_export(session, user_id, org_id)
 
     audit = await get_ledger().async_get_audit_logs(org_id=org_id, page=1, limit=500)
     export = {
@@ -203,24 +118,18 @@ async def data_export(user: Dict[str, Any] = _current_user()):
 async def delete_account(user: Dict[str, Any] = _current_user()) -> Dict[str, str]:
     """GDPR erasure: anonymise and soft-delete the calling user's account."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User, APIKey
     from aether_os.core.audit.ledger import get_ledger
-    from sqlalchemy import update as _saup
-    from datetime import datetime as _dt
 
     user_id = user.get("user_id", "")
     org_id = user.get("org_id", "")
     sf = get_session_factory()
     async with sf() as session:
-        db_user = await session.get(User, user_id)
-        if not db_user or db_user.org_id != org_id:
+        # account_service raises nothing — check existence first
+        from aether_os.core.models import User
+        db_user_check = await session.get(User, user_id)
+        if not db_user_check or db_user_check.org_id != org_id:
             raise HTTPException(status_code=404, detail="User not found")
-        db_user.email = f"deleted_{user_id[:8]}@deleted.invalid"
-        db_user.password_hash = "DELETED"
-        db_user.is_active = False
-        db_user.deleted_at = _dt.utcnow()
-        db_user.user_preferences = None
-        await session.execute(_saup(APIKey).where(APIKey.org_id == org_id).values(is_active=False))
+        await account_service.anonymise_and_deactivate_user(session, user_id, org_id)
         await session.commit()
 
     jti = user.get("jti")
@@ -248,18 +157,12 @@ async def get_preferences(
 ) -> Dict[str, Any]:
     """Get user preferences."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User
-    from sqlalchemy import select
-    import json
 
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        stmt = select(User).where(User.id == user["user_id"])
-        result = await session.execute(stmt)
-        u = result.scalar_one_or_none()
-        if not u:
+    async with get_session_factory()() as session:
+        prefs = await account_service.get_user_preferences(session, user["user_id"])
+        if prefs is None:
             raise HTTPException(status_code=404)
-        return json.loads(u.user_preferences) if u.user_preferences else dict(_DEFAULT_PREFERENCES)
+        return prefs if prefs else dict(_DEFAULT_PREFERENCES)
 
 
 _DEFAULT_PREFERENCES = {
@@ -285,20 +188,13 @@ async def update_preferences(
 ) -> Dict[str, Any]:
     """Update user preferences."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User
-    from sqlalchemy import select, update
-    import json
 
-    # Fetch existing preferences and merge
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        u = (await session.execute(select(User).where(User.id == user["user_id"]))).scalar_one_or_none()
-        existing = json.loads(u.user_preferences) if u and u.user_preferences else dict(_DEFAULT_PREFERENCES)
-        existing.update(req)
-        stmt = update(User).where(User.id == user["user_id"]).values(user_preferences=json.dumps(existing))
-        await session.execute(stmt)
+    async with get_session_factory()() as session:
+        merged = await account_service.update_user_preferences(
+            session, user["user_id"], req, _DEFAULT_PREFERENCES
+        )
         await session.commit()
-    return existing
+    return merged
 
 
 @router.post("/account/settings")
@@ -308,8 +204,6 @@ async def update_settings(
 ) -> Dict[str, Any]:
     """Update account settings (e.g. decision_mode, autonomous_mode)."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-    from sqlalchemy import update
 
     # Allowlist: only non-privileged fields may be updated by org members (FIX-006)
     _ALLOWED = {"decision_mode", "autonomous_mode", "notification_prefs", "org_name", "data_region"}
@@ -317,12 +211,10 @@ async def update_settings(
     if not payload:
         raise HTTPException(status_code=400, detail="No valid fields to update")
 
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        stmt = update(Organisation).where(Organisation.id == user["org_id"]).values(payload)
-        await session.execute(stmt)
+    async with get_session_factory()() as session:
+        await account_service.update_org_settings(session, user["org_id"], payload)
         await session.commit()
-        return {"status": "ok", "updated": list(payload.keys())}
+    return {"status": "ok", "updated": list(payload.keys())}
 
 
 @router.get("/account/settings")
@@ -331,18 +223,12 @@ async def get_org_settings(
 ) -> Dict[str, Any]:
     """Return org-level settings (autonomous_mode, data_region, etc.)."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        org = await session.get(Organisation, user["org_id"])
-    if not org:
+
+    async with get_session_factory()() as session:
+        result = await account_service.get_org_settings(session, user["org_id"])
+    if not result:
         raise HTTPException(status_code=404, detail="Organisation not found")
-    return {
-        "autonomous_mode": org.autonomous_mode,
-        "data_region": org.data_region,
-        "plan": org.plan,
-        "name": org.name,
-    }
+    return result
 
 
 @router.delete("/org")
@@ -353,29 +239,12 @@ async def delete_organisation(
     if user.get("role") != "owner":
         raise HTTPException(status_code=403, detail="Only org owners can delete the organisation")
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation, User
-    from sqlalchemy import update, select
-    from datetime import datetime as _dt
 
     org_id = user["org_id"]
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        org = await session.get(Organisation, org_id)
-        if not org or org.is_deleted:
+    async with get_session_factory()() as session:
+        deleted = await account_service.soft_delete_org(session, org_id)
+        if not deleted:
             raise HTTPException(status_code=404, detail="Organisation not found")
-
-        # Soft delete org
-        org.is_deleted = True
-        org.deleted_at = _dt.utcnow()
-
-        # Deactivate and anonymise all users in this org
-        users = (await session.execute(select(User).where(User.org_id == org_id))).scalars().all()
-        for u in users:
-            u.is_active = False
-            u.email = f"deleted_{u.id[:8]}@deleted.invalid"
-            u.password_hash = "DELETED"
-            u.deleted_at = org.deleted_at
-
         await session.commit()
 
     # Audit: org.deleted
@@ -406,32 +275,12 @@ async def restore_organisation(
         raise HTTPException(status_code=403, detail="Only org owners can restore the organisation")
 
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation, User
-    from sqlalchemy import select
 
     org_id = user["org_id"]
-    sf = get_session_factory()
-    async with sf() as session:
-        org = await session.get(Organisation, org_id)
-        if not org or not org.is_deleted:
+    async with get_session_factory()() as session:
+        restored = await account_service.restore_org(session, org_id)
+        if not restored:
             return {"message": "Organisation is not deleted"}
-
-        org.is_deleted = False
-        org.deleted_at = None
-
-        # We can't easily restore anonymised emails, but we can at least reactivate the owner
-        # Wait, if we anonymised them, they are lost.
-        # This makes "restore" difficult.
-        # But the problem says "Anonymises PII fields".
-        # If I want to allow restore, I shouldn't anonymise immediately, OR I should save them somewhere.
-        # But "GDPR erasure" implies anonymisation.
-        # Let's assume restore is only for the org flag, and users might need manual fix or they are not anonymised until hard delete.
-        # But the fix says "anonymises PII fields ... schedules hard deletion after 30 days".
-        # If I anonymise now, I can't restore the email.
-        # Maybe I'll only anonymise on hard delete?
-        # But the fix says: "soft-deletes ... anonymises ... schedules hard deletion".
-        # So it anonymises DURNG soft-delete.
-
         await session.commit()
 
     return {"message": "Organisation restored. Note: Users may need manual email restoration."}
@@ -633,19 +482,10 @@ async def import_codebase(
         if first_para:
             summary = f"{summary} README: {first_para}"
 
-    sf = get_session_factory()
-    async with sf() as session:
-        profile = CodebaseProfile(
-            org_id=org_id,
-            repo_url=repo_url,
-            repo_name=repo_name,
-            detected_stack=detected_stack,
-            file_tree=file_tree,
-            summary=summary,
+    async with get_session_factory()() as session:
+        profile = await account_service.save_codebase_profile(
+            session, org_id, repo_url, repo_name, detected_stack, file_tree, summary
         )
-        session.add(profile)
-        await session.commit()
-        await session.refresh(profile)
 
     return {
         "id": profile.id,
@@ -664,18 +504,10 @@ async def list_codebase_profiles(
 ) -> List[Dict[str, Any]]:
     """Return all imported codebase profiles for the current org."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import CodebaseProfile
-    from sqlalchemy import select
 
     org_id = user["org_id"]
-    sf = get_session_factory()
-    async with sf() as session:
-        rows = (await session.execute(
-            select(CodebaseProfile)
-            .where(CodebaseProfile.org_id == org_id)
-            .order_by(CodebaseProfile.created_at.desc())
-            .limit(50)
-        )).scalars().all()
+    async with get_session_factory()() as session:
+        rows = await account_service.list_codebase_profiles(session, org_id)
 
     return [
         {
