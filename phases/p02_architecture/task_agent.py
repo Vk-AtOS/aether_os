@@ -99,6 +99,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             _table_names = [t.get("name", "?") for t in _existing_schema["tables"][:10]]
             _stack_hint += f"\nExisting DB tables (use these): {', '.join(_table_names)}"
 
+        # Inject build_profile from P00 classification if available.
+        # This overrides generic domain hints with the specific stack the classifier chose.
+        _bp = data.get("build_profile") or {}
+        if _bp:
+            _stack_hint += (
+                f"\nBuild profile (from automated classification): {_bp.get('name', '')}"
+                f"\n  backend_lang={_bp.get('backend_lang', 'python')}"
+                f"\n  backend_framework={_bp.get('backend_framework', 'fastapi')}"
+                f"\n  frontend_framework={_bp.get('frontend_framework', 'react')}"
+                f"\n  architecture={_bp.get('architecture', 'monolith')}"
+                f"\n  db_primary={_bp.get('db_primary', 'postgres')}"
+                f"\n  performance_tier={_bp.get('performance_tier', 'standard')}"
+            )
+            logger.info("[p02] build_profile injected into arch prompt: %s", _bp.get("name"))
+
         # Problem 44 fix: extract must-have nouns from spec to validate entity coverage
         _spec_nouns = extract_spec_nouns(raw_input or requirements)
         _min_entities = max(1, int(len(_spec_nouns) * 0.8))
