@@ -43,7 +43,7 @@ _pending_states: dict = {}  # state_token → {"provider": str, "ts": float}
 
 def _new_state(provider: str) -> str:
     """Generate a cryptographically random CSRF state token and record it."""
-    import time
+    import time  # deferred: was added incrementally; safe to move to module level if needed
     state = secrets.token_urlsafe(32)
     # Prune expired entries on each generation (keeps dict bounded)
     now = time.time()
@@ -56,7 +56,7 @@ def _new_state(provider: str) -> str:
 
 def _consume_state(state: str, provider: str) -> bool:
     """Validate and consume a CSRF state token. Returns True if valid."""
-    import time
+    import time  # deferred: was added incrementally; safe to move to module level if needed
     entry = _pending_states.pop(state, None)
     if entry is None:
         return False

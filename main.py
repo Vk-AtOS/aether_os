@@ -276,7 +276,7 @@ def status(
 @app.command("build-dashboard")
 def build_dashboard() -> None:
     """Build the React dashboard (requires npm)."""
-    import subprocess
+    import subprocess  # deferred: only used in this CLI command, avoids adding it to startup overhead
     dashboard_dir = Path(__file__).parent.parent / "dashboard"
     console.print(f"[bold]Building dashboard[/bold] in {dashboard_dir}...")
     result = subprocess.run(
