@@ -5,11 +5,14 @@ Orchestrates multiple notification providers.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from src.notifications.base import BaseNotifier, NotificationEvent
 from src.notifications.slack_notifier import SlackNotifier
 from src.notifications.email_notifier import EmailNotifier
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationRouter:
@@ -37,7 +40,7 @@ class NotificationRouter:
             try:
                 results[name] = notifier.send(event)
             except Exception as e:
-                print(f"ERROR: Notifier {name} failed: {e}")
+                logger.error("Notifier %s failed: %s", name, e)
                 results[name] = False
         return results
 
