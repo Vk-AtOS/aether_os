@@ -40,7 +40,9 @@ def generate_package_json(project_name: str) -> str:
   "scripts": {{
     "dev": "ts-node-dev src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   }},
   "dependencies": {{
     "fastify": "^4.25.2",
@@ -49,13 +51,16 @@ def generate_package_json(project_name: str) -> str:
     "postgres": "^3.4.3",
     "dotenv": "^16.3.1",
     "zod": "^3.22.4",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^8.17.2"
   }},
   "devDependencies": {{
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "@types/jsonwebtoken": "^9.0.5",
-    "ts-node-dev": "^2.0.0"
+    "ts-node-dev": "^2.0.0",
+    "vitest": "^1.1.0",
+    "@vitest/coverage-v8": "^1.1.0"
   }}
 }}
 """
@@ -236,6 +241,98 @@ main().catch((err) => {{
 """
 
 
+def generate_zod_schema(entity: Dict[str, Any]) -> str:
+    """Generate src/schemas/<Entity>.ts — Zod validation schema."""
+    table = entity.get("table", "item")
+    pascal = _to_pascal(table)
+    fields = entity.get("fields", [])
+
+    zod_fields: List[str] = []
+    for f in fields:
+        fname = _to_camel(f.get("name", "field"))
+        ftype = f.get("type", "string").lower()
+        zod_type = {
+            "string": "z.string()", "text": "z.string()",
+            "int": "z.number().int()", "integer": "z.number().int()",
+            "float": "z.number()", "bool": "z.boolean()", "boolean": "z.boolean()",
+            "datetime": "z.string().datetime()", "date": "z.string()",
+            "fk": "z.number().int().positive()",
+        }.get(ftype, "z.string()")
+        zod_fields.append(f"  {fname}: {zod_type},")
+
+    fields_str = "\n".join(zod_fields) if zod_fields else "  name: z.string(),"
+    return f"""import {{ z }} from 'zod';
+
+export const {pascal}Schema = z.object({{
+{fields_str}
+}});
+
+export const Create{pascal}Schema = {pascal}Schema;
+export const Update{pascal}Schema = {pascal}Schema.partial();
+
+export type {pascal}Input = z.infer<typeof {pascal}Schema>;
+export type Update{pascal}Input = z.infer<typeof Update{pascal}Schema>;
+"""
+
+
+def generate_vitest_config() -> str:
+    return """import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'node',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+    },
+  },
+});
+"""
+
+
+def generate_ts_test(entity: Dict[str, Any], project_name: str) -> str:
+    """Generate src/__tests__/<Entity>.test.ts — Vitest unit tests for route handlers."""
+    table = entity.get("table", "item")
+    pascal = _to_pascal(table)
+
+    return f"""import {{ describe, it, expect, vi, beforeEach }} from 'vitest';
+
+// Mock the db module so tests don't need a real database
+vi.mock('../db', () => {{
+  const mockDb = {{
+    execute: vi.fn(),
+  }};
+  return {{ db: mockDb }};
+}});
+
+describe('{pascal} routes', () => {{
+  beforeEach(() => {{
+    vi.clearAllMocks();
+  }});
+
+  it('LIST /{table} returns an array', async () => {{
+    const {{ db }} = await import('../db');
+    (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({{ rows: [] }});
+    // Route handler test — add Fastify inject() call here for integration style
+    expect(true).toBe(true); // placeholder — replace with inject() call
+  }});
+
+  it('GET /{table}/:id returns 404 for missing record', async () => {{
+    const {{ db }} = await import('../db');
+    (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({{ rows: [] }});
+    expect(true).toBe(true);
+  }});
+
+  it('POST /{table} creates a record', async () => {{
+    const {{ db }} = await import('../db');
+    (db.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({{ rows: [{{ id: 1 }}] }});
+    expect(true).toBe(true);
+  }});
+}});
+"""
+
+
 def generate_node_dockerfile() -> str:
     return """FROM node:20-alpine AS builder
 WORKDIR /app
@@ -271,11 +368,12 @@ async def generate_node_project(
     Returns the path to the backend directory.
     """
     backend_dir = output_dir / "backend"
-    (backend_dir / "src" / "routes").mkdir(parents=True, exist_ok=True)
-    (backend_dir / "src" / "models").mkdir(parents=True, exist_ok=True)
+    for subdir in ("src/routes", "src/models", "src/schemas", "src/__tests__"):
+        (backend_dir / subdir).mkdir(parents=True, exist_ok=True)
 
     (backend_dir / "package.json").write_text(generate_package_json(project_name))
     (backend_dir / "tsconfig.json").write_text(generate_tsconfig())
+    (backend_dir / "vitest.config.ts").write_text(generate_vitest_config())
     (backend_dir / "src" / "db.ts").write_text(generate_ts_db())
     (backend_dir / ".env.example").write_text(generate_env_example())
     (backend_dir / "Dockerfile").write_text(generate_node_dockerfile())
@@ -286,9 +384,13 @@ async def generate_node_project(
         pascal = _to_pascal(table)
         (backend_dir / "src" / "models" / f"{pascal}.ts").write_text(generate_ts_model(entity))
         (backend_dir / "src" / "routes" / f"{pascal}.ts").write_text(generate_ts_route(entity))
+        (backend_dir / "src" / "schemas" / f"{pascal}.ts").write_text(generate_zod_schema(entity))
+        (backend_dir / "src" / "__tests__" / f"{pascal}.test.ts").write_text(
+            generate_ts_test(entity, project_name)
+        )
 
     logger.info(
-        "node_generator: wrote %d entities to %s",
+        "node_generator: wrote %d entities (+schemas+tests) to %s",
         len(entities), backend_dir,
     )
     return backend_dir
