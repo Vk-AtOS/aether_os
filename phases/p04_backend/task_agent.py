@@ -171,9 +171,67 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
     return {"passed": False, "errors": errors, "attempts": MAX_ATTEMPTS}
 
 
+async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
+    """Generate Go/Gin backend when build_profile.backend_lang == 'go'."""
+    from aether_os.phases.p04_backend.go_generator import generate_go_project
+    data = phase_input.input_data or {}
+    domain_ir = data.get("domain_ir") or {}
+    entities = domain_ir.get("entities") or []
+    if not entities:
+        entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]
+    project_name = data.get("project_name") or "generated-app"
+    bp = data.get("build_profile") or {}
+    db_driver = "sqlite" if bp.get("db_primary") == "sqlite" else "postgres"
+    try:
+        backend_dir = await generate_go_project(entities, project_name, output_dir, db_driver)
+        logger.info("p04: Go backend generated at %s", backend_dir)
+        return TaskResult(
+            output_path=str(backend_dir),
+            confidence=0.85,
+            metadata={"backend_lang": "go", "backend_dir": str(backend_dir)},
+            success=True,
+        )
+    except Exception as e:
+        logger.error("p04: Go backend generation failed: %s", e)
+        return TaskResult(output_path=str(output_dir), confidence=0.0, metadata={}, success=False)
+
+
+async def _run_node_backend(phase_input: Any, output_dir: Path) -> TaskResult:
+    """Generate TypeScript/Fastify backend when build_profile.backend_lang == 'typescript'."""
+    from aether_os.phases.p04_backend.node_generator import generate_node_project
+    data = phase_input.input_data or {}
+    domain_ir = data.get("domain_ir") or {}
+    entities = domain_ir.get("entities") or []
+    if not entities:
+        entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]
+    project_name = data.get("project_name") or "generated-app"
+    try:
+        backend_dir = await generate_node_project(entities, project_name, output_dir)
+        logger.info("p04: Node/TS backend generated at %s", backend_dir)
+        return TaskResult(
+            output_path=str(backend_dir),
+            confidence=0.85,
+            metadata={"backend_lang": "typescript", "backend_dir": str(backend_dir)},
+            success=True,
+        )
+    except Exception as e:
+        logger.error("p04: Node/TS backend generation failed: %s", e)
+        return TaskResult(output_path=str(output_dir), confidence=0.0, metadata={}, success=False)
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     results = {}
+
+    # Route to language-specific generator when build_profile requests it.
+    # Falls through to the default FastAPI generator for "python" or missing profile.
+    _bp = (phase_input.input_data or {}).get("build_profile") or {}
+    _backend_lang = _bp.get("backend_lang", "python")
+
+    if _backend_lang == "go":
+        return await _run_go_backend(phase_input, output_dir)
+    if _backend_lang == "typescript":
+        return await _run_node_backend(phase_input, output_dir)
 
     # Sub-task 1: Backend Codegen
     try:
