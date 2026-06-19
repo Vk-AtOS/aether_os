@@ -629,7 +629,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                                 "endpoint": f"/api/{pluralise(ref_lower)}",
                                 "label_key": getattr(ir_field, "display_field", None) or "name",
                             }
-            except Exception: pass
+            except Exception as e:
+                logger.warning("p05: FK ref resolution failed: %s", e)
 
         for ent in entities:
             if asyncio.get_event_loop().time() - _phase_start > _PHASE_TIMEOUT:
@@ -670,7 +671,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             dashboard_file = src_dir / "pages" / "Dashboard.tsx"
             if dashboard_file.exists():
                 dashboard_file.write_text(dashboard_file.read_text().replace("      {/* DOMAIN_WIDGET_SLOT */}\n", ""))
-        except Exception: pass
+        except Exception as e:
+                logger.debug("p05: dashboard widget slot cleanup failed: %s", e)
 
     # ── Phase 8: Customer Portal (Home, About) ──
     if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
@@ -715,7 +717,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 try:
                     if resolved.human_choice.strip().startswith("["): admin_features = json.loads(resolved.human_choice)
                     else: admin_features = [f.strip() for f in resolved.human_choice.split(",") if f.strip()]
-                except Exception: pass
+                except Exception as e:
+                    logger.debug("p05: Gate 3 admin_features parse failed (non-JSON input): %s", e)
         else:
             logger.info("p05: Autonomous mode — bypassing Gate 3 approval.")
     except Exception as e:
@@ -730,7 +733,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         try:
             import shutil as _shutil
             _shutil.copytree(str(frontend_dir), str(_canonical_frontend), ignore=_shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
-        except Exception: pass
+        except Exception as e:
+            logger.warning("p05: frontend directory copy to canonical path failed: %s", e)
 
     # 5. Write metadata
     generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
@@ -767,7 +771,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 await apply_gate2_revisions(resolved.human_choice.strip(), frontend_dir, domain, project_name)
         elif run_id:
             logger.info("p05: Autonomous mode — bypassing Gate 2 approval.")
-    except Exception: pass
+    except Exception as e:
+        logger.warning("p05: Gate 2 preview approval block failed: %s", e)
 
     # ── Step 6: Final Build ──
     frontend_dir_final = project_dir / 'frontend'
