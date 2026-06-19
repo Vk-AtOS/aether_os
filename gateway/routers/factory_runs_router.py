@@ -48,6 +48,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.services.run_service import (
+    get_test_report as svc_get_test_report,
+    enrich_runs_with_quality,
+    get_phase_completions,
+    get_explicit_events,
+    get_run_priority_and_live_url,
+)
 
 # EventSourceResponse imported lazily inside the stream endpoint to avoid hard dep at module load
 
@@ -141,19 +148,14 @@ async def get_test_report(
 ) -> Dict[str, Any]:
     """Get the self-test report for a run."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run
-    from sqlalchemy import select
 
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        stmt = select(Run).where(Run.id == run_id, Run.org_id == user["org_id"])
-        result = await session.execute(stmt)
-        run = result.scalar_one_or_none()
+    async with get_session_factory()() as session:
+        report_str = await svc_get_test_report(session, run_id, user["org_id"])
 
-        if not run or not run.self_test_report:
-            raise HTTPException(status_code=404, detail="Report not found")
+    if not report_str:
+        raise HTTPException(status_code=404, detail="Report not found")
 
-        return json.loads(run.self_test_report)
+    return json.loads(report_str)
 
 
 @router.get("/factory/runs")
@@ -179,16 +181,8 @@ async def list_factory_runs(
         if items:
             try:
                 from aether_os.core.db import get_session_factory as _gsf
-                from aether_os.core.models import Run as _Run
-                from sqlalchemy import select as _sel
-                _run_ids = [r.get("id") for r in items if r.get("id")]
                 async with _gsf()() as _sess:
-                    _qs_rows = (await _sess.execute(
-                        _sel(_Run.id, _Run.quality_score).where(_Run.id.in_(_run_ids))
-                    )).all()
-                _qs_map = {rid: qs for rid, qs in _qs_rows if qs is not None}
-                for item in items:
-                    item.setdefault("quality_score", _qs_map.get(item.get("id")))
+                    await enrich_runs_with_quality(_sess, items)
             except Exception as _e:
                 logger.debug("quality_score enrichment failed: %s", _e)
 
@@ -218,15 +212,9 @@ async def get_factory_run(
     synthesized_events: list = []
     try:
         from aether_os.core.db import get_session_factory as _gsf2
-        from aether_os.core.models import PhaseCompletion as _PC2, Event as _Ev2
-        from sqlalchemy import select as _sel2
         _sf2 = _gsf2()
         async with _sf2() as _sess2:
-            _pc2_rows = (await _sess2.execute(
-                _sel2(_PC2.phase_name, _PC2.status, _PC2.updated_at)
-                .where(_PC2.run_id == run_id, _PC2.phase_name != "pipeline")
-                .order_by(_PC2.updated_at.asc())
-            )).all()
+            _pc2_rows = await get_phase_completions(_sess2, run_id)
             for _phase, _status, _updated in _pc2_rows:
                 phases[_phase] = {"status": _status, "updated_at": _updated}
                 current_phase = _phase
@@ -246,11 +234,7 @@ async def get_factory_run(
                     "timestamp": _ts,
                 })
             # Also pull any explicit Event rows
-            _ev_rows = (await _sess2.execute(
-                _sel2(_Ev2.agent, _Ev2.action, _Ev2.detail, _Ev2.timestamp)
-                .where(_Ev2.run_id == run_id)
-                .order_by(_Ev2.timestamp.asc())
-            )).all()
+            _ev_rows = await get_explicit_events(_sess2, run_id)
             explicit_events = [
                 {"agent": r[0], "action": r[1], "detail": r[2], "timestamp": r[3]}
                 for r in _ev_rows
@@ -336,26 +320,17 @@ async def get_factory_run(
                 logger.debug("Failed to load security_report.json for run %s: %s", run_id, exc)
 
     # Load priority and live_url via ORM (FIX-017)
-    priority = "normal"
     detail.setdefault("live_url", None)
     try:
         from aether_os.core.db import get_session_factory as _gsf3
-        from aether_os.core.models import RunMetadata as _RM2, Run as _Run2
-        from sqlalchemy import select as _sel3
         _sf3 = _gsf3()
         async with _sf3() as _sess3:
-            _rm_row = (await _sess3.execute(
-                _sel3(_RM2.priority).where(_RM2.run_id == run_id)
-            )).scalar_one_or_none()
-            if _rm_row:
-                priority = _rm_row
-            _run_row = (await _sess3.execute(
-                _sel3(_Run2.live_url).where(_Run2.id == run_id, _Run2.org_id == org_id)
-            )).scalar_one_or_none()
-            if _run_row:
-                detail["live_url"] = _run_row
+            priority, live_url = await get_run_priority_and_live_url(_sess3, run_id, org_id)
+            if live_url:
+                detail["live_url"] = live_url
     except Exception as _e3:
         logger.debug("Priority/live_url ORM query failed: %s", _e3)
+        priority = "normal"
     detail["priority"] = priority
 
     # Enrich with quality score if project output exists (best-effort, non-blocking)

@@ -22,6 +22,12 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.services.settings_service import (
+    get_org_plan,
+    get_org_api_key_providers,
+    get_langsmith_config,
+    upsert_langsmith_config,
+)
 
 router = APIRouter(tags=["settings"])
 
@@ -52,13 +58,9 @@ async def get_available_models(
     """List available LLM models with plan-based filtering."""
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
 
-    plan = "trial"
     async with get_session_factory()() as session:
-        org = await session.get(Organisation, org_id)
-        if org:
-            plan = org.plan
+        plan = await get_org_plan(session, org_id)
 
     all_models = [
         {"id": "claude-sonnet-4-6", "name": "Claude 3.5 Sonnet", "provider": "anthropic", "paid": True},
@@ -97,14 +99,10 @@ async def get_api_keys(
 
     if org_id:
         try:
-            from aether_os.core.db import get_session_factory as _gsf
-            from aether_os.core.models import OrgApiKey as _OAK
-            from sqlalchemy import select as _sel
-            async with _gsf()() as session:
-                rows = (await session.execute(
-                    _sel(_OAK.provider).where(_OAK.org_id == org_id)
-                )).scalars().all()
-                for p in rows:
+            from aether_os.core.db import get_session_factory
+            async with get_session_factory()() as session:
+                providers = await get_org_api_key_providers(session, org_id)
+                for p in providers:
                     if p in org_keys:
                         org_keys[p] = True
         except Exception as exc:
@@ -156,22 +154,10 @@ async def get_langsmith_settings(
 ) -> Dict[str, Any]:
     """Return LangSmith configuration for this organisation."""
     org_id = user.get("org_id", "")
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC, OrgApiKey as _OAK
-    from sqlalchemy import select as _sel
+    from aether_os.core.db import get_session_factory
 
-    enabled = False
-    project = "aetheros-factory"
-    has_key = False
-
-    async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-        if db_cfg:
-            enabled = db_cfg.langsmith_enabled
-            project = db_cfg.langsmith_project
-
-        db_key = (await session.execute(_sel(_OAK).where(_OAK.org_id == org_id, _OAK.provider == "langsmith"))).scalar_one_or_none()
-        has_key = db_key is not None
+    async with get_session_factory()() as session:
+        enabled, project, has_key = await get_langsmith_config(session, org_id)
 
     return {
         "opt_in": enabled,
@@ -191,20 +177,15 @@ async def update_langsmith_settings(
         raise HTTPException(status_code=403, detail="Only org owners/admins may update observability settings.")
 
     org_id = user.get("org_id", "")
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
+    from aether_os.core.db import get_session_factory
 
-    async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-        if not db_cfg:
-            db_cfg = _LC(org_id=org_id)
-            session.add(db_cfg)
-
-        if "opt_in" in req:
-            db_cfg.langsmith_enabled = bool(req["opt_in"])
-        if "project" in req:
-            db_cfg.langsmith_project = req["project"]
+    async with get_session_factory()() as session:
+        await upsert_langsmith_config(
+            session,
+            org_id,
+            opt_in=req.get("opt_in"),
+            project=req.get("project"),
+        )
 
         if "api_key" in req and req["api_key"]:
             from aether_os.core.api_key_store import save_api_key
