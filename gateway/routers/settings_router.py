@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.services import settings_service
 
 router = APIRouter(tags=["settings"])
 
@@ -73,13 +74,9 @@ async def get_available_models(
     """List available LLM models with plan-based filtering."""
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
 
-    plan = "trial"
     async with get_session_factory()() as session:
-        org = await session.get(Organisation, org_id)
-        if org:
-            plan = org.plan
+        plan = await settings_service.get_org_plan(session, org_id)
 
     # Model definitions
     all_models = [
@@ -122,17 +119,13 @@ async def get_api_keys(
 
     org_id = user.get("org_id", "")
     org_keys: Dict[str, bool] = {"anthropic": False, "google": False, "openrouter": False}
-    
+
     if org_id:
         try:
             from aether_os.core.db import get_session_factory as _gsf
-            from aether_os.core.models import OrgApiKey as _OAK
-            from sqlalchemy import select as _sel
             async with _gsf()() as session:
-                rows = (await session.execute(
-                    _sel(_OAK.provider).where(_OAK.org_id == org_id)
-                )).scalars().all()
-                for p in rows:
+                providers = await settings_service.get_org_api_key_providers(session, org_id)
+                for p in providers:
                     if p in org_keys:
                         org_keys[p] = True
         except Exception as exc:
@@ -185,21 +178,9 @@ async def get_langsmith_settings(
     """Return LangSmith configuration for this organisation."""
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC, OrgApiKey as _OAK
-    from sqlalchemy import select as _sel
-
-    enabled = False
-    project = "aetheros-factory"
-    has_key = False
 
     async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-        if db_cfg:
-            enabled = db_cfg.langsmith_enabled
-            project = db_cfg.langsmith_project
-
-        db_key = (await session.execute(_sel(_OAK).where(_OAK.org_id == org_id, _OAK.provider == "langsmith"))).scalar_one_or_none()
-        has_key = db_key is not None
+        enabled, project, has_key = await settings_service.get_langsmith_config(session, org_id)
 
     return {
         "opt_in": enabled,
@@ -220,24 +201,17 @@ async def update_langsmith_settings(
 
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
 
     async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-        if not db_cfg:
-            db_cfg = _LC(org_id=org_id)
-            session.add(db_cfg)
-        
-        if "opt_in" in req:
-            db_cfg.langsmith_enabled = bool(req["opt_in"])
-        if "project" in req:
-            db_cfg.langsmith_project = req["project"]
-        
+        await settings_service.upsert_langsmith_config(
+            session,
+            org_id,
+            opt_in=bool(req["opt_in"]) if "opt_in" in req else None,
+            project=req.get("project"),
+        )
         if "api_key" in req and req["api_key"]:
             from aether_os.core.api_key_store import save_api_key
             await save_api_key("langsmith", org_id, req["api_key"], user.get("user_id", "-"))
-
         await session.commit()
 
     return {"success": True, "message": "Observability settings updated."}
@@ -340,11 +314,9 @@ async def get_llm_config(
     """Return LLM config for the current organisation."""
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
-    
+
     async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+        db_cfg = await settings_service.get_llm_config(session, org_id)
 
     if not db_cfg:
         return {
@@ -382,23 +354,9 @@ async def update_llm_config(
 
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
 
     async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-        if not db_cfg:
-            db_cfg = _LC(org_id=org_id)
-            session.add(db_cfg)
-        
-        if "primary_llm" in req: db_cfg.provider = req["primary_llm"]
-        if "anthropic_model" in req: db_cfg.heavy_model = req["anthropic_model"]
-        if "ollama_model" in req:    db_cfg.light_model = req["ollama_model"]
-        if "openrouter_heavy_model" in req: db_cfg.heavy_model = req["openrouter_heavy_model"]
-        if "openrouter_light_model" in req: db_cfg.light_model = req["openrouter_light_model"]
-        if "bedrock_enabled" in req: db_cfg.bedrock_enabled = bool(req["bedrock_enabled"])
-        if "langsmith_enabled" in req: db_cfg.langsmith_enabled = bool(req["langsmith_enabled"])
-
+        await settings_service.upsert_llm_config(session, org_id, req)
         await session.commit()
 
     return {"success": True, "message": "LLM config saved."}
@@ -412,15 +370,9 @@ async def get_council_config(
 ) -> Dict[str, Any]:
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
+
     async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-    
-    return {
-        "council_enabled": db_cfg.council_enabled if db_cfg else True,
-        "council_strict_mode": db_cfg.council_strict_mode if db_cfg else False,
-    }
+        return await settings_service.get_council_config(session, org_id)
 
 
 @router.put("/settings/council-config")
@@ -433,17 +385,14 @@ async def update_council_config(
 
     org_id = user.get("org_id", "")
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
 
     async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
-        if not db_cfg:
-            db_cfg = _LC(org_id=org_id)
-            session.add(db_cfg)
-        
-        db_cfg.council_enabled = bool(req.get("council_enabled", True))
-        db_cfg.council_strict_mode = bool(req.get("council_strict_mode", False))
+        await settings_service.upsert_council_config(
+            session,
+            org_id,
+            enabled=bool(req.get("council_enabled", True)),
+            strict_mode=bool(req.get("council_strict_mode", False)),
+        )
         await session.commit()
 
     return {"success": True}
@@ -459,15 +408,11 @@ async def update_phase_config(
 ) -> Dict[str, Any]:
     org_id = user["org_id"]
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import PhaseConfig as _PhCfg
-    from sqlalchemy import select as _sel
+
     async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_PhCfg).where(_PhCfg.org_id == org_id, _PhCfg.phase_name == phase_name))).scalar_one_or_none()
-        if cfg:
-            cfg.enabled = 1 if req.enabled else 0
-            cfg.priority = req.priority
-        else:
-            session.add(_PhCfg(org_id=org_id, phase_name=phase_name, enabled=1 if req.enabled else 0, priority=req.priority))
+        await settings_service.upsert_phase_config(
+            session, org_id, phase_name, req.enabled, req.priority
+        )
         await session.commit()
     return {"success": True}
 
@@ -478,13 +423,9 @@ async def get_all_phase_configs(
 ) -> List[Dict[str, Any]]:
     org_id = user["org_id"]
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import PhaseConfig as _PhCfg
-    from sqlalchemy import select as _sel
+
     async with _gsf()() as session:
-        rows = (await session.execute(_sel(_PhCfg).where(_PhCfg.org_id == org_id))).scalars().all()
-    
-    # We should return all phases, merging DB overrides with defaults if needed
-    return [{"phase_name": r.phase_name, "enabled": bool(r.enabled), "priority": r.priority} for r in rows]
+        return await settings_service.get_all_phase_configs(session, org_id)
 
 
 # ── Preferences routes ────────────────────────────────────────────────────────
@@ -517,11 +458,11 @@ async def update_preferences(
 async def get_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
     org_id = user["org_id"]
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import SamlConfig as _SC
-    from sqlalchemy import select as _sel
+
     async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
-    if not cfg: return {"configured": False}
+        cfg = await settings_service.get_sso_config(session, org_id)
+    if not cfg:
+        return {"configured": False}
     return {"configured": True, "idp_entity_id": cfg.idp_entity_id, "idp_sso_url": cfg.idp_sso_url}
 
 
@@ -529,16 +470,11 @@ async def get_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, An
 async def upsert_sso_config(req: SamlConfigRequest, user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
     org_id = user["org_id"]
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import SamlConfig as _SC
-    from sqlalchemy import select as _sel
+
     async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
-        if cfg:
-            cfg.idp_entity_id = req.idp_entity_id
-            cfg.idp_sso_url = req.idp_sso_url
-            cfg.idp_cert = req.idp_cert
-        else:
-            session.add(_SC(org_id=org_id, idp_entity_id=req.idp_entity_id, idp_sso_url=req.idp_sso_url, idp_cert=req.idp_cert))
+        await settings_service.upsert_sso_config(
+            session, org_id, req.idp_entity_id, req.idp_sso_url, req.idp_cert
+        )
         await session.commit()
     return {"success": True}
 
@@ -547,13 +483,10 @@ async def upsert_sso_config(req: SamlConfigRequest, user: Dict[str, Any] = _curr
 async def delete_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, str]:
     org_id = user["org_id"]
     from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import SamlConfig as _SC
-    from sqlalchemy import select as _sel
+
     async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
-        if cfg:
-            await session.delete(cfg)
-            await session.commit()
+        await settings_service.delete_sso_config(session, org_id)
+        await session.commit()
     return {"message": "SSO removed"}
 
 

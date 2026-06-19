@@ -48,6 +48,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.services import run_service
 
 # EventSourceResponse imported lazily inside the stream endpoint to avoid hard dep at module load
 
@@ -141,19 +142,13 @@ async def get_test_report(
 ) -> Dict[str, Any]:
     """Get the self-test report for a run."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run
-    from sqlalchemy import select
 
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        stmt = select(Run).where(Run.id == run_id, Run.org_id == user["org_id"])
-        result = await session.execute(stmt)
-        run = result.scalar_one_or_none()
+    async with get_session_factory()() as session:
+        report_json = await run_service.get_test_report(session, run_id, user["org_id"])
 
-        if not run or not run.self_test_report:
-            raise HTTPException(status_code=404, detail="Report not found")
-
-        return json.loads(run.self_test_report)
+    if not report_json:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return json.loads(report_json)
 
 
 @router.get("/factory/runs")
@@ -179,16 +174,8 @@ async def list_factory_runs(
         if items:
             try:
                 from aether_os.core.db import get_session_factory as _gsf
-                from aether_os.core.models import Run as _Run
-                from sqlalchemy import select as _sel
-                _run_ids = [r.get("id") for r in items if r.get("id")]
                 async with _gsf()() as _sess:
-                    _qs_rows = (await _sess.execute(
-                        _sel(_Run.id, _Run.quality_score).where(_Run.id.in_(_run_ids))
-                    )).all()
-                _qs_map = {rid: qs for rid, qs in _qs_rows if qs is not None}
-                for item in items:
-                    item.setdefault("quality_score", _qs_map.get(item.get("id")))
+                    await run_service.enrich_runs_with_quality(_sess, items)
             except Exception as _e:
                 logger.debug("quality_score enrichment failed: %s", _e)
 
@@ -218,15 +205,8 @@ async def get_factory_run(
     synthesized_events: list = []
     try:
         from aether_os.core.db import get_session_factory as _gsf2
-        from aether_os.core.models import PhaseCompletion as _PC2, Event as _Ev2
-        from sqlalchemy import select as _sel2
-        _sf2 = _gsf2()
-        async with _sf2() as _sess2:
-            _pc2_rows = (await _sess2.execute(
-                _sel2(_PC2.phase_name, _PC2.status, _PC2.updated_at)
-                .where(_PC2.run_id == run_id, _PC2.phase_name != "pipeline")
-                .order_by(_PC2.updated_at.asc())
-            )).all()
+        async with _gsf2()() as _sess2:
+            _pc2_rows = await run_service.get_phase_completions(_sess2, run_id)
             for _phase, _status, _updated in _pc2_rows:
                 phases[_phase] = {"status": _status, "updated_at": _updated}
                 current_phase = _phase
@@ -246,11 +226,7 @@ async def get_factory_run(
                     "timestamp": _ts,
                 })
             # Also pull any explicit Event rows
-            _ev_rows = (await _sess2.execute(
-                _sel2(_Ev2.agent, _Ev2.action, _Ev2.detail, _Ev2.timestamp)
-                .where(_Ev2.run_id == run_id)
-                .order_by(_Ev2.timestamp.asc())
-            )).all()
+            _ev_rows = await run_service.get_explicit_events(_sess2, run_id)
             explicit_events = [
                 {"agent": r[0], "action": r[1], "detail": r[2], "timestamp": r[3]}
                 for r in _ev_rows
@@ -336,26 +312,16 @@ async def get_factory_run(
                 pass
 
     # Load priority and live_url via ORM (FIX-017)
-    priority = "normal"
     detail.setdefault("live_url", None)
     try:
         from aether_os.core.db import get_session_factory as _gsf3
-        from aether_os.core.models import RunMetadata as _RM2, Run as _Run2
-        from sqlalchemy import select as _sel3
-        _sf3 = _gsf3()
-        async with _sf3() as _sess3:
-            _rm_row = (await _sess3.execute(
-                _sel3(_RM2.priority).where(_RM2.run_id == run_id)
-            )).scalar_one_or_none()
-            if _rm_row:
-                priority = _rm_row
-            _run_row = (await _sess3.execute(
-                _sel3(_Run2.live_url).where(_Run2.id == run_id, _Run2.org_id == org_id)
-            )).scalar_one_or_none()
-            if _run_row:
-                detail["live_url"] = _run_row
+        async with _gsf3()() as _sess3:
+            priority, _live_url = await run_service.get_run_priority_and_live_url(_sess3, run_id, org_id)
+            if _live_url:
+                detail["live_url"] = _live_url
     except Exception as _e3:
         logger.debug("Priority/live_url ORM query failed: %s", _e3)
+        priority = "normal"
     detail["priority"] = priority
 
     # Enrich with quality score if project output exists (best-effort, non-blocking)
@@ -411,18 +377,11 @@ async def list_run_snapshots(
 ) -> Dict[str, Any]:
     """List all code snapshots for a run (versioned file history)."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run, Snapshot
-    from sqlalchemy import select as _sel
-    sf = get_session_factory()
-    async with sf() as sess:
-        run = await sess.get(Run, run_id)
-        if not run or run.org_id != user["org_id"]:
-            raise HTTPException(status_code=404, detail="Run not found")
-        rows = (await sess.execute(
-            _sel(Snapshot)
-            .where(Snapshot.run_id == run_id)
-            .order_by(Snapshot.created_at.desc())
-        )).scalars().all()
+
+    async with get_session_factory()() as sess:
+        found, rows = await run_service.get_run_snapshots(sess, run_id, user["org_id"])
+    if not found:
+        raise HTTPException(status_code=404, detail="Run not found")
     return {
         "run_id": run_id,
         "snapshots": [
@@ -444,15 +403,15 @@ async def get_run_snapshot(
 ) -> Dict[str, Any]:
     """Get full content of a specific code snapshot."""
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run, Snapshot
-    sf = get_session_factory()
-    async with sf() as sess:
-        run = await sess.get(Run, run_id)
-        if not run or run.org_id != user["org_id"]:
-            raise HTTPException(status_code=404, detail="Run not found")
-        snap = await sess.get(Snapshot, snapshot_id)
-        if not snap or snap.run_id != run_id:
-            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    async with get_session_factory()() as sess:
+        run_found, snap = await run_service.get_run_snapshot_detail(
+            sess, run_id, snapshot_id, user["org_id"]
+        )
+    if not run_found:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not snap:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
     return {
         "id": snap.id,
         "run_id": snap.run_id,
@@ -504,17 +463,8 @@ async def set_factory_run_priority(
         raise HTTPException(status_code=400, detail="priority must be high | normal | low")
     # Upsert priority via ORM (FIX-017)
     from aether_os.core.db import get_session_factory as _gsf_pri
-    from aether_os.core.models import RunMetadata as _RM_pri
-    from sqlalchemy.dialects.postgresql import insert as _pg_insert
-    from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
-    _sf_pri = _gsf_pri()
-    async with _sf_pri() as _sess_pri:
-        existing = await _sess_pri.get(_RM_pri, run_id)
-        if existing:
-            existing.priority = req.priority
-            existing.updated_at = time.time()
-        else:
-            _sess_pri.add(_RM_pri(run_id=run_id, priority=req.priority, updated_at=time.time()))
+    async with _gsf_pri()() as _sess_pri:
+        await run_service.upsert_run_priority(_sess_pri, run_id, req.priority)
         await _sess_pri.commit()
     return {"run_id": run_id, "priority": req.priority}
 
@@ -537,25 +487,15 @@ async def rerun_factory_run(
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
     from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-    from sqlalchemy import select, update as _sa_upd
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        stmt = select(Organisation).where(Organisation.id == org_id)
-        result = await session.execute(stmt)
-        org = result.scalar_one_or_none()
+    async with get_session_factory()() as session:
+        org = await run_service.get_org_for_run(session, org_id)
         if not org:
             raise HTTPException(status_code=404, detail="Organisation not found")
         if org.plan == "trial":
             # Atomic increment — prevents TOCTOU race (K-04)
-            upd = await session.execute(
-                _sa_upd(Organisation)
-                .where(Organisation.id == org_id)
-                .where(Organisation.trial_runs_used < Organisation.trial_runs_limit)
-                .values(trial_runs_used=Organisation.trial_runs_used + 1)
-            )
+            incremented = await run_service.increment_trial_runs(session, org_id)
             await session.commit()
-            if upd.rowcount == 0:
+            if not incremented:
                 raise HTTPException(status_code=402, detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"})
 
     cmd = detail.get("command", "")
@@ -1147,22 +1087,14 @@ async def get_run_compliance(
         }
 
     # Pull project_name / domain from DB (best-effort)
-    _project_name = ""
-    _domain = "general"
     try:
         from aether_os.core.db import get_session_factory as _gsf_rc
-        from aether_os.core.models import Run as _Run_rc
-        from sqlalchemy import select as _sel_rc
-        _sf_rc = _gsf_rc()
-        async with _sf_rc() as _sess_rc:
-            _run_rc = (await _sess_rc.execute(
-                _sel_rc(_Run_rc).where(_Run_rc.id == run_id, _Run_rc.org_id == user["org_id"])
-            )).scalar_one_or_none()
-            if _run_rc:
-                _project_name = getattr(_run_rc, "project_name", "") or ""
-                _domain = getattr(_run_rc, "domain", "general") or "general"
+        async with _gsf_rc()() as _sess_rc:
+            _project_name, _domain = await run_service.get_run_name_and_domain(
+                _sess_rc, run_id, user["org_id"]
+            )
     except Exception:
-        pass
+        _project_name, _domain = "", "general"
 
     scan_result = scan_file(main_py, project_name=_project_name, domain=_domain)
 
@@ -1208,16 +1140,9 @@ async def get_run_portal(
     """
     import pathlib as _pl
     from aether_os.core.db import get_session_factory as _gsf_portal
-    from aether_os.core.models import Run as _Run_portal
-    from sqlalchemy import select as _sel_portal
 
     async with _gsf_portal()() as _sess_portal:
-        _run_p = (await _sess_portal.execute(
-            _sel_portal(_Run_portal).where(
-                _Run_portal.id == run_id,
-                _Run_portal.org_id == user["org_id"],
-            )
-        )).scalar_one_or_none()
+        _run_p = await run_service.get_run_for_portal(_sess_portal, run_id, user["org_id"])
     if not _run_p:
         raise HTTPException(status_code=404, detail="Run not found")
 
