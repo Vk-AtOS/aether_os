@@ -313,11 +313,35 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     flags = phase_input.input_data.get("integration_flags", {})
     project_name = phase_input.input_data.get('project_name', 'App')
-    
+    domain = phase_input.input_data.get('domain', 'general')
+
+    # Enrich IR workflows with domain knowledge pack transitions when IR is sparse
+    _dk = phase_input.input_data.get("domain_knowledge") or {}
+    if _dk.get("domain") and _dk["domain"] != "general":
+        try:
+            from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
+            _dk_pack = _load_pack(_dk["domain"])
+            if _dk_pack and _dk_pack.workflows and not ir_data.get("workflows"):
+                ir_data["workflows"] = [
+                    {
+                        "name": w.name,
+                        "entity": w.entity,
+                        "field": w.field,
+                        "states": w.states,
+                        "transitions": w.transitions,
+                        "terminal_states": w.terminal_states,
+                    }
+                    for w in _dk_pack.workflows
+                ]
+                logger.info("p04b: injected %d domain workflows from pack=%s",
+                            len(_dk_pack.workflows), _dk["domain"])
+        except Exception as _dk_exc:
+            logger.warning("p04b: domain knowledge workflow injection failed: %s", _dk_exc)
+
     # 2. Logic generation - Workflows
     workflow_dir = output_dir / "workflows"
     workflow_dir.mkdir(exist_ok=True)
-    
+
     for wf in ir_data.get("workflows", []):
         entity = wf.get("entity", "Entity")
         sm_code = generate_workflow_sm(entity, wf)

@@ -18,7 +18,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     domain: str = data.get("domain", "general")
 
     from aether_os.phases.utils import memory_hint
+    from aether_os.core.domain_knowledge.loader import build_prompt_prefix
     mem = memory_hint(memory_ctx)
+    _domain_prefix = build_prompt_prefix(domain)
 
     # ── SINGLE LLM call: intake + contract + requirements in one shot ────────
     # The previous version made three sequential call_json calls (intake,
@@ -32,6 +34,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         from aether_os.core.llm.client import get_llm_client
         llm = get_llm_client()
         combined_prompt = (
+            f"{_domain_prefix}"
             "You are a senior requirements analyst. Convert the following raw project "
             "description into a SINGLE structured JSON document.\n\n"
             f"Raw Input:\n{raw_input[:4000]}\n\n"

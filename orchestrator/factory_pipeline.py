@@ -621,6 +621,17 @@ class FactoryPipeline:
                                 )
                         except Exception as _e:
                             logger.warning("[pipeline] Failed to load build_profile from design_brief: %s", _e)
+                        # Propagate domain_knowledge so P01/P02/P04/P06 receive it
+                        try:
+                            _dk = _brief.get("domain_knowledge")
+                            if _dk:
+                                accumulated_context["domain_knowledge"] = _dk
+                                logger.info(
+                                    "[pipeline] domain_knowledge propagated: domain=%s, entities=%d",
+                                    _dk.get("domain"), len(_dk.get("entity_names", [])),
+                                )
+                        except Exception as _e:
+                            logger.warning("[pipeline] Failed to propagate domain_knowledge: %s", _e)
 
                 # After p00c: read service_map.json and store in accumulated_context.
                 # go_generator and node_generator use this to produce N service dirs

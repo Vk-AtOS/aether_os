@@ -66,7 +66,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 break
 
         if code_to_review:
+            _compliance_hint = ""
+            try:
+                from aether_os.core.domain_knowledge.loader import build_compliance_summary
+                _domain = data.get("domain", "general")
+                _cs = build_compliance_summary(_domain)
+                if _cs:
+                    _compliance_hint = f"\n\nDOMAIN COMPLIANCE REQUIREMENTS:\n{_cs}\nEnsure the code satisfies all mandatory rules above.\n\n"
+            except Exception as _ce:
+                logger.warning("[p06] compliance summary load failed: %s", _ce)
             review_prompt = (
+                _compliance_hint +
                 "You are a senior security engineer reviewing generated backend code. "
                 "Check for OWASP Top-10 vulnerabilities: SQL injection, XSS, broken auth, "
                 "hardcoded secrets, missing input validation, insecure CORS, IDOR, and "
