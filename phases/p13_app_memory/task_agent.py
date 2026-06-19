@@ -45,7 +45,8 @@ def _load() -> None:
                     fcntl.flock(_f, fcntl.LOCK_UN)
         else:
             _store = json.loads(_STORE_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as _exc:
+        logger.warning("Memory load failed, starting empty: %s", _exc)
         _store = []
 
 
@@ -64,8 +65,8 @@ def _save() -> None:
                     fcntl.flock(_f, fcntl.LOCK_UN)
         else:
             _STORE_FILE.write_text(json.dumps(_store, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.warning("Memory save failed: %s", _exc)
 
 
 _load()
