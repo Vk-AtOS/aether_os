@@ -602,6 +602,26 @@ class FactoryPipeline:
                         except Exception as _sr_exc:
                             logger.warning("[pipeline] Spec review gate error (non-fatal): %s", _sr_exc)
 
+                # After p00_research: read build_profile from design_brief.json
+                # and store in accumulated_context so all downstream phases
+                # receive the stack selection without re-running classification.
+                if phase_name == "p00_research":
+                    import json as _json_p00
+                    _brief_path = project_dir / "p00_research" / "design_brief.json"
+                    if _brief_path.exists():
+                        try:
+                            _brief = _json_p00.loads(_brief_path.read_text())
+                            _bp = _brief.get("build_profile")
+                            if _bp:
+                                accumulated_context["build_profile"] = _bp
+                                logger.info(
+                                    "[pipeline] build_profile loaded: %s (backend=%s, arch=%s)",
+                                    _bp.get("name"), _bp.get("backend_lang"),
+                                    _bp.get("architecture"),
+                                )
+                        except Exception as _e:
+                            logger.warning("[pipeline] Failed to load build_profile from design_brief: %s", _e)
+
                 # Eagerly load architecture.json after p02 so all downstream
                 # phases receive it via data.get("architecture_json", {}).
                 if phase_name == "p02_architecture":
