@@ -34,7 +34,13 @@ def _to_camel(name: str) -> str:
     return parts[0].lower() + "".join(w.capitalize() for w in parts[1:])
 
 
-def generate_go_mod(module_name: str) -> str:
+def generate_go_mod(module_name: str, with_grpc: bool = False) -> str:
+    grpc_deps = ""
+    if with_grpc:
+        grpc_deps = (
+            "\tgoogle.golang.org/grpc v1.60.0\n"
+            "\tgoogle.golang.org/protobuf v1.32.0\n"
+        )
     return f"""module {module_name}
 
 go 1.21
@@ -47,7 +53,79 @@ require (
 \tgithub.com/golang-jwt/jwt/v5 v5.2.0
 \tgithub.com/joho/godotenv v1.5.1
 \tgolang.org/x/crypto v0.17.0
+\tgithub.com/rs/zerolog v1.31.0
+\tgithub.com/prometheus/client_golang v1.18.0
+{grpc_deps})
+"""
+
+
+def generate_prometheus_middleware() -> str:
+    """Returns middleware/metrics.go — Gin middleware that exposes /metrics."""
+    return """package middleware
+
+import (
+\t"strconv"
+\t"time"
+
+\t"github.com/gin-gonic/gin"
+\t"github.com/prometheus/client_golang/prometheus"
+\t"github.com/prometheus/client_golang/prometheus/promauto"
+\t"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+var (
+\thttpRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+\t\tName: "http_requests_total",
+\t\tHelp: "Total HTTP requests",
+\t}, []string{"method", "path", "status"})
+
+\thttpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+\t\tName:    "http_request_duration_seconds",
+\t\tHelp:    "HTTP request latency",
+\t\tBuckets: prometheus.DefBuckets,
+\t}, []string{"method", "path"})
+)
+
+// Metrics returns a Gin middleware that records request count and latency.
+func Metrics() gin.HandlerFunc {
+\treturn func(c *gin.Context) {
+\t\tstart := time.Now()
+\t\tc.Next()
+\t\tstatus := strconv.Itoa(c.Writer.Status())
+\t\thttpRequests.WithLabelValues(c.Request.Method, c.FullPath(), status).Inc()
+\t\thttpDuration.WithLabelValues(c.Request.Method, c.FullPath()).Observe(time.Since(start).Seconds())
+\t}
+}
+
+// MetricsHandler returns the promhttp handler for the /metrics route.
+func MetricsHandler() gin.HandlerFunc {
+\th := promhttp.Handler()
+\treturn func(c *gin.Context) { h.ServeHTTP(c.Writer, c.Request) }
+}
+"""
+
+
+def generate_zerolog_setup() -> str:
+    """Returns logger/logger.go — zerolog structured logger initialisation."""
+    return """package logger
+
+import (
+\t"os"
+\t"time"
+
+\t"github.com/rs/zerolog"
+)
+
+var Log zerolog.Logger
+
+func Init(serviceName string) {
+\tzerolog.TimeFieldFormat = time.RFC3339
+\toutput := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+\tLog = zerolog.New(output).With().
+\t\tTimestamp().
+\t\tStr("service", serviceName).
+\t\tLogger()
+}
 """
 
 
@@ -213,10 +291,8 @@ def generate_go_main(
     project_name: str,
     module_name: str,
     db_driver: str = "postgres",
+    port: int = 8000,
 ) -> str:
-    handler_imports = "\n".join(
-        f'\t"{module_name}/handlers"' for _ in [entities[0]] if entities
-    )
     route_regs = "\n\t".join(
         f"handlers.Register{_to_pascal(e.get('table', 'item'))}Routes(api)"
         for e in entities
@@ -229,42 +305,46 @@ def generate_go_main(
     return f"""package main
 
 import (
-\t"log"
 \t"os"
 
 \t"github.com/gin-gonic/gin"
 \t"github.com/joho/godotenv"
-{handler_imports}
 \t"{module_name}/db"
+\t"{module_name}/handlers"
+\t"{module_name}/logger"
+\t"{module_name}/middleware"
 \t"{module_name}/models"
 )
 
 func main() {{
-\t// Load .env for local development
 \tif err := godotenv.Load(); err != nil {{
-\t\tlog.Println("No .env file found, using environment variables")
+\t\t// .env optional in production — env vars set externally
 \t}}
+\tlogger.Init("{project_name}")
 
-\t// Initialise {db_driver_comment} via GORM
+\t// Initialise {db_driver_comment} via GORM and auto-migrate all entities
 \tdb.Init({model_refs})
 
-\tr := gin.Default()
+\tr := gin.New()
+\tr.Use(gin.Recovery())
+\tr.Use(middleware.Metrics())
 
-\t// Health check (public)
+\t// Health check (public — no auth)
 \tr.GET("/health", func(c *gin.Context) {{
 \t\tc.JSON(200, gin.H{{"status": "ok", "service": "{project_name}"}})
 \t}})
+\tr.GET("/metrics", middleware.MetricsHandler())
 
 \tapi := r.Group("/api")
 \t{route_regs}
 
 \tport := os.Getenv("PORT")
 \tif port == "" {{
-\t\tport = "8000"
+\t\tport = "{port}"
 \t}}
-\tlog.Printf("{project_name} listening on :%s", port)
+\tlogger.Log.Info().Str("port", port).Msg("{project_name} starting")
 \tif err := r.Run(":" + port); err != nil {{
-\t\tlog.Fatalf("Server failed: %v", err)
+\t\tlogger.Log.Fatal().Err(err).Msg("server failed")
 \t}}
 }}
 """
@@ -305,6 +385,7 @@ async def generate_go_project(
     output_dir: Path,
     db_driver: str = "postgres",
     module_name: str = "",
+    port: int = 8000,
 ) -> Path:
     """
     Generate a complete Go/Gin project under output_dir/backend/.
@@ -315,12 +396,13 @@ async def generate_go_project(
         module_name = f"github.com/aetheros/{slug}"
 
     backend_dir = output_dir / "backend"
-    (backend_dir / "handlers").mkdir(parents=True, exist_ok=True)
-    (backend_dir / "models").mkdir(parents=True, exist_ok=True)
-    (backend_dir / "db").mkdir(parents=True, exist_ok=True)
+    for subdir in ("handlers", "models", "db", "middleware", "logger"):
+        (backend_dir / subdir).mkdir(parents=True, exist_ok=True)
 
     (backend_dir / "go.mod").write_text(generate_go_mod(module_name))
     (backend_dir / "db" / "database.go").write_text(generate_go_db(db_driver))
+    (backend_dir / "middleware" / "metrics.go").write_text(generate_prometheus_middleware())
+    (backend_dir / "logger" / "logger.go").write_text(generate_zerolog_setup())
     (backend_dir / ".env.example").write_text(generate_env_example(db_driver))
     (backend_dir / "Dockerfile").write_text(generate_go_dockerfile(project_name))
 
@@ -333,11 +415,60 @@ async def generate_go_project(
         )
 
     (backend_dir / "main.go").write_text(
-        generate_go_main(entities, project_name, module_name, db_driver)
+        generate_go_main(entities, project_name, module_name, db_driver, port)
     )
 
     logger.info(
-        "go_generator: wrote %d entities to %s (module=%s, db=%s)",
-        len(entities), backend_dir, module_name, db_driver,
+        "go_generator: wrote %d entities to %s (module=%s, db=%s, port=%s)",
+        len(entities), backend_dir, module_name, db_driver, port,
     )
     return backend_dir
+
+
+async def generate_go_multiservice(
+    service_map: Dict[str, Any],
+    all_entities: List[Dict[str, Any]],
+    project_name: str,
+    output_dir: Path,
+) -> List[Path]:
+    """
+    Generate one Go/Gin service directory per entry in service_map["services"].
+    Returns a list of generated backend directories.
+
+    Each service gets the subset of entities it owns (from owns_entities).
+    Falls back to all_entities for the first service if no ownership is declared.
+    """
+    services = service_map.get("services", [])
+    generated: List[Path] = []
+
+    for svc in services:
+        svc_name = svc.get("name", "service")
+        port = svc.get("port", 8000)
+        db_driver = "sqlite" if svc.get("db") == "sqlite" else "postgres"
+        owns = set(svc.get("owns_entities") or [])
+
+        # Filter entities to those this service owns; fallback to all if unspecified
+        if owns:
+            svc_entities = [e for e in all_entities if _to_pascal(e.get("table", "")) in owns]
+        else:
+            svc_entities = all_entities
+
+        if not svc_entities:
+            svc_entities = [{"table": svc_name.replace("-", "_"), "fields": []}]
+
+        svc_dir = output_dir / "services" / svc_name
+        slug = svc_name.lower()
+        module_name = f"github.com/aetheros/{slug}"
+
+        path = await generate_go_project(
+            entities=svc_entities,
+            project_name=svc_name,
+            output_dir=svc_dir,
+            db_driver=db_driver,
+            module_name=module_name,
+            port=port,
+        )
+        generated.append(path)
+        logger.info("go_generator: multiservice — generated %s at port %s", svc_name, port)
+
+    return generated

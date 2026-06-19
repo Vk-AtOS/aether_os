@@ -172,8 +172,9 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
 
 
 async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
-    """Generate Go/Gin backend when build_profile.backend_lang == 'go'."""
-    from aether_os.phases.p04_backend.go_generator import generate_go_project
+    """Generate Go/Gin backend (single service or multi-service) based on build_profile."""
+    from aether_os.phases.p04_backend.go_generator import generate_go_project, generate_go_multiservice
+    from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
     data = phase_input.input_data or {}
     domain_ir = data.get("domain_ir") or {}
     entities = domain_ir.get("entities") or []
@@ -182,15 +183,37 @@ async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     project_name = data.get("project_name") or "generated-app"
     bp = data.get("build_profile") or {}
     db_driver = "sqlite" if bp.get("db_primary") == "sqlite" else "postgres"
+    service_map = data.get("service_map") or {}
+
     try:
-        backend_dir = await generate_go_project(entities, project_name, output_dir, db_driver)
-        logger.info("p04: Go backend generated at %s", backend_dir)
-        return TaskResult(
-            output_path=str(backend_dir),
-            confidence=0.85,
-            metadata={"backend_lang": "go", "backend_dir": str(backend_dir)},
-            success=True,
-        )
+        if service_map.get("services"):
+            # Microservices: generate one directory per service
+            dirs = await generate_go_multiservice(service_map, entities, project_name, output_dir)
+            # Add gRPC layer for grpc-communication services
+            for svc in service_map["services"]:
+                if svc.get("communication") == "grpc":
+                    svc_dir = output_dir / "services" / svc["name"] / "backend"
+                    slug = svc["name"].lower()
+                    module = f"github.com/aetheros/{slug}"
+                    owns = set(svc.get("owns_entities") or [])
+                    svc_entities = [e for e in entities if (e.get("table", "").title() in owns)] or entities
+                    await generate_grpc_files(svc["name"], svc_entities, svc_dir, module)
+            logger.info("p04: Go multiservice generated — %d services", len(dirs))
+            return TaskResult(
+                output_path=str(output_dir / "services"),
+                confidence=0.85,
+                metadata={"backend_lang": "go", "service_count": len(dirs), "multiservice": True},
+                success=True,
+            )
+        else:
+            backend_dir = await generate_go_project(entities, project_name, output_dir, db_driver)
+            logger.info("p04: Go monolith backend generated at %s", backend_dir)
+            return TaskResult(
+                output_path=str(backend_dir),
+                confidence=0.85,
+                metadata={"backend_lang": "go", "backend_dir": str(backend_dir)},
+                success=True,
+            )
     except Exception as e:
         logger.error("p04: Go backend generation failed: %s", e)
         return TaskResult(output_path=str(output_dir), confidence=0.0, metadata={}, success=False)
