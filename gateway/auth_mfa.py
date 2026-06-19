@@ -106,7 +106,7 @@ class MfaConfirmRequest(BaseModel):
 
 def _get_totp(secret: str):
     try:
-        import pyotp
+        import pyotp  # optional dependency — only used when MFA is enabled; not installed in all deployments
         return pyotp.TOTP(secret)
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="pyotp not installed") from exc
@@ -117,7 +117,7 @@ def _get_totp(secret: str):
 @mfa_router.post("/setup", response_model=MfaSetupResponse)
 async def mfa_setup(user_claims: Dict[str, Any] = Depends(get_current_user)) -> MfaSetupResponse:
     """Generate a new TOTP secret and store it (not yet enabled until verified)."""
-    import pyotp
+    import pyotp  # optional dependency — only used when MFA is enabled; not installed in all deployments
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import User
     from sqlalchemy import select

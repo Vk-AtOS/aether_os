@@ -28,7 +28,7 @@ async def _get_async_redis():
         return _async_redis_client if _redis_available else None
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     try:
-        import redis.asyncio as aioredis
+        import redis.asyncio as aioredis  # optional dependency — gracefully falls back to in-memory if not installed
         _async_redis_client = aioredis.Redis.from_url(
             redis_url, decode_responses=True, socket_connect_timeout=2
         )
