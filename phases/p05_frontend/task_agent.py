@@ -104,6 +104,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _phase_start = asyncio.get_event_loop().time()
     _PHASE_TIMEOUT = 1500.0  # 25 minutes — stop generating new files but still build what exists
 
+    # Check build_profile — skip React generation for non-web frontend targets.
+    # Mobile (react_native) and desktop (electron) generators live in future phases (Layer 2/4).
+    _bp = data.get("build_profile") or {}
+    _frontend_fw = _bp.get("frontend_framework", "react")
+    if _frontend_fw == "none":
+        logger.info("p05: build_profile.frontend_framework=none — skipping frontend generation")
+        return TaskResult(
+            output_path=str(output_dir),
+            confidence=1.0,
+            metadata={"skipped": True, "reason": "frontend_framework=none"},
+            success=True,
+        )
+    if _frontend_fw not in ("react", ""):
+        logger.info(
+            "p05: build_profile.frontend_framework=%s — falling back to React (generator not yet implemented)",
+            _frontend_fw,
+        )
+
     # 1. Read architecture
     arch = read_architecture(data)
     project_name = data.get("project_name", arch.get("project_name", "Project Dashboard"))
