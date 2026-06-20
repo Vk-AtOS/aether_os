@@ -129,6 +129,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 ir_to_schemas as _ir_to_schemas,
                 generate_stats_router as _gen_stats,
                 generate_seed_py as _gen_seed,
+                generate_crud_py as _gen_crud,
             )
             _ir = _DomainIR.load(Path(_ir_path_str))
             if _ir.entities:
@@ -158,6 +159,60 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 entities = [{"name": e.name, "table": e.table,
                              "fields": [{"name": f.name, "type": f.type} for f in e.fields]}
                             for e in _ir.entities]
+
+                # ── Build workflow transition map for PATCH guard injection ───
+                # Priority: domain knowledge pack (explicit state machine) →
+                #           IR workflow steps (linear chain derived from step order).
+                _workflow_transitions: dict = {}
+                try:
+                    # Circular import guard: loader is always safe to import here
+                    from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
+                    _pack = _load_pack(domain)
+                    if _pack:
+                        for _wf in _pack.workflows:
+                            if _wf.transitions:
+                                _workflow_transitions[_wf.entity] = _wf.transitions
+                except Exception as _wf_exc:
+                    logger.warning("[p04a] could not load domain pack workflows: %s", _wf_exc)
+
+                # Derive linear chains from IR workflow steps for entities not
+                # already covered by the domain pack (step[i] → [step[i+1]]).
+                for _ir_wf in _ir.workflows:
+                    if _ir_wf.entity and _ir_wf.entity not in _workflow_transitions:
+                        _steps = [s.name for s in _ir_wf.steps]
+                        if len(_steps) >= 2:
+                            _trans: dict = {}
+                            for _i, _step in enumerate(_steps[:-1]):
+                                _trans[_step] = [_steps[_i + 1]]
+                            _trans[_steps[-1]] = []  # terminal state
+                            _workflow_transitions[_ir_wf.entity] = _trans
+
+                # Generate CRUD with transition guards embedded in PATCH handlers
+                crud_code = _gen_crud(_ir, workflow_transitions=_workflow_transitions or None)
+
+                # Write workflow_transitions.json into the generated project scripts/
+                if _workflow_transitions:
+                    import datetime as _dt
+                    _scripts_dir = output_dir / "scripts"
+                    _scripts_dir.mkdir(parents=True, exist_ok=True)
+                    _wf_json: dict = {
+                        "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                        "entities": {},
+                    }
+                    for _ent_name, _trans_map in _workflow_transitions.items():
+                        _terminal = [s for s, nxt in _trans_map.items() if not nxt]
+                        _wf_json["entities"][_ent_name] = {
+                            "transitions": _trans_map,
+                            "terminal_states": _terminal,
+                        }
+                    (_scripts_dir / "workflow_transitions.json").write_text(
+                        json.dumps(_wf_json, indent=2)
+                    )
+                    logger.info(
+                        "[p04a] wrote workflow_transitions.json for %d entities",
+                        len(_workflow_transitions),
+                    )
+
         except Exception as _ir_exc:
             logger.warning("[p04a] IR fast-path failed (%s) — falling through to LLM", _ir_exc)
             models_code = ""
