@@ -84,6 +84,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # exception that swallowed it.
     data = getattr(phase_input, "input_data", {}) or {}
 
+    # Multimodal intake detection (G7)
+    try:
+        from aether_os.phases.p00_research.multimodal_intake import detect_and_parse_input
+        raw_spec, intake_type = await detect_and_parse_input(data)
+        if intake_type != "text":
+            logger.info("p00: multimodal intake detected (%s), converted to text spec", intake_type)
+            data = {**data, "raw_input": raw_spec}
+    except Exception as exc:
+        logger.warning("p00: multimodal intake failed (non-blocking): %s", exc)
+        raw_spec = data.get("raw_input", "") or data.get("project_description", "")
+
     domain = getattr(phase_input, "domain", "general")
     # Propagate from input_data if supervisor didn't set it directly
     if domain == "general":
