@@ -208,6 +208,20 @@ STACK_PROFILES: Dict[str, StackProfile] = {
         deployment_target="kubernetes",
         performance_tier="real_time",
     ),
+    "cloud_platform": StackProfile(
+        name="cloud_platform",
+        description="Cloud management platform — service catalog, resource explorer, IAM, billing dashboard, multi-region.",
+        build_type="cloud_platform",
+        architecture="microservices",
+        backend_lang="python",
+        backend_framework="fastapi",
+        frontend_framework="react",
+        db_primary="postgres",
+        db_secondary=["redis"],
+        message_queue="kafka",
+        deployment_target="kubernetes",
+        performance_tier="high_throughput",
+    ),
 }
 
 # Default when classification fails or is ambiguous
