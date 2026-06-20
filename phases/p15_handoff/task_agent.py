@@ -297,6 +297,17 @@ No explanation, no markdown fences."""
     (postman_dir / "collection.json").write_text(json.dumps(postman_collection, indent=2))
     files_written.append("postman/collection.json")
 
+    # Gap 6 completion: copy business_model.json to handoff package
+    try:
+        _bm = data.get("business_model")
+        if _bm and isinstance(_bm, dict):
+            _bm_path = output_dir / "business_model.json"
+            _bm_path.write_text(json.dumps(_bm, indent=2), encoding="utf-8")
+            files_written.append(str(_bm_path))
+            logger.info("p15: business_model.json written to handoff package")
+    except Exception as _bm_exc:
+        logger.warning("p15: business_model.json write failed: %s", _bm_exc)
+
     # Write manifest
     manifest = {
         "phase": "p15_handoff",
