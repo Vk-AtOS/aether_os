@@ -56,6 +56,68 @@ class ComplianceRule:
 
 
 @dataclass
+class ProcessStep:
+    """One step inside a BusinessProcessPipeline."""
+    name: str                        # snake_case step identifier
+    # service_call | state_transition | notification | external_api | batch | schedule
+    action_type: str
+    service: str                     # service class name (e.g. "InsuranceService")
+    method: str                      # method to call (e.g. "check_eligibility")
+    input_mapping: Dict[str, str] = field(default_factory=dict)  # {"patient_id": "entity.patient_id"}
+    on_success: str = ""             # next step name or "END"
+    on_failure: str = "FAIL"         # step name for error handling or "FAIL" | "SKIP"
+    compensation: str = ""           # rollback action (e.g. "cancel_reservation")
+    timeout_seconds: int = 30
+    retry_count: int = 3
+    description: str = ""
+
+
+@dataclass
+class BusinessProcessPipeline:
+    """
+    A named, ordered sequence of ProcessSteps that implement a business workflow.
+
+    Pipelines are attached to DomainKnowledgePacks and consumed by the P04
+    backend generator to emit service orchestration code rather than bare CRUD.
+    """
+    name: str                           # PascalCase pipeline name
+    trigger: str                        # user_action | event | schedule | webhook | state_transition
+    trigger_entity: str                 # entity that triggers this pipeline
+    trigger_condition: str              # condition that fires the trigger (e.g. "status == 'requested'")
+    steps: List[ProcessStep] = field(default_factory=list)
+    services_required: List[str] = field(default_factory=list)    # service classes to generate
+    integrations_required: List[str] = field(default_factory=list)  # external: "stripe", "twilio"
+    description: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "trigger": self.trigger,
+            "trigger_entity": self.trigger_entity,
+            "trigger_condition": self.trigger_condition,
+            "description": self.description,
+            "services_required": self.services_required,
+            "integrations_required": self.integrations_required,
+            "steps": [
+                {
+                    "name": s.name,
+                    "action_type": s.action_type,
+                    "service": s.service,
+                    "method": s.method,
+                    "input_mapping": s.input_mapping,
+                    "on_success": s.on_success,
+                    "on_failure": s.on_failure,
+                    "compensation": s.compensation,
+                    "timeout_seconds": s.timeout_seconds,
+                    "retry_count": s.retry_count,
+                    "description": s.description,
+                }
+                for s in self.steps
+            ],
+        }
+
+
+@dataclass
 class DomainKnowledgePack:
     domain: str
     display_name: str
@@ -63,6 +125,7 @@ class DomainKnowledgePack:
     workflows: List[WorkflowTemplate] = field(default_factory=list)
     compliance: List[ComplianceRule] = field(default_factory=list)
     api_patterns: List[str] = field(default_factory=list)
+    pipelines: List[BusinessProcessPipeline] = field(default_factory=list)
     prompt_injection: str = ""       # Injected verbatim into every LLM prompt for this domain
 
     def to_dict(self) -> dict:
@@ -75,10 +138,75 @@ class DomainKnowledgePack:
             "entity_names": [e.name for e in self.entities],
             "workflow_names": [w.name for w in self.workflows],
             "compliance_standards": list({r.standard for r in self.compliance}),
+            "pipeline_names": [p.name for p in self.pipelines],
             "pii_fields": [
                 f"{e.name}.{f.name}"
                 for e in self.entities for f in e.fields if f.pii or f.phi or f.pci
             ],
+        }
+
+    def to_dict_full(self) -> dict:
+        """
+        Serialise the complete nested structure for artifact storage.
+
+        Used by the pipeline artifact writer to persist domain_knowledge.json
+        alongside each factory run — gives downstream phases the full field/
+        workflow/compliance detail rather than just summary names.
+        """
+        return {
+            "domain": self.domain,
+            "display_name": self.display_name,
+            "version": "1.0",
+            "entities": [
+                {
+                    "name": e.name,
+                    "table": e.table,
+                    "description": e.description,
+                    "audit_trail": e.audit_trail,
+                    "soft_delete": e.soft_delete,
+                    "indexes": e.indexes,
+                    "fields": [
+                        {
+                            "name": f.name,
+                            "type": f.type,
+                            "required": f.required,
+                            "pii": f.pii,
+                            "phi": f.phi,
+                            "pci": f.pci,
+                            "encrypted_at_rest": f.encrypted_at_rest,
+                            "never_store": f.never_store,
+                            "description": f.description,
+                        }
+                        for f in e.fields
+                    ],
+                }
+                for e in self.entities
+            ],
+            "workflows": [
+                {
+                    "name": w.name,
+                    "entity": w.entity,
+                    "field": w.field,
+                    "states": w.states,
+                    "transitions": w.transitions,
+                    "terminal_states": w.terminal_states,
+                    "description": w.description,
+                }
+                for w in self.workflows
+            ],
+            "compliance": [
+                {
+                    "standard": r.standard,
+                    "rule": r.rule,
+                    "affected_fields": r.affected_fields,
+                    "enforcement": r.enforcement,
+                    "implementation_hint": r.implementation_hint,
+                }
+                for r in self.compliance
+            ],
+            "api_patterns": self.api_patterns,
+            "pipelines": [p.to_dict() for p in self.pipelines],
+            "prompt_injection": self.prompt_injection,
         }
 
     def compliance_summary(self) -> str:
