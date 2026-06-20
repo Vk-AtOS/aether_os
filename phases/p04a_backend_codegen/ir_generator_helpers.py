@@ -54,8 +54,40 @@ def _role_guard(roles: list) -> list:
     ]
 
 
-def _entity_router_with_rbac(entity: IREntity, role_map: dict) -> list:
-    """Generate CRUD router function definitions for one entity, with optional role guards."""
+def _workflow_guard_lines(entity_name: str, transitions: dict) -> list:
+    """
+    Return module-level constant + in-handler guard lines for status transition enforcement.
+    The constant is emitted once at the top of crud.py (before router definitions).
+    The guard lines are injected into the PATCH handler body after the 404 check.
+    Returns a tuple (module_lines, handler_lines) via the 'module' and 'handler' keys
+    in the returned dict.
+    """
+    n = entity_name
+    const_name = f"_TRANSITIONS_{n.upper()}"
+    module_lines = [
+        f"{const_name} = {repr(transitions)}",
+        "",
+    ]
+    handler_lines = [
+        f"    _new_status = data.model_dump(exclude_unset=True).get('status')",
+        f"    if _new_status is not None and _new_status != obj.status:",
+        f"        _allowed = {const_name}.get(obj.status, [])",
+        f"        if _new_status not in _allowed:",
+        f"            raise HTTPException(",
+        f"                status_code=422,",
+        f"                detail=f'Invalid status transition: {{obj.status!r}} → {{_new_status!r}}. Allowed from {{obj.status!r}}: {{_allowed}}',",
+        f"            )",
+    ]
+    return {"module": module_lines, "handler": handler_lines}
+
+
+def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict | None = None) -> list:
+    """Generate CRUD router function definitions for one entity, with optional role guards.
+
+    When `transitions` is provided and the entity has a `status` field, the PATCH
+    handler validates status changes against the transition graph and raises HTTP 422
+    for disallowed transitions.
+    """
     n = entity.name
     t = entity.table
     var = n.lower()
@@ -66,7 +98,18 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict) -> list:
     update_guard = _role_guard(role_map.get("update", []))
     delete_guard = _role_guard(role_map.get("delete", []))
 
+    # Determine if this entity has a `status` field and if guards should be injected.
+    has_status = any(f.name == "status" for f in entity.fields)
+    guard_lines: list = []
+    module_const_lines: list = []
+    if transitions is not None and has_status:
+        # Build both the module-level constant and the in-handler guard in one call.
+        wg = _workflow_guard_lines(n, transitions)
+        module_const_lines = wg["module"]
+        guard_lines = wg["handler"]
+
     lines = [
+        *module_const_lines,
         f"{router_var} = APIRouter(prefix='/{t}', tags=['{n}'])",
         "",
         f"@{router_var}.get('', response_model=schemas.PaginatedResponse)",
@@ -122,6 +165,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict) -> list:
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
+        *guard_lines,
         f"    for k, v in data.model_dump(exclude_unset=True).items():",
         f"        setattr(obj, k, v)",
         f"    await db.flush()",
@@ -150,8 +194,16 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict) -> list:
     return lines
 
 
-def generate_crud_py(ir: DomainIR) -> str:
-    """Generate complete routers/crud.py from DomainIR."""
+def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None) -> str:
+    """Generate complete routers/crud.py from DomainIR.
+
+    Args:
+        ir: The Domain IR describing all entities, permissions, and workflows.
+        workflow_transitions: Optional dict mapping PascalCase entity name → transition
+            graph (dict[str, list[str]]).  When provided, PATCH handlers for entities
+            that have a ``status`` field will validate the requested status change
+            against the allowed transitions and raise HTTP 422 on invalid moves.
+    """
     # Build schema imports list
     schema_imports = []
     for entity in ir.entities:
@@ -174,7 +226,8 @@ def generate_crud_py(ir: DomainIR) -> str:
 
     for entity in ir.entities:
         role_map = _role_sets(ir, entity.name)
-        lines.extend(_entity_router_with_rbac(entity, role_map))
+        entity_transitions = (workflow_transitions or {}).get(entity.name)
+        lines.extend(_entity_router_with_rbac(entity, role_map, transitions=entity_transitions))
 
     # all_routers list — every entity gets included
     router_vars = [f"{e.table}_router" for e in ir.entities]
