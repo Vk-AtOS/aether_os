@@ -310,6 +310,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 scan_result, project_dir, project_name, domain
             )
 
+            # Gap 4: write domain_knowledge.json (full serialization) to generated project
+            try:
+                import json as _json
+                from aether_os.core.domain_knowledge.loader import load_pack
+                _pack = load_pack(domain)
+                if _pack:
+                    _dk_path = project_dir / "domain_knowledge.json"
+                    _dk_path.write_text(_json.dumps(_pack.to_dict_full(), indent=2), encoding="utf-8")
+                    logger.info("[p06] Gap 4: domain_knowledge.json written to %s", _dk_path)
+            except Exception as _dk_exc:
+                logger.warning("[p06] domain_knowledge.json write failed: %s", _dk_exc)
+
             results["compliance"] = TaskResult(
                 output_path=str(pdf_path),
                 confidence=scan_result.score / 100,
