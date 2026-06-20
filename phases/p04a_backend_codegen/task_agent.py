@@ -288,6 +288,29 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (routers_dir / "crud.py").write_text(crud_code)
     logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
 
+    # ── Step 3b: Business process pipeline orchestrators (Gap 11) ────────────
+    _pipeline_files_written: list = []
+    try:
+        from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
+        from aether_os.phases.p04a_backend_codegen.pipeline_generator import generate_pipeline_code
+        _pack = _load_pack(domain)
+        if _pack and _pack.pipelines:
+            _pipeline_files_written = generate_pipeline_code(_pack.pipelines, src_dir, domain)
+            logger.info(
+                "[p04a] generated %d pipeline files for domain=%s: %s",
+                len(_pipeline_files_written), domain, _pipeline_files_written,
+            )
+    except Exception as exc:
+        logger.warning("[p04a] pipeline generation failed (non-blocking): %s", exc)
+
+    # Inject pipeline_events router into main.py when the router was generated
+    _pipeline_events_path = routers_dir / "pipeline_events.py"
+    if _pipeline_events_path.exists():
+        # main.py hasn't been written yet at this step — flag for later injection
+        _inject_pipeline_router = True
+    else:
+        _inject_pipeline_router = False
+
     # ── Step 4: Seed data — Template, IR-generated, or LLM ──────────────────
     if seed_code:
         # IR fast-path already wrote seed.py; just log it
@@ -344,6 +367,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "app.include_router(auth_router, prefix=\"/api\")"
         ),
     )
+    # Inject pipeline_events router only when the file was actually written (non-blocking)
+    if _inject_pipeline_router:
+        _pipeline_router_snippet = (
+            "\n# Pipeline event triggers (generated from domain BusinessProcessPipeline)\n"
+            "try:\n"
+            "    from routers.pipeline_events import router as _pipeline_events_router\n"
+            "    app.include_router(_pipeline_events_router, prefix=\"/api\")\n"
+            "except Exception:\n"
+            "    pass\n"
+        )
+        # Insert before the /health endpoint so the order is logical
+        main_py = main_py.replace(
+            "@app.get(\"/health\"",
+            _pipeline_router_snippet + "@app.get(\"/health\"",
+        )
     (src_dir / "main.py").write_text(main_py)
 
     # ── Step 6: Supporting files ──────────────────────────────────────────────
@@ -410,6 +448,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "generated_via": generated_via,
             "code_size_bytes": code_size,
             "entities_count": len(entities),
+            "pipeline_files": _pipeline_files_written,
             "smoke_test": smoke,
             "project_name": project_name,
         },
