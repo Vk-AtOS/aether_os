@@ -56,6 +56,8 @@ PHASE_SEQUENCE = [
     "p04c_integration_codegen",     # Generate async clients for discovered integrations
     "p05_frontend",
     "p05b_mobile",               # React Native (Expo) app — skips for non-mobile builds
+    "p05c_desktop",              # Electron desktop app — skips for non-desktop builds
+    "p05d_cli",                  # Click/Cobra CLI tool — skips for non-cli builds
     "p06_review_security",
     "p07_testing",
     "p07b_self_healing",
@@ -95,6 +97,8 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p04c_integration_codegen": "aether_os.phases.p04c_integration_codegen.supervisor_agent.IntegrationCodegenSupervisor",
     "p05_frontend":            "aether_os.phases.p05_frontend.FrontendSupervisor",
     "p05b_mobile":             "aether_os.phases.p05b_mobile.supervisor_agent.MobileSupervisor",
+    "p05c_desktop":            "aether_os.phases.p05c_desktop.supervisor_agent.DesktopSupervisor",
+    "p05d_cli":                "aether_os.phases.p05d_cli.supervisor_agent.CLISupervisor",
     "p06_review_security":     "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
     "p07_testing":             "aether_os.phases.p07_testing.TestingSupervisor",
     "p07b_self_healing":       "aether_os.phases.p07b_self_healing.SelfHealingSupervisor",
