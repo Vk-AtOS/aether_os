@@ -189,7 +189,8 @@ class LLMClient:
 
         from aether_os.core.model_router import get_router
         try:
-            raw_response, provider, model = await get_router().call(
+            _router = get_router()
+            raw_response, provider = await _router.call(
                 prompt=full_prompt,
                 task_type=task_type,
                 system=system,
@@ -199,6 +200,8 @@ class LLMClient:
                 plan=plan,
             )
             self.last_provider = provider
+            # Model name is stored on the router instance after a successful call
+            model = _router.last_model or provider
             self.last_model = model
             tokens_out = len(raw_response) // 4
 
