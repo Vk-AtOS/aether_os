@@ -16,6 +16,8 @@ Output layout (under output_dir/cell-architecture/):
 from __future__ import annotations
 
 import logging
+import os
+import socket
 from pathlib import Path
 from typing import List
 
@@ -323,7 +325,6 @@ async def _check_db() -> bool:
 async def _check_queue() -> bool:
     """Verify Kafka broker connectivity — replace with your Kafka client check."""
     try:
-        import socket
         brokers = os.getenv("KAFKA_BROKERS", "kafka:9092").split(",")
         host, port_str = brokers[0].split(":")
         sock = socket.create_connection((host, int(port_str)), timeout=2)
