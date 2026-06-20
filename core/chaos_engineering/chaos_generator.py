@@ -106,7 +106,7 @@ spec:
             type: cmdProbe
             cmdProbe/inputs:
               command: >
-                curl -s -o /dev/null -w "%{http_code}"
+                curl -s -o /dev/null -w "%{{http_code}}"
                 http://{service_name}.{namespace}.svc.cluster.local:8000/health
               comparator:
                 type: string
