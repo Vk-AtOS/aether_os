@@ -84,11 +84,11 @@ def test_model_identifiers(clean_env_chain):
 
 
 def test_retry_counts(clean_env_chain):
+    # All providers use retry_count=1 after the 2026-06 audit: the previous
+    # 2-retry-per-tier policy could blow a phase past 10 min when free-tier
+    # OpenRouter rotated 429s.  See model_router_providers.py get_fallback_chain().
     for spec in clean_env_chain:
-        if spec.provider == "ollama":
-            assert spec.retry_count == 1
-        else:
-            assert spec.retry_count == 2
+        assert spec.retry_count == 1
 
 
 # ── Error classification ──────────────────────────────────────────────────────
