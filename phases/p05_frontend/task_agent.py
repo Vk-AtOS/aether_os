@@ -107,6 +107,33 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Check build_profile — skip React generation for non-web frontend targets.
     # Mobile (react_native) and desktop (electron) generators live in future phases (Layer 2/4).
     _bp = data.get("build_profile") or {}
+
+    # Cloud platform builds get a management console instead of a standard CRUD app.
+    if _bp.get("build_type") == "cloud_platform":
+        logger.info("p05: build_type=cloud_platform — routing to cloud_console_generator")
+        try:
+            from aether_os.phases.p05_frontend.cloud_console_generator import generate_cloud_console
+            _ir_path_str = data.get("domain_ir_path", "")
+            _cc_entities: list = []
+            if _ir_path_str:
+                try:
+                    import json as _json
+                    _ir_data = _json.loads(Path(_ir_path_str).read_text())
+                    _cc_entities = _ir_data.get("entities", [])
+                except Exception as _cc_exc:
+                    logger.warning("p05: cloud console IR load failed: %s", _cc_exc)
+            _cc_services = data.get("services") or []
+            _cc_project_name = data.get("project_name", "Cloud Platform")
+            await generate_cloud_console(_cc_entities, _cc_services, _cc_project_name, output_dir)
+            return TaskResult(
+                output_path=str(output_dir / "frontend"),
+                confidence=0.9,
+                metadata={"cloud_console": True, "entity_count": len(_cc_entities)},
+                success=True,
+            )
+        except Exception as _cc_err:
+            logger.warning("p05: cloud_console_generator failed, falling through to standard React: %s", _cc_err)
+
     _frontend_fw = _bp.get("frontend_framework", "react")
     if _frontend_fw == "none":
         logger.info("p05: build_profile.frontend_framework=none — skipping frontend generation")
