@@ -82,6 +82,7 @@ PHASE_SEQUENCE = [
     "p18_billing_metering",         # OpenMeter + Stripe metering — always generated
     "p19_service_catalog",          # Cloud console UI + catalog API — cloud_platform builds only
     "p20_multiregion",              # Multi-region Terraform + chaos + capacity — k8s microservices
+    "p21_sre_agent",                # Self-healing SRE operator scaffold (CronJob + failure classifier + playbook)
 ]
 
 # Phase name → supervisor class path (39 phases: see PHASE_SEQUENCE above).
@@ -131,6 +132,7 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p18_billing_metering":      "aether_os.phases.p18_billing_metering.supervisor_agent.BillingMeteringSupervisor",
     "p19_service_catalog":       "aether_os.phases.p19_service_catalog.supervisor_agent.ServiceCatalogSupervisor",
     "p20_multiregion":           "aether_os.phases.p20_multiregion.supervisor_agent.MultiRegionSupervisor",
+    "p21_sre_agent":             "aether_os.phases.p21_sre_agent.supervisor_agent.SREAgentSupervisor",
 }
 
 
