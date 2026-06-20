@@ -16,6 +16,7 @@ from aether_os.phases.p00_research.domain_sites import DOMAIN_COMPETITOR_MAP
 from aether_os.phases.p00_research.vision_analyzer import analyze_screenshot
 from aether_os.phases.p00_research.stack_selector import classify_build, inject_into_brief
 from aether_os.phases.p00_research.prompts import DESIGN_BRIEF_LLM_FALLBACK_PROMPT
+from aether_os.phases.p00_research.business_model_generator import generate_business_model
 from aether_os.core.domain_knowledge.loader import load_pack
 
 logger = logging.getLogger(__name__)
@@ -223,9 +224,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning(f"p00: Gate 1 approval skipped due to error: {e}")
     
+    # Generate business model alongside design brief (Gap 6 — gracefully degraded)
+    business_model = None
+    try:
+        stack_name = getattr(build_profile, "build_type", "web_app") if build_profile else "web_app"
+        business_model = await generate_business_model(
+            requirement=raw_spec or data.get("project_description", ""),
+            domain=domain,
+            stack_name=stack_name,
+            output_dir=output_dir,
+        )
+    except Exception as exc:
+        logger.warning("p00: business model step failed (non-blocking): %s", exc)
+
     return TaskResult(
         output_path=str(out_json),
         confidence=0.9,
-        metadata={"domain": domain, "build_profile": build_profile.name},
+        metadata={"domain": domain, "build_profile": build_profile.name, "business_model": business_model},
         success=True,
     )
