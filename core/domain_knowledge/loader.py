@@ -27,6 +27,23 @@ _DOMAIN_PACK_MAP: dict[str, str] = {
     "saas":             "saas",
     "crm":              "saas",          # CRM shares SaaS multi-tenancy patterns
     "education":        "saas",          # LMS shares SaaS subscription patterns
+    # --- Gap 5: 6 new domain packs ---
+    "trading":          "trading",       # Capital markets / HFT — MiFID II, SEC 15c3-5
+    "hft":              "trading",       # Alias: high-frequency trading
+    "capital_markets":  "trading",       # Alias: capital markets
+    "legaltech":        "legaltech",     # Law firm management — ABA, IOLTA, privilege
+    "legal":            "legaltech",     # Alias: legal
+    "law":              "legaltech",     # Alias: law firm
+    "real_estate":      "real_estate",   # PropTech — Fair Housing, RESPA
+    "proptech":         "real_estate",   # Alias: property technology
+    "property":         "real_estate",   # Alias: property management
+    "manufacturing":    "manufacturing", # MES — ISO 9001, FDA 21 CFR Part 820
+    "mes":              "manufacturing", # Alias: manufacturing execution system
+    "edtech":           "edtech",        # EdTech — FERPA, COPPA, LTI 1.3
+    "lms":              "edtech",        # Alias: learning management system
+    "govtech":          "govtech",       # GovTech — FedRAMP, FISMA, Section 508
+    "government":       "govtech",       # Alias: government
+    "public_sector":    "govtech",       # Alias: public sector
 }
 
 _cache: dict[str, DomainKnowledgePack] = {}
