@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from aether_os.core.domain_knowledge.base import (
-    ComplianceRule, DomainKnowledgePack, EntityTemplate, FieldDef, WorkflowTemplate,
+    BusinessProcessPipeline, ComplianceRule, DomainKnowledgePack,
+    EntityTemplate, FieldDef, ProcessStep, WorkflowTemplate,
 )
 
 PACK = DomainKnowledgePack(
@@ -173,6 +174,101 @@ PACK = DomainKnowledgePack(
         "POST /consent/grant — record patient consent",
         "DELETE /consent/{id} — revoke consent",
         "GET /practitioners/{id}/schedule?date= — availability slots",
+    ],
+
+    pipelines=[
+        BusinessProcessPipeline(
+            name="AppointmentBookingFlow",
+            trigger="create",
+            trigger_entity="Appointment",
+            trigger_condition="status == requested",
+            description="Full appointment booking: validate patient, check eligibility, assign provider, confirm, notify.",
+            integrations_required=["NotificationService", "SchedulingService", "InsuranceService"],
+            steps=[
+                ProcessStep(
+                    name="validate_patient",
+                    service_required="PatientService",
+                    method="validate",
+                    description="Verify patient record exists, is active, and has valid contact info.",
+                    input_keys=["patient_id"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="check_eligibility",
+                    service_required="InsuranceService",
+                    method="check_eligibility",
+                    description="Verify insurance coverage is active for the appointment type.",
+                    input_keys=["patient_id", "appointment_type"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="assign_provider",
+                    service_required="SchedulingService",
+                    method="assign_available_provider",
+                    description="Find an available practitioner matching the appointment type and requested time slot.",
+                    input_keys=["appointment_type", "start_time", "end_time"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="confirm_appointment",
+                    service_required="SchedulingService",
+                    method="confirm",
+                    description="Lock the time slot and update appointment status to confirmed.",
+                    input_keys=["assign_provider", "patient_id", "start_time"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="notify_patient",
+                    service_required="NotificationService",
+                    method="send_appointment_confirmation",
+                    description="Send confirmation email/SMS to patient with appointment details.",
+                    input_keys=["patient_id", "confirm_appointment"],
+                    on_failure="SKIP",
+                ),
+            ],
+        ),
+        BusinessProcessPipeline(
+            name="ClaimSubmissionFlow",
+            trigger="status_change",
+            trigger_entity="Encounter",
+            trigger_condition="status == completed",
+            description="Insurance claim submission after encounter completion: code, validate, submit, track.",
+            integrations_required=["InsuranceService", "NotificationService"],
+            steps=[
+                ProcessStep(
+                    name="extract_diagnosis_codes",
+                    service_required="CodingService",
+                    method="extract_icd10_codes",
+                    description="Extract ICD-10 diagnosis codes and CPT procedure codes from the encounter record.",
+                    input_keys=["encounter_id"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="validate_claim",
+                    service_required="InsuranceService",
+                    method="validate_claim",
+                    description="Validate claim completeness and eligibility before submission.",
+                    input_keys=["extract_diagnosis_codes", "patient_id"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="submit_claim",
+                    service_required="InsuranceService",
+                    method="submit_claim",
+                    description="Submit validated claim to the insurance payer via EDI 837.",
+                    input_keys=["validate_claim", "encounter_id"],
+                    on_failure="FAIL",
+                ),
+                ProcessStep(
+                    name="notify_billing",
+                    service_required="NotificationService",
+                    method="send_claim_submitted",
+                    description="Notify the billing department that the claim has been submitted.",
+                    input_keys=["submit_claim"],
+                    on_failure="SKIP",
+                ),
+            ],
+        ),
     ],
 
     prompt_injection="""HEALTHCARE DOMAIN RULES (mandatory — HIPAA compliance required):
