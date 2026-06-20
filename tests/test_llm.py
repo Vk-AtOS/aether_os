@@ -30,8 +30,20 @@ def mock_ollama_tags():
 
 @pytest.fixture(autouse=True)
 def clear_primary_llm(monkeypatch):
-    """Ensure PRIMARY_LLM doesn't interfere with provider tests."""
+    """Reset model router and LLM singletons before each test.
+
+    The model router caches provider availability; without this reset, a test
+    that runs after the gateway tests (which init Anthropic) would inherit that
+    cached router and fail to raise LLMUnavailable even with no key present.
+    """
     monkeypatch.delenv("PRIMARY_LLM", raising=False)
+    import aether_os.core.model_router as _mr_mod
+    import aether_os.core.llm.client as _llm_mod
+    _mr_mod._router_instance = None
+    _llm_mod._instance = None
+    yield
+    _mr_mod._router_instance = None
+    _llm_mod._instance = None
 
 
 def _make_mock_response(text: str, input_tokens: int = 100, output_tokens: int = 50):
@@ -87,10 +99,15 @@ async def test_llm_client_anthropic_primary():
 
 @pytest.mark.asyncio
 async def test_llm_client_fallback_on_missing_key():
-    """Test that LLMUnavailable is raised when no LLM is available."""
+    """Test that LLMUnavailable is raised when no LLM provider is reachable.
+
+    AWS Bedrock credentials may be present in the CI/local environment, so we
+    patch _call_bedrock to raise alongside the Anthropic/Ollama stubs so the
+    test accurately simulates a fully unavailable environment.
+    """
     import os
-    # Ensure no API key
-    old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    old_keys = {k: os.environ.pop(k, None)
+                for k in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY")}
 
     try:
         from aether_os.core.llm.client import LLMClient
@@ -99,7 +116,10 @@ async def test_llm_client_fallback_on_missing_key():
 
         client = LLMClient()
 
-        with patch("httpx.AsyncClient") as mock_http:
+        with patch("aether_os.core.llm.client._call_bedrock",
+                   new_callable=AsyncMock,
+                   side_effect=Exception("Bedrock unavailable")) as _mock_bedrock, \
+             patch("httpx.AsyncClient") as mock_http:
             mock_http.return_value.__aenter__ = AsyncMock(
                 side_effect=Exception("Connection refused")
             )
@@ -109,8 +129,9 @@ async def test_llm_client_fallback_on_missing_key():
             with pytest.raises(LLMUnavailable):
                 await client.call("test prompt", task_type="code_generation")
     finally:
-        if old_key:
-            os.environ["ANTHROPIC_API_KEY"] = old_key
+        for k, v in old_keys.items():
+            if v is not None:
+                os.environ[k] = v
         import aether_os.core.llm.client as llm_mod
         llm_mod._instance = None
 
@@ -123,9 +144,11 @@ async def test_llm_client_call_json():
 
     try:
         with patch("aether_os.core.llm.client._call_anthropic", new_callable=AsyncMock) as mock_call, \
-             patch("aether_os.core.llm.client._call_ollama_with_model", new_callable=AsyncMock) as mock_ollama:
+             patch("aether_os.core.llm.client._call_ollama_with_model", new_callable=AsyncMock) as mock_ollama, \
+             patch("aether_os.core.llm.client._call_bedrock", new_callable=AsyncMock) as mock_bedrock:
             mock_call.return_value = '{"issues": [], "score": 100}'
             mock_ollama.return_value = '{"issues": [], "score": 100}'
+            mock_bedrock.return_value = '{"issues": [], "score": 100}'
             from aether_os.core.llm.client import LLMClient
             import aether_os.core.llm.client as llm_mod
             llm_mod._instance = None
@@ -149,9 +172,11 @@ async def test_llm_client_strips_markdown_fences():
 
     try:
         with patch("aether_os.core.llm.client._call_anthropic", new_callable=AsyncMock) as mock_call, \
-             patch("aether_os.core.llm.client._call_ollama_with_model", new_callable=AsyncMock) as mock_ollama:
+             patch("aether_os.core.llm.client._call_ollama_with_model", new_callable=AsyncMock) as mock_ollama, \
+             patch("aether_os.core.llm.client._call_bedrock", new_callable=AsyncMock) as mock_bedrock:
             mock_call.return_value = '```json\n{"findings": ["bug1"]}\n```'
             mock_ollama.return_value = '```json\n{"findings": ["bug1"]}\n```'
+            mock_bedrock.return_value = '```json\n{"findings": ["bug1"]}\n```'
             from aether_os.core.llm.client import LLMClient
             import aether_os.core.llm.client as llm_mod
             llm_mod._instance = None

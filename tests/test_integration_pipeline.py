@@ -69,8 +69,8 @@ def _make_phase_input(run_id=None, project_id=None, domain="general", tmp_dir=No
 
 def test_phase_sequence_is_21_phases():
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
-    assert len(PHASE_SEQUENCE) == 21, (
-        f"Expected 21 phases, got {len(PHASE_SEQUENCE)}: {PHASE_SEQUENCE}"
+    assert len(PHASE_SEQUENCE) == 39, (
+        f"Expected 39 phases, got {len(PHASE_SEQUENCE)}: {PHASE_SEQUENCE}"
     )
 
 

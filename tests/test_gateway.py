@@ -45,6 +45,8 @@ def _make_app(tmp_path=None):
 
 @pytest.fixture
 def client(tmp_path):
+    import sqlite3
+    db_path = str(tmp_path / "test.db")
     app = _make_app(tmp_path)
     with TestClient(app, raise_server_exceptions=False) as c:
         # Mock HIBP password check so common test passwords are accepted
@@ -57,6 +59,14 @@ def client(tmp_path):
                 "terms_accepted": True,
                 "dpa_accepted": True,
             })
+        # Email verification uses Redis (unavailable in tests) so set it directly in the DB.
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE users SET email_verified = 1 WHERE email = ?",
+            ("testadmin@example.com",),
+        )
+        conn.commit()
+        conn.close()
         yield c
 
 
