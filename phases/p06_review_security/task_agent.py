@@ -304,6 +304,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             # G12: inject missing compliance boilerplate into src/main.py
             _inject_compliance(main_py, scan_result, domain)
 
+            # Gap 1: write compliance_manifest.json into the generated project root
+            from aether_os.phases.p06_review_security.manifest import write_compliance_manifest
+            _manifest_path = write_compliance_manifest(
+                scan_result, project_dir, project_name, domain
+            )
+
             results["compliance"] = TaskResult(
                 output_path=str(pdf_path),
                 confidence=scan_result.score / 100,
@@ -313,11 +319,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                         f for f in scan_result.findings if f.severity != "pass"
                     ]),
                     "routes": len(scan_result.routes),
+                    "manifest_path": str(_manifest_path) if _manifest_path else None,
                 },
                 success=True,
             )
             phase_input.input_data["compliance_pdf_path"] = str(pdf_path)
             phase_input.input_data["compliance_score"] = scan_result.score
+            if _manifest_path:
+                phase_input.input_data["compliance_manifest_path"] = str(_manifest_path)
             logger.info(
                 "Compliance scan: score=%d routes=%d pdf=%s",
                 scan_result.score, len(scan_result.routes), pdf_path,
