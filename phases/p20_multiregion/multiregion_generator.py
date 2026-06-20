@@ -202,6 +202,11 @@ resource "aws_route" "{slug}_{r2_id}_to_{r1_id}" {{
         f'  alias = "{r.replace("-", "_")}"' for r in regions
     )
 
+    provider_blocks = "\n".join(
+        'provider "aws" {{\n  region = "{}"\n  alias  = "{}"\n}}\n'.format(r, r.replace("-", "_"))
+        for r in regions
+    )
+
     return f"""\
 # Cross-region VPC peering mesh — {slug}
 # Full mesh: every region can reach every other region for service discovery.
@@ -216,10 +221,7 @@ terraform {{
   }}
 }}
 
-{chr(10).join(
-    f'provider "aws" {{\n  region = "{r}"\n  alias  = "{r.replace("-","_")}"\n}}\n'
-    for r in regions
-)}
+{provider_blocks}
 
 {peering_blocks}
 # Security group rule — allow cross-region service discovery on port 8000
