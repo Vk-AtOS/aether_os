@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from aether_os.core.domain_knowledge.base import (
-    ComplianceRule, DomainKnowledgePack, EntityTemplate, FieldDef, WorkflowTemplate,
+    BusinessProcessPipeline, ComplianceRule, DomainKnowledgePack,
+    EntityTemplate, FieldDef, ProcessStep, WorkflowTemplate,
 )
 
 PACK = DomainKnowledgePack(
@@ -187,4 +188,166 @@ PACK = DomainKnowledgePack(
 9. All PHI must transit over TLS 1.2 minimum — enforce HTTPS-only.
 10. Right-to-erasure: provide a pseudonymisation endpoint that replaces PHI with anonymised tokens.
 """,
+
+    pipelines=[
+        BusinessProcessPipeline(
+            name="AppointmentBookingFlow",
+            trigger="state_transition",
+            trigger_entity="Appointment",
+            trigger_condition="status transitions to 'requested'",
+            description="End-to-end flow from appointment request through insurance eligibility, "
+                        "provider assignment, confirmation, and patient notification.",
+            services_required=[
+                "PatientService", "InsuranceService", "SchedulingService",
+                "NotificationService", "SchedulerService",
+            ],
+            integrations_required=["sendgrid", "twilio"],
+            steps=[
+                ProcessStep(
+                    name="validate_patient",
+                    action_type="service_call",
+                    service="PatientService",
+                    method="validate",
+                    input_mapping={"patient_id": "entity.patient_id"},
+                    on_success="check_insurance_eligibility",
+                    on_failure="FAIL",
+                    description="Confirm patient record is active and complete",
+                ),
+                ProcessStep(
+                    name="check_insurance_eligibility",
+                    action_type="service_call",
+                    service="InsuranceService",
+                    method="check_eligibility",
+                    input_mapping={
+                        "patient_id": "entity.patient_id",
+                        "appointment_type": "entity.appointment_type",
+                    },
+                    on_success="assign_provider",
+                    on_failure="FAIL",
+                    description="Verify insurance covers this appointment type",
+                ),
+                ProcessStep(
+                    name="assign_provider",
+                    action_type="service_call",
+                    service="SchedulingService",
+                    method="find_available_provider",
+                    input_mapping={
+                        "appointment_type": "entity.appointment_type",
+                        "start_time": "entity.start_time",
+                    },
+                    on_success="confirm_appointment",
+                    on_failure="FAIL",
+                    description="Find a practitioner with an open slot — prevents double-booking",
+                ),
+                ProcessStep(
+                    name="confirm_appointment",
+                    action_type="state_transition",
+                    service="Appointment",
+                    method="status",
+                    input_mapping={"status": "'confirmed'"},
+                    on_success="send_confirmation_email",
+                    on_failure="FAIL",
+                    compensation="revert_to_requested",
+                    description="Transition appointment status to confirmed",
+                ),
+                ProcessStep(
+                    name="send_confirmation_email",
+                    action_type="notification",
+                    service="NotificationService",
+                    method="send_email",
+                    input_mapping={
+                        "patient_id": "entity.patient_id",
+                        "template": "'appointment_confirmed'",
+                    },
+                    on_success="schedule_reminder",
+                    on_failure="SKIP",
+                    description="Email patient confirmation — non-fatal if sendgrid is unavailable",
+                ),
+                ProcessStep(
+                    name="schedule_reminder",
+                    action_type="schedule",
+                    service="SchedulerService",
+                    method="schedule_24h_reminder",
+                    input_mapping={
+                        "appointment_id": "entity.id",
+                        "patient_id": "entity.patient_id",
+                    },
+                    on_success="END",
+                    on_failure="SKIP",
+                    description="Queue a 24-hour SMS/email reminder via Twilio",
+                ),
+            ],
+        ),
+        BusinessProcessPipeline(
+            name="ClaimSubmissionFlow",
+            trigger="state_transition",
+            trigger_entity="Encounter",
+            trigger_condition="status transitions to 'completed'",
+            description="Automated billing flow triggered when a clinical encounter closes: "
+                        "creates claim, calculates charges, submits to clearinghouse, "
+                        "and notifies the patient.",
+            services_required=["BillingService", "InsuranceService", "NotificationService"],
+            integrations_required=["clearinghouse_api", "sendgrid"],
+            steps=[
+                ProcessStep(
+                    name="create_billing_record",
+                    action_type="service_call",
+                    service="BillingService",
+                    method="create_claim",
+                    input_mapping={"encounter_id": "entity.id", "patient_id": "entity.patient_id"},
+                    on_success="calculate_charges",
+                    on_failure="FAIL",
+                    description="Create a Claim record linked to the completed encounter",
+                ),
+                ProcessStep(
+                    name="calculate_charges",
+                    action_type="service_call",
+                    service="BillingService",
+                    method="calculate_charges",
+                    input_mapping={
+                        "claim_id": "steps.create_billing_record.claim_id",
+                        "diagnosis_code": "entity.primary_diagnosis_code",
+                    },
+                    on_success="submit_to_insurance",
+                    on_failure="FAIL",
+                    description="Apply CPT/ICD-10 charge codes and fee schedules",
+                ),
+                ProcessStep(
+                    name="submit_to_insurance",
+                    action_type="external_api",
+                    service="InsuranceService",
+                    method="submit_claim",
+                    input_mapping={"claim_id": "steps.create_billing_record.claim_id"},
+                    on_success="record_claim_status",
+                    on_failure="FAIL",
+                    retry_count=5,
+                    timeout_seconds=60,
+                    description="POST X12 837 claim to clearinghouse API",
+                ),
+                ProcessStep(
+                    name="record_claim_status",
+                    action_type="state_transition",
+                    service="Claim",
+                    method="status",
+                    input_mapping={"status": "'submitted'"},
+                    on_success="notify_patient",
+                    on_failure="FAIL",
+                    description="Mark the Claim record as submitted",
+                ),
+                ProcessStep(
+                    name="notify_patient",
+                    action_type="notification",
+                    service="NotificationService",
+                    method="send_claim_receipt",
+                    input_mapping={
+                        "patient_id": "entity.patient_id",
+                        "claim_id": "steps.create_billing_record.claim_id",
+                    },
+                    on_success="END",
+                    on_failure="SKIP",
+                    description="Email patient an EOB-style receipt — non-fatal",
+                ),
+            ],
+        ),
+    ],
 )

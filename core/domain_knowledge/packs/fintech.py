@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from aether_os.core.domain_knowledge.base import (
-    ComplianceRule, DomainKnowledgePack, EntityTemplate, FieldDef, WorkflowTemplate,
+    BusinessProcessPipeline, ComplianceRule, DomainKnowledgePack,
+    EntityTemplate, FieldDef, ProcessStep, WorkflowTemplate,
 )
 
 PACK = DomainKnowledgePack(
@@ -160,4 +161,130 @@ PACK = DomainKnowledgePack(
 9. KYC verification must be completed before allowing transactions above the threshold.
 10. API responses must never return full card numbers — return last_four only.
 """,
+
+    pipelines=[
+        BusinessProcessPipeline(
+            name="PaymentProcessingFlow",
+            trigger="user_action",
+            trigger_entity="Transaction",
+            trigger_condition="status == 'pending'",
+            description="Full payment execution pipeline: idempotency guard, fraud scoring, "
+                        "authorization, double-entry ledger posting, balance update, settlement, "
+                        "receipt delivery, and batch registration.",
+            services_required=[
+                "IdempotencyService", "FraudService", "PaymentGatewayService",
+                "LedgerService", "AccountService", "SettlementService", "NotificationService",
+            ],
+            integrations_required=["stripe", "sendgrid"],
+            steps=[
+                ProcessStep(
+                    name="check_idempotency",
+                    action_type="service_call",
+                    service="IdempotencyService",
+                    method="check_key",
+                    input_mapping={"idempotency_key": "entity.idempotency_key"},
+                    on_success="run_fraud_check",
+                    on_failure="SKIP",
+                    description="Return cached result if this idempotency_key was already processed",
+                ),
+                ProcessStep(
+                    name="run_fraud_check",
+                    action_type="service_call",
+                    service="FraudService",
+                    method="score",
+                    input_mapping={
+                        "amount_cents": "entity.amount_cents",
+                        "from_account_id": "entity.from_account_id",
+                        "metadata": "entity.metadata",
+                    },
+                    on_success="authorize_payment",
+                    on_failure="FAIL",
+                    timeout_seconds=10,
+                    description="ML fraud score; reject if score exceeds threshold",
+                ),
+                ProcessStep(
+                    name="authorize_payment",
+                    action_type="external_api",
+                    service="PaymentGatewayService",
+                    method="authorize",
+                    input_mapping={
+                        "amount_cents": "entity.amount_cents",
+                        "currency": "entity.currency",
+                        "payment_method_id": "entity.from_account_id",
+                    },
+                    on_success="post_ledger_entries",
+                    on_failure="FAIL",
+                    compensation="void_authorization",
+                    retry_count=2,
+                    timeout_seconds=30,
+                    description="Authorize charge via Stripe; obtain authorization_code",
+                ),
+                ProcessStep(
+                    name="post_ledger_entries",
+                    action_type="service_call",
+                    service="LedgerService",
+                    method="post_double_entry",
+                    input_mapping={
+                        "transaction_id": "entity.id",
+                        "amount_cents": "entity.amount_cents",
+                        "from_account_id": "entity.from_account_id",
+                        "to_account_id": "entity.to_account_id",
+                    },
+                    on_success="update_balances",
+                    on_failure="FAIL",
+                    compensation="reverse_ledger_entries",
+                    description="Insert debit + credit LedgerEntry rows in a SERIALIZABLE transaction",
+                ),
+                ProcessStep(
+                    name="update_balances",
+                    action_type="service_call",
+                    service="AccountService",
+                    method="update_balance",
+                    input_mapping={
+                        "from_account_id": "entity.from_account_id",
+                        "to_account_id": "entity.to_account_id",
+                        "amount_cents": "entity.amount_cents",
+                    },
+                    on_success="settle_transaction",
+                    on_failure="FAIL",
+                    compensation="reverse_balance_update",
+                    description="Atomically decrement sender and increment receiver balance",
+                ),
+                ProcessStep(
+                    name="settle_transaction",
+                    action_type="state_transition",
+                    service="Transaction",
+                    method="status",
+                    input_mapping={"status": "'settled'"},
+                    on_success="send_receipt",
+                    on_failure="FAIL",
+                    description="Mark Transaction as settled — this is the commit point",
+                ),
+                ProcessStep(
+                    name="send_receipt",
+                    action_type="notification",
+                    service="NotificationService",
+                    method="send_receipt",
+                    input_mapping={
+                        "transaction_id": "entity.id",
+                        "user_id": "entity.from_account_id",
+                        "amount_cents": "entity.amount_cents",
+                    },
+                    on_success="add_to_settlement_batch",
+                    on_failure="SKIP",
+                    description="Email transaction receipt via SendGrid — non-fatal",
+                ),
+                ProcessStep(
+                    name="add_to_settlement_batch",
+                    action_type="batch",
+                    service="SettlementService",
+                    method="add_to_batch",
+                    input_mapping={"transaction_id": "entity.id"},
+                    on_success="END",
+                    on_failure="SKIP",
+                    description="Queue transaction for end-of-day settlement batch with acquirer",
+                ),
+            ],
+        ),
+    ],
 )
