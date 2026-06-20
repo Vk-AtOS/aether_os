@@ -91,7 +91,6 @@ class MemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_memory_hash ON memory(input_hash);
                 CREATE INDEX IF NOT EXISTS idx_memory_task ON memory(task_type);
-                CREATE INDEX IF NOT EXISTS idx_memory_org ON memory(org_id);
 
                 -- FTS5 for text similarity search
                 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
@@ -113,6 +112,21 @@ class MemoryStore:
                     VALUES ('delete', old.rowid, old.id, old.input_text, old.output_text, old.task_type);
                 END;
             """)
+            # Additive migration: org_id column was added after initial schema.
+            # ALTER TABLE raises OperationalError("duplicate column name") if the
+            # column already exists — that is the expected success case for DBs
+            # created with the new schema, so we swallow it.
+            try:
+                c.execute("ALTER TABLE memory ADD COLUMN org_id TEXT DEFAULT ''")
+                logger.info("Memory store: migrated — added org_id column to memory table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug("Memory store: org_id column already exists (migration skipped)")
+                else:
+                    logger.warning("Memory store: unexpected error adding org_id column: %s", e)
+                    raise
+            # Index on org_id must be created after the column is guaranteed to exist
+            c.execute("CREATE INDEX IF NOT EXISTS idx_memory_org ON memory(org_id)")
             conn.commit()
             conn.close()
         logger.debug("Memory store initialised at %s", self.db_path)

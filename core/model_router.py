@@ -52,12 +52,17 @@ class ModelRouter:
     """
     Try each model in the fallback chain until one succeeds or all are exhausted.
 
-    Returns (response_text, provider_name, model_name).
+    Returns (response_text, provider_name).
     Raises core.errors.LLMUnavailable if every model fails.
+
+    The model name used for the last successful call is available via the
+    `last_model` property so callers that need it (e.g. LLMClient) can read it
+    without requiring a 3-tuple return signature.
     """
 
     def __init__(self) -> None:
         self._last_provider: Optional[str] = None
+        self._last_model: Optional[str] = None
 
     async def call(
         self,
@@ -69,9 +74,10 @@ class ModelRouter:
         enforce_local: bool = False,
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
-    ) -> Tuple[str, str, str]:
+    ) -> Tuple[str, str]:
         """
-        Execute the fallback chain and return (text, provider, model).
+        Execute the fallback chain and return (text, provider).
+        The model name is also stored in self._last_model for callers that need it.
         """
         global _active_model, _fallback_count_today, _fallback_date
         from aether_os.core.errors import LLMUnavailable
@@ -97,7 +103,8 @@ class ModelRouter:
                             )
                         except Exception as exc:
                             logger.debug("Cache-hit zero-cost budget record failed: %s", exc)
-                    return cached, "cache", "cache"
+                    self._last_model = "cache"
+                    return cached, "cache"
             except Exception as _ce:
                 logger.debug("Cache check failed (continuing): %s", _ce)
 
@@ -223,6 +230,7 @@ class ModelRouter:
                     # ── Success ──────────────────────────────────────────────
                     _active_model = f"{spec.provider}/{spec.model}"
                     self._last_provider = spec.provider
+                    self._last_model = spec.model
                     logger.info(
                         "Router: request served by %s/%s [attempt %d/%d, task=%s]",
                         spec.provider, spec.model,
@@ -357,7 +365,7 @@ class ModelRouter:
                             await asyncio.sleep(1.5 ** attempt)
                         continue
                     # ─────────────────────────────────────────────────────────
-                    return result, spec.provider, spec.model
+                    return result, spec.provider
 
                 except asyncio.TimeoutError:
                     msg = f"{spec.provider}/{spec.model} timed out after {spec.timeout_seconds}s"
@@ -449,6 +457,10 @@ class ModelRouter:
     @property
     def last_provider(self) -> Optional[str]:
         return self._last_provider
+
+    @property
+    def last_model(self) -> Optional[str]:
+        return self._last_model
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
