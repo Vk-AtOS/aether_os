@@ -8,7 +8,7 @@ of producing generic CRUD code.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -47,6 +47,27 @@ class WorkflowTemplate:
 
 
 @dataclass
+class ProcessStep:
+    name: str                           # snake_case step identifier
+    service_required: str               # which service class handles this step
+    method: str                         # method name on the service
+    description: str = ""
+    input_keys: List[str] = field(default_factory=list)   # context keys needed as input
+    on_failure: str = "FAIL"            # FAIL | SKIP | RETRY
+
+
+@dataclass
+class BusinessProcessPipeline:
+    name: str                           # PascalCase pipeline name
+    trigger: str                        # event type: "create" | "status_change" | "payment"
+    trigger_entity: str                 # which entity type fires this trigger
+    trigger_condition: str              # human-readable condition (e.g. "status == confirmed")
+    steps: List[ProcessStep] = field(default_factory=list)
+    integrations_required: List[str] = field(default_factory=list)  # external service names
+    description: str = ""
+
+
+@dataclass
 class ComplianceRule:
     standard: str                    # PCI-DSS | HIPAA | GDPR | SOC2 | SOX | TAPA
     rule: str                        # short human-readable rule
@@ -63,6 +84,7 @@ class DomainKnowledgePack:
     workflows: List[WorkflowTemplate] = field(default_factory=list)
     compliance: List[ComplianceRule] = field(default_factory=list)
     api_patterns: List[str] = field(default_factory=list)
+    pipelines: List[BusinessProcessPipeline] = field(default_factory=list)
     prompt_injection: str = ""       # Injected verbatim into every LLM prompt for this domain
 
     def to_dict(self) -> dict:
