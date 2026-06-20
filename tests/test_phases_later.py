@@ -191,7 +191,8 @@ def test_p07a_fallback_tests_are_valid_python(tmp_path):
     # Must parse without error
     ast.parse(code)
     assert "def test_health" in code
-    assert "TestClient" in code
+    # Generator uses httpx.AsyncClient for async FastAPI testing
+    assert "AsyncClient" in code
 
 
 def test_p07a_find_src_dir(tmp_path):

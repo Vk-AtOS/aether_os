@@ -143,15 +143,25 @@ def test_webhook_missing_secret_env_returns_500(tmp_path):
 # ── LAUNCH-012: Subscription lifecycle ────────────────────────────────────────
 
 def _register_and_login(client):
+    import sqlite3
+    email = "billingtest@example.com"
     client.post("/auth/register", json={
-        "email": "billingtest@example.com",
+        "email": email,
         "password": "BillingTest@123!",
         "org_name": "BillingTestOrg",
         "terms_accepted": True,
         "dpa_accepted": True,
     })
+    # Email verification uses Redis (unavailable in tests); set directly in the DB.
+    db_url = os.environ.get("DATABASE_URL", "")
+    db_path = db_url.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
+    if db_path:
+        conn = sqlite3.connect(db_path)
+        conn.execute("UPDATE users SET email_verified = 1 WHERE email = ?", (email,))
+        conn.commit()
+        conn.close()
     resp = client.post("/auth/login", json={
-        "email": "billingtest@example.com",
+        "email": email,
         "password": "BillingTest@123!",
     })
     if resp.status_code != 200:

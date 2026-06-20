@@ -425,8 +425,8 @@ async def test_factory_pipeline_start_phase(tmp_path):
                 org_id="test-org",
             )
 
-    # Starting at p08 (index 8 of 20) means 12 phases run
-    assert result["phase_count"] < 15
+    # Starting at p08 (index 20 of 39) means 19 phases run — fewer than the full 39
+    assert result["phase_count"] < 39
     assert result["phase_count"] > 0
 
 
@@ -435,9 +435,9 @@ def test_factory_pipeline_phase_sequence():
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
 
     assert len(PHASE_SEQUENCE) >= 10
-    # Pipeline now starts with p00_research (pre-flight analysis) and ends with p15_handoff
+    # Pipeline starts with p00_research (pre-flight analysis) and ends with p20_multiregion
     assert PHASE_SEQUENCE[0] == "p00_research"
-    assert PHASE_SEQUENCE[-1] == "p15_handoff"
+    assert PHASE_SEQUENCE[-1] == "p20_multiregion"
     # Core phases must be present
     assert "p01_intake_requirements" in PHASE_SEQUENCE
     assert "p14_client_portal" in PHASE_SEQUENCE

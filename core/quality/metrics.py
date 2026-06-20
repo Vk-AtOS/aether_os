@@ -11,122 +11,230 @@ import json
 import logging
 import subprocess
 import re
+import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# ── Route introspection ───────────────────────────────────────────────────────
+
+_HEALTH_PATHS = {"/health", "/metrics", "/ready", "/alive", "/ping", "/healthz"}
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+
+
+@dataclass
+class RouteInfo:
+    path: str
+    method: str
+    has_auth: bool
+    has_input_validation: bool
+
+
+def _extract_routes(code: str) -> List[RouteInfo]:
+    """Parse FastAPI route decorators from Python source code string.
+
+    Detects @app.get/post/... and @router.get/post/... style decorators.
+    has_auth = True when any parameter has a Depends(...) default.
+    has_input_validation = True when any parameter is annotated with a
+    Pydantic BaseModel subclass defined in the same module.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+
+    # Collect all Pydantic model names (classes inheriting BaseModel)
+    pydantic_classes: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for base in node.bases:
+                base_name = ""
+                if isinstance(base, ast.Name):
+                    base_name = base.id
+                elif isinstance(base, ast.Attribute):
+                    base_name = base.attr
+                if base_name == "BaseModel":
+                    pydantic_classes.add(node.name)
+
+    routes: List[RouteInfo] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for deco in node.decorator_list:
+            if not (isinstance(deco, ast.Call) and isinstance(deco.func, ast.Attribute)):
+                continue
+            method = deco.func.attr.lower()
+            if method not in _HTTP_METHODS:
+                continue
+
+            # Extract path from first positional arg of the decorator call
+            path = ""
+            if deco.args and isinstance(deco.args[0], ast.Constant):
+                path = str(deco.args[0].value)
+
+            # Detect auth: any param has Depends(...) as its default value
+            has_auth = False
+            for default in node.args.defaults:
+                if isinstance(default, ast.Call):
+                    func = default.func
+                    func_name = (
+                        func.id if isinstance(func, ast.Name)
+                        else func.attr if isinstance(func, ast.Attribute)
+                        else ""
+                    )
+                    if func_name == "Depends":
+                        has_auth = True
+                        break
+
+            # Detect input validation: any param annotated with a known Pydantic model
+            has_input_validation = False
+            for param in node.args.args:
+                if param.arg in ("self", "cls"):
+                    continue
+                ann = param.annotation
+                if ann is not None and isinstance(ann, ast.Name) and ann.id in pydantic_classes:
+                    has_input_validation = True
+                    break
+
+            routes.append(RouteInfo(
+                path=path,
+                method=method.upper(),
+                has_auth=has_auth,
+                has_input_validation=has_input_validation,
+            ))
+
+    return routes
+
+
+# ── QualityScore ──────────────────────────────────────────────────────────────
 
 @dataclass
 class QualityScore:
     total: int
-    auth_coverage: int
-    input_validation: int
-    test_score: int
-    domain_specificity: int
-    seed_data_quality: int
-    frontend_complete: int
-    docker_valid: int
-    security_clean: int
+    auth_coverage: int          # 0-100: % of non-health routes with auth
+    input_validation: int       # 0-100: % of write routes with Pydantic bodies
+    test_score: int             # 0-100: based on actual pytest run results
+    test_coverage: int          # 0-100: based on test file presence (max 60)
+    domain_specificity: int     # 0-100
+    seed_data_quality: int      # 0-100
+    frontend_complete: int      # 0-100
+    docker_valid: int           # 0-100
+    security_clean: int         # 0-100
+    has_docker: bool = False
+    has_env_example: bool = False
+    has_readme: bool = False
+    has_frontend: bool = False
+    has_compliance_report: bool = False
+    api_endpoint_count: int = 0
     details: Dict[str, Any] = field(default_factory=dict)
 
+
+# ── Individual scorers ────────────────────────────────────────────────────────
+
+def _collect_all_routes(src_dir: Path) -> List[RouteInfo]:
+    """Read all .py files in src_dir and collect routes."""
+    routes: List[RouteInfo] = []
+    for py_file in src_dir.rglob("*.py"):
+        if "__pycache__" in str(py_file):
+            continue
+        try:
+            code = py_file.read_text(errors="ignore")
+            routes.extend(_extract_routes(code))
+        except Exception as exc:
+            logger.debug("_collect_all_routes: failed reading %s: %s", py_file, exc)
+    return routes
+
+
 def _check_auth_coverage(src_dir: Path) -> float:
-    """Check if JWT decode middleware is defined and routes use it."""
-    routers_dir = src_dir / "routers"
-    if not routers_dir.exists():
+    """Fraction of non-health routes that have auth (Depends(...))."""
+    routes = _collect_all_routes(src_dir)
+    checkable = [r for r in routes if r.path not in _HEALTH_PATHS]
+    if not checkable:
         return 0.0
-    
-    # Check for JWT guard/middleware
-    has_jwt = False
-    for f in src_dir.rglob("*.py"):
-        if "jwt" in f.read_text(errors="ignore").lower():
-            has_jwt = True
-            break
-            
-    if not has_jwt: return 0.0
-    
-    total_routes = 0
-    protected_routes = 0
-    
-    for f in routers_dir.glob("*.py"):
-        if f.name == "__init__.py": continue
-        code = f.read_text(errors="ignore")
-        # Look for @app.get/post etc.
-        routes = re.findall(r"@\w+\.(?:get|post|put|patch|delete)\(", code)
-        total_routes += len(routes)
-        
-        # Look for auth dependencies or auth-specific decorators
-        protected = len(re.findall(r"Depends\(get_current_user\)|@requires_auth", code))
-        protected_routes += min(protected, len(routes))
-        
-    if total_routes == 0: return 1.0
-    return min(1.0, protected_routes / total_routes)
+    protected = sum(1 for r in checkable if r.has_auth)
+    return protected / len(checkable)
 
-def _check_validation_density(src_dir: Path) -> float:
-    """Check if schemas use Pydantic validators or Field constraints."""
-    # Find all Pydantic models
-    model_files = list(src_dir.rglob("models.py")) + list(src_dir.rglob("schemas.py"))
-    
-    total_fields = 0
-    validated_fields = 0
-    
-    for f in model_files:
-        code = f.read_text(errors="ignore")
-        # Find all fields defined as Mapped[type] = mapped_column(...) or Type: type = ...
-        fields = re.findall(r"mapped_column\((.+?)\)", code)
-        total_fields += len(fields)
-        
-        # Count fields with constraints (nullable=False, ForeignKey, index=True)
-        # or Pydantic Field() / validators
-        validated = len(re.findall(r"mapped_column\(.*?nullable=False.*?\)", code))
-        validated += len(re.findall(r"mapped_column\(ForeignKey", code))
-        validated_fields += min(validated, len(fields))
 
-    if total_fields == 0: return 0.5
-    return min(1.0, validated_fields / total_fields)
+def _check_input_validation(src_dir: Path) -> float:
+    """Fraction of write-method routes that have Pydantic body params."""
+    routes = _collect_all_routes(src_dir)
+    write_routes = [r for r in routes if r.method in ("POST", "PUT", "PATCH")]
+    if not write_routes:
+        return 0.5  # No write routes — give partial credit (no violations)
+    validated = sum(1 for r in write_routes if r.has_input_validation)
+    return validated / len(write_routes)
+
+
+def _check_test_coverage(project_dir: Path) -> int:
+    """Score 0-60 based on test file presence; real results come from _check_test_score."""
+    test_files = (
+        list(project_dir.rglob("test_*.py"))
+        + list(project_dir.rglob("*_test.py"))
+    )
+    # Exclude the AetherOS platform's own tests
+    test_files = [f for f in test_files if "aether_os/tests" not in str(f)]
+    if not test_files:
+        return 0
+    return 60
+
+
+def _check_test_score(project_dir: Path) -> float:
+    """Score tests based on actual pytest results from p07_testing output."""
+    for summary_path in [
+        project_dir / "p07_testing" / "unit_testing" / "summary.json",
+        project_dir / "p07a_unit_testing" / "summary.json",
+    ]:
+        if summary_path.exists():
+            try:
+                data = json.loads(summary_path.read_text())
+                passed = data.get("passed", 0)
+                failed = data.get("failed", 0)
+                if passed + failed == 0:
+                    return 0.3 if not data.get("errors") else 0.1
+                return min(1.0, passed / (passed + failed))
+            except Exception as exc:
+                logger.debug("_check_test_score: could not parse %s: %s", summary_path, exc)
+    return 0.5
+
 
 def _check_seed_quality(src_dir: Path) -> float:
     """Check if seed.py contains ORM object instantiation."""
     seed_py = src_dir / "seed.py"
     if not seed_py.exists():
         return 0.0
-    
     code = seed_py.read_text(errors="ignore")
-    # Check for instantiation of ORM classes (assuming ClassName())
-    # This is a heuristic: uppercase class names followed by (
     seeds = re.findall(r"\b[A-Z]\w+\(", code)
-    
-    # Exclude common calls if any
-    seeds = [s for s in seeds if s not in ("print(", "asyncio(", "from(", "import(")]
-    
-    if len(seeds) >= 10: return 1.0
-    if len(seeds) >= 3: return 0.7
+    seeds = [s for s in seeds if s not in ("Print(", "Asyncio(", "From(", "Import(")]
+    if len(seeds) >= 10:
+        return 1.0
+    if len(seeds) >= 3:
+        return 0.7
     return 0.3
 
+
 def _check_domain_specificity(src_dir: Path) -> float:
-    """Check if dashboard stat labels contain domain entity names."""
     score = 0.0
     frontend_dir = src_dir.parent / "frontend"
-    
-    # +0.25 if DomainWidget.jsx exists and has more than 10 lines
+
     widget_path = frontend_dir / "src" / "components" / "DomainWidget.jsx"
     if widget_path.exists():
         try:
             if len(widget_path.read_text().strip().splitlines()) > 10:
                 score += 0.25
         except Exception as exc:
-            logger.debug("_check_domain_specificity: could not read widget file: %s", exc)
-    
-    # +0.25 if seed.py exists and has more than 20 lines (real seed data, not stub)
+            logger.debug("_check_domain_specificity: widget read failed: %s", exc)
+
     seed_path = src_dir / "seed.py"
     if seed_path.exists():
         try:
             if len(seed_path.read_text().strip().splitlines()) > 20:
                 score += 0.25
         except Exception as exc:
-            logger.debug("_check_domain_specificity: could not read seed file: %s", exc)
-    
-    # +0.25 if Dashboard page contains no generic "Item" or "Record" text in stat labels
+            logger.debug("_check_domain_specificity: seed read failed: %s", exc)
+
     dashboard_path = frontend_dir / "src" / "pages" / "Dashboard.tsx"
     if dashboard_path.exists():
         try:
@@ -134,27 +242,27 @@ def _check_domain_specificity(src_dir: Path) -> float:
             if "Item 1" not in content and "Test Record" not in content:
                 score += 0.25
         except Exception as exc:
-            logger.debug("_check_domain_specificity: could not read dashboard file: %s", exc)
-    
-    # +0.25 if primary entity list page has domain-appropriate column headers
+            logger.debug("_check_domain_specificity: dashboard read failed: %s", exc)
+
     pages_dir = frontend_dir / "src" / "pages"
     if pages_dir.exists():
         try:
-            tsx_files = list(pages_dir.glob("*.tsx"))
-            for f in tsx_files:
-                if f.name not in ("Dashboard.tsx", "Login.tsx", "Register.tsx", "LoginPage.tsx", "NotFoundPage.tsx"):
-                    if len(f.read_text(errors="ignore").splitlines()) > 30:
-                        score += 0.25
-                        break
+            non_generic = [
+                f for f in pages_dir.glob("*.tsx")
+                if f.name not in ("Dashboard.tsx", "Login.tsx", "Register.tsx",
+                                  "LoginPage.tsx", "NotFoundPage.tsx")
+            ]
+            if any(len(f.read_text(errors="ignore").splitlines()) > 30 for f in non_generic):
+                score += 0.25
         except Exception as exc:
-            logger.debug("_check_domain_specificity: could not read page files: %s", exc)
-    
+            logger.debug("_check_domain_specificity: pages read failed: %s", exc)
+
     return min(1.0, score)
+
 
 def _check_frontend_complete(project_dir: Path) -> float:
     frontend_dir = project_dir / "frontend"
     if not frontend_dir.exists():
-        # Also check p05_frontend output
         p05_dir = project_dir / "p05_frontend" / "frontend"
         if p05_dir.exists():
             frontend_dir = p05_dir
@@ -169,12 +277,10 @@ def _check_frontend_complete(project_dir: Path) -> float:
     if not main_tsx.exists() and not main_jsx.exists():
         return 0.5
 
-    # If dist already exists with index.html, score full without rebuilding
     dist_dir = frontend_dir / "dist"
     if dist_dir.exists() and (dist_dir / "index.html").exists():
         return 1.0
 
-    # Check build_status.json (async build in progress)
     build_status_file = project_dir / "build_status.json"
     if build_status_file.exists():
         try:
@@ -182,21 +288,19 @@ def _check_frontend_complete(project_dir: Path) -> float:
             if status_data.get("status") == "done":
                 return 1.0
             if status_data.get("status") == "building":
-                return 0.7  # In progress — partial credit
+                return 0.7
             if status_data.get("status") == "failed":
                 return 0.4
         except Exception as exc:
-            logger.debug("_check_frontend_complete: could not read build_status.json: %s", exc)
+            logger.debug("_check_frontend_complete: build_status read failed: %s", exc)
 
-    # Attempt build only if source files exist and no prior attempt
-    import tempfile, subprocess
     try:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
                 ["npx", "vite", "build", "--outDir", tmp, "--logLevel", "silent"],
                 cwd=str(frontend_dir),
                 capture_output=True,
-                timeout=120,  # Extended to 2 minutes
+                timeout=120,
             )
             return 1.0 if result.returncode == 0 else 0.6
     except subprocess.TimeoutExpired:
@@ -205,27 +309,27 @@ def _check_frontend_complete(project_dir: Path) -> float:
         logger.debug("_check_frontend_complete: vite build attempt failed: %s", exc)
         return 0.6
 
+
 def _check_security_bandit(src_dir: Path) -> float:
-    """Run bandit and score based on findings."""
     try:
         result = subprocess.run(
             ["bandit", "-r", "-f", "json", str(src_dir)],
             capture_output=True, text=True, timeout=30,
         )
-        if not result.stdout: return 1.0
+        if not result.stdout:
+            return 1.0
         data = json.loads(result.stdout)
         findings = data.get("results", [])
-        if not findings: return 1.0
+        if not findings:
+            return 1.0
         high = sum(1 for r in findings if r.get("issue_severity") == "HIGH")
-        score = 1.0 - (high * 0.2)
-        return max(0.0, score)
+        return max(0.0, 1.0 - (high * 0.2))
     except Exception as exc:
-        logger.debug("_check_security_bandit: bandit scan failed, returning default score: %s", exc)
+        logger.debug("_check_security_bandit: bandit scan failed, using default: %s", exc)
         return 0.8
 
+
 def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
-    """Find the p04-generated backend src dir, NOT the p03 scaffolding stubs."""
-    # Priority: p04 canonical locations first
     for candidate in [
         project_dir / "p04_backend" / "backend_codegen" / "src",
         project_dir / "p04a_backend_codegen" / "src",
@@ -234,7 +338,6 @@ def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
     ]:
         if candidate.is_dir() and (candidate / "main.py").exists():
             return candidate
-    # Glob fallback — exclude scaffolding stubs
     candidates = [
         p.parent for p in project_dir.rglob("main.py")
         if "p03_scaffolding" not in str(p)
@@ -247,65 +350,98 @@ def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
     return None
 
 
-def _check_test_score(project_dir: Path) -> float:
-    """Score tests based on actual pytest results from p07_testing output."""
-    for summary_path in [
-        project_dir / "p07_testing" / "unit_testing" / "summary.json",
-        project_dir / "p07a_unit_testing" / "summary.json",
-    ]:
-        if summary_path.exists():
-            try:
-                data = json.loads(summary_path.read_text())
-                passed = data.get("passed", 0)
-                failed = data.get("failed", 0)
-                errors = data.get("errors", [])
-                if passed + failed == 0:
-                    return 0.3 if not errors else 0.1
-                ratio = passed / (passed + failed)
-                return min(1.0, ratio)
-            except Exception as exc:
-                logger.debug("_check_test_score: could not parse summary at %s: %s", summary_path, exc)
-    return 0.5  # No test results yet — give partial credit
-
+# ── Public scorer ─────────────────────────────────────────────────────────────
 
 def score_project(project_dir: Path) -> QualityScore:
     """Return a real QualityScore based on AetherOS v2 Master Directive."""
     src_dir = _find_real_src_dir(project_dir)
     if src_dir is None:
-        return QualityScore(0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return QualityScore(
+            total=0, auth_coverage=0, input_validation=0,
+            test_score=0, test_coverage=0, domain_specificity=0,
+            seed_data_quality=0, frontend_complete=0,
+            docker_valid=0, security_clean=0,
+        )
 
-    metrics = {
-        "auth_coverage": _check_auth_coverage(src_dir),
-        "validation": _check_validation_density(src_dir),
-        "test_score": _check_test_score(project_dir),
-        "domain_specificity": _check_domain_specificity(src_dir),
-        "seed_data_quality": _check_seed_quality(src_dir),
-        "frontend_complete": _check_frontend_complete(project_dir),
-        "docker_valid": 1.0 if (project_dir / "docker-compose.yml").exists() else 0.0,
-        "security_clean": _check_security_bandit(src_dir),
-    }
+    # Compute route-based metrics
+    all_routes = _collect_all_routes(src_dir)
+    checkable_routes = [r for r in all_routes if r.path not in _HEALTH_PATHS]
+    write_routes = [r for r in all_routes if r.method in ("POST", "PUT", "PATCH")]
 
-    # Weighted formula from Directive Section 3.8
-    total = (
-        (metrics["auth_coverage"] * 0.20) +
-        (metrics["validation"] * 0.20) +
-        (metrics["test_score"] * 0.15) +
-        (metrics["domain_specificity"] * 0.15) +
-        (metrics["seed_data_quality"] * 0.10) +
-        (metrics["frontend_complete"] * 0.10) +
-        (metrics["docker_valid"] * 0.05) +
-        (metrics["security_clean"] * 0.05)
+    auth_frac = (
+        sum(1 for r in checkable_routes if r.has_auth) / len(checkable_routes)
+        if checkable_routes else 0.0
+    )
+    val_frac = (
+        sum(1 for r in write_routes if r.has_input_validation) / len(write_routes)
+        if write_routes else 0.5
+    )
+
+    # Boolean presence checks
+    has_docker = (project_dir / "Dockerfile").exists() or (project_dir / "docker-compose.yml").exists()
+    has_env_example = (project_dir / ".env.example").exists()
+    has_readme = (project_dir / "README.md").exists()
+    has_frontend = (project_dir / "frontend" / "package.json").exists()
+    has_compliance_report = (project_dir / "compliance_scan.json").exists()
+
+    # Numeric scores
+    test_cov = _check_test_coverage(project_dir)
+    test_sc = _check_test_score(project_dir)
+    domain_sc = _check_domain_specificity(src_dir)
+    seed_sc = _check_seed_quality(src_dir)
+    fe_sc = _check_frontend_complete(project_dir)
+    docker_sc = 1.0 if has_docker else 0.0
+    sec_sc = _check_security_bandit(src_dir)
+
+    # Weighted formula — main metrics (75 pts max)
+    weighted = (
+        auth_frac * 0.25
+        + val_frac * 0.25
+        + (test_cov / 100) * 0.10
+        + domain_sc * 0.05
+        + seed_sc * 0.05
+        + docker_sc * 0.05
+        + sec_sc * 0.05
     ) * 100
 
+    # Boolean bonus points (25 pts max)
+    bonus = (
+        (8 if has_docker else 0)
+        + (6 if has_readme else 0)
+        + (5 if has_env_example else 0)
+        + (6 if has_frontend else 0)
+        + (5 if has_compliance_report else 0)
+    )
+
+    total = min(100, int(weighted) + bonus)
+
     return QualityScore(
-        total=int(total),
-        auth_coverage=int(metrics["auth_coverage"] * 100),
-        input_validation=int(metrics["validation"] * 100),
-        test_score=int(metrics["test_score"] * 100),
-        domain_specificity=int(metrics["domain_specificity"] * 100),
-        seed_data_quality=int(metrics["seed_data_quality"] * 100),
-        frontend_complete=int(metrics["frontend_complete"] * 100),
-        docker_valid=int(metrics["docker_valid"] * 100),
-        security_clean=int(metrics["security_clean"] * 100),
-        details=metrics
+        total=total,
+        auth_coverage=int(auth_frac * 100),
+        input_validation=int(val_frac * 100),
+        test_score=int(test_sc * 100),
+        test_coverage=test_cov,
+        domain_specificity=int(domain_sc * 100),
+        seed_data_quality=int(seed_sc * 100),
+        frontend_complete=int(fe_sc * 100),
+        docker_valid=int(docker_sc * 100),
+        security_clean=int(sec_sc * 100),
+        has_docker=has_docker,
+        has_env_example=has_env_example,
+        has_readme=has_readme,
+        has_frontend=has_frontend,
+        has_compliance_report=has_compliance_report,
+        api_endpoint_count=len(all_routes),
+        details={
+            "auth_coverage": auth_frac,
+            "input_validation": val_frac,
+            "test_score": test_sc,
+            "test_coverage": test_cov,
+            "domain_specificity": domain_sc,
+            "seed_data_quality": seed_sc,
+            "frontend_complete": fe_sc,
+            "docker_valid": docker_sc,
+            "security_clean": sec_sc,
+            "routes": len(all_routes),
+        },
     )

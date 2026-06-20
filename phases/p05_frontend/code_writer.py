@@ -36,7 +36,7 @@ from aether_os.phases.p05_frontend.scaffold import (
 
 logger = logging.getLogger(__name__)
 
-def _generate_package_json(project_slug: str) -> str:
+def generate_package_json(project_slug: str) -> str:
     data = {
         "name": project_slug,
         "private": True,
@@ -3372,3 +3372,42 @@ volumes:
 """
 
 
+# Public aliases for functions that task_agent.py imports by name.
+# These were accidentally made private during a refactor; restoring public names here
+# keeps task_agent.py's import list intact without renaming 28 internal call sites.
+generate_eslint_config = _generate_eslint_config
+generate_vite_config = _generate_vite_config
+generate_tsconfig = _generate_tsconfig
+generate_tailwind_config = _generate_tailwind_config
+generate_postcss_config = _generate_postcss_config
+generate_index_html = _generate_index_html
+generate_nginx_conf = _generate_nginx_conf
+generate_dockerfile = _generate_dockerfile
+generate_env_example = _generate_env_example
+generate_index_css = _generate_index_css
+generate_main_tsx = _generate_main_tsx
+generate_auth_ts = _generate_auth_ts
+generate_types = _generate_types
+generate_api = _generate_api
+generate_app = _generate_app
+generate_admin_layout = _generate_admin_layout
+generate_customer_layout = _generate_customer_layout
+generate_customer_home = _generate_customer_home
+generate_layout = _generate_layout
+generate_data_table = _generate_data_table
+generate_crud_modal = _generate_crud_modal
+generate_toaster = _generate_toaster
+generate_vitest_config = _generate_vitest_config
+generate_test_setup = _generate_test_setup
+generate_login_test = _generate_login_test
+generate_dashboard_test = _generate_dashboard_test
+generate_error_boundary = _generate_error_boundary
+generate_not_found_page = _generate_not_found_page
+generate_frontend_readme = _generate_frontend_readme
+generate_login_page = _generate_login_page
+generate_dashboard = _generate_dashboard
+generate_storefront_home = _generate_storefront_home
+generate_entity_page = _generate_entity_page
+generate_product_grid_page = _generate_product_grid_page
+generate_docker_compose = _generate_docker_compose
+is_product_entity = _is_product_entity

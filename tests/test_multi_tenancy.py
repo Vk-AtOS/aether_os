@@ -56,6 +56,16 @@ async def test_multi_tenancy_workflow(tmp_path):
                    new_callable=AsyncMock, return_value=(True, "")), \
              TestClient(create_app()) as client:
 
+            import sqlite3 as _sqlite3
+            _db_file = str(tmp_path / "mt_test.db")
+
+            def _verify_email(email: str) -> None:
+                # Email verification uses Redis (unavailable in tests); set directly in DB.
+                conn = _sqlite3.connect(_db_file)
+                conn.execute("UPDATE users SET email_verified = 1 WHERE email = ?", (email,))
+                conn.commit()
+                conn.close()
+
             # 1. Register Org A
             email_a = f"owner_a_{uuid.uuid4()}@test.com"
             resp = client.post("/auth/register", json={
@@ -66,6 +76,7 @@ async def test_multi_tenancy_workflow(tmp_path):
                 "dpa_accepted": True,
             })
             assert resp.status_code == 200, resp.text
+            _verify_email(email_a)
             token_a = resp.json()["access_token"]
 
             # 2. Register Org B
@@ -79,6 +90,7 @@ async def test_multi_tenancy_workflow(tmp_path):
             })
 
             assert resp.status_code == 200, resp.text
+            _verify_email(email_b)
             token_b = resp.json()["access_token"]
 
             # 3. Org A starts 3 runs (trial limit = 3)
