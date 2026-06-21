@@ -149,59 +149,6 @@ PACK = DomainKnowledgePack(
         "GET /accounts/{id}/balance — real-time balance (READ from ledger sum)",
     ],
 
-    pipelines=[
-        BusinessProcessPipeline(
-            name="PaymentProcessingFlow",
-            trigger="create",
-            trigger_entity="Transaction",
-            trigger_condition="status == initiated",
-            description="Full payment processing: KYC check, fraud screen, AML check, execute, ledger post, notify.",
-            integrations_required=["FraudService", "AMLService", "LedgerService", "NotificationService"],
-            steps=[
-                ProcessStep(
-                    name="verify_kyc",
-                    service_required="KYCService",
-                    method="verify_kyc_status",
-                    description="Confirm the sending user has an approved KYC record before allowing the transaction.",
-                    input_keys=["user_id"],
-                    on_failure="FAIL",
-                ),
-                ProcessStep(
-                    name="screen_fraud",
-                    service_required="FraudService",
-                    method="screen_transaction",
-                    description="Run the transaction through fraud detection rules (velocity, geo, amount anomaly).",
-                    input_keys=["from_account_id", "to_account_id", "amount_cents", "currency"],
-                    on_failure="FAIL",
-                ),
-                ProcessStep(
-                    name="check_aml",
-                    service_required="AMLService",
-                    method="check_threshold",
-                    description="Flag and hold transactions above AML reporting threshold (10,000 USD equivalent).",
-                    input_keys=["amount_cents", "currency", "user_id"],
-                    on_failure="FAIL",
-                ),
-                ProcessStep(
-                    name="execute_transfer",
-                    service_required="LedgerService",
-                    method="post_double_entry",
-                    description="Debit source account and credit destination account using SERIALIZABLE isolation.",
-                    input_keys=["from_account_id", "to_account_id", "amount_cents", "currency"],
-                    on_failure="FAIL",
-                ),
-                ProcessStep(
-                    name="notify_parties",
-                    service_required="NotificationService",
-                    method="send_payment_confirmation",
-                    description="Send payment confirmation to sender and recipient.",
-                    input_keys=["execute_transfer", "user_id"],
-                    on_failure="SKIP",
-                ),
-            ],
-        ),
-    ],
-
     prompt_injection="""FINTECH DOMAIN RULES (mandatory — do not omit):
 1. Store all monetary values as INTEGER cents/minor units — never use float for money.
 2. Every financial transaction MUST use an idempotency_key to prevent double-charges.
