@@ -319,19 +319,19 @@ This phase closes the most critical gaps for regulated-industry sales. It requir
 
 **Week 1: Compliance Manifest + Knowledge Graph Serialization + Spec Publication**
 
-- [ ] **Gap 1:** P06 writes `compliance_manifest.json` to every generated project root. Schema includes `drift_fingerprint` (SHA-256 hash of compliance-relevant code sections), `overall_score`, and per-route `rules_satisfied` / `rules_violated` arrays.
-- [ ] **Gap 4:** Extend `DomainKnowledgePack` with `to_dict_full()` returning complete nested JSON of all fields (with pii/phi/pci/encrypted_at_rest flags), all state machine transitions, and all compliance rules with implementation hints. Write `domain_knowledge.json` to generated project root.
-- [ ] **Gap 10:** Publish pipeline architecture spec to `/docs/PIPELINE_SPEC.md` and project README. Include phase interface schemas, domain pack plugin standard, and artifact schemas.
+- [x] **Gap 1:** P06 writes `compliance_manifest.json` to every generated project root. Schema includes `drift_fingerprint` (SHA-256 hash of compliance-relevant code sections), `overall_score`, and per-route `rules_satisfied` / `rules_violated` arrays.
+- [x] **Gap 4:** Extend `DomainKnowledgePack` with `to_dict_full()` returning complete nested JSON of all fields (with pii/phi/pci/encrypted_at_rest flags), all state machine transitions, and all compliance rules with implementation hints. Write `domain_knowledge.json` to generated project root.
+- [x] **Gap 10:** Publish pipeline architecture spec to `/docs/PIPELINE_SPEC.md` and project README. Include phase interface schemas, domain pack plugin standard, and artifact schemas.
 
 **Week 2: State Machine Enforcement + CI Compliance Gate**
 
-- [ ] **Gap 2:** P04 backend generator reads `WorkflowTemplate` from the domain pack. For every PATCH/PUT route that touches a `status` field, inject a `_TRANSITIONS_<ENTITY>` dict and a guard block that raises HTTP 422 on invalid transitions. Generate the transitions dict from the `WorkflowTemplate.transitions` property.
-- [ ] **Gap 3:** P08 CI/CD generator adds a `compliance-drift` job to the generated GitHub Actions workflow. The job runs `code_scanner.py` on push and pull_request events. If computed score < baseline score from `compliance_manifest.json`, the job fails with a descriptive summary of the specific violated rules.
+- [x] **Gap 2:** P04 backend generator reads `WorkflowTemplate` from the domain pack. For every PATCH/PUT route that touches a `status` field, inject a `_TRANSITIONS_<ENTITY>` dict and a guard block that raises HTTP 422 on invalid transitions. Generate the transitions dict from the `WorkflowTemplate.transitions` property.
+- [x] **Gap 3:** P08 CI/CD generator adds a `compliance-drift` job to the generated GitHub Actions workflow. The job runs `code_scanner.py` on push and pull_request events. If computed score < baseline score from `compliance_manifest.json`, the job fails with a descriptive summary of the specific violated rules.
 
 **Week 3: Trading/HFT and Legal Domain Packs**
 
-- [ ] **Gap 5a:** Implement `core/domain_knowledge/packs/trading.py` — Order, Execution, Position, RiskLimit, MarketData entities; MiFID II/SEC/FINRA compliance rules; Order.status state machine (new → pending_new → partially_filled → filled | cancelled | rejected); latency SLA constraints injected into architecture phase.
-- [ ] **Gap 5b:** Implement `core/domain_knowledge/packs/legaltech.py` — Matter, TimeEntry, PrivilegeLog, CourtFiling entities; attorney-client confidentiality rules; court filing workflow state machine; billing and trust account constraints.
+- [x] **Gap 5a:** Implement `core/domain_knowledge/packs/trading.py` — Order, Execution, Position, RiskLimit, MarketData entities; MiFID II/SEC/FINRA compliance rules; Order.status state machine (new → pending_new → partially_filled → filled | cancelled | rejected); latency SLA constraints injected into architecture phase.
+- [x] **Gap 5b:** Implement `core/domain_knowledge/packs/legaltech.py` — Matter, TimeEntry, PrivilegeLog, CourtFiling entities; attorney-client confidentiality rules; court filing workflow state machine; billing and trust account constraints.
 
 ---
 
@@ -339,14 +339,14 @@ This phase closes the most critical gaps for regulated-industry sales. It requir
 
 **Weeks 4–5: Remaining Domain Packs**
 
-- [ ] **Gap 5c:** Implement `core/domain_knowledge/packs/real_estate.py` — Property, Listing, Lease, Inspection, Transaction entities; MLS integration patterns; disclosure workflow state machine; fair housing compliance rules.
-- [ ] **Gap 5d:** Implement `core/domain_knowledge/packs/manufacturing.py` — WorkOrder, BillOfMaterials, QualityInspection, ProductionRun entities; ISO 9001 compliance rules; production workflow state machine; NCR (Non-Conformance Report) workflow.
-- [ ] **Gap 5e:** Implement `core/domain_knowledge/packs/edtech.py` — Course, Enrollment, Assessment, Certificate, LearningObjective entities; FERPA compliance rules (student record privacy); LTI 1.3 integration patterns; assessment submission workflow.
-- [ ] **Gap 5f:** Implement `core/domain_knowledge/packs/govtech.py` — FedRAMP High/Moderate/Low controls mapped to specific implementation requirements; FISMA framework rules; ATO workflow state machine (initiation → security assessment → authorization → continuous monitoring); Section 508 accessibility rules injected into P07c accessibility testing phase.
+- [x] **Gap 5c:** Implement `core/domain_knowledge/packs/real_estate.py` — Property, Listing, Lease, Inspection, Transaction entities; MLS integration patterns; disclosure workflow state machine; fair housing compliance rules.
+- [x] **Gap 5d:** Implement `core/domain_knowledge/packs/manufacturing.py` — WorkOrder, BillOfMaterials, QualityInspection, ProductionRun entities; ISO 9001 compliance rules; production workflow state machine; NCR (Non-Conformance Report) workflow.
+- [x] **Gap 5e:** Implement `core/domain_knowledge/packs/edtech.py` — Course, Enrollment, Assessment, Certificate, LearningObjective entities; FERPA compliance rules (student record privacy); LTI 1.3 integration patterns; assessment submission workflow.
+- [x] **Gap 5f:** Implement `core/domain_knowledge/packs/govtech.py` — FedRAMP High/Moderate/Low controls mapped to specific implementation requirements; FISMA framework rules; ATO workflow state machine (initiation → security assessment → authorization → continuous monitoring); Section 508 accessibility rules injected into P07c accessibility testing phase.
 
 **Weeks 6–7: Business Model Output Layer**
 
-- [ ] **Gap 6:** Add business model generation step to P00. Extend the P00 research output to include a structured `business_model.json` in the generated project root. The LLM prompt for this step receives the domain research output and the application requirements, and produces the full business model schema (see Section 7.5 for the full JSON schema). The step runs after domain classification and before architecture generation — it does not block the pipeline if it fails (graceful degradation to null).
+- [x] **Gap 6:** Add business model generation step to P00. Extend the P00 research output to include a structured `business_model.json` in the generated project root. The LLM prompt for this step receives the domain research output and the application requirements, and produces the full business model schema (see Section 7.5 for the full JSON schema). The step runs after domain classification and before architecture generation — it does not block the pipeline if it fails (graceful degradation to null).
 
 ---
 
@@ -354,7 +354,7 @@ This phase closes the most critical gaps for regulated-industry sales. It requir
 
 **Weeks 8–10: Multimodal Requirements Intake**
 
-- [ ] **Gap 7:** Build multimodal intake agent as a pre-P00 phase (`p00a_intake`). Implement three intake handlers:
+- [x] **Gap 7:** Build multimodal intake agent as a pre-P00 phase (`p00a_intake`). Implement three intake handlers:
   - `figma_parser.py` — parses Figma file export JSON; extracts component tree, page names, and interaction definitions; maps to entity names, UI requirements, and navigation structure
   - `diagram_parser.py` — sends diagram image to Claude Vision; extracts service boxes, database icons, arrows, and labels; generates service graph and entity relationship descriptions
   - `voice_parser.py` — transcribes audio (Whisper API); runs structured extraction prompt to pull functional requirements, non-functional requirements, constraints, and domain classification
@@ -362,7 +362,7 @@ This phase closes the most critical gaps for regulated-industry sales. It requir
 
 **Weeks 10–16: Post-Deployment Self-Healing Loop**
 
-- [ ] **Gap 8:** Design and implement the SRE agent generation system:
+- [x] **Gap 8:** Design and implement the SRE agent generation system:
   - `phases/p21_sre_agent/` — new pipeline phase that runs after P15 handoff
   - `sre_agent_generator.py` — generates Kubernetes Operator YAML and CronJob manifests tailored to the generated application's Prometheus metric names and alert rules
   - `failure_classifier.py` — pattern library for classifying Prometheus alert types to failure categories
@@ -450,7 +450,8 @@ Additional change:
 
 | Deal | Value | Basis | AetherOS Comparison |
 |------|-------|-------|---------------------|
-| Google / Windsurf | $2.4B (technology license) | ~$82M ARR at deal time; IP-only value ~$1.2B | AetherOS has deeper domain knowledge, compliance capabilities Windsurf lacks |
+| Google / Windsurf (team acqui-hire) | $2.4B (licensing + acqui-hire of CEO and team — Google did NOT acquire the product) | ~$82M ARR at deal time; Google paid for talent and IP license, not the Windsurf product | AetherOS has deeper domain knowledge, compliance capabilities Windsurf lacks |
+| Cognition / Windsurf (product acquisition) | ~$250M | Cognition AI separately acquired the Windsurf product and IP; distinct from the Google deal | Validates that AI code editor IP commands 9-figure standalone valuations |
 | Cognition (Devin) | $25B valuation | $73M ARR, 15% SWE-bench success rate | AetherOS generates complete deployed apps vs. 15% bug-repair rate |
 | Lovable | $6.6B valuation | $100M ARR, frontend-only MVP generator | AetherOS generates full-stack + compliance + ops; Lovable is frontend only |
 | Replit | $9B valuation | Full-stack agent, not domain-aware, not compliance-embedded | AetherOS domain knowledge + compliance + multi-region + 39 phases vs. 3 |
@@ -955,7 +956,7 @@ The following published research directly validates AetherOS's architectural dec
 | **Compliance-to-Code (arXiv 2505.19804)** | Financial compliance checking via code generation established as viable research direction. Validates the compliance manifest concept (Gap 1) as aligning with the research frontier. |
 | **AlphaVerus/VERINA/APOLLO (CMU; arXiv 2505.23135, 2505.05758)** | Formal verification of generated code identified as the "grand challenge" of AI code generation. Validates Gap 9 as bleeding-edge, defensible, patent-eligible IP — not incremental work. |
 | **SWE-bench (arXiv 2506.17208)** | Top agents at 69% on bug-repair benchmark tasks. AetherOS addresses the harder problem: greenfield generation of complete deployed applications, not bug repair in existing codebases. |
-| **Google / Windsurf ($2.4B license deal)** | Proves that AI developer tools IP commands 10-figure valuations independent of ARR multiples. Technology license, not acquisition — specifically for IP value. |
+| **Google / Windsurf (acqui-hire $2.4B; product acquisition ~$250M by Cognition)** | Two separate deals: Google paid $2.4B for an acqui-hire of Windsurf's CEO and team plus a technology license (did not acquire the product); Cognition AI separately acquired the Windsurf product and IP for ~$250M. Together they prove AI developer tools IP commands 10-figure valuations, and that the product IP alone commands 9 figures independent of team. |
 | **Cognition / Devin ($25B at 15% SWE-bench)** | Proves that agentic coding commands extreme valuation multiples based on potential. AetherOS generates complete deployed applications vs. Devin's 15% bug-fix rate on constrained tasks. |
 | **Healthcare breach cost: $9.77M average (IBM 2024)** | 14 years as highest breach cost of any industry. Validates compliance automation premium pricing for healthcare vertical — buyers will pay 10–50x for verified compliance. |
 | **Compliance automation market: $20.3B → $72.4B by 2032** | 17.6% CAGR. The specific market that Gaps 1–3 directly address. No AI code generator is positioned in this market today. |
