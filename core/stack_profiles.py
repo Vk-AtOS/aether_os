@@ -222,6 +222,33 @@ STACK_PROFILES: Dict[str, StackProfile] = {
         deployment_target="kubernetes",
         performance_tier="high_throughput",
     ),
+    "microservices": StackProfile(
+        name="microservices",
+        description="Go micro-services with Kafka event bus, gRPC inter-service comms, Kubernetes deployment.",
+        build_type="microservice",
+        architecture="microservices",
+        backend_lang="go",
+        backend_framework="gin",
+        frontend_framework="react",
+        db_primary="postgres",
+        db_secondary=["redis"],
+        message_queue="kafka",
+        deployment_target="kubernetes",
+        performance_tier="high_throughput",
+    ),
+    "mobile_rn": StackProfile(
+        name="mobile_rn",
+        description="React Native mobile app (Expo Router) backed by a FastAPI REST API.",
+        build_type="mobile",
+        architecture="monolith",
+        backend_lang="python",
+        backend_framework="fastapi",
+        frontend_framework="react_native",
+        db_primary="postgres",
+        db_secondary=["redis"],
+        deployment_target="docker_compose",
+        performance_tier="standard",
+    ),
 }
 
 # Default when classification fails or is ambiguous
