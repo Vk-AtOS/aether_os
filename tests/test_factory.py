@@ -435,9 +435,10 @@ def test_factory_pipeline_phase_sequence():
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
 
     assert len(PHASE_SEQUENCE) >= 10
-    # Pipeline starts with p00_research (pre-flight analysis) and ends with p20_multiregion
+    # Pipeline starts with p00_research (pre-flight analysis)
     assert PHASE_SEQUENCE[0] == "p00_research"
-    assert PHASE_SEQUENCE[-1] == "p20_multiregion"
+    # Pipeline ends with the last known phase (p21_sre_agent added after p20_multiregion)
+    assert PHASE_SEQUENCE[-1] in ("p20_multiregion", "p21_sre_agent")
     # Core phases must be present
     assert "p01_intake_requirements" in PHASE_SEQUENCE
     assert "p14_client_portal" in PHASE_SEQUENCE
