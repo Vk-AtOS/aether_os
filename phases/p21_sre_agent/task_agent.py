@@ -404,6 +404,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "docs/REMEDIATION_PLAYBOOK.md",
     ]
 
+    # ── 4. G8: Extended sre/ directory (operator, classifier, remediation, canary, manifests)
+    try:
+        from aether_os.phases.p21_sre_agent.sre_generators import write_all_sre_artifacts
+        sre_files = write_all_sre_artifacts(output_dir, app_name, namespace)
+        files_written.extend(sre_files)
+        logger.info("p21_sre_agent: wrote %d sre/ artifacts", len(sre_files))
+    except Exception as exc:
+        logger.warning("p21_sre_agent: sre/ artifact generation failed (non-critical): %s", exc)
+
     return TaskResult(
         output_path=str(output_dir),
         confidence=0.95,
