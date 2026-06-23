@@ -39,3 +39,21 @@ def _register_aether_os_package() -> None:
 
 
 _register_aether_os_package()
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_pipeline_semaphore():
+    """Reset the global pipeline semaphore before each test.
+
+    _PIPELINE_SEMAPHORE is a module-level singleton.  When pytest-timeout kills
+    a test mid-acquisition the semaphore is never released, causing every
+    subsequent test that calls FactoryPipeline.run() to block forever.
+    Resetting to None forces a fresh Semaphore for each test's event loop.
+    """
+    import aether_os.orchestrator.run_state as _rs
+    _rs._PIPELINE_SEMAPHORE = None
+    yield
+    _rs._PIPELINE_SEMAPHORE = None

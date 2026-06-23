@@ -9,11 +9,35 @@ import os
 import sys
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+def _make_mock_session_factory():
+    """Return a no-op async session factory so tests never open aiosqlite connections."""
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=None)
+    mock_session.commit = AsyncMock()
+    mock_session.add = MagicMock()
+    mock_session.execute = AsyncMock(return_value=MagicMock(
+        scalars=MagicMock(return_value=MagicMock(
+            first=MagicMock(return_value=None),
+            all=MagicMock(return_value=[]),
+        ))
+    ))
+
+    @asynccontextmanager
+    async def _session():
+        yield mock_session
+
+    def _factory():
+        return _session()
+
+    return _factory
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -354,6 +378,20 @@ async def test_factory_pipeline_smoke(tmp_path):
                new_callable=AsyncMock, return_value="spec_approved"), \
          patch("aether_os.orchestrator.factory_pipeline.set_control",
                new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.update_phase_state",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.delivery_council_check",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.extract_learning",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.store_run_memory",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.embed_artifacts",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.upload_to_s3",
+               new_callable=AsyncMock), \
+         patch("aether_os.core.db.get_session_factory",
+               return_value=_make_mock_session_factory()), \
          patch.dict("os.environ", {"PHASE_TIMEOUT_SECONDS": "10"}):
 
         mock_ledger.return_value = MagicMock(
@@ -401,7 +439,26 @@ async def test_factory_pipeline_start_phase(tmp_path):
 
     with patch("aether_os.orchestrator.factory_pipeline._load_supervisor",
                return_value=MockSupervisor()), \
-         patch("aether_os.core.audit.ledger.get_ledger") as mock_ledger:
+         patch("aether_os.core.audit.ledger.get_ledger") as mock_ledger, \
+         patch("aether_os.orchestrator.factory_pipeline.get_control",
+               new_callable=AsyncMock, return_value="spec_approved"), \
+         patch("aether_os.orchestrator.factory_pipeline.set_control",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.update_phase_state",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.delivery_council_check",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.extract_learning",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.store_run_memory",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.embed_artifacts",
+               new_callable=AsyncMock), \
+         patch("aether_os.orchestrator.factory_pipeline.upload_to_s3",
+               new_callable=AsyncMock), \
+         patch("aether_os.core.db.get_session_factory",
+               return_value=_make_mock_session_factory()), \
+         patch.dict("os.environ", {"PHASE_TIMEOUT_SECONDS": "10"}):
 
         mock_ledger.return_value = MagicMock(
             save_run=MagicMock(),
