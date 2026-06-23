@@ -23,11 +23,35 @@ import os
 import sys
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+def _make_mock_session_factory():
+    """Return a no-op async session factory so tests never open aiosqlite connections."""
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=None)
+    mock_session.commit = AsyncMock()
+    mock_session.add = MagicMock()
+    mock_session.execute = AsyncMock(return_value=MagicMock(
+        scalars=MagicMock(return_value=MagicMock(
+            first=MagicMock(return_value=None),
+            all=MagicMock(return_value=[]),
+        ))
+    ))
+
+    @asynccontextmanager
+    async def _session():
+        yield mock_session
+
+    def _factory():
+        return _session()
+
+    return _factory
 
 # Make sure the repo root is on sys.path regardless of how pytest is invoked
 _REPO_ROOT = Path(__file__).parent.parent
@@ -455,6 +479,21 @@ async def test_full_pipeline_runs_all_20_phases(tmp_path, monkeypatch):
               new_callable=AsyncMock, return_value="spec_approved"),
         patch("aether_os.orchestrator.factory_pipeline.set_control",
               new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.update_phase_state",
+              new_callable=AsyncMock),
+        patch("aether_os.core.db_utils.create_run", new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.delivery_council_check",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.extract_learning",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.store_run_memory",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.embed_artifacts",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.upload_to_s3",
+              new_callable=AsyncMock),
+        patch("aether_os.core.db.get_session_factory",
+              return_value=_make_mock_session_factory()),
     ):
         # Mock ledger — ALL async methods must be AsyncMock
         mock_ledger_inst = MagicMock()
@@ -541,6 +580,25 @@ async def test_pipeline_accumulated_context_contains_domain(tmp_path, monkeypatc
               new_callable=AsyncMock),
         patch("aether_os.orchestrator.factory_pipeline.emit",
               new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.get_control",
+              new_callable=AsyncMock, return_value="spec_approved"),
+        patch("aether_os.orchestrator.factory_pipeline.set_control",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.update_phase_state",
+              new_callable=AsyncMock),
+        patch("aether_os.core.db_utils.create_run", new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.delivery_council_check",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.extract_learning",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.store_run_memory",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.embed_artifacts",
+              new_callable=AsyncMock),
+        patch("aether_os.orchestrator.factory_pipeline.upload_to_s3",
+              new_callable=AsyncMock),
+        patch("aether_os.core.db.get_session_factory",
+              return_value=_make_mock_session_factory()),
     ):
         mock_ledger_inst = MagicMock()
         mock_ledger_inst.create_run = AsyncMock(return_value=run_id)
