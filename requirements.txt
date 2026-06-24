@@ -73,6 +73,7 @@ cookiecutter>=2.5.0
 # ── Factory Pipeline — Security / Quality ────────────────────────────────────
 bandit>=1.7.0
 hypothesis>=6.100.0
+z3-solver>=4.12.0               # SMT solver for formal verification of generated code (Gap 9)
 # semgrep — LGPL-licensed; use as an optional system tool, not a pip dependency (LAUNCH-043)
 # Install separately: pip install semgrep  OR  brew install semgrep
 
