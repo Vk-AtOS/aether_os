@@ -59,6 +59,7 @@ PHASE_SEQUENCE = [
     "p05c_desktop",                 # Electron desktop app — skips for non-desktop builds
     "p05d_cli",                     # Click/Cobra CLI tool — skips for non-cli builds
     "p05e_serverless",              # Knative functions — skips for non-serverless builds
+    "p06b_formal_verification",     # Z3 SMT proofs of auth/input/state-machine/SQL invariants (Gap 9)
     "p06_review_security",
     "p07_testing",
     "p07b_self_healing",
@@ -108,6 +109,7 @@ PHASE_SUPERVISORS: Dict[str, str] = {
     "p05c_desktop":              "aether_os.phases.p05c_desktop.supervisor_agent.DesktopSupervisor",
     "p05d_cli":                  "aether_os.phases.p05d_cli.supervisor_agent.CLISupervisor",
     "p05e_serverless":           "aether_os.phases.p05e_serverless.supervisor_agent.ServerlessSupervisor",
+    "p06b_formal_verification":  "aether_os.phases.p06b_formal_verification.FormalVerificationSupervisor",
     "p06_review_security":       "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
     "p07_testing":               "aether_os.phases.p07_testing.TestingSupervisor",
     "p07b_self_healing":         "aether_os.phases.p07b_self_healing.SelfHealingSupervisor",
