@@ -374,7 +374,7 @@ This phase closes the most critical gaps for regulated-industry sales. It requir
 
 ### Phase 4 — 3–4 Months — Formal Verification (Patent-Eligible IP)
 
-- [ ] **Gap 9:** Design and implement the formal verification agent:
+- [x] **Gap 9:** Design and implement the formal verification agent:
   - Research phase (weeks 1–4): Evaluate Z3 Python API encoding strategies for FastAPI route semantics; select encoding approach; prototype invariant checking for auth routes
   - Implementation phase (weeks 5–12): Build `phases/p06b_formal_verification/` phase; implement Z3 encodings for JWT auth invariants, RBAC role escalation checks, payment amount bounds, PHI access controls, and transaction atomicity for audit log writes
   - Output phase (weeks 13–16): Generate `verification_report.json` in project root; integrate with P06 security review gate; produce human-readable proof certificates
