@@ -6,17 +6,134 @@ Contains the background task logic for running a pipeline:
   - run_pipeline_background(): runs council pre-flight + factory + post-build hooks
   - build_spec_preamble(): constructs the designer_spec preamble string
   - run_compliance_precheck(): validates production_country before pipeline start
+  - enrich_phases_from_disk(): loads phase output / gate JSON from project dir
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import pathlib
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
+
+# ── Phase disk-enrichment helper ───────────────────────────────────────────────
+
+_OUTPUT_FILE_CANDIDATES = [
+    "consolidated.json", "architecture.json", "frontend_meta.json",
+    "review.json", "test_results.json", "delivery.json",
+    "observability.json", "cicd.json",
+]
+
+
+def enrich_phases_from_disk(
+    phases: Dict[str, Any],
+    project_dir: pathlib.Path,
+    project_prefix: str,
+) -> Dict[str, Any]:
+    """Load phase output + gate_result JSON from disk and strip server paths.
+
+    Called by get_factory_run to avoid bloating the router with filesystem logic.
+    Returns a new (mutated) phases dict with output/output_file/gate_result injected.
+    """
+    for phase_key, phase_val in phases.items():
+        phase_dir = project_dir / phase_key
+        if not phase_dir.exists():
+            continue
+        loaded = False
+        for fname in _OUTPUT_FILE_CANDIDATES + [f"{phase_key}.json"]:
+            fpath = phase_dir / fname
+            if fpath.exists():
+                try:
+                    phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
+                    phase_val["output_file"] = f"{phase_key}/{fname}"
+                    loaded = True
+                    break
+                except Exception as exc:
+                    logger.debug("Failed to parse phase output file %s: %s", fpath, exc)
+        if not loaded:
+            for fpath in sorted(phase_dir.glob("*.json")):
+                try:
+                    phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
+                    phase_val["output_file"] = f"{phase_key}/{fpath.name}"
+                    break
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to parse fallback phase output file %s: %s", fpath, exc
+                    )
+
+    # Load gate_result.json for each phase if it exists
+    for _pk, _pv in phases.items():
+        _gate_file = project_dir / _pk / "gate_result.json"
+        if _gate_file.exists():
+            try:
+                _pv["gate_result"] = json.loads(_gate_file.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.debug("Failed to parse gate_result.json for phase %s: %s", _pk, exc)
+
+    # Strip absolute server paths from all phase output (S8 security fix)
+    def _strip(obj: Any) -> Any:
+        if isinstance(obj, str):
+            return obj.replace(project_prefix, "")
+        if isinstance(obj, dict):
+            return {k: _strip(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_strip(v) for v in obj]
+        return obj
+
+    return _strip(phases)
+
+
+async def load_phase_events(
+    run_id: str,
+    get_phase_completions_fn,
+    get_explicit_events_fn,
+) -> "tuple[dict, object, list]":
+    """Load phase completions + synthesize events from DB for a run.
+
+    Returns (phases_dict, current_phase, events_list).
+    Caller passes the two run_service functions to avoid a circular import.
+    """
+    phases: dict = {}
+    current_phase = None
+    synthesized_events: list = []
+    events: list = []
+    try:
+        from aether_os.core.db import get_session_factory as _gsf
+        async with _gsf()() as sess:
+            _pc_rows = await get_phase_completions_fn(sess, run_id)
+            for _phase, _status, _updated in _pc_rows:
+                phases[_phase] = {"status": _status, "updated_at": _updated}
+                current_phase = _phase
+                _label = (
+                    _phase.replace("_", " ")
+                    .replace("p0", "Phase ")
+                    .replace("p1", "Phase 1")
+                )
+                # Fix 65: updated_at may be a float (epoch) or a datetime object
+                if hasattr(_updated, "timestamp"):
+                    _ts = _updated.timestamp()
+                elif isinstance(_updated, (int, float)) and _updated:
+                    _ts = float(_updated)
+                else:
+                    _ts = None
+                synthesized_events.append({
+                    "agent": _label.title(), "action": _status,
+                    "detail": f"{_label.title()} {_status}", "timestamp": _ts,
+                })
+            _ev_rows = await get_explicit_events_fn(sess, run_id)
+            events = (
+                [{"agent": r[0], "action": r[1], "detail": r[2], "timestamp": r[3]} for r in _ev_rows]
+                if _ev_rows else synthesized_events
+            )
+    except Exception as exc:
+        logger.debug("Phase completions ORM query failed: %s", exc)
+    return phases, current_phase, events
+
 
 # ── Embargoed countries — cannot be a production target ──────────────────────
 _EMBARGOED = {"CU", "IR", "KP", "SY", "RU", "BY"}
