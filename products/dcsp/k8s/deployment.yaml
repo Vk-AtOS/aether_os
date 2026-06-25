@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dcsp-app
+  namespace: dcsp
+  labels:
+    app: dcsp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dcsp
+  template:
+    metadata:
+      labels:
+        app: dcsp
+    spec:
+      containers:
+      - name: dcsp
+        image: dcsp:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: dcsp-config
+        - secretRef:
+            name: dcsp-secrets
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

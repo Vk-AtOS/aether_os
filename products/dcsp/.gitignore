@@ -1,0 +1,20 @@
+venv/
+venv_new/
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+# dist/ intentionally NOT excluded — frontend/dist/ must be committed for VPS deploy
+*.spec
+data/
+vkatos.db
+*.db
+*.log
+logs/
+*.pem
+node_modules/
+.DS_Store
+# frontend/dist/ is intentionally kept for VPS deploy (no npm on server)
