@@ -49,6 +49,19 @@ class TestProviderRequest(BaseModel):
     provider: str
 
 
+# ── Active provider route ─────────────────────────────────────────────────────
+
+@router.get("/settings/active-provider")
+async def get_active_provider(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return the currently active LLM provider — called by the New Project page."""
+    return {
+        "provider": os.environ.get("PRIMARY_LLM", "anthropic"),
+        "status": "active",
+    }
+
+
 # ── Model routes ──────────────────────────────────────────────────────────────
 
 @router.get("/settings/models")
