@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Client Portal Login — VKatOS</title>
+<title>Client Portal — VKatOS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -23,18 +23,20 @@
   --font-mono: 'DM Mono', monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
 body {
   background: var(--navy);
   color: var(--white);
   font-family: var(--font-body);
+  min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  padding: 2rem;
   cursor: none;
 }
 
-/* ── CUSTOM CURSOR ── */
 .cursor {
   width: 10px; height: 10px;
   background: var(--accent);
@@ -53,66 +55,111 @@ body {
   z-index: 9998;
   transition: transform 0.08s ease;
 }
+a, button { cursor: none; }
 
-.login-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  padding: 3rem;
-  width: 100%;
-  max-width: 400px;
-  border-radius: 4px;
-  text-align: center;
-}
 .logo {
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   font-weight: 800;
-  margin-bottom: 2rem;
-  display: block;
-  text-decoration: none;
   color: var(--white);
+  text-decoration: none;
+  margin-bottom: 3rem;
+  display: block;
+  text-align: center;
 }
 .logo span { color: var(--accent); }
 
-h1 { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 2rem; }
-
-.form-group { text-align: left; margin-bottom: 1.5rem; }
-label { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.5rem; display: block; }
-input {
-  width: 100%;
-  background: var(--navy);
-  border: 1px solid var(--border);
-  padding: 0.85rem;
-  color: var(--white);
-  font-family: var(--font-body);
-  border-radius: 2px;
-}
-input:focus { outline: none; border-color: var(--accent); }
-
-.btn-signin {
-  width: 100%;
-  background: var(--accent);
-  color: var(--navy);
-  border: none;
-  padding: 1rem;
+h1 {
   font-family: var(--font-display);
+  font-size: 1.75rem;
   font-weight: 700;
-  border-radius: 2px;
-  cursor: none;
-  margin-top: 1rem;
-  transition: background 0.2s;
+  margin-bottom: 0.5rem;
+  text-align: center;
 }
-.btn-signin:hover { background: var(--accent2); }
+.sub {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-bottom: 3rem;
+  text-align: center;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
-.links { margin-top: 2rem; font-size: 0.85rem; }
-.links a { color: var(--accent); text-decoration: none; display: block; margin-bottom: 0.5rem; }
-.links a:hover { text-decoration: underline; }
+.portal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 700px;
+}
 
-.note { font-size: 0.75rem; color: var(--muted); margin-top: 3rem; line-height: 1.5; }
+.portal-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2.5rem 2rem;
+  text-decoration: none;
+  color: var(--white);
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.portal-card:hover {
+  border-color: var(--accent);
+  background: rgba(0,194,212,0.04);
+  transform: translateY(-2px);
+}
 
-@media (max-width: 768px) {
-  body { padding: 20px; }
-  .login-card { padding: 2rem 20px; }
+.card-tag {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.card-tag.sale { color: #FFB547; }
+
+.card-name {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.card-desc {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.card-action {
+  margin-top: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.card-action svg { width: 14px; height: 14px; }
+
+.note {
+  margin-top: 3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.note a { color: var(--accent); text-decoration: none; }
+.note a:hover { text-decoration: underline; }
+
+@media (max-width: 600px) {
+  .portal-grid { grid-template-columns: 1fr; }
+  h1 { font-size: 1.4rem; }
 }
 </style>
 </head>
@@ -121,32 +168,40 @@ input:focus { outline: none; border-color: var(--accent); }
 <div class="cursor" id="cursor"></div>
 <div class="cursor-ring" id="cursorRing"></div>
 
-<div class="login-card">
-  <a href="/" class="logo">⚡ VK<span>at</span>OS</a>
-  <h1>Client Portal</h1>
-  
-  <form onsubmit="event.preventDefault(); document.getElementById('status').innerText = 'Access request pending...';">
-    <div class="form-group">
-      <label>Email Address</label>
-      <input type="email" placeholder="name@company.com" required/>
-    </div>
-    <div class="form-group">
-      <label>Password</label>
-      <input type="password" placeholder="••••••••" required/>
-    </div>
-    <button type="submit" class="btn-signin">Sign In</button>
-    <div id="status" style="margin-top: 1rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent);"></div>
-  </form>
+<a href="/" class="logo">⚡ VK<span>at</span>OS</a>
 
-  <div class="links">
-    <a href="mailto:velan@vkatos.com">Request Access</a>
-    <a href="mailto:velan@vkatos.com?subject=Forgot%20Password">Forgot password? Contact support</a>
-  </div>
+<h1>Client Portal</h1>
+<p class="sub">Select your product to continue</p>
 
-  <div class="note">
-    Portal access is provisioned per contract.<br>
-    Contact velan@vkatos.com to request access for your organization.
-  </div>
+<div class="portal-grid">
+  <a href="https://app.vkatos.com" class="portal-card">
+    <div class="card-tag">Live · AI App Factory</div>
+    <div class="card-name">AetherOS</div>
+    <div class="card-desc">21-phase AI pipeline. From spec to full-stack app in 30 minutes. 581 tests passing.</div>
+    <div class="card-action">
+      Login to AetherOS
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3 8h10M9 4l4 4-4 4"/>
+      </svg>
+    </div>
+  </a>
+
+  <a href="https://dcsp.vkatos.com" class="portal-card">
+    <div class="card-tag sale">For Sale · DevOps SaaS</div>
+    <div class="card-name">DCSP</div>
+    <div class="card-desc">Self-healing CI/CD pipeline. Auto-detects, patches, and resolves build failures.</div>
+    <div class="card-action">
+      Login to DCSP
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3 8h10M9 4l4 4-4 4"/>
+      </svg>
+    </div>
+  </a>
+</div>
+
+<div class="note">
+  No account? <a href="mailto:velan@vkatos.com">Request access</a> &nbsp;·&nbsp;
+  <a href="mailto:velan@vkatos.com?subject=Support">Support</a>
 </div>
 
 <script>
