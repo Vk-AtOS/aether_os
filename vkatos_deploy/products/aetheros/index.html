@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>AetherOS — AI App Factory | VKatOS</title>
-<meta name="description" content="Describe an app. AetherOS builds it — full-stack, production-ready, deployed. 21-phase AI pipeline. React + FastAPI + PostgreSQL. Zero boilerplate."/>
+<meta name="description" content="From spec to running full-stack application in 30 minutes. 21-phase AI pipeline. 581 tests passing. Live demo available."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -36,6 +36,8 @@ body {
   overflow-x: hidden;
   cursor: none;
 }
+
+/* ── CUSTOM CURSOR ── */
 .cursor {
   width: 10px; height: 10px;
   background: var(--accent);
@@ -56,6 +58,8 @@ body {
   transition: transform 0.08s ease, width 0.2s, height 0.2s, opacity 0.2s;
 }
 a, button { cursor: none; }
+
+/* ── NAV ── */
 nav {
   position: fixed; top: 0; left: 0; right: 0;
   z-index: 100;
@@ -67,329 +71,452 @@ nav {
 }
 .nav-logo {
   font-family: var(--font-display);
-  font-size: 1.4rem; font-weight: 800;
-  color: var(--white); text-decoration: none;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--white);
+  text-decoration: none;
 }
 .nav-logo span { color: var(--accent); }
 .nav-links { display: flex; gap: 2rem; list-style: none; align-items: center; }
 .nav-links a {
-  font-size: 0.85rem; font-weight: 400;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 400;
   color: rgba(240,244,255,0.55);
-  text-decoration: none; letter-spacing: 0.05em;
-  text-transform: uppercase; transition: color 0.2s;
+  text-decoration: none;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color 0.2s;
 }
 .nav-links a:hover { color: var(--white); }
+
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  z-index: 101;
+}
+.hamburger span {
+  display: block;
+  width: 25px;
+  height: 2px;
+  background: var(--white);
+  transition: 0.3s;
+}
+
 .nav-right { display: flex; align-items: center; gap: 1.5rem; }
+.btn-login {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: rgba(240,244,255,0.55);
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.btn-login:hover { color: var(--white); }
 .btn-demo {
-  background: var(--accent); color: var(--navy);
-  padding: 0.5rem 1.25rem; border-radius: 2px;
-  font-weight: 700; font-size: 0.8rem;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  text-decoration: none; transition: background 0.2s;
+  background: var(--accent);
+  color: var(--navy);
+  padding: 0.5rem 1.25rem;
+  border-radius: 2px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  transition: background 0.2s;
 }
 .btn-demo:hover { background: var(--accent2); }
 
-/* HERO */
+/* ── PRODUCT HERO ── */
 .product-hero {
   padding: 10rem 4rem 4rem;
-  text-align: center; position: relative;
+  text-align: center;
+  position: relative;
 }
 .hero-badge-row { display: flex; justify-content: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
 .badge {
   background: rgba(0,194,212,0.08);
   border: 1px solid rgba(0,194,212,0.2);
-  padding: 0.35rem 0.9rem; border-radius: 2px;
-  font-family: var(--font-mono); font-size: 0.72rem;
-  color: var(--accent); letter-spacing: 0.1em;
+  padding: 0.35rem 0.9rem;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  letter-spacing: 0.1em;
 }
 .badge.green { color: var(--green); border-color: rgba(0,214,143,0.2); background: rgba(0,214,143,0.08); }
-h1 { font-family: var(--font-display); font-size: clamp(2.5rem,5vw,4rem); font-weight: 800; margin-bottom: 1rem; }
+h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 800; margin-bottom: 1rem; }
 .hero-sub { font-size: 1.15rem; color: var(--muted); max-width: 600px; margin: 0 auto 3rem; }
 
-/* FEATURES */
+/* ── FEATURES ── */
 .features-section { padding: 6rem 4rem; }
 .features-grid {
-  display: grid; grid-template-columns: repeat(3,1fr);
-  gap: 2rem; max-width: 1200px; margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 .feature-card {
-  background: var(--card); border: 1px solid var(--border);
-  padding: 3rem; border-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 3rem;
+  border-radius: 4px;
 }
 .feature-card h3 { font-family: var(--font-display); font-size: 1.25rem; margin-bottom: 1rem; }
 .feature-card p { font-size: 0.9rem; color: var(--muted); }
 
-/* PIPELINE */
-.pipeline-section { padding: 8rem 4rem; background: var(--navy2); }
-.pipeline-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 1rem; max-width: 1200px; margin: 3rem auto 0;
+/* ── HOW IT WORKS ── */
+.how-it-works { padding: 8rem 4rem; background: var(--navy2); }
+.steps-container { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 4rem; }
+.step { display: flex; gap: 3rem; align-items: flex-start; }
+.step-num {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+  opacity: 0.3;
 }
-.phase-card {
-  background: var(--card); border: 1px solid var(--border);
-  padding: 1.5rem; border-radius: 4px;
-  display: flex; align-items: flex-start; gap: 1rem;
-}
-.phase-num {
-  font-family: var(--font-mono); font-size: 0.75rem;
-  color: var(--accent); min-width: 2rem;
-}
-.phase-card h4 { font-size: 0.9rem; font-weight: 500; margin-bottom: 0.25rem; }
-.phase-card p { font-size: 0.8rem; color: var(--muted); }
+.step-content h4 { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 0.5rem; }
+.step-content p { color: var(--muted); }
 
-/* CODE BLOCK */
-.code-section { padding: 6rem 4rem; text-align: center; }
-.code-wrap {
-  max-width: 800px; margin: 3rem auto;
-  background: #0a0f1e; border: 1px solid var(--border);
-  border-radius: 4px; overflow: hidden;
+/* ── TECH SPECS ── */
+.specs-section { padding: 8rem 4rem; }
+.specs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4rem;
+  max-width: 1000px;
+  margin: 0 auto;
 }
-.code-header {
-  display: flex; align-items: center; gap: 0.5rem;
-  padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border);
-  background: rgba(255,255,255,0.02);
+.specs-list { list-style: none; }
+.specs-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
 }
-.code-dot { width: 10px; height: 10px; border-radius: 50%; }
-.code-dot.r { background: #ff5f57; }
-.code-dot.y { background: #febc2e; }
-.code-dot.g { background: #28c840; }
-.code-label { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); margin-left: auto; }
-pre { text-align: left; padding: 2rem; overflow-x: auto; }
-code { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.8; color: var(--white); }
-.c-green { color: var(--green); }
-.c-accent { color: var(--accent); }
-.c-muted { color: var(--muted); }
+.spec-label { color: var(--muted); font-family: var(--font-mono); }
+.spec-value { color: var(--white); font-weight: 500; }
 
-/* SECTION HEADERS */
-.section-label {
-  font-family: var(--font-mono); font-size: 0.72rem;
-  color: var(--accent); letter-spacing: 0.15em;
-  text-transform: uppercase; margin-bottom: 1.5rem;
-}
-.section-title {
-  font-family: var(--font-display); font-size: clamp(1.8rem,3vw,2.5rem);
-  font-weight: 800; margin-bottom: 1.5rem;
-}
-.section-title em { color: var(--accent); font-style: normal; }
+/* ── CODE ── */
+pre { background: #050a14; padding: 2rem; border-radius: 4px; overflow-x: auto; border: 1px solid var(--border); }
+code { font-family: var(--font-mono); font-size: 0.9rem; color: var(--accent2); }
 
-/* STACK */
-.stack-section { padding: 6rem 4rem; }
-.stack-row {
-  display: flex; flex-wrap: wrap; gap: 1rem;
-  max-width: 900px; margin: 2rem auto 0;
-}
-.stack-pill {
-  background: var(--card); border: 1px solid var(--border);
-  padding: 0.6rem 1.25rem; border-radius: 2px;
-  font-family: var(--font-mono); font-size: 0.8rem;
-  color: var(--white);
-}
-
-/* CTA */
-.cta-section {
-  padding: 8rem 4rem; text-align: center;
-  background: var(--navy2);
-}
-.cta-btns { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; margin-top: 2.5rem; }
-.btn-primary {
-  background: var(--accent); color: var(--navy);
-  padding: 1rem 2.5rem; border-radius: 2px;
-  font-weight: 700; font-size: 0.9rem;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  text-decoration: none; transition: background 0.2s;
-}
-.btn-primary:hover { background: var(--accent2); }
-.btn-ghost {
-  border: 1px solid var(--border); color: var(--white);
-  padding: 1rem 2.5rem; border-radius: 2px;
-  font-size: 0.9rem; text-transform: uppercase;
-  letter-spacing: 0.08em; text-decoration: none;
-  transition: border-color 0.2s;
-}
-.btn-ghost:hover { border-color: var(--accent); }
-
-/* FOOTER */
+/* ── FOOTER ── */
 footer {
-  padding: 3rem 4rem; border-top: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+  border-top: 1px solid var(--border);
+  padding: 5rem 4rem 2rem;
+  background: var(--navy);
 }
-footer nav ul { display: flex; gap: 2rem; list-style: none; }
-footer nav a { font-size: 0.8rem; color: var(--muted); text-decoration: none; text-transform: uppercase; letter-spacing: 0.05em; }
-footer nav a:hover { color: var(--white); }
-.footer-copy { font-size: 0.75rem; color: var(--muted); }
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4rem;
+  margin-bottom: 4rem;
+}
+.footer-logo {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--white);
+  text-decoration: none;
+  margin-bottom: 1rem;
+  display: block;
+}
+.footer-logo span { color: var(--accent); }
+.footer-col h4 {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--white);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+}
+.footer-col ul { list-style: none; }
+.footer-col ul li { margin-bottom: 0.75rem; }
+.footer-col ul li a {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-col ul li a:hover { color: var(--accent); }
+.footer-bottom {
+  border-top: 1px solid var(--border);
+  padding-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-copy { font-size: 0.78rem; color: var(--muted); }
 
+/* ── ANIMATIONS ── */
+.reveal {
+  opacity: 0; transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+@media (max-width: 1024px) {
+  .features-grid, .specs-grid { grid-template-columns: 1fr; }
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 768px) {
-  nav { padding: 1.25rem 1.5rem; }
-  .nav-links { display: none; }
-  .product-hero, .features-section, .pipeline-section, .code-section, .stack-section, .cta-section { padding-left: 1.5rem; padding-right: 1.5rem; }
-  .features-grid { grid-template-columns: 1fr; }
-  footer { padding: 2rem 1.5rem; }
+  nav { padding: 1rem 20px; }
+  .hamburger { display: flex; }
+  .nav-links {
+    position: fixed;
+    top: 0; right: -100%;
+    width: 100%; height: 100vh;
+    background: var(--navy);
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    transition: 0.4s;
+    z-index: 100;
+    gap: 2rem;
+  }
+  .nav-links.active { right: 0; }
+  .nav-right { display: none; }
+
+  .product-hero, .features-section, .how-it-works, .specs-section, footer { padding: 4rem 20px; }
+  .product-hero h1 { font-size: 2.5rem; }
+
+  .step { flex-direction: column; gap: 1rem; }
+  .footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .footer-bottom { flex-direction: column; gap: 1rem; text-align: center; }
 }
 </style>
 </head>
 <body>
+
 <div class="cursor" id="cursor"></div>
 <div class="cursor-ring" id="cursorRing"></div>
-
+<!-- NAV -->
 <nav>
-  <a href="/" class="nav-logo">VK<span>atOS</span></a>
+  <a href="/" class="nav-logo">⚡ VK<span>at</span>OS</a>
+  <div class="hamburger" id="hamburger">
+    <span></span><span></span><span></span>
+  </div>
   <ul class="nav-links">
-    <li><a href="/">Platform</a></li>
-    <li><a href="/products/aetheros">AetherOS</a></li>
-    <li><a href="/products/dcsp">DCSP</a></li>
-    <li><a href="/products/aether2">Aether2</a></li>
+    <li><a href="/#products">Products</a></li>
+    <li><a href="/#solutions">Solutions</a></li>
+    <li><a href="/pricing">Pricing</a></li>
+    <li><a href="/about">About</a></li>
+    <li><a href="/blog">Blog</a></li>
+    <li><a href="/contact">Contact</a></li>
   </ul>
   <div class="nav-right">
-    <a href="https://app.aetheros.ai" class="btn-demo">Try AetherOS</a>
+    <a href="/login" class="btn-login">Client Login</a>
+    <a href="https://app.aetheros.ai" class="btn-demo">Try Live Demo</a>
   </div>
 </nav>
 
-<section class="product-hero">
+<section class="product-hero reveal">
   <div class="hero-badge-row">
-    <span class="badge">21-PHASE AI PIPELINE</span>
-    <span class="badge">REACT + FASTAPI + POSTGRESQL</span>
-    <span class="badge green">PRODUCTION LIVE</span>
+    <span class="badge green">581 TESTS PASSING</span>
+    <span class="badge">21-PHASE PIPELINE</span>
+    <span class="badge">LIVE DEMO</span>
+    <span class="badge">FULL STACK</span>
+    <span class="badge">PRODUCTION READY</span>
   </div>
-  <h1>AetherOS — <em style="color:var(--accent)">AI</em><br>App Factory</h1>
-  <p class="hero-sub">Describe an app in plain language. AetherOS designs, codes, tests, and deploys it — full-stack, production-ready, in under 10 minutes. No boilerplate. No DevOps. Just working software.</p>
-  <div style="display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap;">
-    <a href="https://app.aetheros.ai" class="btn-primary">Launch the Factory →</a>
-    <a href="https://139.59.87.218" class="btn-ghost">Live Demo</a>
-  </div>
+  <h1>AetherOS — AI App Factory</h1>
+  <p class="hero-sub">From spec to running full-stack application in 30 minutes. Zero code written by hand.</p>
+  <a href="https://app.aetheros.ai" class="btn-demo" style="display:inline-block; padding: 1rem 3.5rem;">Try the Live Demo</a>
 </section>
 
-<section class="features-section">
-  <div style="text-align:center;margin-bottom:4rem;">
-    <p class="section-label">What AetherOS Does</p>
-    <h2 class="section-title">Describe it once.<br><em>Run it forever.</em></h2>
-  </div>
+<section class="features-section reveal">
   <div class="features-grid">
     <div class="feature-card">
-      <h3>Spec → Code in Minutes</h3>
-      <p>Paste a plain-English spec. AetherOS runs a 21-phase AI pipeline: research, architecture, schema design, backend CRUD, React UI, tests, compliance, portal generation. One click — fully working app.</p>
+      <h3>21-Phase AI Pipeline</h3>
+      <p>Market research, architecture, schema design, backend CRUD, React frontend, testing, compliance, and deployment — every step fully automated by a chain of specialised AI agents.</p>
     </div>
     <div class="feature-card">
-      <h3>Multi-Language Output</h3>
-      <p>Generate Python/FastAPI backends, Go microservices, or Node.js APIs. React + Vite frontend with TanStack Router. PostgreSQL schemas with Alembic migrations. Docker Compose deployment included.</p>
+      <h3>Full-Stack Generation</h3>
+      <p>FastAPI + PostgreSQL backends. React 18 + Vite + TanStack frontends. Real CRUD, real auth, real APIs — not scaffolding. Running in a live container within 30 minutes.</p>
     </div>
     <div class="feature-card">
-      <h3>Self-Healing Pipeline</h3>
-      <p>Each phase validates its own output. Failed phases retry with context-aware repair. The pipeline resumes from the last known-good checkpoint — no manual intervention needed.</p>
-    </div>
-    <div class="feature-card">
-      <h3>LLM Routing</h3>
-      <p>Intelligently routes tasks across Anthropic Claude, AWS Bedrock (Claude, Mistral, Llama), and OpenRouter. Fallback chains ensure no phase fails due to API limits.</p>
-    </div>
-    <div class="feature-card">
-      <h3>Compliance + Security</h3>
-      <p>Every generated app ships with a DPDP/GDPR compliance manifest, Z3-verified auth invariants, SQL injection proofs, and an exportable compliance PDF for enterprise sign-off.</p>
-    </div>
-    <div class="feature-card">
-      <h3>Live App Preview</h3>
-      <p>Generated apps run in isolated sandboxes on the platform. Share a link — your stakeholder sees the working app in their browser, no install required, before you commit a single line of code.</p>
+      <h3>Council Review & Self-Healing</h3>
+      <p>A multi-agent quality council scores every generated application. Failed phases retry automatically. Every build ships with a compliance report and provenance bundle.</p>
     </div>
   </div>
 </section>
 
-<section class="pipeline-section">
-  <div style="text-align:center;">
-    <p class="section-label">The Pipeline</p>
-    <h2 class="section-title">21 phases.<br><em>Zero babysitting.</em></h2>
-    <p style="color:var(--muted);max-width:600px;margin:0 auto;">Every app goes through the same rigorous pipeline. Each phase validates and gates the next. The entire process runs autonomously — you watch it happen in real time.</p>
-  </div>
-  <div class="pipeline-grid">
-    <div class="phase-card"><span class="phase-num">P00</span><div><h4>Market Research</h4><p>Competitor landscape, pricing benchmarks, differentiation</p></div></div>
-    <div class="phase-card"><span class="phase-num">P01</span><div><h4>Requirements</h4><p>Spec expansion, user stories, acceptance criteria</p></div></div>
-    <div class="phase-card"><span class="phase-num">P02</span><div><h4>Architecture</h4><p>System design, API contracts, DB schema planning</p></div></div>
-    <div class="phase-card"><span class="phase-num">P03</span><div><h4>Database Schema</h4><p>SQL tables, indexes, Alembic migration files</p></div></div>
-    <div class="phase-card"><span class="phase-num">P04</span><div><h4>Backend — CRUD</h4><p>FastAPI/Go/Node.js endpoints with full validation</p></div></div>
-    <div class="phase-card"><span class="phase-num">P05</span><div><h4>Frontend</h4><p>React + Vite + TanStack Router, connected to backend</p></div></div>
-    <div class="phase-card"><span class="phase-num">P06</span><div><h4>Security</h4><p>Auth, RBAC, CORS, injection-safe SQL, rate limiting</p></div></div>
-    <div class="phase-card"><span class="phase-num">P07</span><div><h4>Testing</h4><p>Unit + integration tests, 581+ passing in CI</p></div></div>
-    <div class="phase-card"><span class="phase-num">P08</span><div><h4>Documentation</h4><p>API docs, README, deployment guide auto-generated</p></div></div>
-    <div class="phase-card"><span class="phase-num">P09</span><div><h4>Observability</h4><p>Prometheus metrics, structured logging, health checks</p></div></div>
-    <div class="phase-card"><span class="phase-num">P10</span><div><h4>Compliance</h4><p>DPDP/GDPR manifest, compliance PDF, data map</p></div></div>
-    <div class="phase-card"><span class="phase-num">P11+</span><div><h4>Deploy & Preview</h4><p>Docker Compose, live sandbox, shareable preview URL</p></div></div>
+<section class="how-it-works reveal">
+  <div class="steps-container">
+    <span class="section-label" style="text-align: center; margin-bottom: 4rem; display: block; font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase;">// how it works</span>
+
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-content">
+        <h4>Describe Your App</h4>
+        <p>Write a plain-language spec: your business domain, entities, workflows, and compliance requirements. AetherOS handles every technical decision from there.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-content">
+        <h4>Pipeline Runs Autonomously</h4>
+        <p>21 AI phases execute in sequence — market research, architecture, data modelling, backend codegen, frontend build, integration, testing, and deployment. You watch a live progress feed.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-content">
+        <h4>Quality Council Approves</h4>
+        <p>Independent AI reviewers score security, code quality, UI completeness, and compliance. Anything below threshold triggers an automatic retry cycle — not a manual fix.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">04</div>
+      <div class="step-content">
+        <h4>App Goes Live</h4>
+        <p>Receive a running URL, full source code export, compliance manifest, and provenance bundle — ready for review, handoff, or immediate use.</p>
+      </div>
+    </div>
   </div>
 </section>
 
-<section class="code-section">
-  <p class="section-label">API</p>
-  <h2 class="section-title">One API call.<br><em>Full-stack app delivered.</em></h2>
-  <div class="code-wrap">
-    <div class="code-header">
-      <span class="code-dot r"></span>
-      <span class="code-dot y"></span>
-      <span class="code-dot g"></span>
-      <span class="code-label">factory_pipeline.py</span>
+<section class="specs-section reveal">
+  <div class="specs-grid">
+    <div>
+      <h3 style="font-family: var(--font-display); font-size: 2rem; margin-bottom: 2rem;">Technical Specs</h3>
+      <ul class="specs-list">
+        <li><span class="spec-label">Tests Passing</span> <span class="spec-value">581 / 581</span></li>
+        <li><span class="spec-label">Pipeline Phases</span> <span class="spec-value">21 autonomous agents</span></li>
+        <li><span class="spec-label">Generation Time</span> <span class="spec-value">25 – 45 minutes</span></li>
+        <li><span class="spec-label">Backend Stack</span> <span class="spec-value">FastAPI + PostgreSQL</span></li>
+        <li><span class="spec-label">Frontend Stack</span> <span class="spec-value">React 18 + Vite + TanStack</span></li>
+        <li><span class="spec-label">Languages</span> <span class="spec-value">Python, TypeScript, Go (beta)</span></li>
+      </ul>
     </div>
-    <pre><code><span class="c-muted"># Trigger a full app build via the AetherOS API</span>
-<span class="c-accent">POST</span> /api/v1/factory/runs
-
+    <div>
+      <h3 style="font-family: var(--font-display); font-size: 2rem; margin-bottom: 2rem;">Integration</h3>
+      <div style="margin: 0; padding: 0;">
+        <pre><code># AetherOS API — kick off a run
+POST /v1/factory/runs
 {
-  <span class="c-green">"spec"</span>: <span class="c-accent">"A CRM for a 20-person sales team. Track leads,
-          deals, contacts. Email integration. Reports."</span>,
-  <span class="c-green">"stack"</span>: <span class="c-accent">"python"</span>,         <span class="c-muted">// python | go | node</span>
-  <span class="c-green">"autonomous_mode"</span>: <span class="c-accent">true</span>  <span class="c-muted">// runs all 21 phases unattended</span>
+  "spec": "Build a recruitment CRM with
+           candidate tracking, pipeline
+           stages, and offer letter gen",
+  "stack": "python",
+  "autonomous_mode": true
 }
 
-<span class="c-muted">→ Returns run_id, streams phase progress via SSE
-→ Final output: ZIP with working app + Docker Compose
-→ Live preview URL: /app-preview/{run_id}/</span></code></pre>
+# Returns run_id — stream 21-phase
+# progress via SSE, preview at
+# /app-preview/{run_id}/</code></pre>
+      </div>
+      <p style="margin-top: 2rem; color: var(--muted); font-size: 0.9rem;">
+        AetherOS integrates with <strong>DCSP</strong> for stall detection across generated pipelines and <strong>Aether2</strong> for multi-step orchestration.
+      </p>
+    </div>
   </div>
 </section>
 
-<section class="stack-section" style="text-align:center;">
-  <p class="section-label">Tech Stack</p>
-  <h2 class="section-title">Built on<br><em>production infrastructure.</em></h2>
-  <div class="stack-row" style="justify-content:center;">
-    <span class="stack-pill">Python / FastAPI</span>
-    <span class="stack-pill">React + Vite</span>
-    <span class="stack-pill">PostgreSQL</span>
-    <span class="stack-pill">Redis</span>
-    <span class="stack-pill">Docker Compose</span>
-    <span class="stack-pill">Anthropic Claude</span>
-    <span class="stack-pill">AWS Bedrock</span>
-    <span class="stack-pill">OpenRouter</span>
-    <span class="stack-pill">Nginx</span>
-    <span class="stack-pill">Alembic</span>
-    <span class="stack-pill">TanStack Router</span>
-    <span class="stack-pill">Z3 Prover</span>
-  </div>
-</section>
-
-<section class="cta-section">
-  <p class="section-label">Get Started</p>
-  <h2 class="section-title">Your first app.<br><em>Running in 10 minutes.</em></h2>
-  <p style="color:var(--muted);max-width:500px;margin:0 auto;">Live platform. Real apps. No waitlist. Sign in with your email and describe what you want to build.</p>
-  <div class="cta-btns">
-    <a href="https://app.aetheros.ai" class="btn-primary">Open AetherOS →</a>
-    <a href="mailto:velan@vkatos.com" class="btn-ghost">Contact for Demo</a>
-  </div>
+<section class="bottom-cta reveal" style="text-align: center; padding: 8rem 4rem;">
+  <h2 style="font-family: var(--font-display); font-size: 2.5rem; margin-bottom: 1rem;">Ship your first app today.</h2>
+  <p style="color: var(--muted); margin-bottom: 3rem;">The live demo is running now. Describe your app and watch it build.</p>
+  <a href="https://app.aetheros.ai" class="btn-demo" style="display:inline-block; padding: 1rem 3.5rem; margin-right: 1rem;">Try Live Demo</a>
+  <a href="/contact" class="btn-demo" style="display:inline-block; padding: 1rem 3.5rem; background: transparent; border: 1px solid var(--accent); color: var(--accent);">Request a Demo Call</a>
 </section>
 
 <footer>
-  <a href="/" class="nav-logo" style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--white);text-decoration:none;">VK<span style="color:var(--accent)">atOS</span></a>
-  <nav><ul>
-    <li><a href="/products/aetheros">AetherOS</a></li>
-    <li><a href="/products/dcsp">DCSP</a></li>
-    <li><a href="/products/aether2">Aether2</a></li>
-    <li><a href="/products/velaris">Velaris</a></li>
-  </ul></nav>
-  <p class="footer-copy">© 2026 VKatOS · Chennai, India · DPDP Compliant</p>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <a href="/" class="footer-logo">⚡ VK<span>at</span>OS</a>
+      <p style="font-size: 0.85rem; color: var(--muted); margin-top: 1rem;">Autonomous operating systems for the enterprise. Zero-PII, offline-first, production-ready.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Products</h4>
+      <ul>
+        <li><a href="/products/aetheros">AetherOS</a></li>
+        <li><a href="/products/dcsp">DCSP</a></li>
+        <li><a href="/products/aether2">Aether2</a></li>
+        <li><a href="/products/velaris">Velaris</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Solutions</h4>
+      <ul>
+        <li><a href="/solutions/hr">Enterprise HR</a></li>
+        <li><a href="/solutions/recruitment">Recruitment</a></li>
+        <li><a href="/solutions/education">Study Abroad</a></li>
+        <li><a href="/solutions/custom">Custom</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="/about">About</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/careers">Careers</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Connect</h4>
+      <ul>
+        <li><a href="https://github.com/Vk-AtOS">GitHub</a></li>
+        <li><a href="mailto:velan@vkatos.com">Email</a></li>
+        <li><a href="tel:+918056238628">+91 80562 38628</a></li>
+        <li><a href="#">Chennai, Tamil Nadu</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms" style="color:var(--muted); text-decoration:none;">Terms</a></div>
+  </div>
 </footer>
 
+<script src="/nav.js"></script>
 <script>
+// Custom cursor
 const cursor = document.getElementById('cursor');
 const ring = document.getElementById('cursorRing');
 let mx = 0, my = 0, rx = 0, ry = 0;
-document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; cursor.style.transform = `translate(${mx-5}px,${my-5}px)`; });
-function animRing() { rx += (mx-rx)*0.12; ry += (my-ry)*0.12; ring.style.transform = `translate(${rx-18}px,${ry-18}px)`; requestAnimationFrame(animRing); }
-animRing();
-document.querySelectorAll('a,button').forEach(el => {
-  el.addEventListener('mouseenter', () => { ring.style.width='60px'; ring.style.height='60px'; ring.style.opacity='0.5'; });
-  el.addEventListener('mouseleave', () => { ring.style.width='36px'; ring.style.height='36px'; ring.style.opacity='1'; });
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cursor.style.transform = `translate(${mx-5}px, ${my-5}px)`;
 });
+function animateRing() {
+  rx += (mx - rx) * 0.12;
+  ry += (my - ry) * 0.12;
+  ring.style.transform = `translate(${rx-18}px, ${ry-18}px)`;
+  requestAnimationFrame(animateRing);
+}
+animateRing();
+document.querySelectorAll('a, button').forEach(el => {
+  el.addEventListener('mouseenter', () => {
+    cursor.style.transform += ' scale(1.8)';
+    ring.style.width = '50px'; ring.style.height = '50px';
+    ring.style.borderColor = 'rgba(0,194,212,0.6)';
+  });
+  el.addEventListener('mouseleave', () => {
+    ring.style.width = '36px'; ring.style.height = '36px';
+    ring.style.borderColor = 'rgba(0,194,212,0.4)';
+  });
+});
+
+// Scroll reveal
+const reveals = document.querySelectorAll('.reveal');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      setTimeout(() => entry.target.classList.add('visible'), i * 80);
+    }
+  });
+}, { threshold: 0.1 });
+reveals.forEach(el => observer.observe(el));
 </script>
 </body>
 </html>
