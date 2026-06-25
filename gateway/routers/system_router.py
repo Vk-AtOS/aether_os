@@ -83,6 +83,12 @@ async def system_metrics() -> Dict[str, Any]:
     return result
 
 
+@router.get("/system/status")
+async def system_status() -> Dict[str, Any]:
+    """Minimal liveness probe — called by the frontend on every page load."""
+    return {"status": "ok", "service": "aetheros-factory", "version": "1.0"}
+
+
 @router.get("/system/health")
 async def system_health(
     user: Dict[str, Any] = _current_user(),
