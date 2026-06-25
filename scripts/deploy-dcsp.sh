@@ -38,11 +38,19 @@ else
   echo "[3/5] DCSP_LICENSE_BYPASS already set."
 fi
 
-# 4. Build and restart via docker-compose
+# 4. Build and restart — support both docker compose (v2 plugin) and docker-compose (v1)
 echo "[4/5] Building and restarting DCSP containers..."
 cd "$DCSP_DIR"
-docker compose pull --quiet || true
-docker compose up -d --build
+if command -v docker-compose &>/dev/null; then
+  DC="docker-compose"
+elif docker compose version &>/dev/null 2>&1; then
+  DC="docker compose"
+else
+  echo "ERROR: neither docker-compose nor docker compose found. Install with: apt-get install -y docker-compose"
+  exit 1
+fi
+$DC pull 2>/dev/null || true
+$DC up -d --build
 
 # 5. Wait and health check
 echo "[5/5] Waiting 15s for startup..."
@@ -51,7 +59,7 @@ if curl -fs http://localhost:8001/health > /dev/null 2>&1; then
   echo "  DCSP: OK (port 8001)"
 else
   echo "  DCSP: /health not responding — check logs:"
-  docker compose logs --tail=30 app
+  $DC logs --tail=30 app
 fi
 
 echo "=== DCSP Deploy complete ==="
