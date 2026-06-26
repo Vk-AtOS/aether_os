@@ -9,15 +9,32 @@ import json
 import logging
 import re
 import textwrap
-from typing import Tuple
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+# ── Multi-tenancy prompt snippet (injected when multi_tenancy=True) ───────────
+
+_MULTI_TENANCY_PROMPT = """\
+IMPORTANT — MULTI-TENANCY REQUIRED:
+Every entity model MUST have this column:
+    org_id = Column(String(36), nullable=False, index=True)
+
+Every list endpoint MUST filter by org_id:
+    .where(Model.org_id == current_user["org_id"])
+
+Every create endpoint MUST set org_id from the current user:
+    obj = Model(**data.model_dump(), org_id=current_user["org_id"])
+
+The current_user dict has an "org_id" key. Use it. Never return records from other orgs.
+"""
 
 # ── LLM generation functions ───────────────────────────────────────────────────
 
 async def _llm_models_and_schemas(
     llm, project_name: str, domain: str, entities: list, raw_input: str, arch_doc: dict,
-    mem_hint: str = "",
+    mem_hint: str = "", multi_tenancy: bool = False,
 ) -> Tuple[str, str]:
     """One LLM call → (models.py, schemas.py)."""
     entities_json = json.dumps(entities[:12], indent=2)
@@ -31,10 +48,14 @@ async def _llm_models_and_schemas(
     except Exception as exc:
         logger.debug("p04a crud_generator: golden examples retrieval failed (non-fatal): %s", exc)
 
+    # Conditionally inject multi-tenancy instructions
+    tenancy_block = _MULTI_TENANCY_PROMPT if multi_tenancy else ""
+
     prompt = f"""\
 You are a senior backend engineer. Generate SQLAlchemy async ORM models and Pydantic v2 schemas \
 for a {domain} application called "{project_name}".
 {golden_hint}
+{tenancy_block}
 
 Project requirements:
 {raw_input[:3000]}
@@ -113,7 +134,7 @@ Return VALID JSON only (no markdown):
 
 async def _llm_crud_routers(
     llm, project_name: str, entities: list, models_code: str, schemas_code: str,
-    mem_hint: str = "",
+    mem_hint: str = "", multi_tenancy: bool = False,
 ) -> str:
     """One LLM call → routers/crud.py with all entity CRUD routers."""
     entity_names = [e.get("name", e.get("table", "")) for e in entities[:12]]
@@ -131,9 +152,13 @@ async def _llm_crud_routers(
     models_ctx = models_code[:5000] + ("\n# ... (truncated)" if len(models_code) > 5000 else "")
     schemas_ctx = schemas_code[:5000] + ("\n# ... (truncated)" if len(schemas_code) > 5000 else "")
 
+    # Conditionally inject multi-tenancy filtering instructions into CRUD prompt
+    tenancy_block = _MULTI_TENANCY_PROMPT if multi_tenancy else ""
+
     prompt = (
         f'Generate production-quality FastAPI async CRUD routers for "{project_name}".\n'
         + mem_hint + "\n"
+        + tenancy_block + "\n"
         + """
 REQUIRED pagination rules (no exceptions):
 - Every GET list endpoint MUST accept query params: skip: int = 0, limit: int = Query(default=20, le=100)
@@ -295,8 +320,12 @@ Return ONLY the complete Python file. No markdown.
 
 # ── Fallback generators (no LLM) ──────────────────────────────────────────────
 
-def _fallback_crud_routers(entities: list) -> str:
-    """Fallback CRUD using ORM (no raw SQL — no injection vectors)."""
+def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
+    """Fallback CRUD using ORM (no raw SQL — no injection vectors).
+
+    When multi_tenancy=True, every list query filters by org_id and every create
+    endpoint stamps org_id from the calling user's JWT claims.
+    """
     # Ensure we always have at least one entity so the schemas import line
     # is never produced with an empty trailing module list (SyntaxError).
     safe_entities = entities[:8] if entities else [{"name": "Item", "table": "items"}]
@@ -322,6 +351,17 @@ def _fallback_crud_routers(entities: list) -> str:
         table = ent.get("table", name.lower() + "s")
         var = f"{table}_router"
         router_vars.append(var)
+
+        # Multi-tenancy filter clause (injected into list and get queries)
+        mt_list_filter = (
+            f".where(models.{name}.org_id == current_user['org_id'])"
+            if multi_tenancy else ""
+        )
+        mt_create_kwarg = (
+            f", org_id=current_user['org_id']"
+            if multi_tenancy else ""
+        )
+
         lines += [
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
@@ -333,15 +373,15 @@ def _fallback_crud_routers(entities: list) -> str:
             f"    current_user: dict = Depends(get_current_user),",
             f"):",
             f"    offset = (page - 1) * limit",
-            f"    total_q = await db.execute(select(func.count()).select_from(models.{name}))",
+            f"    total_q = await db.execute(select(func.count()).select_from(models.{name}){mt_list_filter})",
             f"    total = total_q.scalar_one()",
-            f"    result = await db.execute(select(models.{name}).offset(offset).limit(limit))",
+            f"    result = await db.execute(select(models.{name}){mt_list_filter}.offset(offset).limit(limit))",
             f"    items = result.scalars().all()",
             f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
             "",
             f"@{var}.post('/', status_code=201, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    obj = models.{name}(**data.model_dump(exclude_unset=True))",
+            f"    obj = models.{name}(**data.model_dump(exclude_unset=True){mt_create_kwarg})",
             f"    db.add(obj)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
@@ -349,7 +389,7 @@ def _fallback_crud_routers(entities: list) -> str:
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{', models.' + name + '.org_id == current_user[\"org_id\"]' if multi_tenancy else ''}))",
             f"    obj = result.scalar_one_or_none()",
             f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
@@ -357,7 +397,7 @@ def _fallback_crud_routers(entities: list) -> str:
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
             f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{', models.' + name + '.org_id == current_user[\"org_id\"]' if multi_tenancy else ''}))",
             f"    obj = result.scalar_one_or_none()",
             f"    if not obj:",
             f"        raise HTTPException(status_code=404, detail='{name} not found')",
@@ -384,8 +424,53 @@ def _fallback_crud_routers(entities: list) -> str:
     return "\n".join(lines)
 
 
-def _fallback_seed(project_name: str, entities: list) -> str:
-    return textwrap.dedent("""\
+def _fallback_seed(
+    project_name: str,
+    entities: list,
+    seed_vocabulary: Dict[str, List[str]] | None = None,
+    domain: str = "general",
+) -> str:
+    """Generate a minimal seed.py that creates an admin user.
+
+    When seed_vocabulary contains domain-specific terms and entities has records,
+    those terms are used to produce more realistic seed record names rather than the
+    generic 'Alpha/Beta/Gamma' fallbacks.
+    """
+    vocab = seed_vocabulary or {}
+    prefix = project_name  # used to prefix seed record titles for traceability
+
+    # Build a small sample of domain-specific records for each entity when vocabulary exists
+    entity_blocks = []
+    safe_entities = entities[:8] if entities else []
+    for ent in safe_entities:
+        name = ent.get("name", "Item")
+        table = ent.get("table", name.lower() + "s")
+        # Use vocab list for this entity if available, else generic names
+        vocab_list = vocab.get(name, vocab.get(name.lower(), vocab.get(domain, [])))
+        if vocab_list:
+            sample_names = [repr(f"{prefix} {v}") for v in vocab_list[:5]]
+        else:
+            sample_names = [repr(f"{prefix} {name} {i + 1}") for i in range(5)]
+        # Emit a simple name-field seed if entity has a 'name' field
+        fields = ent.get("fields", []) or []
+        has_name_field = any(
+            (f.get("name") if isinstance(f, dict) else f) == "name" for f in fields
+        )
+        if has_name_field and sample_names:
+            rows = "\n".join(
+                f"            {name}(name={n})," for n in sample_names
+            )
+            entity_blocks.append(
+                f"        try:\n"
+                f"            from models import {name}\n"
+                f"            db.add_all([\n{rows}\n            ])\n"
+                f"        except Exception as _e:\n"
+                f"            _logger.warning('Seed {name} failed (non-fatal): %s', _e)\n"
+            )
+
+    entity_seed_code = "\n".join(entity_blocks) if entity_blocks else "        pass  # no entity seed data"
+
+    return textwrap.dedent(f"""\
         from __future__ import annotations
         import os, logging
         from sqlalchemy import select, func
@@ -408,6 +493,8 @@ def _fallback_seed(project_name: str, entities: list) -> str:
                     is_active=True,
                 )
                 db.add(admin)
+                await db.flush()
+        {entity_seed_code}
                 await db.commit()
                 _logger.info("Seeded admin user: admin@example.com / %s", _ADMIN_PASSWORD)
     """)

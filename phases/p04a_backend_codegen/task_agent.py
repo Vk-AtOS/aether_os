@@ -69,6 +69,47 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
 logger = logging.getLogger(__name__)
 
 
+# ── SSE realtime router generator ─────────────────────────────────────────────
+
+def _generate_sse_router(features: List[str], project_name: str) -> str:
+    """Generate src/routers/realtime_router.py with a Server-Sent Events stream endpoint.
+
+    The generated router streams a JSON heartbeat every 5 seconds, scoped to the
+    calling user's org_id when present. The list of realtime_features is embedded
+    as a comment so developers can see what spec features drove generation.
+    """
+    features_comment = ", ".join(features) if features else "generic realtime stream"
+    return textwrap.dedent(f"""\
+        # Generated realtime SSE router for {project_name}
+        # Realtime features: {features_comment}
+        from __future__ import annotations
+        import asyncio
+        import json
+        import time
+        from fastapi import APIRouter, Depends
+        from fastapi.responses import StreamingResponse
+        from auth import get_current_user
+
+        realtime_router = APIRouter(prefix="/realtime", tags=["Realtime"])
+
+
+        @realtime_router.get("/stream")
+        async def event_stream(user: dict = Depends(get_current_user)):
+            \"\"\"Server-Sent Events stream scoped to the caller's org.\"\"\"
+            async def generate():
+                while True:
+                    payload = json.dumps({{
+                        "ts": time.time(),
+                        "org_id": user.get("org_id"),
+                        "user_id": user.get("id"),
+                    }})
+                    yield f"data: {{payload}}\\n\\n"
+                    await asyncio.sleep(5)
+
+            return StreamingResponse(generate(), media_type="text/event-stream")
+    """)
+
+
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
@@ -86,6 +127,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     domain: str = data.get("domain", "general")
     entities: list = data.get("entities", [])
     api_endpoints: list = data.get("api_endpoints", [])
+
+    # ── Accumulated context fields wired from upstream phases ────────────────
+    multi_tenancy: bool = bool(
+        data.get("multi_tenancy")
+        or (data.get("project_contract") or {}).get("multi_tenancy", False)
+    )
+    tenant_isolation_model: str = data.get("tenant_isolation_model", "org_id_filter")
+    realtime_features: list = data.get("realtime_features") or []
+    seed_vocabulary: dict = data.get("seed_vocabulary") or {}
+    user_personas: list = data.get("user_personas") or []
+    has_customer_portal: Optional[bool] = data.get("has_customer_portal")
+
+    if multi_tenancy:
+        logger.info("[p04a] multi-tenancy enabled (model=%s) — org_id will be injected into models/CRUD", tenant_isolation_model)
+    if realtime_features:
+        logger.info("[p04a] realtime features detected: %s — SSE router will be generated", realtime_features)
+    if seed_vocabulary:
+        logger.info("[p04a] seed_vocabulary provided (%d keys) — domain-aware seed data enabled", len(seed_vocabulary))
 
     from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
@@ -136,7 +195,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 models_code = _ir_to_models(_ir)
                 schemas_code = _ir_to_schemas(_ir)
                 stats_code = _gen_stats(_ir)
-                seed_code = _gen_seed(_ir)
+                seed_code = _gen_seed(_ir, seed_vocabulary=seed_vocabulary, domain=domain, project_name=project_name)
                 (src_dir / "models.py").write_text(models_code)
                 (src_dir / "schemas.py").write_text(schemas_code)
                 (routers_dir / "stats.py").write_text(stats_code)
@@ -273,12 +332,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Step 3: Deterministic CRUD routers ───────────────────────────────────
     if not crud_code:
-        crud_code = _fallback_crud_routers(entities)
+        crud_code = _fallback_crud_routers(entities, multi_tenancy=multi_tenancy)
     try:
         compile(crud_code, "crud.py", "exec")
     except SyntaxError as _syn:
         logger.warning("[p04a] SyntaxError in crud.py: %s — using fallback", _syn)
-        crud_code = _fallback_crud_routers(entities)
+        crud_code = _fallback_crud_routers(entities, multi_tenancy=multi_tenancy)
     # Ensure all_routers is always present — LLM sometimes omits it
     if "all_routers" not in crud_code:
         _router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', crud_code, re.MULTILINE)
@@ -287,6 +346,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.info("[p04a] Auto-injected all_routers into crud.py: %s", _router_vars)
     (routers_dir / "crud.py").write_text(crud_code)
     logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
+
+    # ── Step 3a: SSE realtime router (generated when spec declares realtime_features) ──
+    _inject_realtime_router = False
+    if realtime_features:
+        try:
+            sse_router_code = _generate_sse_router(realtime_features, project_name)
+            (routers_dir / "realtime_router.py").write_text(sse_router_code)
+            _inject_realtime_router = True
+            logger.info("[p04a] SSE realtime_router.py written for features: %s", realtime_features)
+        except Exception as _sse_exc:
+            logger.warning("[p04a] SSE router generation failed (non-fatal): %s", _sse_exc)
 
     # ── Step 3b: Business process pipeline orchestrators (Gap 11) ────────────
     _pipeline_files_written: list = []
@@ -328,7 +398,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
         if not seed_code:
             # Deterministic fallback — no LLM call (single-call-per-phase rule)
-            seed_code = _fallback_seed(project_name, entities)
+            seed_code = _fallback_seed(project_name, entities, seed_vocabulary=seed_vocabulary, domain=domain)
             try:
                 ast.parse(seed_code)
             except SyntaxError as _syn:
@@ -382,6 +452,23 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "@app.get(\"/health\"",
             _pipeline_router_snippet + "@app.get(\"/health\"",
         )
+
+    # Inject SSE realtime router when generated from realtime_features in the spec
+    if _inject_realtime_router:
+        _realtime_router_snippet = (
+            "\n# SSE realtime router (generated from spec realtime_features)\n"
+            "try:\n"
+            "    from routers.realtime_router import realtime_router as _realtime_router\n"
+            "    app.include_router(_realtime_router, prefix=\"/api\")\n"
+            "except Exception as _rt_exc:\n"
+            "    import logging as _logging\n"
+            "    _logging.getLogger(__name__).warning('realtime router unavailable: %s', _rt_exc)\n"
+        )
+        main_py = main_py.replace(
+            "@app.get(\"/health\"",
+            _realtime_router_snippet + "@app.get(\"/health\"",
+        )
+
     (src_dir / "main.py").write_text(main_py)
 
     # ── Step 6: Supporting files ──────────────────────────────────────────────
@@ -451,6 +538,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "pipeline_files": _pipeline_files_written,
             "smoke_test": smoke,
             "project_name": project_name,
+            "multi_tenancy": multi_tenancy,
+            "realtime_features": realtime_features,
+            "realtime_router_py": str(routers_dir / "realtime_router.py") if _inject_realtime_router else None,
+            "user_personas_count": len(user_personas),
+            "has_customer_portal": has_customer_portal,
         },
         success=True,
         issues=smoke.get("errors", []) if not smoke.get("passed") else [],
