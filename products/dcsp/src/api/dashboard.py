@@ -38,6 +38,7 @@ async def landing_page():
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<base href="http://139.59.87.218:8001/">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DCSP — AI-Powered CI Self-Healing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -232,7 +233,7 @@ footer p{font-size:13px;color:var(--muted)}
 
 <footer>
   <div class="flogo">DC<span>SP</span></div>
-  <p>&copy; 2025 DCSP &middot; A VKatos Platform Product</p>
+  <p>&copy; 2026 VKatOS &middot; A VKatos Platform Product</p>
   <div class="flinks">
     <a href="/login">Sign in</a>
     <a href="/register">Create account</a>
@@ -303,6 +304,7 @@ async def get_login(request: Request):
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <base href="http://139.59.87.218:8001/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DCSP Login</title>
     <style>

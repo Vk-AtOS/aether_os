@@ -47,6 +47,7 @@ async def get_register_page():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <base href="http://139.59.87.218:8001/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Account - DCSP</title>
     <style>
@@ -156,6 +157,7 @@ async def get_forgot_password_page():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <base href="http://139.59.87.218:8001/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reset Password - DCSP</title>
     <style>

@@ -238,7 +238,7 @@ async def register_page(request: Request):
     error_html = f'<div class="error">{error}</div>' if error else ""
     html = f"""<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>DCSP — Create Account</title>
+<head><meta charset="UTF-8"><base href="http://139.59.87.218:8001/"><title>DCSP — Create Account</title>
 <style>{_REGISTER_CSS}</style></head>
 <body>
 <div class="card">
@@ -333,7 +333,7 @@ async def forgot_password_page(request: Request):
         msg = '<div style="color:#3fb950;text-align:center;margin-bottom:10px">Reset link sent — check your email (or server logs in dev).</div>'
     html = f"""<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>DCSP — Forgot Password</title>
+<head><meta charset="UTF-8"><base href="http://139.59.87.218:8001/"><title>DCSP — Forgot Password</title>
 <style>{_SIMPLE_CSS}</style></head>
 <body>
 <div class="card">
@@ -386,7 +386,7 @@ async def reset_password_page(reset_token: str, request: Request):
     valid = verify_reset_token(reset_token)
     if not valid:
         html = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>DCSP — Invalid Link</title>
+<html lang="en"><head><meta charset="UTF-8"><base href="http://139.59.87.218:8001/"><title>DCSP — Invalid Link</title>
 <style>{_SIMPLE_CSS}</style></head>
 <body>
 <div class="card">
@@ -400,7 +400,7 @@ async def reset_password_page(reset_token: str, request: Request):
     error_html = f'<div class="error">{error}</div>' if error else ""
     html = f"""<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>DCSP — Reset Password</title>
+<head><meta charset="UTF-8"><base href="http://139.59.87.218:8001/"><title>DCSP — Reset Password</title>
 <style>{_SIMPLE_CSS}</style></head>
 <body>
 <div class="card">

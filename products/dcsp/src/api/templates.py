@@ -109,6 +109,7 @@ def get_base_html(title: str, content: str, active_tab: str, username: str) -> s
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <base href="http://139.59.87.218:8001/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} - DCSP</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
