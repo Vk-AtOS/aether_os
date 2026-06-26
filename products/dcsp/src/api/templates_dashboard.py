@@ -255,6 +255,7 @@ def render_main_dashboard_html(username: str, nav_html: str) -> str:
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <base href="http://REDACTED_IP:8001/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DCSP Dashboard</title>
     <style>{DASHBOARD_CSS}</style>
