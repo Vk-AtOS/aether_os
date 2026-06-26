@@ -209,6 +209,11 @@ Return ONLY the complete Python file. No markdown, no explanation."""
     # Strip markdown fences if present
     code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
     code = re.sub(r"\n?```\s*$", "", code.strip())
+
+    # Fix relative imports that break when src/ is loaded as an absolute package
+    # e.g. Bedrock Nova sometimes writes "from..schemas import" or "from ..models import"
+    code = re.sub(r"from\s*\.+\s*(schemas|models|database|auth)\s+import", r"from \1 import", code)
+
     return code
 
 
