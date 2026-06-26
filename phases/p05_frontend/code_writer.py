@@ -910,6 +910,7 @@ import {{ Layout }} from './components/Layout'
 import {{ LoginPage }} from './pages/LoginPage'
 import {{ getToken }} from './lib/auth'
 import Dashboard from './pages/Dashboard'
+import NotFoundPage from './pages/NotFoundPage'
 {imports_str}
 
 const rootRoute = createRootRoute({{ component: () => <Outlet /> }})
@@ -946,7 +947,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree, basepath: '/app-preview' }})
+export const router = createRouter({{ routeTree, basepath: '/app-preview', defaultNotFoundComponent: NotFoundPage }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
@@ -1014,6 +1015,7 @@ import {{ LoginPage }} from './pages/LoginPage'
 import {{ getToken }} from './lib/auth'
 import CustomerHome from './pages/CustomerHome'
 import AdminDashboard from './pages/Dashboard'
+import NotFoundPage from './pages/NotFoundPage'
 {imports_str}
 function _getRole(): string | null {{
   try {{
@@ -1083,7 +1085,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree, basepath: '/app-preview' }})
+export const router = createRouter({{ routeTree, basepath: '/app-preview', defaultNotFoundComponent: NotFoundPage }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
@@ -1894,14 +1896,14 @@ export function CrudModal<T extends Record<string, unknown>>({
                 {f.type === 'textarea' ? (
                   <textarea
                     {...register(f.name as keyof T extends string ? keyof T : never, {
-                      required: f.required,
+                      required: f.required ? `${f.label} is required` : false,
                     } as any)}
                     className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
                     rows={3}
                   />
                 ) : f.type === 'select' || isFkSelect ? (
                   <select
-                    {...register(f.name as any, { required: f.required })}
+                    {...register(f.name as any, { required: f.required ? `${f.label} is required` : false })}
                     className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="">
@@ -1916,12 +1918,22 @@ export function CrudModal<T extends Record<string, unknown>>({
                 ) : (
                   <input
                     type={f.type}
-                    {...register(f.name as any, { required: f.required })}
+                    {...register(f.name as any, {
+                      required: f.required ? `${f.label} is required` : false,
+                      ...(f.type === 'email' ? {
+                        pattern: {
+                          value: /\\S+@\\S+\\.\\S+/,
+                          message: 'Invalid email address',
+                        },
+                      } : {}),
+                    })}
                     className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
                   />
                 )}
                 {errors[f.name as keyof T] && (
-                  <p className="text-xs text-red-500 mt-1">Required</p>
+                  <p className="text-xs text-red-500 mt-1">
+                    {(errors[f.name as keyof T] as { message?: string })?.message ?? `${f.label} is required`}
+                  </p>
                 )}
               </div>
             )
@@ -3138,7 +3150,20 @@ export default function {pascal}Page() {{
         </div>
       </div>
 
-      <DataTable data={{data}} columns={{columns}} isLoading={{isLoading}} />
+      {{!isLoading && data.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-xl font-medium">No {singular}s yet</p>
+          <p className="text-sm mt-1">Create your first one to get started</p>
+          <button
+            onClick={{() => {{ setEditing(null); setModalOpen(true) }}}}
+            className="mt-4 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
+          >
+            + Add {singular}
+          </button>
+        </div>
+      ) : (
+        <DataTable data={{data}} columns={{columns}} isLoading={{isLoading}} />
+      )}}
 
       <CrudModal
         isOpen={{modalOpen}}
