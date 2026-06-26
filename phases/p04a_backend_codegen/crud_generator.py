@@ -11,6 +11,8 @@ import re
 import textwrap
 from typing import Dict, List, Tuple
 
+from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
+
 logger = logging.getLogger(__name__)
 
 
@@ -164,7 +166,9 @@ REQUIRED pagination rules (no exceptions):
 - Every GET list endpoint MUST accept query params: skip: int = 0, limit: int = Query(default=20, le=100)
 - Return format: {"items": [...], "total": count, "skip": skip, "limit": limit}
 - Never return unbounded lists — always apply .offset(skip).limit(limit)
-
+"""
+        + _AUTH_FLOWS_PROMPT
+        + """
 Entities and their fields:
 """
         + entity_fields_summary
@@ -335,6 +339,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
     )
     lines = [
         "from __future__ import annotations",
+        "import logging",
         "from typing import Any, Dict, List, Optional",
         "from fastapi import APIRouter, Depends, HTTPException, Query, status",
         "from sqlalchemy.ext.asyncio import AsyncSession",
@@ -343,6 +348,8 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
         "from auth import get_current_user, require_admin",
         "import models",
         f"from schemas import {schemas_imports}",
+        "",
+        "logger = logging.getLogger(__name__)",
         "",
     ]
     router_vars = []
@@ -420,7 +427,11 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    await db.delete(obj)",
             "",
         ]
-    lines.append(f"all_routers = [{', '.join(router_vars)}]")
+    # Append auth flow endpoints (forgot-password / reset-password / verify-email)
+    auth_flow = _fallback_auth_flow_code()
+    lines.append(auth_flow)
+    all_router_names = router_vars + ["_auth_flow_router"]
+    lines.append(f"all_routers = [{', '.join(all_router_names)}]")
     return "\n".join(lines)
 
 

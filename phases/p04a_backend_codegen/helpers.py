@@ -6,6 +6,7 @@ Contains:
   - _check_imports                   AST pass to flag hallucinated absolute imports
   - _smoke_test                      syntax + import + live HTTP probe
   - _live_http_probe                 start uvicorn briefly and hit /health
+  - _fallback_auth_flow_code         hardcoded forgot-password / reset-password / verify-email endpoints
 """
 from __future__ import annotations
 
@@ -436,3 +437,113 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
                 _f.unlink(missing_ok=True)
             except Exception as _unlink_exc:
                 logger.debug("[p04a] probe cleanup failed for %s: %s", _f, _unlink_exc)
+
+
+# ── Auth flow prompt + fallback code ──────────────────────────────────────────
+
+_AUTH_FLOWS_PROMPT = """\
+
+AUTH FLOW ENDPOINTS (add these to the crud.py file, NOT as separate routers):
+Generate these 3 endpoints in addition to all entity CRUD routers:
+
+Add at top of file: import secrets, import time
+Add module-level dicts: _reset_tokens: dict = {}  # token -> (user_id, expiry)
+                        _verify_tokens: dict = {}  # token -> user_id
+
+POST /auth/forgot-password
+  - Body: {"email": str}
+  - Query DB for user by email using: result = await db.execute(select(User).where(User.email == email))
+  - Return 200 even if not found (security: no user enumeration)
+  - If user found: token = secrets.token_urlsafe(32), store _reset_tokens[token] = (user.id, time.time() + 3600)
+  - Return {"message": "If that email exists, a reset link has been sent"}
+
+POST /auth/reset-password
+  - Body: {"token": str, "new_password": str}
+  - Look up token in _reset_tokens dict; if missing or expired (time.time() > expiry), raise HTTP 400
+  - Hash new password using passlib CryptContext (same as auth.py)
+  - Update user.password_hash in DB, delete token from _reset_tokens
+  - Return {"message": "Password reset successful"}
+
+GET /auth/verify-email/{token}
+  - Look up token in _verify_tokens dict; if missing raise HTTP 400
+  - Set user.is_active = True in DB, delete token from _verify_tokens
+  - Return {"message": "Email verified"}
+
+Use ABSOLUTE imports: from auth import get_current_user, from database import get_db
+Define a router: auth_flow_router = APIRouter(prefix="/auth", tags=["Auth"])
+Add auth_flow_router to the all_routers list at the end of the file.
+"""
+
+
+def _fallback_auth_flow_code() -> str:
+    """Return hardcoded Python source for forgot-password / reset-password / verify-email.
+
+    Called by _fallback_crud_routers() and appended to the generated crud.py.
+    Uses a standalone APIRouter so it can be included alongside entity routers
+    without depending on auth.py's internal router variable.
+    """
+    import textwrap
+    return textwrap.dedent("""\
+
+        import secrets as _secrets
+        import time as _time
+
+        _reset_tokens: dict = {}   # token -> (user_id, expiry_unix_timestamp)
+        _verify_tokens: dict = {}  # token -> user_id
+
+        _auth_flow_router = APIRouter(prefix="/auth", tags=["Auth Flow"])
+
+
+        @_auth_flow_router.post("/forgot-password")
+        async def forgot_password(body: dict, db: AsyncSession = Depends(get_db)):
+            email = body.get("email", "")
+            result = await db.execute(select(models.User).where(models.User.email == email))
+            user = result.scalar_one_or_none()
+            if user:
+                token = _secrets.token_urlsafe(32)
+                _reset_tokens[token] = (user.id, _time.time() + 3600)
+                # TODO: deliver reset link via email
+                logger.info("[auth] password reset token issued for user_id=%s", user.id)
+            return {"message": "If that email exists, a reset link has been sent"}
+
+
+        @_auth_flow_router.post("/reset-password")
+        async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
+            token = body.get("token", "")
+            new_password = body.get("new_password", "")
+            entry = _reset_tokens.get(token)
+            if not entry or _time.time() > entry[1]:
+                raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+            user_id, _ = entry
+            result = await db.execute(select(models.User).where(models.User.id == user_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            try:
+                from passlib.context import CryptContext as _CryptContext
+                _pwd_ctx = _CryptContext(schemes=["bcrypt"], deprecated="auto")
+                user.password_hash = _pwd_ctx.hash(new_password)
+            except Exception as _hash_exc:
+                logger.warning("[auth] passlib unavailable, storing plain hash stub: %s", _hash_exc)
+                user.password_hash = new_password  # fallback only — prod must have passlib
+            del _reset_tokens[token]
+            await db.flush()
+            logger.info("[auth] password reset completed for user_id=%s", user_id)
+            return {"message": "Password reset successful"}
+
+
+        @_auth_flow_router.get("/verify-email/{token}")
+        async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+            user_id = _verify_tokens.get(token)
+            if not user_id:
+                raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+            result = await db.execute(select(models.User).where(models.User.id == user_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            user.is_active = True
+            del _verify_tokens[token]
+            await db.flush()
+            logger.info("[auth] email verified for user_id=%s", user_id)
+            return {"message": "Email verified"}
+        """)
