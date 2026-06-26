@@ -26,6 +26,7 @@ services:
       - SMTP_PASS=${SMTP_PASS:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      - DCSP_LICENSE_BYPASS=1
       - GITHUB_APP_ID=${GITHUB_APP_ID:-}
       - GITHUB_APP_PRIVATE_KEY_PATH=/app/dcsp-github-app.pem
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
@@ -72,6 +73,7 @@ services:
       - DATABASE_URL=postgresql://dcsp_user:dcsp2024@db:5432/dcsp_db
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=production
+      - DCSP_LICENSE_BYPASS=1
     depends_on:
       db:
         condition: service_healthy
