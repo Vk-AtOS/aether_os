@@ -15,11 +15,13 @@ Split from account_router.py to keep that file under 400 lines.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["account"])
 
 
@@ -115,6 +117,35 @@ async def delete_organisation(
     ))
 
     return {"message": "Organisation scheduled for deletion. All users deactivated."}
+
+
+@router.get("/orgs/me/usage")
+async def get_org_usage_endpoint(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return current org usage stats for billing and settings panels."""
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.services.account_service import get_org_usage
+
+    org_id = user.get("org_id", "")
+    if not org_id:
+        return {"api_calls": 0, "storage_gb": 0, "runs_this_month": 0, "cost_usd": 0.0}
+    try:
+        async with get_session_factory()() as session:
+            result = await get_org_usage(session, org_id)
+        if result is None:
+            return {"api_calls": 0, "storage_gb": 0, "runs_this_month": 0, "cost_usd": 0.0}
+        # Augment the account_service result with billing-panel fields
+        return {
+            **result,
+            "api_calls": 0,
+            "storage_gb": 0,
+            "runs_this_month": result.get("runs_used", 0),
+            "cost_usd": 0.0,
+        }
+    except Exception as exc:
+        logger.warning("get_org_usage_endpoint: DB query failed for org=%s: %s", org_id, exc)
+        return {"api_calls": 0, "storage_gb": 0, "runs_this_month": 0, "cost_usd": 0.0}
 
 
 @router.post("/org/restore")

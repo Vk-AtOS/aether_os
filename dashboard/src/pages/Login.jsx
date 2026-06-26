@@ -33,6 +33,12 @@ const Login = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Redirect already-authenticated users to dashboard
+    if (api.getToken()) {
+      navigate('/', { replace: true });
+      return;
+    }
+
     const urlError = searchParams.get('error');
     if (urlError) setError(decodeURIComponent(urlError));
 

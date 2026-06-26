@@ -227,14 +227,27 @@ async def update_preferences(
 
 @router.get("/settings/sso")
 async def get_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
-    org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import SamlConfig as _SC
-    from sqlalchemy import select as _sel
-    async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
-    if not cfg: return {"configured": False}
-    return {"configured": True, "idp_entity_id": cfg.idp_entity_id, "idp_sso_url": cfg.idp_sso_url}
+    org_id = user.get("org_id", "")
+    if not org_id:
+        return {"enabled": False, "provider": None, "configured": False}
+    try:
+        from aether_os.core.db import get_session_factory as _gsf
+        from aether_os.core.models import SamlConfig as _SC
+        from sqlalchemy import select as _sel
+        async with _gsf()() as session:
+            cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
+        if not cfg:
+            return {"enabled": False, "provider": None, "configured": False}
+        return {
+            "enabled": True,
+            "provider": "saml",
+            "configured": True,
+            "idp_entity_id": cfg.idp_entity_id,
+            "idp_sso_url": cfg.idp_sso_url,
+        }
+    except Exception as exc:
+        logger.warning("get_sso_config: DB query failed for org=%s — returning unconfigured default. Error: %s", org_id, exc)
+        return {"enabled": False, "provider": None, "configured": False}
 
 
 @router.put("/settings/sso")
