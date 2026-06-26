@@ -68,7 +68,7 @@ services:
   # RQ worker — processes repair jobs asynchronously
   worker:
     build: .
-    command: ["python", "-m", "rq", "worker", "--url", "redis://redis:6379/0", "repairs"]
+    command: ["rq", "worker", "--url", "redis://redis:6379/0", "repairs"]
     environment:
       - DATABASE_URL=postgresql://dcsp_user:dcsp2024@db:5432/dcsp_db
       - REDIS_URL=redis://redis:6379/0
