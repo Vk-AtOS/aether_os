@@ -1,12 +1,4 @@
-"""P05 Frontend Task Agent — React 18 + Vite 5 + TypeScript + TanStack project generator.
-
-Strategy:
-  1. Read architecture.json from p02 to get project name, db_schema, endpoints, route_map.
-  2. Generate a complete frontend/ subdirectory with a production-ready React/Vite/TanStack project.
-  3. Write docker-compose.yml to the parent project directory.
-  4. ONE optional LLM call generates a domain-specific React component (DomainWidget.jsx) and
-     injects it into Dashboard.tsx — non-fatal if it fails.
-"""
+"""P05 Frontend Task Agent — React 18 + Vite 5 + TypeScript + TanStack project generator."""
 from __future__ import annotations
 
 import json
@@ -15,7 +7,7 @@ import re
 import os
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p05_frontend.prompts import (
@@ -88,6 +80,8 @@ from aether_os.phases.p05_frontend.helpers import (
     _generate_domain_component,
     _derive_admin_features,
     _generate_customer_portal,
+    _generate_landing_page,
+    _generate_sse_hook,
 )
 
 logger = logging.getLogger(__name__)
@@ -265,6 +259,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _detected_domain = data.get("domain", "") or domain or ""
         ui_theme = _domain_theme_map.get(_detected_domain.lower(), "default")
 
+    # ── Wire new accumulated_context fields ──────────────────────────────────
+    user_personas: List[dict] = data.get("user_personas") or []
+    has_customer_portal = data.get("has_customer_portal")   # True / False / None (auto)
+    has_landing_page: bool = bool(data.get("has_landing_page", False))
+    app_brand: Dict[str, Any] = data.get("app_brand") or {}
+    app_tagline: str = data.get("app_tagline", "")
+    realtime_features: List[Any] = data.get("realtime_features") or []
+
     # Detect layout mode
     _layout_from_spec = (_design.get("layout") or "")
     _raw = data.get("raw_input", "").lower()
@@ -281,19 +283,27 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         layout_mode = designer_spec["layout_mode"]
     elif _layout_from_spec:
         layout_mode = _layout_from_spec
-    elif "dual portal" in _raw or "customer portal" in _raw or "member portal" in _raw:
+    elif has_customer_portal is True:
+        # Explicit flag is authoritative — always dual when set to True
         layout_mode = "dual"
-    elif _domain_val in _dual_portal_domains:
-        layout_mode = "dual"
-    elif _domain_val in _internal_only_domains:
-        layout_mode = "admin"
-    elif "storefront" in _raw or "customer-facing" in _raw or "landing page" in _raw:
-        layout_mode = "storefront"
-    elif "admin panel" in _raw or "internal tool" in _raw or "back office" in _raw or "back-office" in _raw:
+    elif has_customer_portal is False:
+        # Explicit flag is authoritative — admin-only when set to False
         layout_mode = "admin"
     else:
-        layout_mode = "dual"
-    logger.info("p05_frontend: layout_mode=%s", layout_mode)
+        # Legacy auto-detect: domain bucket + keyword scan (fallback when flag is not set)
+        if "dual portal" in _raw or "customer portal" in _raw or "member portal" in _raw:
+            layout_mode = "dual"
+        elif _domain_val in _dual_portal_domains:
+            layout_mode = "dual"
+        elif _domain_val in _internal_only_domains:
+            layout_mode = "admin"
+        elif "storefront" in _raw or "customer-facing" in _raw or "landing page" in _raw:
+            layout_mode = "storefront"
+        elif "admin panel" in _raw or "internal tool" in _raw or "back office" in _raw or "back-office" in _raw:
+            layout_mode = "admin"
+        else:
+            layout_mode = "dual"
+    logger.info("p05_frontend: layout_mode=%s (has_customer_portal=%s)", layout_mode, has_customer_portal)
 
     # 3. Build frontend/ directory structure
     frontend_dir = output_dir / "frontend"
@@ -340,7 +350,33 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _write_with_guard(src_dir / "pages" / "LoginPage.tsx", generate_login_page(project_name, layout_mode=layout_mode))
     _write_with_guard(src_dir / "pages" / "NotFoundPage.tsx", generate_not_found_page())
     if layout_mode == "dual":
-        _write_with_guard(src_dir / "pages" / "CustomerHome.tsx", generate_customer_home(entities, route_map, project_name, domain))
+        _write_with_guard(
+            src_dir / "pages" / "CustomerHome.tsx",
+            generate_customer_home(
+                entities, route_map, project_name, domain,
+                app_brand=app_brand, app_tagline=app_tagline,
+            ),
+        )
+
+    # ── Phase 4b: Landing Page (when has_landing_page=True) ──
+    if has_landing_page:
+        logger.info("p05: has_landing_page=True — generating LandingPage.tsx")
+        (src_dir / "pages").mkdir(parents=True, exist_ok=True)
+        _landing_code = _generate_landing_page(
+            project_name=project_name,
+            tagline=app_brand.get("tagline") or app_tagline or f"The smarter way to manage {domain.replace('_', ' ')}",
+            entities=entities,
+            domain=domain,
+            app_brand=app_brand,
+        )
+        _write_with_guard(src_dir / "pages" / "LandingPage.tsx", _landing_code)
+
+    # ── Phase 4c: SSE realtime hook (when realtime_features exist) ──
+    if realtime_features:
+        logger.info("p05: realtime_features=%s — generating useRealtimeStream.ts", realtime_features)
+        (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
+        _sse_code = _generate_sse_hook(realtime_features, project_name)
+        _write_with_guard(src_dir / "hooks" / "useRealtimeStream.ts", _sse_code)
 
     # ── Phase 5: Static Layout Components ──
     if layout_mode == "dual":
@@ -438,7 +474,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Phase 8: Customer Portal (Home, About) ──
     if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
         logger.info("p05: generating customer portal for %s", domain)
-        await _generate_customer_portal(domain, design_brief, route_map, src_dir / "pages")
+        await _generate_customer_portal(
+            domain, design_brief, route_map, src_dir / "pages",
+            user_personas=user_personas,
+            project_name=project_name,
+            app_brand=app_brand,
+            app_tagline=app_tagline,
+        )
     else:
         logger.warning("p05: phase watchdog — skipping customer portal generation")
 
