@@ -45,9 +45,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             '    "project_name": "short CamelCase name",\n'
             '    "domain": "one of: saas, ecommerce, healthcare, fintech, logistics, education, gym_fitness, sports, hospitality, hrm, crm, restaurant, real_estate, general",\n'
             '    "summary": "2-3 sentence summary",\n'
+            '    "app_tagline": "one sentence describing the core value proposition",\n'
             '    "key_features": ["feature1", "feature2"],\n'
             '    "target_users": "description of end users",\n'
-            '    "estimated_complexity": "small|medium|large"\n'
+            '    "estimated_complexity": "small|medium|large",\n'
+            '    "requires_landing_page": false,\n'
+            '    "realtime_requirements": ["entity or feature name that needs live updates"]\n'
             '  },\n'
             '  "contract": {\n'
             '    "user_count_tier": "small|medium|large",\n'
@@ -57,13 +60,23 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             '    "handles_money": false,\n'
             '    "geographic_scope": "single-region|multi-region",\n'
             '    "multi_tenancy": false,\n'
-            '    "audit_log": false\n'
+            '    "audit_log": false,\n'
+            '    "tenant_isolation_model": "none|org_id_filter|row_level_security|separate_schema"\n'
             '  },\n'
             '  "requirements": {\n'
             '    "functional_requirements": ["req1", "req2"],\n'
             '    "non_functional_requirements": ["perf req", "security req"],\n'
             '    "entities": [{"name": "EntityName", "table": "entity_table", "fields": ["id", "name"]}],\n'
             '    "user_roles": ["admin", "user"],\n'
+            '    "user_personas": [\n'
+            '      {\n'
+            '        "name": "role name e.g. Compliance Officer",\n'
+            '        "type": "customer|admin|internal",\n'
+            '        "portal": "customer|admin",\n'
+            '        "key_actions": ["action1", "action2", "action3"],\n'
+            '        "data_scope": "own_org|all_orgs|global"\n'
+            '      }\n'
+            '    ],\n'
             '    "api_endpoints": [{"method": "GET", "path": "/api/resource", "description": ""}],\n'
             '    "tech_constraints": ["Python", "PostgreSQL"]\n'
             '  }\n'
@@ -82,13 +95,34 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             phase_input.input_data["entities"] = requirements_doc["entities"]
         if requirements_doc.get("api_endpoints"):
             phase_input.input_data["api_endpoints"] = requirements_doc["api_endpoints"]
-        if requirements_doc.get("user_roles"):
-            phase_input.input_data["user_roles"] = requirements_doc["user_roles"]
+
+        # user_personas — structured persona list
+        user_personas: list = requirements_doc.get("user_personas") or []
+        if user_personas:
+            phase_input.input_data["user_personas"] = user_personas
+
+        # user_roles — derive from personas (backward compat) or fall back to flat list
+        llm_roles: list = requirements_doc.get("user_roles") or []
+        if user_personas:
+            derived_roles = [p["name"] for p in user_personas if isinstance(p, dict) and p.get("name")]
+            phase_input.input_data["user_roles"] = derived_roles or llm_roles
+        elif llm_roles:
+            phase_input.input_data["user_roles"] = llm_roles
+
+        # New intake-level fields
+        if intake_record.get("app_tagline"):
+            phase_input.input_data["app_tagline"] = intake_record["app_tagline"]
+        if "requires_landing_page" in intake_record:
+            phase_input.input_data["requires_landing_page"] = bool(intake_record["requires_landing_page"])
+        if intake_record.get("realtime_requirements") is not None:
+            phase_input.input_data["realtime_requirements"] = intake_record["realtime_requirements"]
+
         logger.info(
-            "[p01] combined extraction: project=%s entities=%d endpoints=%d",
+            "[p01] combined extraction: project=%s entities=%d endpoints=%d personas=%d",
             intake_record.get("project_name", "?"),
             len(requirements_doc.get("entities", [])),
             len(requirements_doc.get("api_endpoints", [])),
+            len(user_personas),
         )
     except Exception as exc:
         logger.warning("[p01] combined LLM call failed: %s — using deterministic fallback", exc)
@@ -131,6 +165,41 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if contract_profile.get("data_sensitivity") == "regulated" or contract_profile.get("handles_money"):
             contract["commercial_defaults"]["audit_log"] = True
             contract["commercial_defaults"]["multi_tenancy"] = True
+
+    # ── multi_tenancy extended auto-detection ────────────────────────────────
+    # Flip True when domain, persona types, or raw input keywords indicate B2B/SaaS.
+    _raw_lower = raw_input.lower()
+    _effective_domain = (
+        contract.get("domain") or intake_record.get("domain", domain) or ""
+    ).lower()
+    _b2b_domain = _effective_domain in ("saas", "marketplace", "ecommerce")
+    _has_customer_persona = any(
+        isinstance(p, dict) and p.get("type") == "customer"
+        for p in phase_input.input_data.get("user_personas", [])
+    )
+    _b2b_keywords = ("b2b", "per company", "per org", "multi-tenant",
+                     "each customer", "per client", "tenant")
+    _b2b_in_raw = any(kw in _raw_lower for kw in _b2b_keywords)
+    if _b2b_domain or _has_customer_persona or _b2b_in_raw:
+        contract["commercial_defaults"]["multi_tenancy"] = True
+        logger.info(
+            "[p01] multi_tenancy=True: domain=%s customer_persona=%s b2b_raw=%s",
+            _b2b_domain, _has_customer_persona, _b2b_in_raw,
+        )
+
+    # ── tenant_isolation_model ────────────────────────────────────────────────
+    # Use LLM suggestion when available, else derive from multi_tenancy flag.
+    llm_isolation = (contract_profile or {}).get("tenant_isolation_model", "")
+    valid_isolation = {"none", "org_id_filter", "row_level_security", "separate_schema"}
+    if llm_isolation in valid_isolation:
+        tenant_isolation = llm_isolation
+    elif contract["commercial_defaults"]["multi_tenancy"]:
+        tenant_isolation = "org_id_filter"  # safe default for multi-tenant
+    else:
+        tenant_isolation = "none"
+    contract["commercial_defaults"]["tenant_isolation_model"] = tenant_isolation
+    phase_input.input_data["tenant_isolation_model"] = tenant_isolation
+
     phase_input.input_data["project_contract"] = contract
     logger.info(
         "[p01] contract: tier=%s sensitivity=%s money=%s",
@@ -156,18 +225,29 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
 
     # ── Write outputs ─────────────────────────────────────────────────────────
+    # Collect new fields from phase_input.input_data so they travel downstream
+    # through accumulated_context alongside the existing contract/requirements.
+    _new_fields = {
+        "user_personas": phase_input.input_data.get("user_personas", []),
+        "app_tagline": phase_input.input_data.get("app_tagline", ""),
+        "requires_landing_page": phase_input.input_data.get("requires_landing_page", False),
+        "realtime_requirements": phase_input.input_data.get("realtime_requirements", []),
+        "tenant_isolation_model": phase_input.input_data.get("tenant_isolation_model", "none"),
+    }
     summary = {
         "intake": intake_record,
         "requirements": requirements_doc,
         "contract": contract,
         "integration_flags": integration_flags,
         "raw_input_length": len(raw_input),
+        **_new_fields,
     }
     summary["artifacts"] = {
         "intake": intake_record,
         "contract": contract,
         "integration_flags": integration_flags,
         "requirements_doc": requirements_doc,
+        **_new_fields,
     }
     summary_path = output_dir / "requirements.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
