@@ -251,10 +251,23 @@ _SEED_NAMES = [
 ]
 
 
-def _seed_value(field: IRField, idx: int, entity_name: str) -> str:
-    """Return a Python literal for a single seed value."""
+def _seed_value(
+    field: IRField,
+    idx: int,
+    entity_name: str,
+    seed_vocabulary: dict | None = None,
+    domain: str = "general",
+    project_name: str = "",
+) -> str:
+    """Return a Python literal for a single seed value.
+
+    When seed_vocabulary contains domain-specific terms for this entity (or domain),
+    name/title/label fields use those terms instead of generic Alpha/Beta/Gamma.
+    The project_name prefix is prepended to make records easily attributable in logs.
+    """
     n = field.name.lower()
     t = field.type
+    vocab = seed_vocabulary or {}
 
     if t == AetherType.FK:
         return str((idx % 3) + 1)
@@ -289,7 +302,14 @@ def _seed_value(field: IRField, idx: int, entity_name: str) -> str:
 
     # STRING — field-name-aware defaults
     if any(k in n for k in ("name", "title", "label")):
-        return repr(f"{_SEED_ADJECTIVES[idx % len(_SEED_ADJECTIVES)]} {entity_name} {idx + 1}")
+        # Use domain-specific vocabulary when available (prefer entity → domain → generic)
+        vocab_list = vocab.get(entity_name, vocab.get(entity_name.lower(), vocab.get(domain, [])))
+        if vocab_list:
+            term = vocab_list[idx % len(vocab_list)]
+            prefix = f"{project_name} " if project_name else ""
+            return repr(f"{prefix}{term}")
+        prefix = f"{project_name} " if project_name else ""
+        return repr(f"{prefix}{_SEED_ADJECTIVES[idx % len(_SEED_ADJECTIVES)]} {entity_name} {idx + 1}")
     if "slug" in n:
         return repr(f"{entity_name.lower()}-{idx + 1}")
     if "phone" in n:
@@ -343,11 +363,28 @@ def _sort_entities_by_deps(entities: list) -> list:
     return sorted_entities
 
 
-def generate_seed_py(ir: DomainIR) -> str:
-    """Generate complete deterministic seed.py from DomainIR (20 rows per entity)."""
+def generate_seed_py(
+    ir: DomainIR,
+    seed_vocabulary: dict | None = None,
+    domain: str = "general",
+    project_name: str = "",
+) -> str:
+    """Generate complete deterministic seed.py from DomainIR (20 rows per entity).
+
+    Args:
+        ir: Domain IR with all entities and fields.
+        seed_vocabulary: Optional dict mapping entity name (or domain) → list of
+            domain-specific terms used as name/title/label values (e.g.
+            {"Policy": ["GDPR Alert", "HIPAA Baseline", ...], ...}).
+        domain: Domain string used as a vocabulary fallback key when no entity-
+            specific terms exist (e.g. "insurance", "legal").
+        project_name: Prepended to seed record names for traceability
+            (e.g. "PolicyLens GDPR Alert" instead of "Premier Policy 1").
+    """
     domain_entities = [e for e in ir.entities if e.name != "User" and getattr(e, "table", "") != "users"]
     domain_entities = _sort_entities_by_deps(domain_entities)
     entity_names = [e.name for e in domain_entities]
+    vocab = seed_vocabulary or {}
 
     lines = [
         "from __future__ import annotations",
@@ -391,7 +428,12 @@ def generate_seed_py(ir: DomainIR) -> str:
             for f in entity.fields:
                 if f.name in ("id", "created_at", "updated_at"):
                     continue
-                val = _seed_value(f, idx, entity.name)
+                val = _seed_value(
+                    f, idx, entity.name,
+                    seed_vocabulary=vocab,
+                    domain=domain,
+                    project_name=project_name,
+                )
                 field_parts.append(f"                {f.name}={val},")
             lines.append(f"            {entity.name}(")
             lines.extend(field_parts)
