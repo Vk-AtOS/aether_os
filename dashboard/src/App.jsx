@@ -83,6 +83,7 @@ function App() {
 
   return (
     <Routes>
+      <Route path="/signin"  element={<Navigate to="/login" replace />} />
       <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
       <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={null}><Signup /></Suspense></ErrorBoundary>} />
       <Route path="/pricing" element={<ErrorBoundary><Suspense fallback={null}><Pricing /></Suspense></ErrorBoundary>} />
