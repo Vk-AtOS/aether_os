@@ -235,7 +235,15 @@ async def system_deploy(user: Dict[str, Any] = _current_user()):
     install_dir = pathlib.Path(__file__).resolve().parents[2]
     log: list[str] = []
 
-    # 1. git pull
+    # 1. Stash any local changes so pull never blocks
+    stash = _sp.run(
+        ["git", "stash"],
+        cwd=str(install_dir), capture_output=True, text=True, timeout=30,
+    )
+    if stash.stdout.strip():
+        log.append(f"git stash: {stash.stdout.strip()}")
+
+    # 2. git pull
     pull = _sp.run(
         ["git", "pull", "--ff-only"],
         cwd=str(install_dir), capture_output=True, text=True, timeout=60,
