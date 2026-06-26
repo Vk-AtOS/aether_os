@@ -63,7 +63,7 @@ a{text-decoration:none;color:inherit}
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   text-align:center;padding:120px 24px 80px;overflow:hidden
 }
-#pc{position:absolute;inset:0;width:100%;height:100%;opacity:.7}
+#pc{position:absolute;inset:0;width:100%;height:100%;opacity:.7;pointer-events:none}
 .hero-c{position:relative;z-index:2;max-width:880px}
 .badge{
   display:inline-flex;align-items:center;gap:8px;
@@ -251,17 +251,16 @@ footer{border-top:1px solid var(--border2);padding:60px 48px 40px;max-width:1400
 
 <!-- NAV -->
 <nav class="nav" id="nav">
-  <a href="/" class="logo">vk<span>.</span>atos</a>
+  <a href="/" class="logo">VKatOS</a>
   <div class="nav-links">
     <a href="#products">Products</a>
-    <a href="#mission">Company</a>
     <a href="/pricing/">Pricing</a>
     <a href="/about/">About</a>
-    <a href="/contact/">Contact</a>
+    <a href="/blog/">Blog</a>
   </div>
   <div class="nav-acts">
-    <a href="/login/" class="btn-gs">Sign in</a>
-    <a href="/login/?mode=signup" class="btn-gp">Get started</a>
+    <a href="/login/" class="btn-gs">Login</a>
+    <a href="/book-demo/" class="btn-gp">Get started</a>
   </div>
 </nav>
 
@@ -290,9 +289,9 @@ footer{border-top:1px solid var(--border2);padding:60px 48px 40px;max-width:1400
         <div class="picon">⚡</div>
         <div class="ptag">AetherOS · AI Software Factory</div>
         <div class="pname">AetherOS</div>
-        <p class="pdesc">A 29-phase autonomous pipeline that transforms a one-line idea into a fully deployed, production-grade application — with zero boilerplate, zero setup, and real AI-written code at every step.</p>
+        <p class="pdesc">A 21-phase autonomous pipeline that transforms a one-line idea into a fully deployed, production-grade application — with zero boilerplate, zero setup, and real AI-written code at every step.</p>
         <ul class="pfeatures">
-          <li>29-phase autonomous pipeline — idea to live deployment</li>
+          <li>21-phase autonomous pipeline — idea to live deployment</li>
           <li>Multi-model AI council for code quality &amp; security review</li>
           <li>Live app preview with real database &amp; typed API endpoints</li>
           <li>Compliance engine — SOC 2, HIPAA, GDPR built in</li>
@@ -346,7 +345,7 @@ footer{border-top:1px solid var(--border2);padding:60px 48px 40px;max-width:1400
     <div class="slabel reveal">By the numbers</div>
     <h2 class="stitle reveal d1">Proven at <em>scale.</em></h2>
     <div class="stats-grid reveal d2">
-      <div class="stat"><div class="snum">29</div><div class="slbl">Pipeline phases</div></div>
+      <div class="stat"><div class="snum">21</div><div class="slbl">Pipeline phases</div></div>
       <div class="stat"><div class="snum">&lt;15m</div><div class="slbl">Idea to deployment</div></div>
       <div class="stat"><div class="snum">600+</div><div class="slbl">Tests passing</div></div>
       <div class="stat"><div class="snum">100%</div><div class="slbl">Uptime SLA</div></div>
@@ -370,7 +369,7 @@ footer{border-top:1px solid var(--border2);padding:60px 48px 40px;max-width:1400
 <footer>
   <div class="footer-g">
     <div class="fb">
-      <div class="logo" style="font-size:20px">vk<span style="-webkit-text-fill-color:var(--cyan)">.</span>atos</div>
+      <div class="logo" style="font-size:20px">VKatOS</div>
       <p>Building AI-native infrastructure for modern engineering teams.</p>
     </div>
     <div class="fc">
@@ -389,14 +388,14 @@ footer{border-top:1px solid var(--border2);padding:60px 48px 40px;max-width:1400
     </div>
     <div class="fc">
       <h4>Legal</h4>
-      <a href="#">Privacy</a>
-      <a href="#">Terms</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="/terms/">Terms</a>
       <a href="#">Security</a>
     </div>
   </div>
   <div class="footer-bot">
     <div class="fcopy">© 2024 vkatos Inc. All rights reserved.</div>
-    <div class="flegal"><a href="#">Privacy Policy</a><a href="#">Terms of Service</a></div>
+    <div class="flegal"><a href="/privacy/">Privacy Policy</a><a href="/terms/">Terms of Service</a></div>
   </div>
 </footer>
 

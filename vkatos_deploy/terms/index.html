@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Terms of Service — VKatOS</title>
+<meta name="description" content="Terms of Service for VKatOS — AI-native developer infrastructure."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #07070F;
+  --bg2: #0D0D1A;
+  --purple: #7C3AED;
+  --purple2: #9B6FFA;
+  --cyan: #00C4D4;
+  --white: #F0F0FF;
+  --muted: #5A5A7A;
+  --muted2: #8080A0;
+  --border: rgba(124,58,237,0.18);
+  --border2: rgba(255,255,255,0.07);
+  --card: rgba(255,255,255,0.035);
+  --font-d: 'Syne', sans-serif;
+  --font-b: 'DM Sans', sans-serif;
+  --font-m: 'DM Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--white); font-family: var(--font-b); overflow-x: hidden; }
+a { text-decoration: none; color: inherit; }
+
+/* NAV */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 48px; height: 64px;
+  background: rgba(7,7,15,0.85); backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid var(--border2);
+}
+.logo {
+  font-family: var(--font-d); font-weight: 800; font-size: 19px; letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--white) 30%, var(--purple2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.nav-links { display: flex; gap: 34px; align-items: center; }
+.nav-links a { font-size: 14px; font-weight: 500; color: var(--muted2); letter-spacing: 0.01em; transition: color 0.2s; }
+.nav-links a:hover { color: var(--white); }
+.nav-acts { display: flex; gap: 10px; align-items: center; }
+.btn-gs {
+  font-family: var(--font-d); font-size: 13px; font-weight: 600;
+  color: var(--muted2); padding: 8px 18px; border-radius: 8px;
+  border: 1px solid var(--border2); transition: all 0.2s;
+}
+.btn-gs:hover { color: var(--white); border-color: rgba(255,255,255,0.2); }
+.btn-gp {
+  font-family: var(--font-d); font-size: 13px; font-weight: 700;
+  color: #fff; padding: 9px 22px; border-radius: 8px;
+  background: var(--purple); border: 1px solid rgba(155,111,250,0.4);
+  transition: all 0.2s; box-shadow: 0 0 20px rgba(124,58,237,0.3);
+}
+.btn-gp:hover { background: var(--purple2); box-shadow: 0 0 30px rgba(124,58,237,0.5); transform: translateY(-1px); }
+
+/* CONTENT */
+.content-wrap {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 120px 24px 100px;
+}
+.page-label {
+  font-family: var(--font-m); font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--cyan); margin-bottom: 20px; display: flex; align-items: center; gap: 12px;
+}
+.page-label::before { content: ''; width: 32px; height: 1px; background: var(--cyan); }
+h1 {
+  font-family: var(--font-d); font-size: clamp(32px, 5vw, 52px);
+  font-weight: 800; letter-spacing: -0.025em; line-height: 1.1;
+  color: var(--white); margin-bottom: 16px;
+}
+.updated {
+  font-family: var(--font-m); font-size: 12px; color: var(--muted); letter-spacing: 0.05em;
+  margin-bottom: 64px;
+}
+
+.notice-box {
+  background: rgba(124,58,237,0.06);
+  border: 1px solid rgba(124,58,237,0.2);
+  border-radius: 16px;
+  padding: 48px 56px;
+  text-align: center;
+}
+.notice-box h2 {
+  font-family: var(--font-d); font-size: 24px; font-weight: 700;
+  margin-bottom: 16px; color: var(--white);
+}
+.notice-box p {
+  font-size: 16px; line-height: 1.7; color: var(--muted2); margin-bottom: 12px; font-weight: 300;
+}
+.notice-box a { color: var(--cyan); }
+.notice-box a:hover { text-decoration: underline; }
+
+.sections { margin-top: 56px; display: flex; flex-direction: column; gap: 40px; }
+.section h3 {
+  font-family: var(--font-d); font-size: 18px; font-weight: 700;
+  color: var(--white); margin-bottom: 12px; letter-spacing: -0.01em;
+}
+.section p { font-size: 15px; color: var(--muted2); line-height: 1.75; font-weight: 300; }
+.section a { color: var(--cyan); }
+
+/* FOOTER */
+footer {
+  border-top: 1px solid var(--border2); padding: 40px 48px;
+  display: flex; justify-content: space-between; align-items: center;
+  max-width: 1400px; margin: 0 auto;
+}
+.fcopy { font-family: var(--font-m); font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+.flinks { display: flex; gap: 24px; }
+.flinks a { font-size: 13px; color: var(--muted); transition: color 0.2s; }
+.flinks a:hover { color: var(--white); }
+
+@media (max-width: 768px) {
+  .nav { padding: 0 20px; }
+  .nav-links { display: none; }
+  .content-wrap { padding: 100px 20px 80px; }
+  .notice-box { padding: 32px 24px; }
+  footer { flex-direction: column; gap: 20px; text-align: center; padding: 32px 20px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo">VKatOS</a>
+  <div class="nav-links">
+    <a href="/#products">Products</a>
+    <a href="/pricing/">Pricing</a>
+    <a href="/about/">About</a>
+    <a href="/blog/">Blog</a>
+  </div>
+  <div class="nav-acts">
+    <a href="/login/" class="btn-gs">Login</a>
+    <a href="/book-demo/" class="btn-gp">Get started</a>
+  </div>
+</nav>
+
+<div class="content-wrap">
+  <div class="page-label">Legal</div>
+  <h1>Terms of Service</h1>
+  <div class="updated">Company: VKatOS &nbsp;·&nbsp; Last updated: June 2026</div>
+
+  <div class="notice-box">
+    <h2>Full policy document coming soon</h2>
+    <p>We are finalising our comprehensive Terms of Service document.</p>
+    <p>Contact <a href="mailto:contact@vkatos.com">contact@vkatos.com</a> for details on current terms or any contractual questions.</p>
+  </div>
+
+  <div class="sections">
+    <div class="section">
+      <h3>Acceptance of terms</h3>
+      <p>By accessing or using VKatOS products (including AetherOS and DCSP), you agree to be bound by these Terms of Service. If you do not agree, you may not use our services.</p>
+    </div>
+    <div class="section">
+      <h3>Use of services</h3>
+      <p>VKatOS grants you a limited, non-exclusive, non-transferable licence to use our software products for your internal business purposes. You may not resell, sublicense, or redistribute our services without written permission.</p>
+    </div>
+    <div class="section">
+      <h3>Intellectual property</h3>
+      <p>All software, designs, and content produced by VKatOS remain the intellectual property of VKatOS. Applications generated by AetherOS on your behalf are owned by you, subject to the underlying licence of open-source components used.</p>
+    </div>
+    <div class="section">
+      <h3>Limitation of liability</h3>
+      <p>VKatOS provides services on an "as-is" basis. We are not liable for indirect, incidental, or consequential damages arising from your use of our products. Our total liability is limited to the fees paid by you in the preceding three months.</p>
+    </div>
+    <div class="section">
+      <h3>Governing law</h3>
+      <p>These terms are governed by the laws of India. Any disputes shall be subject to the exclusive jurisdiction of courts in Chennai, Tamil Nadu.</p>
+    </div>
+    <div class="section">
+      <h3>Contact</h3>
+      <p>VKatOS &nbsp;·&nbsp; Chennai, Tamil Nadu, India &nbsp;·&nbsp; <a href="mailto:contact@vkatos.com">contact@vkatos.com</a></p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="fcopy">© 2026 VKatOS Inc. All rights reserved.</div>
+  <div class="flinks">
+    <a href="/privacy/">Privacy Policy</a>
+    <a href="/terms/">Terms of Service</a>
+    <a href="/contact/">Contact</a>
+  </div>
+</footer>
+
+</body>
+</html>
