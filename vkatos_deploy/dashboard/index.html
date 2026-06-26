@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Dashboard — vkatos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#07070F;--bg2:#0D0D1A;--bg3:#111120;
+  --purple:#7C3AED;--purple2:#9B6FFA;
+  --cyan:#00C4D4;--cyan2:#00E5F5;
+  --green:#10B981;--amber:#F59E0B;--red:#EF4444;
+  --white:#F0F0FF;--muted:#5A5A7A;--muted2:#8080A0;
+  --border:rgba(124,58,237,.15);--border2:rgba(255,255,255,.07);
+  --card:rgba(255,255,255,.03);
+  --font-d:'Syne',sans-serif;--font-b:'DM Sans',sans-serif;--font-m:'DM Mono',monospace
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--white);font-family:var(--font-b);height:100vh;display:flex;overflow:hidden}
+a{text-decoration:none;color:inherit}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:240px;flex-shrink:0;height:100vh;overflow-y:auto;
+  background:var(--bg2);border-right:1px solid var(--border2);
+  display:flex;flex-direction:column;padding:0
+}
+.sidebar-brand{
+  padding:20px 24px;border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;gap:10px
+}
+.logo{
+  font-family:var(--font-d);font-weight:800;font-size:18px;letter-spacing:-.02em;
+  background:linear-gradient(135deg,var(--white) 30%,var(--purple2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent
+}
+.logo span{-webkit-text-fill-color:var(--cyan)}
+.sidebar-nav{padding:16px 12px;flex:1}
+.nav-section-label{
+  font-family:var(--font-m);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);padding:4px 12px;margin-bottom:4px;margin-top:16px
+}
+.nav-section-label:first-child{margin-top:0}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;
+  font-size:14px;font-weight:500;color:var(--muted2);
+  cursor:pointer;transition:all .15s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left
+}
+.nav-item:hover{background:rgba(255,255,255,.05);color:var(--white)}
+.nav-item.active{background:rgba(124,58,237,.15);color:var(--purple2);border:1px solid rgba(124,58,237,.2)}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;opacity:.7}
+.nav-item.active svg{opacity:1}
+.sidebar-bottom{padding:16px 12px;border-top:1px solid var(--border2)}
+.user-chip{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+  background:rgba(255,255,255,.04);border:1px solid var(--border2);cursor:pointer;transition:background .2s
+}
+.user-chip:hover{background:rgba(255,255,255,.07)}
+.avatar{
+  width:32px;height:32px;border-radius:50%;
+  background:linear-gradient(135deg,var(--purple),var(--cyan));
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-d);font-size:13px;font-weight:700;color:#fff;flex-shrink:0
+}
+.user-info{flex:1;min-width:0}
+.user-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-plan{font-family:var(--font-m);font-size:10px;color:var(--muted2);letter-spacing:.05em;text-transform:uppercase}
+.logout-btn{
+  display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:9px;
+  font-size:13px;color:var(--muted);width:100%;border:none;background:none;cursor:pointer;margin-top:8px;transition:all .15s
+}
+.logout-btn:hover{background:rgba(239,68,68,.08);color:#FCA5A5}
+
+/* ── MAIN ── */
+.main{flex:1;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
+
+/* TOPBAR */
+.topbar{
+  padding:20px 36px;border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
+  background:var(--bg);position:sticky;top:0;z-index:10
+}
+.topbar-l h2{font-family:var(--font-d);font-size:20px;font-weight:800;letter-spacing:-.01em}
+.topbar-l p{font-size:13px;color:var(--muted2);margin-top:2px;font-weight:300}
+.topbar-r{display:flex;gap:10px;align-items:center}
+.badge-plan{
+  font-family:var(--font-m);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--purple2);background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);
+  padding:4px 12px;border-radius:100px
+}
+.btn-upgrade{
+  font-family:var(--font-d);font-size:13px;font-weight:700;letter-spacing:.01em;
+  color:#fff;padding:8px 18px;border-radius:8px;
+  background:var(--purple);border:1px solid rgba(155,111,250,.4);
+  box-shadow:0 0 16px rgba(124,58,237,.3);transition:all .2s
+}
+.btn-upgrade:hover{box-shadow:0 0 28px rgba(124,58,237,.5);transform:translateY(-1px)}
+
+/* CONTENT */
+.content{padding:36px;flex:1}
+
+/* WELCOME STRIP */
+.welcome{
+  background:linear-gradient(135deg,rgba(124,58,237,.1) 0%,rgba(0,196,212,.06) 100%);
+  border:1px solid rgba(124,58,237,.2);border-radius:16px;
+  padding:32px 36px;margin-bottom:32px;position:relative;overflow:hidden
+}
+.welcome::after{
+  content:'';position:absolute;width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,rgba(124,58,237,.15),transparent);
+  top:-60px;right:-40px;pointer-events:none
+}
+.welcome h3{font-family:var(--font-d);font-size:22px;font-weight:800;letter-spacing:-.01em;margin-bottom:6px}
+.welcome h3 span{
+  background:linear-gradient(130deg,var(--purple2),var(--cyan));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent
+}
+.welcome p{font-size:14px;color:var(--muted2);font-weight:300}
+
+/* GRID LAYOUT */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+
+/* PRODUCT CARDS */
+.prod-card{
+  border:1px solid var(--border2);background:var(--card);border-radius:16px;
+  padding:28px 28px 24px;position:relative;overflow:hidden;transition:all .3s
+}
+.prod-card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .3s}
+.prod-card.ae::before{background:radial-gradient(ellipse at 0% 0%,rgba(124,58,237,.1),transparent 60%)}
+.prod-card.dc::before{background:radial-gradient(ellipse at 100% 0%,rgba(0,196,212,.08),transparent 60%)}
+.prod-card:hover{border-color:rgba(255,255,255,.12);transform:translateY(-2px)}
+.prod-card:hover::before{opacity:1}
+.pc-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.pc-label{
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--font-m);font-size:10px;letter-spacing:.1em;text-transform:uppercase
+}
+.ae .pc-label{color:var(--purple2)}
+.dc .pc-label{color:var(--cyan)}
+.pc-status{
+  font-family:var(--font-m);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  display:flex;align-items:center;gap:5px
+}
+.status-dot{width:6px;height:6px;border-radius:50%}
+.status-dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+.pc-name{font-family:var(--font-d);font-size:20px;font-weight:800;letter-spacing:-.01em;margin-bottom:6px}
+.pc-desc{font-size:13px;color:var(--muted2);line-height:1.6;margin-bottom:24px;font-weight:300}
+
+/* USAGE BAR */
+.usage-row{margin-bottom:16px}
+.usage-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:var(--muted2)}
+.usage-label span:last-child{font-family:var(--font-m);color:var(--white);font-size:11px}
+.bar-bg{height:4px;background:rgba(255,255,255,.08);border-radius:100px;overflow:hidden}
+.bar-fill{height:100%;border-radius:100px;transition:width 1s ease}
+.ae .bar-fill{background:linear-gradient(90deg,var(--purple),var(--purple2))}
+.dc .bar-fill{background:linear-gradient(90deg,var(--cyan),var(--cyan2))}
+
+/* LAUNCH BTN */
+.launch-btn{
+  display:inline-flex;align-items:center;gap:8px;width:100%;justify-content:center;
+  padding:12px 20px;border-radius:10px;border:1px solid;
+  font-family:var(--font-d);font-size:14px;font-weight:700;letter-spacing:.01em;
+  transition:all .2s;margin-top:4px
+}
+.ae .launch-btn{color:var(--purple2);border-color:rgba(124,58,237,.3);background:rgba(124,58,237,.08)}
+.ae .launch-btn:hover{background:rgba(124,58,237,.18);border-color:var(--purple2);box-shadow:0 0 24px rgba(124,58,237,.2)}
+.dc .launch-btn{color:var(--cyan);border-color:rgba(0,196,212,.2);background:rgba(0,196,212,.06)}
+.dc .launch-btn:hover{background:rgba(0,196,212,.14);border-color:var(--cyan);box-shadow:0 0 20px rgba(0,196,212,.15)}
+
+/* STAT CARDS */
+.scard{
+  border:1px solid var(--border2);background:var(--card);border-radius:14px;padding:24px 22px;transition:border-color .2s
+}
+.scard:hover{border-color:rgba(255,255,255,.12)}
+.sc-label{font-family:var(--font-m);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.sc-val{font-family:var(--font-d);font-size:28px;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
+.sc-sub{font-size:12px;color:var(--muted2)}
+
+/* ACTIVITY */
+.section-h{font-family:var(--font-d);font-size:16px;font-weight:700;letter-spacing:-.01em;margin-bottom:16px}
+.activity-list{border:1px solid var(--border2);border-radius:14px;overflow:hidden}
+.activity-item{
+  display:flex;align-items:center;gap:14px;padding:16px 20px;
+  border-bottom:1px solid var(--border2);transition:background .15s
+}
+.activity-item:last-child{border-bottom:none}
+.activity-item:hover{background:rgba(255,255,255,.025)}
+.ai-icon{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:14px
+}
+.ai-icon.ae{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.25)}
+.ai-icon.dc{background:rgba(0,196,212,.1);border:1px solid rgba(0,196,212,.2)}
+.ai-icon.sys{background:rgba(255,255,255,.06);border:1px solid var(--border2)}
+.ai-text{flex:1;min-width:0}
+.ai-title{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ai-sub{font-size:12px;color:var(--muted2);margin-top:2px}
+.ai-time{font-family:var(--font-m);font-size:11px;color:var(--muted);flex-shrink:0}
+.ai-badge{
+  font-family:var(--font-m);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  padding:3px 10px;border-radius:100px;flex-shrink:0
+}
+.ai-badge.success{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:var(--green)}
+.ai-badge.pending{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:var(--amber)}
+
+/* QUICK ACTIONS */
+.qa-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:28px}
+.qa-btn{
+  display:flex;align-items:center;gap:12px;padding:16px 18px;border-radius:12px;
+  border:1px solid var(--border2);background:var(--card);
+  font-size:14px;font-weight:500;color:var(--muted2);cursor:pointer;transition:all .2s;text-align:left
+}
+.qa-btn:hover{background:rgba(255,255,255,.06);color:var(--white);border-color:rgba(255,255,255,.12)}
+.qa-icon{font-size:18px;flex-shrink:0}
+
+@media(max-width:1100px){.grid-2,.qa-grid{grid-template-columns:1fr}.grid-3{grid-template-columns:1fr 1fr}}
+@media(max-width:768px){
+  .sidebar{display:none}
+  .content{padding:20px}
+  .grid-3{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <a href="/" class="logo">vk<span>.</span>atos</a>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Platform</div>
+    <button class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </button>
+    <div class="nav-section-label">Products</div>
+    <button class="nav-item" onclick="window.open('https://app.vkatos.com','_blank')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      AetherOS
+    </button>
+    <button class="nav-item" onclick="window.open('https://dcsp.vkatos.com','_blank')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      DCSP
+    </button>
+    <div class="nav-section-label">Account</div>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      Profile
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      Settings
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Support
+    </button>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="user-chip">
+      <div class="avatar" id="user-avatar">V</div>
+      <div class="user-info">
+        <div class="user-name" id="user-name">Loading…</div>
+        <div class="user-plan" id="user-plan">FREE PLAN</div>
+      </div>
+    </div>
+    <button class="logout-btn" onclick="logout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Sign out
+    </button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-l">
+      <h2>Dashboard</h2>
+      <p id="greeting">Good morning — here's your platform overview.</p>
+    </div>
+    <div class="topbar-r">
+      <div class="badge-plan">Free Plan</div>
+      <a href="/pricing/" class="btn-upgrade">Upgrade →</a>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- WELCOME STRIP -->
+    <div class="welcome">
+      <h3>Welcome back, <span id="welcome-name">there</span> 👋</h3>
+      <p>You're on the <strong>Free plan</strong>. Upgrade to unlock unlimited AetherOS runs and DCSP repositories.</p>
+    </div>
+
+    <!-- STAT ROW -->
+    <div class="grid-3">
+      <div class="scard">
+        <div class="sc-label">AetherOS Runs</div>
+        <div class="sc-val" style="background:linear-gradient(135deg,var(--white),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">3</div>
+        <div class="sc-sub">2 remaining this month</div>
+      </div>
+      <div class="scard">
+        <div class="sc-label">DCSP Repos</div>
+        <div class="sc-val" style="background:linear-gradient(135deg,var(--white),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">1</div>
+        <div class="sc-sub">4 more on free tier</div>
+      </div>
+      <div class="scard">
+        <div class="sc-label">Member since</div>
+        <div class="sc-val" style="font-size:20px;-webkit-text-fill-color:var(--white)" id="member-since">Today</div>
+        <div class="sc-sub">Account active</div>
+      </div>
+    </div>
+
+    <!-- PRODUCT CARDS -->
+    <div class="grid-2">
+
+      <div class="prod-card ae">
+        <div class="pc-head">
+          <div class="pc-label">⚡ AetherOS</div>
+          <div class="pc-status"><div class="status-dot live"></div><span style="color:var(--green);font-size:11px">Live</span></div>
+        </div>
+        <div class="pc-name">AetherOS</div>
+        <p class="pc-desc">AI Software Factory — 29-phase pipeline from idea to deployed application.</p>
+        <div class="usage-row">
+          <div class="usage-label"><span>Monthly runs used</span><span>3 / 5</span></div>
+          <div class="bar-bg"><div class="bar-fill" style="width:60%"></div></div>
+        </div>
+        <div class="usage-row">
+          <div class="usage-label"><span>Storage used</span><span>1.2 GB / 5 GB</span></div>
+          <div class="bar-bg"><div class="bar-fill" style="width:24%"></div></div>
+        </div>
+        <a href="https://app.vkatos.com" target="_blank" class="launch-btn">Open AetherOS <span>→</span></a>
+      </div>
+
+      <div class="prod-card dc">
+        <div class="pc-head">
+          <div class="pc-label">🛡 DCSP</div>
+          <div class="pc-status"><div class="status-dot live"></div><span style="color:var(--green);font-size:11px">Live</span></div>
+        </div>
+        <div class="pc-name">DCSP</div>
+        <p class="pc-desc">CI Self-Healing — detects failing pipelines and opens PRs with AI-generated fixes.</p>
+        <div class="usage-row">
+          <div class="usage-label"><span>Repos connected</span><span>1 / 5</span></div>
+          <div class="bar-bg"><div class="bar-fill" style="width:20%"></div></div>
+        </div>
+        <div class="usage-row">
+          <div class="usage-label"><span>Repairs this month</span><span>4 / 50</span></div>
+          <div class="bar-bg"><div class="bar-fill" style="width:8%"></div></div>
+        </div>
+        <a href="https://dcsp.vkatos.com" target="_blank" class="launch-btn">Open DCSP <span>→</span></a>
+      </div>
+
+    </div>
+
+    <!-- QUICK ACTIONS -->
+    <div class="section-h">Quick actions</div>
+    <div class="qa-grid">
+      <a href="https://app.vkatos.com" target="_blank" class="qa-btn">
+        <div class="qa-icon">⚡</div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--white)">Start new AetherOS run</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:2px">Describe your app idea and go</div>
+        </div>
+      </a>
+      <a href="https://dcsp.vkatos.com" target="_blank" class="qa-btn">
+        <div class="qa-icon">🔗</div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--white)">Connect a GitHub repo</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:2px">Enable self-healing for your CI/CD</div>
+        </div>
+      </a>
+      <a href="/pricing/" class="qa-btn">
+        <div class="qa-icon">🚀</div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--white)">Upgrade your plan</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:2px">Unlock unlimited runs & repos</div>
+        </div>
+      </a>
+      <a href="/contact/" class="qa-btn">
+        <div class="qa-icon">💬</div>
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--white)">Talk to the team</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:2px">Get personalized onboarding help</div>
+        </div>
+      </a>
+    </div>
+
+    <!-- RECENT ACTIVITY -->
+    <div class="section-h">Recent activity</div>
+    <div class="activity-list" id="activity-list">
+      <div class="activity-item">
+        <div class="ai-icon ae">⚡</div>
+        <div class="ai-text">
+          <div class="ai-title">AetherOS run completed — "TaskFlow Pro"</div>
+          <div class="ai-sub">29/29 phases · React + FastAPI · PostgreSQL</div>
+        </div>
+        <div class="ai-badge success">Complete</div>
+        <div class="ai-time">2h ago</div>
+      </div>
+      <div class="activity-item">
+        <div class="ai-icon dc">🛡</div>
+        <div class="ai-text">
+          <div class="ai-title">DCSP repaired failing CI — "my-api-service"</div>
+          <div class="ai-sub">Root cause: missing env variable in workflow</div>
+        </div>
+        <div class="ai-badge success">PR merged</div>
+        <div class="ai-time">5h ago</div>
+      </div>
+      <div class="activity-item">
+        <div class="ai-icon ae">⚡</div>
+        <div class="ai-text">
+          <div class="ai-title">AetherOS run completed — "InventoryPro"</div>
+          <div class="ai-sub">29/29 phases · Next.js + FastAPI · PostgreSQL</div>
+        </div>
+        <div class="ai-badge success">Complete</div>
+        <div class="ai-time">1d ago</div>
+      </div>
+      <div class="activity-item">
+        <div class="ai-icon sys">🔒</div>
+        <div class="ai-text">
+          <div class="ai-title">Account created</div>
+          <div class="ai-sub">Welcome to vkatos — free plan activated</div>
+        </div>
+        <div class="ai-badge pending">New</div>
+        <div class="ai-time" id="joined-time">just now</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* AUTH GUARD */
+const raw=localStorage.getItem('vk_user');
+if(!raw){window.location.href='/login/';}
+
+let user={name:'User',email:'',avatar:'V',plan:'free',joined:new Date().toISOString()};
+try{user=JSON.parse(raw);}catch(e){}
+
+/* FILL IN USER DATA */
+document.getElementById('user-name').textContent=user.name||user.email||'User';
+document.getElementById('user-plan').textContent=(user.plan||'free').toUpperCase()+' PLAN';
+document.getElementById('user-avatar').textContent=(user.avatar||(user.name||'V')[0]).toUpperCase();
+document.getElementById('welcome-name').textContent=(user.name||'there').split(' ')[0];
+
+/* GREETING */
+const hr=new Date().getHours();
+const greeting=hr<12?'Good morning':'hr<17?'Good afternoon':'Good evening';
+document.getElementById('greeting').textContent=`${hr<12?'Good morning':hr<17?'Good afternoon':'Good evening'} — here's your platform overview.`;
+
+/* MEMBER SINCE */
+try{
+  const d=new Date(user.joined);
+  const diff=Math.floor((Date.now()-d)/86400000);
+  document.getElementById('member-since').textContent=diff===0?'Today':diff===1?'Yesterday':`${diff}d ago`;
+  document.getElementById('joined-time').textContent=diff===0?'just now':`${diff}d ago`;
+}catch(e){}
+
+/* LOGOUT */
+function logout(){
+  localStorage.removeItem('vk_user');
+  window.location.href='/';
+}
+
+/* ANIMATE BARS */
+setTimeout(()=>{
+  document.querySelectorAll('.bar-fill').forEach(b=>{
+    const w=b.style.width;b.style.width='0';
+    requestAnimationFrame(()=>{setTimeout(()=>{b.style.width=w;},50);});
+  });
+},100);
+</script>
+</body>
+</html>
