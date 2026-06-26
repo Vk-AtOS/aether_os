@@ -453,8 +453,7 @@ document.getElementById('welcome-name').textContent=(user.name||'there').split('
 
 /* GREETING */
 const hr=new Date().getHours();
-const greeting=hr<12?'Good morning':'hr<17?'Good afternoon':'Good evening';
-document.getElementById('greeting').textContent=`${hr<12?'Good morning':hr<17?'Good afternoon':'Good evening'} — here's your platform overview.`;
+document.getElementById('greeting').textContent=(hr<12?'Good morning':hr<17?'Good afternoon':'Good evening')+' — here\'s your platform overview.';
 
 /* MEMBER SINCE */
 try{
