@@ -91,7 +91,15 @@ class FactoryPipeline:
                   model_preference: Optional[str] = None,
                   priority: Optional[str] = None,
                   codebase_mode: Optional[str] = None,
-                  existing_schema: Optional[Dict[str, Any]] = None) -> dict:
+                  existing_schema: Optional[Dict[str, Any]] = None,
+                  # Q1 / Q4: enrichment fields
+                  user_personas: Optional[List[Dict[str, Any]]] = None,
+                  has_customer_portal: Optional[bool] = None,
+                  has_landing_page: bool = False,
+                  app_brand: Optional[Dict[str, Any]] = None,
+                  realtime_features: Optional[List[str]] = None,
+                  seed_vocabulary: Optional[Dict[str, Any]] = None,
+                  multi_tenancy: Optional[bool] = None) -> dict:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
         sem = _get_pipeline_semaphore()
@@ -104,6 +112,8 @@ class FactoryPipeline:
                     run_id, org_id, org_slug, plan, is_change_request, memory_context,
                     council_preflight, github_url, designer_spec or {},
                     tech_preferences, model_preference, priority, codebase_mode, existing_schema,
+                    user_personas, has_customer_portal, has_landing_page,
+                    app_brand, realtime_features, seed_vocabulary, multi_tenancy,
                 ), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
@@ -131,7 +141,15 @@ class FactoryPipeline:
                   model_preference: Optional[str] = None,
                   priority: Optional[str] = None,
                   codebase_mode: Optional[str] = None,
-                  existing_schema: Optional[Dict[str, Any]] = None) -> dict:
+                  existing_schema: Optional[Dict[str, Any]] = None,
+                  # Q1 / Q4: enrichment fields
+                  user_personas: Optional[List[Dict[str, Any]]] = None,
+                  has_customer_portal: Optional[bool] = None,
+                  has_landing_page: bool = False,
+                  app_brand: Optional[Dict[str, Any]] = None,
+                  realtime_features: Optional[List[str]] = None,
+                  seed_vocabulary: Optional[Dict[str, Any]] = None,
+                  multi_tenancy: Optional[bool] = None) -> dict:
 
         run_id = run_id or str(uuid.uuid4())
 
@@ -232,6 +250,22 @@ class FactoryPipeline:
             "priority": priority or "normal",
             "codebase_mode": codebase_mode or "new",
             "existing_schema": existing_schema or {},
+            # ── Q1 / Q4: Enrichment fields — available to every downstream phase ──
+            # Dual-persona: list of user persona dicts (name, type, key_actions)
+            "user_personas": user_personas or [],
+            # Explicit portal flag; None means auto-detect from user_personas
+            "has_customer_portal": has_customer_portal,
+            # Whether to generate a public marketing/landing page
+            "has_landing_page": has_landing_page,
+            # Brand tokens (tagline, primary_color, logo_text)
+            "app_brand": app_brand or {},
+            # Entities that need live/realtime updates (WebSocket / SSE)
+            "realtime_features": realtime_features or [],
+            # Domain-specific vocabulary examples for seeding LLM prompts
+            "seed_vocabulary": seed_vocabulary or {},
+            # Multi-tenancy flag promoted to top-level (also in designer_spec.features
+            # for backwards compat — both are kept in sync below)
+            "multi_tenancy": multi_tenancy if multi_tenancy is not None else False,
         }
         _ds = dict(designer_spec or {})
         _tp = tech_preferences or {}
@@ -239,6 +273,13 @@ class FactoryPipeline:
             _ds.setdefault("frontend", {})["framework"] = _tp.get("frontend", "")
             _ds.setdefault("backend", {})["framework"] = _tp.get("backend", "")
             _ds.setdefault("backend", {})["database"] = _tp.get("database", "")
+        # Keep multi_tenancy in sync: if caller passed it top-level, reflect into
+        # designer_spec.features so older phase code that reads that path still works.
+        if multi_tenancy is not None:
+            _ds.setdefault("features", {})["multi_tenancy"] = multi_tenancy
+        elif _ds.get("features", {}).get("multi_tenancy"):
+            # Promote designer_spec value to top-level context key
+            accumulated_context["multi_tenancy"] = bool(_ds["features"]["multi_tenancy"])
         accumulated_context["designer_spec"] = _ds
 
         # Inject per-user learning patterns so every phase can tailor its prompts

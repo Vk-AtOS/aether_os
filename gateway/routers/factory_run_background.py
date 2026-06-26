@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import pathlib
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -292,6 +292,14 @@ async def run_pipeline_background(
     priority: str,
     codebase_mode: str,
     existing_schema: Optional[Any],
+    # Q1 / Q4: enrichment fields forwarded from intake schema
+    user_personas: Optional[List[Dict[str, Any]]] = None,
+    has_customer_portal: Optional[bool] = None,
+    has_landing_page: bool = False,
+    app_brand: Optional[Dict[str, Any]] = None,
+    realtime_features: Optional[List[str]] = None,
+    seed_vocabulary: Optional[Dict[str, Any]] = None,
+    multi_tenancy: Optional[bool] = None,
 ) -> None:
     """Run factory pipeline with council pre-flight and post-build hooks."""
     # LLM Council pre-flight check (non-blocking)
@@ -351,6 +359,13 @@ async def run_pipeline_background(
             priority=priority,
             codebase_mode=codebase_mode,
             existing_schema=existing_schema,
+            user_personas=user_personas,
+            has_customer_portal=has_customer_portal,
+            has_landing_page=has_landing_page,
+            app_brand=app_brand,
+            realtime_features=realtime_features,
+            seed_vocabulary=seed_vocabulary,
+            multi_tenancy=multi_tenancy,
         )
     except Exception as exc:
         logger.error("Background factory run failed: %s", exc)
