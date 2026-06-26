@@ -19,7 +19,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -39,6 +39,42 @@ class ApproveRequest(BaseModel):
     ticket_id: str
     decision: str  # "approve" | "deny"
     reason: Optional[str] = None
+
+
+class FactoryStartRequest(BaseModel):
+    """Intake schema for POST /factory/start.
+
+    All new fields are Optional with safe defaults so existing callers that
+    only send raw_input + domain continue to work without modification.
+    """
+    # Core fields (pre-existing)
+    raw_input: Optional[str] = None
+    requirement: Optional[str] = None  # legacy alias for raw_input
+    domain: str = "general"
+    project_name: Optional[str] = None
+    github_url: str = ""
+    designer_spec: Optional[Dict[str, Any]] = None
+    production_country: Optional[str] = None
+    compliance_flags: Optional[Dict[str, Any]] = None
+    tech_preferences: Optional[Dict[str, Any]] = None
+    model_preference: str = ""
+    priority: str = "normal"
+    codebase_mode: str = "new"
+    existing_schema: Optional[Dict[str, Any]] = None
+    client_id: Optional[str] = None
+
+    # ── Q1 / Q4: New enrichment fields ───────────────────────────────────────
+    # Each persona: {"name": str, "type": "customer"|"admin", "key_actions": [str]}
+    user_personas: Optional[List[Dict[str, Any]]] = None
+    has_customer_portal: Optional[bool] = None   # None = auto-detect from user_personas
+    has_landing_page: bool = False               # generate a public marketing/landing page
+    # Brand tokens: {"tagline": str, "primary_color": "#hex", "logo_text": str}
+    app_brand: Optional[Dict[str, Any]] = None
+    # Entities needing live updates: ["policy_alerts", "compliance_status", ...]
+    realtime_features: Optional[List[str]] = None
+    # Domain vocabulary examples: {"Policy": ["GDPR Article 5", "SOC2 CC6.1"]}
+    seed_vocabulary: Optional[Dict[str, Any]] = None
+    multi_tenancy: Optional[bool] = None   # top-level; also readable from designer_spec.features
 
 
 # ── Strong references prevent GC from silently killing in-flight tasks ────────
@@ -136,7 +172,7 @@ async def estimate_cost(req: Dict[str, Any], user: Dict[str, Any] = _current_use
 
 @router.post("/factory/start")
 async def start_factory_run(
-    req: Dict[str, Any],
+    req: FactoryStartRequest,
     request: Request,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
@@ -210,19 +246,30 @@ async def start_factory_run(
 
     factory = get_factory()
 
-    client_id = req.get("client_id", user.get("org_slug", "anonymous"))
-    raw_input = req.get("raw_input", req.get("requirement", ""))
-    domain = req.get("domain", "general")
-    project_name = req.get("project_name")
-    github_url = req.get("github_url", "").strip()
-    designer_spec = req.get("designer_spec")
-    production_country = (req.get("production_country") or "").strip().upper() or None
-    compliance_flags = req.get("compliance_flags") or {}
-    tech_preferences = req.get("tech_preferences") or {}
-    model_preference = (req.get("model_preference") or "").strip()
-    priority = (req.get("priority") or "normal").lower()
-    codebase_mode = (req.get("codebase_mode") or "new").lower()
-    existing_schema = req.get("existing_schema")
+    client_id = req.client_id or user.get("org_slug", "anonymous")
+    raw_input = req.raw_input or req.requirement or ""
+    domain = req.domain
+    project_name = req.project_name
+    github_url = (req.github_url or "").strip()
+    designer_spec = req.designer_spec
+    production_country = (req.production_country or "").strip().upper() or None
+    compliance_flags = req.compliance_flags or {}
+    tech_preferences = req.tech_preferences or {}
+    model_preference = (req.model_preference or "").strip()
+    priority = (req.priority or "normal").lower()
+    codebase_mode = (req.codebase_mode or "new").lower()
+    existing_schema = req.existing_schema
+
+    # ── Q1 / Q4: New enrichment fields ────────────────────────────────────────
+    user_personas = req.user_personas or []
+    has_customer_portal = req.has_customer_portal   # None = auto-detect downstream
+    has_landing_page = req.has_landing_page
+    app_brand = req.app_brand or {}
+    realtime_features = req.realtime_features or []
+    seed_vocabulary = req.seed_vocabulary or {}
+    # Promote multi_tenancy to top-level (also keep backward compat in designer_spec)
+    _ds_multi = ((req.designer_spec or {}).get("features") or {}).get("multi_tenancy", False)
+    multi_tenancy = req.multi_tenancy if req.multi_tenancy is not None else (_ds_multi or False)
 
     if not raw_input:
         raise HTTPException(status_code=400, detail="raw_input or requirement is required")
@@ -275,22 +322,31 @@ async def start_factory_run(
 
     # ── SQS queuing (when configured) vs. direct background execution ─────────
     from aether_os.core.queue.sqs_client import is_enabled as _sqs_enabled, send_pipeline_job
+    _enriched_payload: Dict[str, Any] = {
+        "client_id": client_id,
+        "raw_input": raw_input,
+        "domain": domain,
+        "project_name": project_name,
+        "org_id": org_id,
+        "org_slug": org_id,
+        "github_url": github_url or None,
+        "designer_spec": designer_spec or {},
+        "tech_preferences": tech_preferences,
+        "model_preference": model_preference,
+        "priority": priority,
+        "codebase_mode": codebase_mode,
+        "existing_schema": existing_schema,
+        # Q1 / Q4: enrichment fields forwarded to orchestrator
+        "user_personas": user_personas,
+        "has_customer_portal": has_customer_portal,
+        "has_landing_page": has_landing_page,
+        "app_brand": app_brand,
+        "realtime_features": realtime_features,
+        "seed_vocabulary": seed_vocabulary,
+        "multi_tenancy": multi_tenancy,
+    }
     if _sqs_enabled():
-        _queued = send_pipeline_job(run_id, {
-            "client_id": client_id,
-            "raw_input": raw_input,
-            "domain": domain,
-            "project_name": project_name,
-            "org_id": org_id,
-            "org_slug": org_id,
-            "github_url": github_url or None,
-            "designer_spec": designer_spec or {},
-            "tech_preferences": tech_preferences,
-            "model_preference": model_preference,
-            "priority": priority,
-            "codebase_mode": codebase_mode,
-            "existing_schema": existing_schema,
-        })
+        _queued = send_pipeline_job(run_id, _enriched_payload)
         if _queued:
             try:
                 from aether_os.core.db import get_session_factory as _gsf_q
@@ -321,6 +377,13 @@ async def start_factory_run(
         priority=priority,
         codebase_mode=codebase_mode,
         existing_schema=existing_schema,
+        user_personas=user_personas,
+        has_customer_portal=has_customer_portal,
+        has_landing_page=has_landing_page,
+        app_brand=app_brand,
+        realtime_features=realtime_features,
+        seed_vocabulary=seed_vocabulary,
+        multi_tenancy=multi_tenancy,
     ))
     _background_tasks.add(_t)
     _t.add_done_callback(_background_tasks.discard)
