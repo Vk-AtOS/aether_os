@@ -39,6 +39,45 @@ async def health() -> Dict[str, Any]:
     }
 
 
+@router.get("/health/zero-trust")
+@router.get("/api/health/zero-trust")
+async def health_zero_trust() -> Dict[str, Any]:
+    """Zero-trust subsystem health check.
+
+    Issues and immediately verifies a probe ticket to confirm that
+    AETHER_ONE_ZT_SECRET is set and HMAC signing is operational.
+    """
+    import os
+    secret_set = bool(os.environ.get("AETHER_ONE_ZT_SECRET", ""))
+    if not secret_set:
+        return {
+            "status": "degraded",
+            "zero_trust": False,
+            "reason": "AETHER_ONE_ZT_SECRET is not set",
+            "timestamp": time.time(),
+        }
+    try:
+        from aether_os.core.identity.zero_trust import issue_ticket, verify_ticket
+        _probe_project = "__zt_health_probe__"
+        _probe_resource = "__probe__"
+        _probe_action = "health_check"
+        ticket = issue_ticket(_probe_project, _probe_resource, _probe_action)
+        verify_ticket(ticket, _probe_project, _probe_resource, _probe_action)
+        return {
+            "status": "ok",
+            "zero_trust": True,
+            "timestamp": time.time(),
+        }
+    except Exception as exc:
+        logger.warning("Zero-trust health probe failed: %s", exc)
+        return {
+            "status": "degraded",
+            "zero_trust": False,
+            "reason": str(exc),
+            "timestamp": time.time(),
+        }
+
+
 @router.get("/")
 async def root_landing():
     """Serve the public landing page."""

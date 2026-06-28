@@ -177,6 +177,30 @@ class PhaseBase:
         """
         Supervisor logic: memory → task → gate → retry/escalate → communicate.
         """
+        # Verify the zero-trust ticket issued by the pipeline orchestrator.
+        # A missing ticket is warned (not fatal) so phases still run during
+        # unit tests and dev runs where AETHER_ONE_ZT_SECRET may not be set.
+        _zt_ticket = (phase_input.input_data or {}).get("_zt_ticket")
+        if _zt_ticket:
+            try:
+                from aether_os.core.identity.zero_trust import verify_ticket as _zt_verify
+                _zt_verify(
+                    _zt_ticket,
+                    project_path=phase_input.run_id,
+                    resource_path=phase_input.output_dir,
+                    action=self.phase_name,
+                )
+            except Exception as _zt_exc:
+                self.logger.warning(
+                    "[%s] Zero-trust ticket verification failed: %s",
+                    self.phase_name, _zt_exc,
+                )
+        else:
+            self.logger.debug(
+                "[%s] No zero-trust ticket present — running without ZT enforcement",
+                self.phase_name,
+            )
+
         from aether_os.core.memory.fingerprinter import fingerprint
         input_hash = fingerprint(str(phase_input.input_data))
         memory_ctx = await self.memory_before(input_hash, self.phase_name)

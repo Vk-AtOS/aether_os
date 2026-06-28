@@ -1278,6 +1278,24 @@ class FactoryPipeline:
             return {"status": "skipped", "output_path": "", "artifacts": {}, "metadata": {},
                     "warning": f"No supervisor mapped for phase {phase_name!r}"}
 
+        # Issue a zero-trust ticket that authorises this phase to act on its
+        # designated output directory within the current run.  The ticket is
+        # embedded in phase_input so the supervisor can verify it before
+        # executing privileged operations.
+        try:
+            from aether_os.core.identity.zero_trust import issue_ticket as _zt_issue
+            _zt_ticket = _zt_issue(
+                project_path=phase_input.run_id,
+                resource_path=phase_input.output_dir,
+                action=phase_name,
+            )
+            phase_input = phase_input.model_copy(
+                update={"input_data": {**phase_input.input_data, "_zt_ticket": _zt_ticket}}
+            )
+        except Exception as _zt_exc:
+            logger.warning("[pipeline] Zero-trust ticket issuance failed for %s (non-fatal): %s",
+                           phase_name, _zt_exc)
+
         start_t = time.time()
         try:
             logger.info("[pipeline] %s starting (project_id=%s)", phase_name, phase_input.project_id)
