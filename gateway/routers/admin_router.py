@@ -4,6 +4,7 @@ GET  /admin/users
 POST /admin/users/invite
 POST /admin/users/{user_id}/role
 POST /admin/users/{user_id}/deactivate
+GET  /admin/audit/export.csv
 
 Platform management routes (platform-health, kill-all, prune-artifacts,
 audit-logs/export, system/deploy, platform/save-file) live in
@@ -11,11 +12,15 @@ admin_platform_router.py.
 """
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from aether_os.gateway.dependencies import get_current_user
 
@@ -168,6 +173,106 @@ async def deactivate_user(user_id: str, user: Dict[str, Any] = _current_user()):
         db_user.is_active = False
         await session.commit()
     return {"id": user_id, "is_active": False}
+
+
+@router.get("/admin/audit/export.csv")
+async def export_audit_csv(
+    from_date: Optional[str] = Query(None, description="Start date ISO-8601 (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="End date ISO-8601 (YYYY-MM-DD)"),
+    org_id: Optional[str] = Query(None, description="Filter by org (superadmin only)"),
+    action: Optional[str] = Query(None, description="Filter by action type (partial match)"),
+    user: Dict[str, Any] = _current_user(),
+):
+    """
+    Export AuditLog rows as a streaming CSV download. Admin/owner only.
+    Superadmins may pass org_id to export logs for a specific organisation;
+    all other roles are scoped to their own org_id.
+    """
+    if user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Superadmin can override org_id; all others are locked to their own org.
+    is_superadmin = user.get("role") == "superadmin"
+    effective_org_id: Optional[str] = org_id if (is_superadmin and org_id) else user["org_id"]
+
+    # Parse date bounds → Unix timestamps (AuditLog.created_at is a Float epoch)
+    ts_from: Optional[float] = None
+    ts_to: Optional[float] = None
+    try:
+        if from_date:
+            ts_from = datetime.strptime(from_date, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            ).timestamp()
+        if to_date:
+            # Include the full to_date day by advancing to end of that day.
+            dt_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            ts_to = dt_to.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            ).timestamp()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}")
+
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import AuditLog, User as UserModel
+    from sqlalchemy import select
+
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(AuditLog, UserModel.email)
+            .outerjoin(UserModel, UserModel.id == AuditLog.user_id)
+            .where(AuditLog.org_id == effective_org_id)
+        )
+        if ts_from is not None:
+            stmt = stmt.where(AuditLog.created_at >= ts_from)
+        if ts_to is not None:
+            stmt = stmt.where(AuditLog.created_at <= ts_to)
+        if action:
+            stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
+        stmt = stmt.order_by(AuditLog.created_at.asc())
+        rows = (await session.execute(stmt)).all()
+
+    def _generate():
+        # Header row
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "timestamp", "org_id", "user_id", "user_email", "action",
+            "resource_type", "resource_id", "ip_address", "log_metadata",
+        ])
+        buf.seek(0)
+        yield buf.read()
+
+        for log, email in rows:
+            ts_str = (
+                datetime.fromtimestamp(log.created_at, tz=timezone.utc).isoformat()
+                if log.created_at
+                else ""
+            )
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow([
+                ts_str,
+                log.org_id,
+                log.user_id,
+                email or "",
+                log.action,
+                log.resource_type,
+                log.resource_id,
+                log.ip_address or "",
+                log.log_metadata or "",
+            ])
+            buf.seek(0)
+            yield buf.read()
+
+    date_part = f"{from_date or 'all'}_{to_date or 'now'}"
+    filename = f"audit_log_{date_part}.csv"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # Platform management routes live in admin_platform_router.py —
