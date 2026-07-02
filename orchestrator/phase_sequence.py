@@ -1,8 +1,10 @@
 """
-AetherOS — Phase sequence definitions and supervisor loader.
+AetherOS — Stage sequence definitions and supervisor loader.
 
-Extracted from factory_pipeline.py to keep that module focused on
-orchestration logic rather than phase registry data.
+The pipeline is organised into 12 clean stages. Each stage is a supervisor
+that internally orchestrates its sub-phases (parallel where possible).
+Individual phase directories still exist under phases/ and are called by
+their parent stage supervisor — they are NOT registered here directly.
 """
 from __future__ import annotations
 
@@ -13,144 +15,110 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 
-# Phases whose failure must abort the pipeline — downstream phases depend on their output.
-# Self-healing (p07b) and observational phases (p08+) are deliberately excluded so
-# they don't block delivery on non-critical failures.
+# Stages whose failure must abort the pipeline.
+# Stages 3+ (quality, testing, observability, devops, enterprise, handoff,
+# specialist) are intentionally non-critical — failures produce partial
+# deliverables rather than pipeline aborts.
 CRITICAL_PHASES = frozenset({
-    "p01_intake_requirements",  # no requirements → nothing to build
-    "p02_architecture",         # no architecture → codegen produces garbage
-    "p02b_domain_ir",           # no IR → p04/p05 fall back to "items" stub everywhere
-    "p04_backend",              # no backend → p05 integration fails completely
-    "p05_frontend",             # no frontend → deliverable is unusable
+    "s01_intake",       # no requirements → nothing to build
+    "s02_architecture", # no Domain IR → all codegen falls back to stubs
+    "s03_backend",      # no backend → frontend integration fails completely
 })
 
-# Phase directories that exist on disk but are NOT registered in PHASE_SUPERVISORS
-# and are therefore never executed by the active pipeline.  These are legacy
-# validator / gate-testing utilities from a v1→v2 consolidation.  Do not add
-# them to PHASE_SEQUENCE or PHASE_SUPERVISORS without implementing the
-# corresponding *Supervisor class.
+# Legacy phase directories that exist on disk but are now managed internally
+# by their parent stage supervisor. Never add these directly to PHASE_SEQUENCE.
 INACTIVE_PHASE_DIRS = frozenset({
-    "p00_intake",
-    "p01_requirements",
-    "p04a_backend_codegen",
-    "p04b_uiux_design",
-    "p07a_unit_testing",
-    "p07b_performance_testing",
-    "p07c_accessibility_testing",
-    "p07d_e2e_testing",
+    # dead (no task_agent, never called) — deleted in stage consolidation
+    # kept here so any stale code that checks this set doesn't crash
+    "p00_intake", "p00a_intake", "p01_requirements", "p09_documentation",
+    # absorbed into stage supervisors — run internally, not by the orchestrator
+    "p00_research", "p00b_data_archaeology", "p00c_architecture_planner",
+    "p01_intake_requirements", "p01b_integration_discovery",
+    "p02_architecture", "p02b_domain_ir", "p02c_permission_modeling",
+    "p03_scaffolding",
+    "p04_backend", "p04a_backend_codegen", "p04_uiux_design",
+    "p04b_business_logic", "p04c_integration_codegen",
+    "p05_frontend", "p05b_mobile", "p05c_desktop", "p05d_cli", "p05e_serverless",
+    "p06_review_security", "p06b_formal_verification",
+    "p07_testing", "p07a_unit_testing", "p07b_performance_testing",
+    "p07c_accessibility_testing", "p07d_e2e_testing",
+    "p07b_self_healing",
+    "p08_cicd", "p08_cicd_deployment",
+    "p09_observability", "p11a_monitoring", "p11b_error_tracking",
+    "p11c_analytics", "p11d_alerting",
+    "p11_deployment", "p11e_enterprise_deployment",
+    "p12a_feature_flags", "p12b_ab_testing", "p13_app_memory",
+    "p14_client_portal", "p15_handoff",
+    "p16_iam", "p17_control_plane", "p18_billing_metering",
+    "p19_service_catalog", "p20_multiregion", "p21_sre_agent",
+    "p10_docs_delivery",
 })
 
-# Ordered 39-phase sequence — core pipeline + cloud platform extension phases (Layers 5-8)
+# ── 12-Stage pipeline sequence ─────────────────────────────────────────────────
+#
+#  Stage  │ Name          │ What it does
+# ────────┼───────────────┼──────────────────────────────────────────────────────
+#  s01    │ INTAKE        │ Requirements, domain research, past-run archaeology
+#  s02    │ ARCHITECTURE  │ Domain IR, permission model, project scaffold
+#  s03    │ BACKEND       │ FastAPI: models, CRUD, business logic, integrations
+#  s04    │ FRONTEND      │ React/Vite/TanStack + conditional platform outputs
+#  s05    │ QUALITY GATE  │ Security scan, Z3 proofs, 8-dimension artifact scoring
+#  s06    │ TESTING       │ Unit, performance, accessibility, E2E (all parallel)
+#  s07    │ SELF-HEALING  │ 4-layer health probe + autonomous repair
+#  s08    │ OBSERVABILITY │ Prometheus, Grafana, Sentry, analytics, alerting
+#  s09    │ DEVOPS        │ CI/CD, Docker, K8s manifests, Helm, Terraform
+#  s10    │ ENTERPRISE    │ Feature flags, A/B, memory, IAM, billing, SRE
+#  s11    │ HANDOFF       │ Docs, client portal, Postman, delivery ZIP
+#  s12    │ SPECIALIST    │ Mobile, desktop, CLI, serverless (all conditional)
+# ────────┴───────────────┴──────────────────────────────────────────────────────
 PHASE_SEQUENCE = [
-    "p00_research",
-    "p00b_data_archaeology",        # Analyze existing schema + generate ETL migration scripts
-    "p00c_architecture_planner",    # Microservices service map (skips for monolith builds)
-    "p01_intake_requirements",
-    "p01b_integration_discovery",   # Discover external systems needed (after intake)
-    "p02_architecture",
-    "p02b_domain_ir",
-    "p02c_permission_modeling",     # ABAC permission model derived from domain IR
-    "p03_scaffolding",
-    "p04_backend",
-    "p04b_business_logic",
-    "p04c_integration_codegen",     # Generate async clients for discovered integrations
-    "p05_frontend",
-    "p05b_mobile",                  # React Native (Expo) app — skips for non-mobile builds
-    "p05c_desktop",                 # Electron desktop app — skips for non-desktop builds
-    "p05d_cli",                     # Click/Cobra CLI tool — skips for non-cli builds
-    "p05e_serverless",              # Knative functions — skips for non-serverless builds
-    "p06b_formal_verification",     # Z3 SMT proofs of auth/input/state-machine/SQL invariants (Gap 9)
-    "p06_review_security",
-    "p07_testing",
-    "p07b_self_healing",
-    "p08_cicd_deployment",
-    "p09_observability",
-    "p10_docs_delivery",
-    "p11_deployment",               # Docker build & run — delivers a live URL
-    "p11a_monitoring",              # Prometheus + Grafana + OTEL
-    "p11b_error_tracking",          # Sentry + structlog
-    "p11c_analytics",               # PostHog events + dashboard
-    "p11d_alerting",                # Alertmanager + runbooks
-    "p11e_enterprise_deployment",   # Helm charts, Terraform, GitHub Actions, Kafka, EKS
-    "p12a_feature_flags",           # Unleash feature flags
-    "p12b_ab_testing",              # GrowthBook experiments
-    "p13_app_memory",               # mem0 memory layer + knowledge graph
-    "p14_client_portal",            # Standalone client review portal
-    "p15_handoff",                  # Complete technical delivery package (docs, runbook, Postman)
-    # ── Cloud platform extension phases (Layers 5-8) ──────────────────────────
-    "p16_iam",                      # OPA Rego policies + Keycloak realm — always generated
-    "p17_control_plane",            # K8s Operator + CRDs — activates for kubernetes builds
-    "p18_billing_metering",         # OpenMeter + Stripe metering — always generated
-    "p19_service_catalog",          # Cloud console UI + catalog API — cloud_platform builds only
-    "p20_multiregion",              # Multi-region Terraform + chaos + capacity — k8s microservices
-    "p21_sre_agent",                # Self-healing SRE operator scaffold (CronJob + failure classifier + playbook)
+    "s01_intake",        # INTAKE        — requirements + research + past-run mining
+    "s02_architecture",  # ARCHITECTURE  — Domain IR + permission model + scaffold
+    "s03_backend",       # BACKEND       — complete FastAPI backend
+    "s04_frontend",      # FRONTEND      — React/Vite/TanStack + platform variants
+    "s05_quality",       # QUALITY GATE  — security + Z3 + dimension scoring
+    "s06_testing",       # TESTING       — unit + perf + a11y + E2E (parallel)
+    "s07_healing",       # SELF-HEALING  — 4-layer probe + autonomous repair
+    "s08_observability", # OBSERVABILITY — Prometheus + Grafana + Sentry + alerts
+    "s09_devops",        # DEVOPS        — CI/CD + Docker + K8s + Helm + Terraform
+    "s10_enterprise",    # ENTERPRISE    — feature flags + IAM + billing + SRE agent
+    "s11_handoff",       # HANDOFF       — docs + portal + Postman + delivery ZIP
+    "s12_specialist",    # SPECIALIST    — mobile + desktop + CLI + serverless (cond.)
 ]
 
-# Phase name → supervisor class path (39 phases: see PHASE_SEQUENCE above).
-# All paths use the "aether_os.phases.*" namespace. The aether_os package is
-# mapped to the repo root via pyproject.toml (`package-dir = {"aether_os" = "."}`).
-# _load_supervisor() also adds a fallback to "phases.*" in case the package
-# wasn't installed with `pip install -e .` — see _load_supervisor below.
+# Stage name → supervisor class path.
+# All paths use the "aether_os.stages.*" namespace.
+# _load_supervisor() also tries "stages.*" as a fallback for bare source-tree runs.
 PHASE_SUPERVISORS: Dict[str, str] = {
-    "p00_research":              "aether_os.phases.p00_research.supervisor_agent.ResearchSupervisor",
-    "p00b_data_archaeology":     "aether_os.phases.p00b_data_archaeology.supervisor_agent.DataArchaeologySupervisor",
-    "p00c_architecture_planner": "aether_os.phases.p00c_architecture_planner.supervisor_agent.ArchitecturePlannerSupervisor",
-    "p01_intake_requirements":   "aether_os.phases.p01_intake_requirements.IntakeRequirementsSupervisor",
-    "p01b_integration_discovery": "aether_os.phases.p01b_integration_discovery.supervisor_agent.IntegrationDiscoverySupervisor",
-    "p02_architecture":          "aether_os.phases.p02_architecture.ArchitectureSupervisor",
-    "p02b_domain_ir":            "aether_os.phases.p02b_domain_ir.DomainIRSupervisor",
-    "p02c_permission_modeling":  "aether_os.phases.p02c_permission_modeling.supervisor_agent.PermissionModelingSupervisor",
-    "p03_scaffolding":           "aether_os.phases.p03_scaffolding.ScaffoldingSupervisor",
-    "p04_backend":               "aether_os.phases.p04_backend.BackendSupervisor",
-    "p04b_business_logic":       "aether_os.phases.p04b_business_logic.supervisor_agent.BusinessLogicSupervisor",
-    "p04c_integration_codegen":  "aether_os.phases.p04c_integration_codegen.supervisor_agent.IntegrationCodegenSupervisor",
-    "p05_frontend":              "aether_os.phases.p05_frontend.FrontendSupervisor",
-    "p05b_mobile":               "aether_os.phases.p05b_mobile.supervisor_agent.MobileSupervisor",
-    "p05c_desktop":              "aether_os.phases.p05c_desktop.supervisor_agent.DesktopSupervisor",
-    "p05d_cli":                  "aether_os.phases.p05d_cli.supervisor_agent.CLISupervisor",
-    "p05e_serverless":           "aether_os.phases.p05e_serverless.supervisor_agent.ServerlessSupervisor",
-    "p06b_formal_verification":  "aether_os.phases.p06b_formal_verification.FormalVerificationSupervisor",
-    "p06_review_security":       "aether_os.phases.p06_review_security.ReviewSecuritySupervisor",
-    "p07_testing":               "aether_os.phases.p07_testing.TestingSupervisor",
-    "p07b_self_healing":         "aether_os.phases.p07b_self_healing.SelfHealingSupervisor",
-    "p08_cicd_deployment":       "aether_os.phases.p08_cicd_deployment.CICDDeploymentSupervisor",
-    "p09_observability":         "aether_os.phases.p09_observability.ObservabilitySupervisor",
-    "p10_docs_delivery":         "aether_os.phases.p10_docs_delivery.DocsDeliverySupervisor",
-    "p11_deployment":            "aether_os.phases.p11_deployment.DeploymentSupervisor",
-    # Post-deployment phases
-    "p11a_monitoring":           "aether_os.phases.p11a_monitoring.MonitoringSupervisor",
-    "p11b_error_tracking":       "aether_os.phases.p11b_error_tracking.ErrorTrackingSupervisor",
-    "p11c_analytics":            "aether_os.phases.p11c_analytics.AnalyticsSupervisor",
-    "p11d_alerting":             "aether_os.phases.p11d_alerting.AlertingSupervisor",
-    "p11e_enterprise_deployment": "aether_os.phases.p11e_enterprise_deployment.supervisor_agent.EnterpriseDeploymentSupervisor",
-    "p12a_feature_flags":        "aether_os.phases.p12a_feature_flags.FeatureFlagsSupervisor",
-    "p12b_ab_testing":           "aether_os.phases.p12b_ab_testing.ABTestingSupervisor",
-    "p13_app_memory":            "aether_os.phases.p13_app_memory.AppMemorySupervisor",
-    "p14_client_portal":         "aether_os.phases.p14_client_portal.ClientPortalSupervisor",
-    "p15_handoff":               "aether_os.phases.p15_handoff.supervisor_agent.HandoffSupervisor",
-    # Cloud platform extension phases (Layers 5-8)
-    "p16_iam":                   "aether_os.phases.p16_iam.supervisor_agent.IAMSupervisor",
-    "p17_control_plane":         "aether_os.phases.p17_control_plane.supervisor_agent.ControlPlaneSupervisor",
-    "p18_billing_metering":      "aether_os.phases.p18_billing_metering.supervisor_agent.BillingMeteringSupervisor",
-    "p19_service_catalog":       "aether_os.phases.p19_service_catalog.supervisor_agent.ServiceCatalogSupervisor",
-    "p20_multiregion":           "aether_os.phases.p20_multiregion.supervisor_agent.MultiRegionSupervisor",
-    "p21_sre_agent":             "aether_os.phases.p21_sre_agent.supervisor_agent.SREAgentSupervisor",
+    "s01_intake":        "aether_os.stages.s01_intake.supervisor.IntakeStageSupervisor",
+    "s02_architecture":  "aether_os.stages.s02_architecture.supervisor.ArchitectureStageSupervisor",
+    "s03_backend":       "aether_os.stages.s03_backend.supervisor.BackendStageSupervisor",
+    "s04_frontend":      "aether_os.stages.s04_frontend.supervisor.FrontendStageSupervisor",
+    "s05_quality":       "aether_os.stages.s05_quality.supervisor.QualityGateSupervisor",
+    "s06_testing":       "aether_os.stages.s06_testing.supervisor.TestingStageSupervisor",
+    "s07_healing":       "aether_os.stages.s07_healing.supervisor.HealingStageSupervisor",
+    "s08_observability": "aether_os.stages.s08_observability.supervisor.ObservabilityStageSupervisor",
+    "s09_devops":        "aether_os.stages.s09_devops.supervisor.DevOpsStageSupervisor",
+    "s10_enterprise":    "aether_os.stages.s10_enterprise.supervisor.EnterpriseStageSupervisor",
+    "s11_handoff":       "aether_os.stages.s11_handoff.supervisor.HandoffStageSupervisor",
+    "s12_specialist":    "aether_os.stages.s12_specialist.supervisor.SpecialistStageSupervisor",
 }
 
 
 def _load_supervisor(phase_name: str):
-    """Dynamically import and instantiate the supervisor for a phase.
+    """Dynamically import and instantiate the supervisor for a stage.
 
-    Tries the configured path first ("aether_os.phases.<phase>...") and falls
-    back to "phases.<phase>..." if the aether_os package isn't installed
+    Tries the configured path first ("aether_os.stages.<stage>...") and falls
+    back to "stages.<stage>..." if the aether_os package isn't installed
     (i.e. running from the source tree without `pip install -e .`).
     """
     class_path = PHASE_SUPERVISORS.get(phase_name)
     if not class_path:
         return None
     candidates = [class_path]
-    if class_path.startswith("aether_os.phases."):
-        candidates.append(class_path[len("aether_os."):])  # → phases.<phase>...
+    # bare source-tree fallback: strip "aether_os." prefix
+    if class_path.startswith("aether_os."):
+        candidates.append(class_path[len("aether_os."):])
     last_exc: Exception | None = None
     for path in candidates:
         module_path, class_name = path.rsplit(".", 1)
@@ -164,7 +132,7 @@ def _load_supervisor(phase_name: str):
             last_exc = exc
             logger.debug("[pipeline] supervisor candidate %r failed: %s", path, exc)
     logger.error(
-        "[pipeline] Cannot load supervisor for phase %r — tried %s. Last error: %s",
+        "[pipeline] Cannot load supervisor for stage %r — tried %s. Last error: %s",
         phase_name, candidates, last_exc,
     )
     raise last_exc  # type: ignore
