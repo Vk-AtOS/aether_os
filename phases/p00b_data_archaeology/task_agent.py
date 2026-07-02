@@ -126,6 +126,58 @@ if __name__ == "__main__":
 '''
 
 
+async def _find_similar_past_runs(domain: str, entity_count: int) -> list:
+    """Query past successful runs for the same domain to extract entity patterns.
+
+    Uses a fresh AsyncSession from the AetherOS DB so we don't require a
+    session to be injected.  Fails open — returns [] on any error so p00b
+    is never blocked by DB unavailability.
+    """
+    try:
+        from sqlalchemy import select
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run as _Run
+
+        factory = get_session_factory()
+        async with factory() as db_session:
+            stmt = (
+                select(_Run)
+                .where(
+                    _Run.status == "completed",
+                    _Run.domain == domain,
+                )
+                .order_by(_Run.created_at.desc())
+                .limit(10)
+            )
+            rows = (await db_session.execute(stmt)).scalars().all()
+
+            patterns: list = []
+            for run in rows:
+                try:
+                    ctx = (
+                        run.checkpoint_data.get("accumulated_context", {})
+                        if run.checkpoint_data
+                        else {}
+                    )
+                    entities = ctx.get("entities", [])
+                    if entities:
+                        patterns.append({
+                            "run_id": str(run.id),
+                            "entity_names": [e.get("name") for e in entities[:5]],
+                            "entity_count": len(entities),
+                            "domain": run.domain,
+                        })
+                        if len(patterns) >= 3:
+                            break
+                except Exception as _inner:
+                    logger.warning("p00b: skipping run during pattern extraction: %s", _inner)
+                    continue
+            return patterns
+    except Exception as e:
+        logger.warning("p00b: similar run lookup failed (non-fatal): %s", e)
+        return []
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """Analyze existing schema and generate ETL migration scripts."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -155,6 +207,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     domain = data.get("domain", "general")
     project_name = data.get("project_name", "App")
+
+    # ── Inject similar past run entity patterns as guidance ───────────────────
+    # Retrieve top-3 successful runs from the same domain so downstream phases
+    # can use proven entity patterns rather than guessing from scratch.
+    _entity_count_hint = len(data.get("entities", []))
+    _similar_runs = await _find_similar_past_runs(domain, _entity_count_hint)
+    if _similar_runs:
+        data["similar_past_runs"] = _similar_runs
+        logger.info(
+            "p00b: injected %d similar past run pattern(s) for domain=%s",
+            len(_similar_runs), domain,
+        )
+    else:
+        data["similar_past_runs"] = []
+        logger.info("p00b: no similar past runs found for domain=%s", domain)
     files_written: List[str] = []
 
     # ── Call A: Schema Analysis ────────────────────────────────────────────────
