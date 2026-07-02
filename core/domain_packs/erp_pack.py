@@ -157,7 +157,9 @@ _ENTITIES = [
             "gross_salary",    # Numeric(12,2)
             "deductions_json", # tax, insurance, pension breakdowns
             "net_salary",      # Numeric(12,2)
-            "currency",
+            "currency",        # ISO 4217 — USD, EUR, GBP, INR, AUD
+            "vat_rate",        # Numeric(6,4) nullable — VAT/GST rate at time of payroll
+            "vat_number",      # String nullable — employer VAT/GST registration number
             "is_processed",    # Boolean — True = immutable
             "processed_at",    # nullable DateTime
             "payment_method",  # bank_transfer / cheque / crypto
@@ -183,8 +185,9 @@ _ENTITIES = [
             "assigned_to_id",   # nullable FK to Employee
             "department_id",    # nullable FK to Department
             "purchase_date", "warranty_expiry",
-            "purchase_cost",    # Numeric(12,2)
-            "current_value",    # Numeric(12,2) — depreciated value
+            "purchase_cost",    # Numeric(18,4) — stored with ISO 4217 currency
+            "current_value",    # Numeric(18,4) — depreciated value
+            "currency",         # ISO 4217 — e.g. USD, EUR, GBP
             "serial_number",
             "location",
             "created_at", "updated_at",
@@ -247,6 +250,12 @@ _CONSTRAINTS = [
     "Leave reference MUST follow format LV-{YYYY}-{i:06d} and be unique.",
     "Payroll reference MUST follow format PAY-{YYYY}-{MM}-{i:05d} and be unique.",
     "Task reference MUST follow format TSK-{i:06d} and be unique.",
+    # Multi-currency and fiscal year
+    "All monetary amounts stored as NUMERIC(18,4) — never float for payroll or asset values",
+    "Multi-currency: store amounts with their ISO 4217 currency code; convert to base_currency for reporting only",
+    "VAT/GST rate stored on each transaction — do not hardcode tax rates",
+    "Fiscal year is configurable (not always Jan-Dec) — store fiscal_year_start_month as org setting",
+    "Payroll records are immutable after status='processed' — no updates allowed",
 ]
 
 # ── Seed patterns ─────────────────────────────────────────────────────────────
@@ -262,6 +271,11 @@ _SEED_PATTERNS = {
     "phone": "+1555{i:07d}",
     "salary": "{3000 + i * 250}.00",
     "salary_currency": "USD|EUR|GBP|INR|AUD",
+    # Multi-currency: Employee, Payroll, Asset all carry an ISO 4217 currency code
+    "currency": "USD|EUR|GBP|INR|AUD",
+    # VAT/GST fields on Payroll
+    "vat_rate": "0.20|0.18|0.10|0.05|None",
+    "vat_number": "GB123456789|IN29ABCDE1234F1ZS|None",
     "employment_type": "full_time|part_time|contractor|intern",
     "status_employee": "active|on_leave|terminated|probation",
     "leave_type": "annual|sick|maternity|unpaid|study",
@@ -283,6 +297,8 @@ _ARCHITECTURE_NOTES = [
     "Asset lifecycle: implement asset assignment history via an AssetAssignment log table — track who held an asset and when.",
     "Payroll computation: gross_salary = base_salary + allowances; net_salary = gross_salary - deductions (tax + insurance + pension) — store deductions as JSON breakdown.",
     "Background tasks: send payroll slip email via FastAPI BackgroundTasks after setting is_processed=True — never block the API response.",
+    "Multi-currency: use a CurrencyRate lookup table with (from_currency, to_currency, rate, effective_date)",
+    "Fiscal year: store FiscalYear entity with (org_id, year_label, start_date, end_date)",
 ]
 
 # ── Pack instance ─────────────────────────────────────────────────────────────
