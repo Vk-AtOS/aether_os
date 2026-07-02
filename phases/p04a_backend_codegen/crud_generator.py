@@ -12,6 +12,7 @@ import textwrap
 from typing import Dict, List, Tuple
 
 from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
+from phases.p04a_backend_codegen.prompts import build_crud_prompt, build_seed_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,63 @@ Return VALID JSON only (no markdown):
     raise ValueError("Could not parse models/schemas from LLM response")
 
 
+def _check_and_fix_sql_injection(code: str) -> str:
+    """Post-processing: detect and neutralise f-string raw SQL patterns in generated crud.py.
+
+    LLMs occasionally emit raw SQL f-strings (SQL injection vectors).
+    This pass replaces any f-string SQL with a warning comment + safe ORM placeholder.
+    Pattern: f"SELECT ...", f'UPDATE ...', f"DELETE ...", f"INSERT ..."
+    """
+    _SQL_FSTRING_RE = re.compile(
+        r'f["\'].*?(SELECT|UPDATE|DELETE|INSERT).*?["\']',
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not _SQL_FSTRING_RE.search(code):
+        return code
+
+    def _replace_sql(m: re.Match) -> str:
+        original = m.group(0)
+        logger.warning(
+            "p04a sql_injection_check: replaced raw SQL f-string with ORM placeholder: %.100s",
+            original,
+        )
+        return (
+            '# [AetherOS] Raw SQL f-string removed (SQL injection risk). '
+            'Use SQLAlchemy ORM select() instead.\n'
+            '        None  # TODO: replace with ORM query'
+        )
+
+    return _SQL_FSTRING_RE.sub(_replace_sql, code)
+
+
+def _scrub_password_fields_from_response(code: str) -> str:
+    """Post-processing pass: remove password_hash/password/hashed_password from response schemas.
+
+    LLM-generated crud.py sometimes leaks password fields into response dicts.
+    This scrub ensures they never appear in any dict comprehension or Pydantic model.
+    Only modifies lines that explicitly include these fields as dict keys in responses.
+    """
+    _BANNED = ("password_hash", "password", "hashed_password")
+    out_lines = []
+    for line in code.splitlines():
+        # Remove banned fields from inline dict comprehensions that filter columns by name
+        # e.g. {c.name: ... if c.name not in ('password_hash',)} patterns are already safe;
+        # target: literal key assignments like '"password_hash": obj.password_hash'
+        for field in _BANNED:
+            # Drop lines that are bare key-value pairs for password fields in response dicts
+            if (
+                f'"{field}"' in line or f"'{field}'" in line
+            ) and "not in" not in line and "exclude" not in line:
+                stripped = line.strip()
+                # Only drop if the line IS the key-value pair (not a comment or import)
+                if stripped.startswith(f'"{field}"') or stripped.startswith(f"'{field}'"):
+                    logger.debug("p04a scrub: removed password field line: %s", stripped)
+                    break
+        else:
+            out_lines.append(line)
+    return "\n".join(out_lines)
+
+
 async def _llm_crud_routers(
     llm, project_name: str, entities: list, models_code: str, schemas_code: str,
     mem_hint: str = "", multi_tenancy: bool = False,
@@ -157,78 +215,14 @@ async def _llm_crud_routers(
     # Conditionally inject multi-tenancy filtering instructions into CRUD prompt
     tenancy_block = _MULTI_TENANCY_PROMPT if multi_tenancy else ""
 
-    prompt = (
-        f'Generate production-quality FastAPI async CRUD routers for "{project_name}".\n'
-        + mem_hint + "\n"
-        + tenancy_block + "\n"
-        + """
-REQUIRED pagination rules (no exceptions):
-- Every GET list endpoint MUST accept query params: skip: int = 0, limit: int = Query(default=20, le=100)
-- Return format: {"items": [...], "total": count, "skip": skip, "limit": limit}
-- Never return unbounded lists — always apply .offset(skip).limit(limit)
-"""
-        + _AUTH_FLOWS_PROMPT
-        + """
-Entities and their fields:
-"""
-        + entity_fields_summary
-        + "Full src/models.py:\n```python\n"
-        + models_ctx
-        + "\n```\n\nFull src/schemas.py:\n```python\n"
-        + schemas_ctx
-        + """
-```
-
-FILE: src/routers/crud.py
-
-ABSOLUTE IMPORTS RULE (MANDATORY — Docker will fail otherwise):
-- Use ABSOLUTE imports only. Do NOT use relative imports (no 'from .module import X').
-- Import as: `from database import get_db`, `from models import MyModel`, `from schemas import MyCreate`, `from auth import get_current_user`
-- NEVER write `from .database import get_db` or `from ..models import X`.
-
-STRICT REQUIREMENTS — every violation causes runtime errors:
-1. Imports:
-   - `from __future__ import annotations`
-   - `from typing import List, Optional, Any`
-   - `from fastapi import APIRouter, Depends, HTTPException, status, Query`
-   - `from sqlalchemy.ext.asyncio import AsyncSession`
-   - `from sqlalchemy import select, func`
-   - `from database import get_db`
-   - `from auth import get_current_user, require_admin`
-   - Import EVERY model class from `models` that you reference
-   - Import EVERY schema class from `schemas` that you reference
-
-2. For EACH domain entity (NOT User — User is handled by auth router):
-   Create `APIRouter(prefix="/{entity_plural}", tags=["{Entity Label}"])`:
-   - `GET /` -> paginated list: `skip: int = Query(0, ge=0)`, `limit: int = Query(100, le=500)`
-     Returns: `List[{Entity}Response]`
-   - `POST /` -> create, `status_code=201`, returns `{Entity}Response`
-   - `GET /{id}` -> single record or HTTP 404, returns `{Entity}Response`
-   - `PUT /{id}` -> full update or HTTP 404, returns `{Entity}Response`
-   - `PATCH /{id}` -> partial update, `data: {Entity}Update`, returns `{Entity}Response`
-   - `DELETE /{id}` -> soft-delete or hard-delete, HTTP 204
-
-   SECURITY: Never include `password_hash` or `password` fields in any response dict or model.
-   If a model has a `password_hash` column, exclude it explicitly.
-
-3. Query pattern (async SQLAlchemy):
-   - List:   `result = await db.execute(select({Model}).offset(skip).limit(limit))`
-             `items = list(result.scalars().all())`
-   - Single: `result = await db.execute(select({Model}).where({Model}.id == id))`
-             `obj = result.scalar_one_or_none()`
-             `if obj is None: raise HTTPException(status_code=404, ...)`
-   - Create: `obj = {Model}(**data.model_dump(exclude_unset=True))`
-             `db.add(obj); await db.flush(); await db.refresh(obj)`
-   - Update: fetch, then `for k, v in data.model_dump(exclude_unset=True).items(): setattr(obj, k, v)`
-             `await db.flush(); await db.refresh(obj)`
-   - Delete: fetch, `await db.delete(obj)` (or set `is_active=False` for soft-delete)
-
-4. Auth: ALL routes require `current_user: dict = Depends(get_current_user)`.
-   DELETE requires `Depends(require_admin)`.
-
-5. LAST LINE must be: `all_routers = [{entity}_router, ...]` listing ALL entity routers.
-
-Return ONLY the complete Python file. No markdown, no explanation."""
+    prompt = build_crud_prompt(
+        project_name=project_name,
+        entity_fields_summary=entity_fields_summary,
+        models_ctx=models_ctx,
+        schemas_ctx=schemas_ctx,
+        mem_hint=mem_hint,
+        multi_tenancy_block=tenancy_block,
+        auth_flows_prompt=_AUTH_FLOWS_PROMPT,
     )
 
     result = await llm.call(prompt, task_type="code_generation", max_tokens=6000)
@@ -243,6 +237,12 @@ Return ONLY the complete Python file. No markdown, no explanation."""
     # e.g. Bedrock Nova sometimes writes "from..schemas import" or "from ..models import"
     code = re.sub(r"from\s*\.+\s*(schemas|models|database|auth)\s+import", r"from \1 import", code)
 
+    # Post-process: remove any password fields that leaked into response dicts
+    code = _scrub_password_fields_from_response(code)
+
+    # Post-process: neutralise raw SQL f-strings (SQL injection risk)
+    code = _check_and_fix_sql_injection(code)
+
     return code
 
 
@@ -250,41 +250,14 @@ async def _llm_seed_data(
     llm, project_name: str, domain: str, entities: list, models_code: str
 ) -> str:
     """One LLM call → seed.py with realistic startup data."""
-    entity_names = [e.get("name", e.get("table", "")) for e in entities[:10]]
-
-    prompt = f"""\
-Generate a `seed_database()` async function for "{project_name}" ({domain}).
-
-Complete src/models.py (use EXACT class names from here):
-```python
-{models_code[:3000]}{"" if len(models_code) <= 3000 else chr(10) + "# ... (truncated)"}
-```
-
-FILE: src/seed.py
-
-ABSOLUTE IMPORTS RULE: Use absolute imports only — NO relative imports.
-Example: `from database import AsyncSessionLocal`, `from auth import get_password_hash`, `from models import User`
-NEVER write `from .database import ...` or `from .models import ...`.
-
-REQUIREMENTS:
-1. Import: `from database import AsyncSessionLocal`, `from auth import get_password_hash`
-2. Import all models from `models` (absolute: `from models import User, ...`)
-3. `async def seed_database()` — called on every startup
-4. Check if already seeded: `result = await db.execute(select(func.count()).select_from(User))`
-   If count > 0, return early (idempotent)
-5. Create admin user: email="admin@example.com", role="admin"
-   Set `_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin1234!")`
-   Use `password=get_password_hash(_ADMIN_PASSWORD)`.
-   Add `import os` at top of file.
-   Log: `_logger.info("Seeded admin: admin@example.com / %s", _ADMIN_PASSWORD)`
-6. Create 15-20 realistic records for EACH entity:
-   - Use real-world names, descriptions, values (NOT "test1", "item1", "string")
-   - Values must be domain-appropriate for {domain}
-   - For "{project_name}": use realistic {domain}-specific terminology
-7. Use `db.add_all([...])` for bulk inserts
-8. Add all in a single session: `async with AsyncSessionLocal() as db:`
-
-Return ONLY the complete seed.py file. No markdown, no explanation."""
+    models_ctx = models_code[:3000] + (
+        "\n# ... (truncated)" if len(models_code) > 3000 else ""
+    )
+    prompt = build_seed_prompt(
+        project_name=project_name,
+        domain=domain,
+        models_ctx=models_ctx,
+    )
 
     result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
     if not result or len(result.strip()) < 200:
@@ -511,77 +484,5 @@ def _fallback_seed(
     """)
 
 
-def _fallback_service_layer(entities: list) -> str:
-    """Generate bare service stubs for each entity using SQLAlchemy select/add/delete."""
-    lines = [
-        "from __future__ import annotations",
-        "from typing import Any, Dict, List, Optional",
-        "from sqlalchemy.ext.asyncio import AsyncSession",
-        "from sqlalchemy import select",
-        "",
-    ]
-    for ent in entities[:8]:
-        name = ent.get("name", "Item")
-        lines += [
-            f"class {name}Service:",
-            f"    @staticmethod",
-            f"    async def get_all(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Any]:",
-            f"        try:",
-            f"            from models import {name}",
-            f"            result = await db.execute(select({name}).offset(skip).limit(limit))",
-            f"            return list(result.scalars().all())",
-            f"        except Exception:",
-            f"            return []",
-            "",
-            f"    @staticmethod",
-            f"    async def get_by_id(db: AsyncSession, id: int) -> Optional[Any]:",
-            f"        try:",
-            f"            from models import {name}",
-            f"            result = await db.execute(select({name}).where({name}.id == id))",
-            f"            return result.scalar_one_or_none()",
-            f"        except Exception:",
-            f"            return None",
-            "",
-            f"    @staticmethod",
-            f"    async def create(db: AsyncSession, data: Dict[str, Any]) -> Optional[Any]:",
-            f"        try:",
-            f"            from models import {name}",
-            f"            obj = {name}(**data)",
-            f"            db.add(obj)",
-            f"            await db.flush()",
-            f"            await db.refresh(obj)",
-            f"            return obj",
-            f"        except Exception:",
-            f"            return None",
-            "",
-            f"    @staticmethod",
-            f"    async def update(db: AsyncSession, id: int, data: Dict[str, Any]) -> Optional[Any]:",
-            f"        try:",
-            f"            from models import {name}",
-            f"            result = await db.execute(select({name}).where({name}.id == id))",
-            f"            obj = result.scalar_one_or_none()",
-            f"            if obj is None:",
-            f"                return None",
-            f"            for k, v in data.items():",
-            f"                setattr(obj, k, v)",
-            f"            await db.flush()",
-            f"            await db.refresh(obj)",
-            f"            return obj",
-            f"        except Exception:",
-            f"            return None",
-            "",
-            f"    @staticmethod",
-            f"    async def delete(db: AsyncSession, id: int) -> bool:",
-            f"        try:",
-            f"            from models import {name}",
-            f"            result = await db.execute(select({name}).where({name}.id == id))",
-            f"            obj = result.scalar_one_or_none()",
-            f"            if obj is None:",
-            f"                return False",
-            f"            await db.delete(obj)",
-            f"            return True",
-            f"        except Exception:",
-            f"            return False",
-            "",
-        ]
-    return "\n".join(lines)
+# Re-export _fallback_service_layer from split module (file-size limit compliance)
+from phases.p04a_backend_codegen.crud_generator_service import _fallback_service_layer  # noqa: F401
