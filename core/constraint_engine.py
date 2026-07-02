@@ -208,6 +208,37 @@ class ConstraintEngine:
             "Apply general security best practices: input validation, output encoding, least-privilege access.",
         ]
 
+    # ── Domain-specific constraint methods ────────────────────────────────────
+
+    def get_hipaa_constraints(self) -> List[str]:
+        """Returns HIPAA-specific backend constraints for healthcare apps."""
+        return [
+            "All PHI fields (dob, ssn, diagnosis, prescription) must have field-level encryption markers",
+            "Every model READ operation must write to AuditLog (patient_id, action, accessor_id, timestamp)",
+            "No plaintext SSN or date-of-birth in API responses — mask as '***-**-XXXX' or age-only",
+            "Bulk export endpoints require superadmin role and HIPAA_EXPORT_APPROVED env flag",
+            "All authentication attempts logged with IP and outcome",
+        ]
+
+    def get_pci_constraints(self) -> List[str]:
+        """Returns PCI-DSS specific constraints for fintech apps."""
+        return [
+            "Never log or return full card numbers — store only last 4 digits",
+            "All payment amounts stored as numeric(10,2) — never float arithmetic on currency",
+            "Stripe token references only — no raw card data in database",
+            "Every financial transaction creates an immutable AuditLog record",
+            "API responses must never include raw payment instrument identifiers",
+        ]
+
+    def get_domain_constraints(self, domain: str) -> List[str]:
+        """Returns all domain-specific constraints for a given app domain."""
+        domain_lower = domain.lower()
+        if any(w in domain_lower for w in ["health", "medical", "clinic", "hospital", "patient"]):
+            return self.get_hipaa_constraints()
+        if any(w in domain_lower for w in ["finance", "fintech", "payment", "bank", "invoice", "wallet"]):
+            return self.get_pci_constraints()
+        return []
+
     # ── Prompt formatting ─────────────────────────────────────────────────────
 
     def format_for_prompt(self, constraints: List[str]) -> str:
