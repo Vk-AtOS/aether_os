@@ -297,8 +297,40 @@ Return ONLY the complete Python file. No markdown.
 
 # ── Fallback generators (no LLM) ──────────────────────────────────────────────
 
+_BANNED_FIELDS = frozenset(("password_hash", "password", "hashed_password"))
+
+
+def _entity_serialize_dict(name: str, fields: list, obj_var: str = "obj") -> str:
+    """Build a static serialization dict literal from entity field list.
+
+    Uses the IR field names at code-generation time instead of __table__.columns
+    introspection at runtime — produces cleaner, fully typed generated code.
+    Skips password-related fields so they never leak into API responses.
+    Always includes 'id', 'created_at', 'updated_at' even if absent from IR fields.
+    """
+    base_fields = ["id", "created_at", "updated_at"]
+    field_names = [
+        (f.get("name") if isinstance(f, dict) else str(f))
+        for f in (fields or [])
+        if (f.get("name") if isinstance(f, dict) else str(f)) not in _BANNED_FIELDS
+    ]
+    # Merge: base fields first, then entity-specific, deduplicated, preserving order
+    seen: set = set()
+    ordered: list = []
+    for fn in base_fields + field_names:
+        if fn and fn not in seen and fn not in _BANNED_FIELDS:
+            seen.add(fn)
+            ordered.append(fn)
+    pairs = ", ".join(f'"{fn}": getattr({obj_var}, "{fn}", None)' for fn in ordered)
+    return "{" + pairs + "}"
+
+
 def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
     """Fallback CRUD using ORM (no raw SQL — no injection vectors).
+
+    Generates complete typed CRUD with paginated list, get-by-id, create (201),
+    patch update, put alias, and delete. Serialization uses entity['fields'] from
+    the IR at code-generation time — no __table__.columns runtime introspection.
 
     When multi_tenancy=True, every list query filters by org_id and every create
     endpoint stamps org_id from the calling user's JWT claims.
@@ -331,10 +363,19 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
         table = ent.get("table", name.lower() + "s")
         var = f"{table}_router"
         router_vars.append(var)
+        fields = ent.get("fields", []) or []
+
+        # Pre-build static serialization dicts from entity IR fields
+        ser_dict = _entity_serialize_dict(name, fields, obj_var="i")
+        ser_dict_obj = _entity_serialize_dict(name, fields, obj_var="obj")
 
         # Multi-tenancy filter clause (injected into list and get queries)
         mt_list_filter = (
             f".where(models.{name}.org_id == current_user['org_id'])"
+            if multi_tenancy else ""
+        )
+        mt_get_filter = (
+            f", models.{name}.org_id == current_user['org_id']"
             if multi_tenancy else ""
         )
         mt_create_kwarg = (
@@ -348,55 +389,55 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"@{var}.get('/', response_model=dict)",
             f"async def list_{table}(",
             f"    page: int = Query(1, ge=1),",
-            f"    limit: int = Query(20, ge=1, le=200),",
+            f"    page_size: int = Query(20, ge=1, le=200),",
             f"    db: AsyncSession = Depends(get_db),",
             f"    current_user: dict = Depends(get_current_user),",
             f"):",
-            f"    offset = (page - 1) * limit",
+            f"    offset = (page - 1) * page_size",
             f"    total_q = await db.execute(select(func.count()).select_from(models.{name}){mt_list_filter})",
             f"    total = total_q.scalar_one()",
-            f"    result = await db.execute(select(models.{name}){mt_list_filter}.offset(offset).limit(limit))",
+            f"    result = await db.execute(select(models.{name}){mt_list_filter}.offset(offset).limit(page_size))",
             f"    items = result.scalars().all()",
-            f"    return {{'items': [{{c.name: getattr(i, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}} for i in items], 'total': total, 'page': page, 'limit': limit}}",
+            f"    return {{'items': [{ser_dict} for i in items], 'total': total, 'page': page, 'page_size': page_size}}",
             "",
-            f"@{var}.post('/', status_code=201, response_model=dict)",
+            f"@{var}.get('/{{item_id}}', response_model=dict)",
+            f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
+            f"    obj = result.scalar_one_or_none()",
+            f"    if obj is None:",
+            f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
+            f"    return {ser_dict_obj}",
+            "",
+            f"@{var}.post('/', status_code=status.HTTP_201_CREATED, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
             f"    obj = models.{name}(**data.model_dump(exclude_unset=True){mt_create_kwarg})",
             f"    db.add(obj)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
-            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}}",
-            "",
-            f"@{var}.get('/{{item_id}}', response_model=dict)",
-            f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{', models.' + name + '.org_id == current_user[\"org_id\"]' if multi_tenancy else ''}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if not obj:",
-            f"        raise HTTPException(status_code=404, detail='{name} not found')",
-            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}}",
+            f"    return {ser_dict_obj}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
             f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
-            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{', models.' + name + '.org_id == current_user[\"org_id\"]' if multi_tenancy else ''}))",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
             f"    obj = result.scalar_one_or_none()",
-            f"    if not obj:",
-            f"        raise HTTPException(status_code=404, detail='{name} not found')",
+            f"    if obj is None:",
+            f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    for k, v in data.model_dump(exclude_unset=True).items():",
             f"        setattr(obj, k, v)",
             f"    await db.flush()",
             f"    await db.refresh(obj)",
-            f"    return {{c.name: getattr(obj, c.name) for c in models.{name}.__table__.columns if c.name not in ('password_hash', 'password')}}",
+            f"    return {ser_dict_obj}",
             "",
             f"@{var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
             f"async def update_{table}_put(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
             f"    return await update_{table}(item_id, data, db, current_user)",
             "",
-            f"@{var}.delete('/{{item_id}}', status_code=204)",
+            f"@{var}.delete('/{{item_id}}', status_code=status.HTTP_204_NO_CONTENT)",
             f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_admin)):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
             f"    obj = result.scalar_one_or_none()",
-            f"    if not obj:",
-            f"        raise HTTPException(status_code=404, detail='{name} not found')",
+            f"    if obj is None:",
+            f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    await db.delete(obj)",
             "",
         ]
