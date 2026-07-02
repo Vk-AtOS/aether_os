@@ -4,6 +4,7 @@ Extracted from factory_ops_router.py.
 
 Routes for run analytics and deployment status:
   GET /factory/analytics/quality-trend
+  GET /analytics/quality-trend
   GET /factory/search
   GET /factory/deployments
 """
@@ -11,9 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -179,3 +181,78 @@ async def list_deployments(
     except Exception as exc:
         logger.debug("Docker container listing failed (docker may not be in PATH): %s", exc)
     return {"deployments": db_deployments, "containers": containers}
+
+
+@router.get("/analytics/quality-trend")
+async def daily_quality_trend(
+    days: int = Query(30, ge=1, le=365, description="Number of past days to include"),
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """
+    Return daily quality metrics for the last N days.
+
+    Each entry contains the number of runs that day, the success rate
+    (status='completed' or 'passed' vs total), and average phase confidence
+    extracted from checkpoint_data.accumulated_context.phase_confidence.
+    Days with no runs are omitted.
+    """
+    from aether_os.core.db import get_session_factory as _gsf_dqt
+    from aether_os.core.models import Run as _RunDqt
+    from sqlalchemy import select as _sel_dqt
+
+    org_id = user["org_id"]
+    cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+
+    try:
+        async with _gsf_dqt()() as _sess:
+            rows = (await _sess.execute(
+                _sel_dqt(_RunDqt)
+                .where(
+                    _RunDqt.org_id == org_id,
+                    _RunDqt.started_at >= cutoff_ts,
+                )
+                .order_by(_RunDqt.started_at.asc())
+            )).scalars().all()
+    except Exception as exc:
+        logger.warning("analytics: daily_quality_trend DB query failed: %s", exc)
+        rows = []
+
+    # Group runs by calendar date (UTC)
+    day_buckets: Dict[str, Dict[str, Any]] = {}
+    for run in rows:
+        try:
+            date_key = datetime.fromtimestamp(
+                float(run.started_at), tz=timezone.utc
+            ).strftime("%Y-%m-%d")
+        except Exception as exc:
+            logger.debug("analytics: bad started_at %r: %s", run.started_at, exc)
+            continue
+
+        bucket = day_buckets.setdefault(date_key, {"runs": 0, "succeeded": 0, "confidences": []})
+        bucket["runs"] += 1
+        if run.status in ("completed", "passed"):
+            bucket["succeeded"] += 1
+
+        # Extract average phase confidence for this run
+        checkpoint = run.checkpoint_data or {}
+        phase_conf = checkpoint.get("accumulated_context", {}).get("phase_confidence", {})
+        if isinstance(phase_conf, dict) and phase_conf:
+            conf_vals = [v for v in phase_conf.values() if isinstance(v, (int, float))]
+            if conf_vals:
+                bucket["confidences"].append(sum(conf_vals) / len(conf_vals))
+
+    trend = []
+    for date_key in sorted(day_buckets.keys()):
+        b = day_buckets[date_key]
+        total_runs = b["runs"]
+        success_rate = round(b["succeeded"] / total_runs, 4) if total_runs else 0.0
+        confs = b["confidences"]
+        avg_conf: Optional[float] = round(sum(confs) / len(confs), 4) if confs else None
+        trend.append({
+            "date": date_key,
+            "runs": total_runs,
+            "success_rate": success_rate,
+            "avg_confidence": avg_conf,
+        })
+
+    return {"trend": trend, "days": days, "total_runs": sum(b["runs"] for b in day_buckets.values())}
