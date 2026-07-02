@@ -24,6 +24,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from aether_os.core.knowledge_graph_graph import (
+    kg_get_neighbors,
+    kg_find_related_patterns,
+    kg_get_subsystem_connections,
+)
+
 logger = logging.getLogger(__name__)
 
 # Default storage path relative to this file's package root.
@@ -52,6 +58,12 @@ class EdgeType(str, Enum):
     CONFLICTS_WITH = "conflicts_with"
     RELATED_TO = "related_to"
     APPLIES_TO = "applies_to"
+    # Cross-subsystem edge types (added for graph traversal upgrade)
+    CONTAINS = "contains"
+    DEPENDS_ON = "depends_on"
+    REPAIRED_BY = "repaired_by"
+    VALIDATED_BY = "validated_by"
+    GENERATES = "generates"
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +208,24 @@ class KnowledgeGraph:
     def all_edges(self) -> List[KGEdge]:
         return list(self._edges)
 
+    # ------------------------------------------------------------------ graph traversal
+    # Implementations live in knowledge_graph_graph.py (split to keep this file
+    # under the 600-line hard limit).  These wrappers delegate to the pure functions.
+
+    def get_neighbors(self, node_id: str, edge_type: Optional[str] = None) -> List[str]:
+        """Return IDs of all nodes directly reachable from node_id via outgoing edges."""
+        return kg_get_neighbors(self._edges, node_id, edge_type)
+
+    def find_related_patterns(
+        self, entity_name: str, max_depth: int = 2
+    ) -> List[dict]:
+        """BFS from entity_name node; return properties from all reachable nodes."""
+        return kg_find_related_patterns(self._nodes, self._edges, entity_name, max_depth)
+
+    def get_subsystem_connections(self) -> dict:
+        """Return a map of subsystem prefix → list of connected node IDs."""
+        return kg_get_subsystem_connections(self._nodes, self._edges)
+
     # ------------------------------------------------------------------ persistence
 
     def save(self, path: Path) -> None:
@@ -244,6 +274,16 @@ class KnowledgeGraph:
         Each entity becomes a DOMAIN node; FK relationships become REQUIRES edges.
         """
         kg = cls()
+
+        # Create a domain-pack node so cross-subsystem edges have a source
+        domain_pack_id = f"domain_pack:{domain}:{run_id}"
+        kg.add_node(KGNode(
+            id=domain_pack_id,
+            type=NodeType.DOMAIN,
+            label=f"{domain} (run {run_id})",
+            properties={"run_id": run_id, "domain": domain},
+        ))
+
         for entity in domain_ir.get("entities", []):
             entity_name = entity.get("name", "")
             if not entity_name:
@@ -272,6 +312,8 @@ class KnowledgeGraph:
                     "relationships": relationships,
                 },
             ))
+            # Cross-subsystem: domain_pack → entity (CONTAINS edge)
+            kg.add_edge(KGEdge(domain_pack_id, node_id, EdgeType.CONTAINS))
             # Wire FK relationships as REQUIRES edges
             for ref in relationships:
                 ref_id = f"{run_id}:{ref}"
@@ -279,10 +321,11 @@ class KnowledgeGraph:
         return kg
 
     def save_for_domain(self, domain: str, run_id: str) -> None:
-        """Persist entity patterns to /tmp/aetheros_knowledge_graphs/{domain}.json.
+        """Persist entity patterns and run edges to /tmp/aetheros_knowledge_graphs/{domain}.json.
 
-        Appends this run's entity patterns to the existing domain file so future
-        runs can retrieve similar entity structures via load_for_domain().
+        Appends this run's entity patterns and edges to the domain file so future
+        runs can retrieve similar structures via load_for_domain().  Edges are stored
+        as plain dicts so the file stays JSON-serialisable without importing KGEdge.
         """
         try:
             kg_dir = Path("/tmp/aetheros_knowledge_graphs")
@@ -295,17 +338,55 @@ class KnowledgeGraph:
                     existing = json.loads(kg_file.read_text())
                 except Exception as _read_err:
                     logger.warning("[kg] domain file unreadable, starting fresh: %s", _read_err)
+
+            # --- patterns (entity node properties) ---
             patterns = existing.get("patterns", [])
-            # Append new entity nodes from this run
             new_entries = [
                 n.properties for n in self._nodes.values()
                 if n.properties.get("run_id") == run_id
             ]
             patterns.extend(new_entries)
-            # Keep at most 50 most recent patterns per domain (rolling window)
-            patterns = patterns[-50:]
-            kg_file.write_text(json.dumps({"domain": domain, "patterns": patterns}, indent=2))
-            logger.debug("[kg] saved %d entity patterns for domain '%s'", len(new_entries), domain)
+            patterns = patterns[-50:]  # rolling window
+
+            # --- edges for this run ---
+            existing_edges: list = existing.get("edges", [])
+            run_node_ids = {
+                node_id for node_id, n in self._nodes.items()
+                if n.properties.get("run_id") == run_id
+            }
+            new_edge_dicts = [
+                e.to_dict() for e in self._edges
+                if e.from_id in run_node_ids or e.to_id in run_node_ids
+            ]
+            existing_edges.extend(new_edge_dicts)
+            existing_edges = existing_edges[-200:]  # cap to avoid unbounded growth
+
+            kg_file.write_text(json.dumps(
+                {"domain": domain, "patterns": patterns, "edges": existing_edges},
+                indent=2,
+            ))
+            logger.debug(
+                "[kg] saved %d entity patterns + %d edges for domain '%s'",
+                len(new_entries), len(new_edge_dicts), domain,
+            )
+
+            # Cross-subsystem: add entity → pattern edges in memory
+            for entry in new_entries:
+                entity_name = entry.get("run_id", run_id) + ":" + (
+                    next(
+                        (n.label for n in self._nodes.values() if n.properties == entry),
+                        "unknown",
+                    )
+                )
+                pattern_node_id = f"pattern:{safe_domain}:{run_id}:{entry.get('run_id', '')}"
+                if not self.get_node(pattern_node_id):
+                    self.add_node(KGNode(
+                        id=pattern_node_id,
+                        type=NodeType.PATTERN,
+                        label=f"Pattern for {domain} run {run_id}",
+                        properties=entry,
+                    ))
+                self.add_edge(KGEdge(entity_name, pattern_node_id, EdgeType.GENERATES))
         except Exception as e:
             logger.warning("[kg] save_for_domain failed (non-fatal): %s", e)
 
@@ -314,7 +395,9 @@ class KnowledgeGraph:
         """Load recent entity patterns from similar past runs for a given domain.
 
         Returns a plain list of entity property dicts so callers don't need to
-        import KGNode. Returns empty list if storage unavailable (fail open).
+        import KGNode.  Returns empty list if storage unavailable (fail open).
+        Also restores edges from the domain file into the returned KnowledgeGraph
+        via the companion load_edges_for_domain() classmethod.
         """
         try:
             kg_dir = Path("/tmp/aetheros_knowledge_graphs")
@@ -326,6 +409,31 @@ class KnowledgeGraph:
             return data.get("patterns", [])[:limit]
         except Exception as e:
             logger.warning("[kg] load_for_domain failed (non-fatal): %s", e)
+            return []
+
+    @classmethod
+    def load_edges_for_domain(cls, domain: str) -> "List[KGEdge]":
+        """Load persisted edges for a domain from the domain knowledge graph file.
+
+        Returns a list of KGEdge objects restored from the stored edge dicts.
+        Malformed edges are skipped with a warning.  Returns empty list on error.
+        """
+        try:
+            kg_dir = Path("/tmp/aetheros_knowledge_graphs")
+            safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
+            kg_file = kg_dir / f"{safe_domain}.json"
+            if not kg_file.exists():
+                return []
+            data = json.loads(kg_file.read_text())
+            restored: List[KGEdge] = []
+            for ed in data.get("edges", []):
+                try:
+                    restored.append(KGEdge.from_dict(ed))
+                except Exception as _e:
+                    logger.warning("[kg] skipping malformed domain edge %s: %s", ed, _e)
+            return restored
+        except Exception as e:
+            logger.warning("[kg] load_edges_for_domain failed (non-fatal): %s", e)
             return []
 
 
