@@ -114,18 +114,25 @@ def _fallback_schemas(entities: list) -> str:
         "    is_active: bool",
         "",
     ]
+    # Fields that must never appear in response/read schemas (security: password exposure)
+    _RESPONSE_EXCLUDED_FIELDS = {"password_hash", "password", "hashed_password"}
+
     for ent in entities[:8]:
         name = ent.get("name", "Item")
         fields = ent.get("fields", []) or [{"name": "name"}, {"name": "description"}]
-        field_lines = []
+        all_field_lines = []
+        response_field_lines = []
         for f in fields[:10]:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
-            field_lines.append(f"    {fn}: Optional[str] = None")
+            all_field_lines.append(f"    {fn}: Optional[str] = None")
+            # Skip password-like fields in response/read schemas to avoid leaking hashes
+            if fn not in _RESPONSE_EXCLUDED_FIELDS:
+                response_field_lines.append(f"    {fn}: Optional[str] = None")
 
-        base_fields = field_lines if field_lines else ["    name: Optional[str] = None"]
-        update_fields = [f"    {ln.strip().split(':')[0]}: Optional[str] = None" for ln in field_lines] if field_lines else ["    name: Optional[str] = None"]
+        base_fields = response_field_lines if response_field_lines else ["    name: Optional[str] = None"]
+        update_fields = [f"    {ln.strip().split(':')[0]}: Optional[str] = None" for ln in all_field_lines] if all_field_lines else ["    name: Optional[str] = None"]
         blocks += [
             f"class {name}Base(BaseModel):",
         ] + base_fields + [
