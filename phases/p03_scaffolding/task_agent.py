@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.core.llm.client import get_llm_client
+from aether_os.core.context_helpers import record_decision
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +502,33 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if _syntax_errors:
         issues.extend([f"SyntaxError in {e}" for e in _syntax_errors])
 
+    # Record scaffold pattern decision so downstream phases know the structure.
+    # Infer pattern from architecture doc: microservices keyword → microservices,
+    # otherwise monolith (default for generated apps).
+    _arch_text_p03 = json.dumps(arch).lower() if arch else ""
+    if "microservice" in _arch_text_p03:
+        _scaffold_pattern = "microservices"
+        _scaffold_reason = (
+            "microservices keyword found in architecture.json; "
+            "scaffold created with per-service directories"
+        )
+    else:
+        _scaffold_pattern = "monolith"
+        _scaffold_reason = (
+            "default monolith scaffold: single FastAPI app under src/ "
+            "with api/models/services subdirectories"
+        )
+    try:
+        record_decision(
+            data,
+            key="scaffold_pattern",
+            value=_scaffold_pattern,
+            reason=_scaffold_reason,
+            phase="p03",
+        )
+    except Exception as _rd_exc:
+        logger.warning("p03: record_decision failed (non-fatal): %s", _rd_exc)
+
     return TaskResult(
         output_path=str(project_dir),
         confidence=0.9 if not issues else 0.4,
@@ -509,6 +537,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "backend": backend,
             "used_cookiecutter": False,
             "syntax_errors": _syntax_errors,
+            "scaffold_pattern": _scaffold_pattern,
         },
         issues=issues,
         success=len([i for i in issues if "SyntaxError" not in i]) == 0,

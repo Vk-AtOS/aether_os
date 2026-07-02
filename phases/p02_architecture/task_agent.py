@@ -253,6 +253,49 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                                "p04a auth.py uses JWT access+refresh tokens",
                         phase="p02")
 
+    # Multi-tenancy strategy — infer from architecture patterns and requirements
+    _arch_text = json.dumps(doc).lower()
+    _req_text = (raw_input or requirements or "").lower()
+    if "org_id" in _arch_text or "tenant_id" in _arch_text or "multi_tenant" in _arch_text:
+        _mt_value = "row_level"
+        _mt_reason = (
+            "org_id or tenant_id column detected in architecture; "
+            "p04a injects org_id filter on every query for row-level isolation"
+        )
+    elif "schema_per_tenant" in _arch_text or "schema per tenant" in _req_text:
+        _mt_value = "schema_level"
+        _mt_reason = "schema_per_tenant pattern found; each tenant gets a dedicated PG schema"
+    else:
+        _mt_value = "none"
+        _mt_reason = "no multi-tenancy keywords found; single-tenant app assumed"
+    record_decision(_ctx, key="multi_tenancy_strategy", value=_mt_value,
+                    reason=_mt_reason, phase="p02")
+
+    # API style — rest vs graphql
+    _ep_paths = " ".join(ep.get("path", "") for ep in doc.get("api_endpoints", [])).lower()
+    if "graphql" in _arch_text or "/graphql" in _ep_paths:
+        _api_style = "graphql"
+        _api_reason = "GraphQL endpoint detected in architecture api_endpoints"
+    else:
+        _api_style = "rest"
+        _api_reason = "REST pattern assumed; no GraphQL endpoint found in architecture"
+    record_decision(_ctx, key="api_style", value=_api_style,
+                    reason=_api_reason, phase="p02")
+
+    # Deployment target — infer from scalability_notes or requirements
+    _scale = doc.get("scalability_notes", "").lower()
+    if "kubernetes" in _scale or "k8s" in _scale or "kubernetes" in _req_text:
+        _deploy_target = "kubernetes"
+        _deploy_reason = "Kubernetes/k8s found in scalability_notes or requirements"
+    elif "serverless" in _scale or "lambda" in _scale or "serverless" in _req_text:
+        _deploy_target = "serverless"
+        _deploy_reason = "Serverless/Lambda pattern found in scalability_notes or requirements"
+    else:
+        _deploy_target = "docker"
+        _deploy_reason = "Default Docker deployment; no K8s or serverless keywords found"
+    record_decision(_ctx, key="deployment_target", value=_deploy_target,
+                    reason=_deploy_reason, phase="p02")
+
     # ── Human-readable Markdown ───────────────────────────────────────────────
     stack = doc.get("tech_stack", {})
     md = ["# Architecture\n\n## Tech Stack\n"]

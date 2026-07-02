@@ -25,7 +25,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from aether_os.core.llm.client import get_llm_client
 from aether_os.core.domain_ir import (
@@ -387,12 +387,7 @@ def _build_ir_from_passes(
 # ---------------------------------------------------------------------------
 
 async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResult:
-    """
-    Extract Domain IR from requirements using 4 focused LLM passes.
-
-    Reads:  phase_input.input_data["raw_input"], p02_architecture_path
-    Writes: domain_ir.json to output_dir
-    """
+    """Extract Domain IR from requirements. Reads raw_input; writes domain_ir.json."""
     from aether_os.phases.base import TaskResult as _TaskResult
 
     data = phase_input.input_data
@@ -446,7 +441,6 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     seed = _seed_entities(architecture)
 
     llm = get_llm_client()
-    pass_results: list[dict] = []
     errors: list[str] = []
 
     async def _call(prompt: str, pass_num: int) -> dict:
@@ -500,13 +494,11 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
         len(combined_result.get("dashboard_metrics", [])),
     )
     p1 = p2 = p3 = p4 = combined_result
-    pass_results.append(combined_result)
 
     # If the single call produced nothing, build a minimal stub from app_name (no extra LLM call).
     if not combined_result.get("entities"):
         logger.warning("p02b: LLM produced no entities — building stub IR")
-        import re as _re2b
-        _stub_entity_name = _re2b.sub(r'[^A-Za-z0-9]', '', "".join(w.capitalize() for w in app_name.split()[:2])) or "Item"
+        _stub_entity_name = re.sub(r'[^A-Za-z0-9]', '', "".join(w.capitalize() for w in app_name.split()[:2])) or "Item"
         p1 = {
             "entities": [{
                 "name": _stub_entity_name,
@@ -542,6 +534,13 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
                         options=[],
                     ))
 
+    # ── Domain IR structural validation (dict-level, before DomainIR object) ──
+    from aether_os.phases.p02b_domain_ir.validator import apply_validation_to_run as _apply_val
+    _raw_ir_dict = combined_result if combined_result.get("entities") else (p1 or {})
+    _domain_report, _fatal = _apply_val(_raw_ir_dict, combined_result, p1, data, errors, output_dir)
+    if _fatal is not None:
+        return _fatal
+
     # Validate and auto-fix IR before saving
     from aether_os.core.ir_validator import validate as _validate_ir
     val = _validate_ir(ir, fix=True)
@@ -576,7 +575,6 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     if errors:
         summary += f"\nWarnings: {', '.join(errors)}"
 
-    from aether_os.phases.base import TaskResult as _TaskResult
     return _TaskResult(
         output_path=str(ir_path),
         confidence=1.0 if not errors else 0.85,
@@ -592,6 +590,7 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
             "has_questions": has_questions,
             "pass_errors": errors,
             "domain_ir_path": str(ir_path),
+            "domain_validation": _domain_report.as_dict(),
             "output": summary,
         },
     )

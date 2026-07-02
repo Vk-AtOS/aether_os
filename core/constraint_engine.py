@@ -87,6 +87,127 @@ class ConstraintEngine:
             ]
         return common
 
+    # ── Per-vertical constraints ──────────────────────────────────────────────
+
+    def get_vertical_constraints(self, vertical: str) -> List[str]:
+        """Return domain-specific must-follow rules for a vertical."""
+        vertical = (vertical or "").lower().strip()
+
+        if vertical == "ecommerce":
+            return [
+                "Price/amount fields must use Decimal type, not Float — use NUMERIC(12,2) in DB (PCI compliance and precision).",
+                "Cart sessions must use UUID primary keys, not sequential integer IDs.",
+                "SKU fields must be declared unique=True and indexed=True on the Column definition.",
+                "Order status must use a Python Enum: pending / confirmed / shipped / delivered / cancelled — never a free-form string.",
+                "Never store raw card data — only store payment_intent_id (str) from Stripe; add a comment '# PCI: no card data stored' near the field.",
+                "Inventory quantity must have a DB-level non-negative constraint: CheckConstraint('quantity >= 0', name='ck_quantity_non_negative').",
+                "Product price must have a DB-level non-negative constraint: CheckConstraint('price >= 0', name='ck_price_non_negative').",
+                "Every Order record must have a unique human-readable reference: ORD-{YYYY}-{N:06d}.",
+            ]
+
+        if vertical == "healthcare":
+            return [
+                "Every ORM model must include: created_by (String, nullable=False, default='system'), updated_by (String, nullable=False, onupdate='system'), accessed_at (DateTime, nullable=True).",
+                "Never log PHI (patient name, email, DOB, diagnosis) — add '# HIPAA: never log this field' comment above each PHI column.",
+                "Appointment status must be an Enum: scheduled / confirmed / in_progress / completed / cancelled / no_show.",
+                "Patient records must include full audit trail columns: created_at, updated_at, created_by, updated_by — all non-nullable where applicable.",
+                "File/document attachments must store a storage_path (str) reference only — never store binary file data (BLOB) in the database.",
+                "Medical record numbers must follow format MRN-{i:06d} and be unique and indexed.",
+                "Every endpoint returning patient data must be gated with role-based access: only 'provider' and 'admin' roles may read PHI.",
+            ]
+
+        if vertical == "fintech":
+            return [
+                "All monetary amount columns must use Numeric(precision=18, scale=6) — never Float or plain Decimal without precision.",
+                "Every transaction record must have: reference_id (String, unique=True, indexed=True), status (Enum), created_at (DateTime), completed_at (DateTime, nullable=True).",
+                "Implement the ledger pattern: every financial event must produce exactly 2 LedgerEntry rows (one debit, one credit) that sum to zero.",
+                "Amount columns must enforce non-negative values at the DB level via CheckConstraint('amount >= 0') — do not rely on application logic alone.",
+                "Account balances must be computed from ledger entries (sum of credits minus debits), never stored as a raw mutable column without a reconciliation check.",
+                "Transaction reference IDs must follow format TXN-{YYYY}-{i:08d} and be globally unique.",
+                "Account numbers must follow format ACC-{i:010d} and be unique and indexed.",
+            ]
+
+        if vertical == "ai_integrated":
+            return [
+                "Vector embedding dimensions must be consistent across the entire project — use 1536 dimensions for OpenAI text-embedding-3-small.",
+                "Chunked document records must include: chunk_size (Integer), chunk_index (Integer), source_document_id (FK to documents table) — all non-nullable.",
+                "ChatSession records must include: session_id (UUID, primary key), user_id (FK to users), model_name (String), created_at (DateTime) — all non-nullable.",
+                "ChatMessage records must include: session_id (FK to chat_sessions), role (Enum: user/assistant/system), content (Text), tokens_used (Integer, nullable), created_at (DateTime).",
+                "Embedding columns must use ARRAY(Float) or a vector extension type — never store embeddings as JSON strings.",
+                "Knowledge base documents must track embedding_status: Enum('pending', 'indexed', 'failed') — always default to 'pending'.",
+                "Search/retrieval endpoints must return relevance scores (0.0–1.0) alongside results — never return raw distance metrics to the client.",
+            ]
+
+        if vertical == "saas":
+            return [
+                "org_id (UUID, ForeignKey('organizations.id'), nullable=False) must be present on EVERY ORM model, not just User — no data is org-agnostic.",
+                "plan_tier must be an Enum: free / starter / professional / enterprise — never a raw string.",
+                "Every organization must have usage tracking columns: api_calls_count (Integer, default=0), storage_bytes_used (BigInteger, default=0), last_active_at (DateTime, nullable=True).",
+                "Every list endpoint must filter by org_id from the authenticated user's context — never return cross-org data.",
+                "Feature flags must check plan_tier before granting access — add a utility function check_plan_feature(org, feature_name) in a separate helpers.py.",
+                "Subscription records must track: plan_tier, billing_cycle (monthly/annual), current_period_start, current_period_end, stripe_subscription_id.",
+            ]
+
+        # Return generic domain-safety rules for unknown verticals
+        return [
+            f"No domain-specific constraints found for vertical '{vertical}' — apply general data integrity rules.",
+            "All unique fields must be unique across all seed records — never repeat a value in a unique column.",
+            "All FK references must point to records that are created before the referencing record.",
+        ]
+
+    # ── Compliance constraints ────────────────────────────────────────────────
+
+    def get_compliance_constraints(self, compliance_standard: str) -> List[str]:
+        """Return HIPAA, PCI-DSS, GDPR, SOC2 compliance rules."""
+        standard = (compliance_standard or "").upper().strip()
+
+        if standard == "HIPAA":
+            return [
+                "Never log Protected Health Information (PHI): patient name, DOB, diagnosis, SSN, address, phone, email, medical record number.",
+                "All PHI fields must be encrypted at rest — use application-level encryption or DB column encryption, not just TLS.",
+                "Every access to a patient record must write an audit log entry: who accessed it, when, from which IP.",
+                "PHI must never be included in error messages, stack traces, or API error responses.",
+                "User authentication must enforce MFA for any role that can access PHI.",
+                "Data retention: PHI must be retained for at least 6 years — never implement hard-delete on patient records; use soft-delete with is_active flag.",
+                "Business Associate Agreements (BAA) must be in place for all third-party services that process PHI — add a comment in the relevant service integration.",
+            ]
+
+        if standard == "PCI-DSS":
+            return [
+                "Never store Primary Account Number (PAN/card number), CVV, or PIN — not even temporarily.",
+                "If you must display a card number, mask all but the last 4 digits: **** **** **** 1234.",
+                "All payment data transmission must use TLS 1.2 or higher — add a server-side enforcement comment.",
+                "Store only the payment_intent_id or token from the payment processor (Stripe, etc.), never raw card data.",
+                "Access to payment endpoints must be logged with user ID, timestamp, and action type.",
+                "Payment processing code must be isolated in a dedicated module — never mix business logic with payment logic.",
+            ]
+
+        if standard == "GDPR":
+            return [
+                "Every model that stores personal data (name, email, IP, location) must have a data_retention_days field or be covered by a retention policy comment.",
+                "Users must be able to request deletion of their personal data — implement a soft-delete pattern with is_deleted flag and deleted_at timestamp.",
+                "Consent must be recorded: add a consent_given_at (DateTime) field to User model and never send marketing without it.",
+                "Personal data must not be transferred outside the EU without explicit mechanism — add a data_residency comment on storage config.",
+                "Data breach notification: log all access to personal data so breach impact can be assessed within 72-hour window.",
+                "Right to access: every User must be able to export all their personal data — implement a /users/me/export endpoint.",
+            ]
+
+        if standard == "SOC2":
+            return [
+                "All administrative actions must be logged: who did what, when, from where (IP, user agent).",
+                "Authentication events (login, logout, failed login, password change) must be written to an immutable audit log.",
+                "All inter-service communication must use mTLS or signed JWT tokens — never unauthenticated service-to-service calls.",
+                "Secrets (API keys, DB passwords) must be loaded from environment variables or a secrets manager — never hard-coded.",
+                "Automated vulnerability scanning must be part of the CI pipeline — add a comment in Dockerfile referencing the scan step.",
+                "Availability SLA must be tracked: add a health check endpoint /health that returns service status and uptime.",
+                "Change management: every database migration must be reversible — ensure Alembic downgrade() is implemented.",
+            ]
+
+        return [
+            f"No specific compliance rules found for standard '{compliance_standard}'.",
+            "Apply general security best practices: input validation, output encoding, least-privilege access.",
+        ]
+
     # ── Prompt formatting ─────────────────────────────────────────────────────
 
     def format_for_prompt(self, constraints: List[str]) -> str:
