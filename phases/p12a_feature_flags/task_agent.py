@@ -1,12 +1,25 @@
+"""
+STUB PHASE: p12a_feature_flags generates a JSON-file-backed feature flag system.
+This is NOT production-grade. For production, use GrowthBook, LaunchDarkly, or Unleash.
+The generated feature_flags.json provides local development toggles only.
+"""
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 from aether_os.phases.base import TaskResult
 
+logger = logging.getLogger(__name__)
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
-    Implements p12a_feature_flags: Feature Flag Service
+    Implements p12a_feature_flags: Feature Flag Service (JSON-file-backed stub).
     """
+    logger.warning(
+        "p12a_feature_flags: generating JSON stub (not production-grade). "
+        "For production feature flags use GrowthBook, LaunchDarkly, or Unleash."
+    )
     ff_dir = output_dir / "feature_flags"
     migrations_dir = output_dir / "migrations"
     test_dir = output_dir / "tests"
