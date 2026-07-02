@@ -2151,11 +2151,24 @@ describe('Dashboard', () => {
 
 def _generate_error_boundary() -> str:
     return """\
-import React, { Component, ReactNode } from 'react'
+import { Component, ErrorInfo, ReactNode } from 'react'
 
-interface Props { children: ReactNode }
+interface Props {
+  children: ReactNode
+  /** Optional custom fallback UI. When omitted the built-in error card is shown. */
+  fallback?: ReactNode
+}
 interface State { hasError: boolean; error: Error | null }
 
+/**
+ * Catches render-time errors anywhere in the subtree and shows a recovery UI.
+ * Wrap the router or any page section where you want isolated error handling.
+ *
+ * Usage:
+ *   <ErrorBoundary fallback={<p>Custom error UI</p>}>
+ *     <MyComponent />
+ *   </ErrorBoundary>
+ */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false, error: null }
 
@@ -2163,12 +2176,13 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('ErrorBoundary caught:', error, info)
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('ErrorBoundary caught:', error, errorInfo)
   }
 
   render() {
     if (this.state.hasError) {
+      if (this.props.fallback) return <>{this.props.fallback}</>
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="text-center p-8 max-w-md">
