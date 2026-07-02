@@ -513,6 +513,7 @@ def create_app() -> FastAPI:
         ("health",            "aether_os.gateway.routers.health_router",            "router",       {},                        True),
         ("admin",             "aether_os.gateway.routers.admin_router",             "router",       {},                        True),
         ("admin_platform",    "aether_os.gateway.routers.admin_platform_router",    "router",       {},                        True),
+        ("admin_quality",     "aether_os.gateway.routers.admin_quality_router",     "router",       {},                        True),
         ("factory_runs",           "aether_os.gateway.routers.factory_runs_router",            "router", {}, True),
         ("factory_run_files",      "aether_os.gateway.routers.factory_run_files_router",       "router", {}, True),
         ("factory_run_streaming",  "aether_os.gateway.routers.factory_run_streaming_router",   "router", {}, True),
