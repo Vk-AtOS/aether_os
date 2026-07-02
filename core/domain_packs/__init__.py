@@ -126,6 +126,12 @@ _DOMAIN_ALIASES: dict[str, str] = {
     "invoicing": "fintech",
     "wallet": "fintech",
     "ledger": "fintech",
+    # government
+    "government": "government",
+    "gov": "government",
+    "public_sector": "government",
+    "civic": "government",
+    "municipality": "government",
 }
 
 
@@ -156,6 +162,9 @@ def _load_pack(canonical: str) -> Optional[DomainPack]:
         if canonical == "erp":
             from aether_os.core.domain_packs.erp_pack import ERP_PACK
             return ERP_PACK
+        if canonical == "government":
+            from aether_os.core.domain_packs.government_pack import GOVERNMENT_PACK
+            return GOVERNMENT_PACK
     except Exception as e:
         logger.warning("Failed to load domain pack for '%s': %s", canonical, e)
     return None
