@@ -24,7 +24,7 @@ import re
 import secrets
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.core.errors import PipelineBlockedError
@@ -63,53 +63,13 @@ from aether_os.phases.p04a_backend_codegen.crud_generator import (
 from aether_os.phases.p04a_backend_codegen.helpers import (
     _generate_audit_infrastructure,
     _generate_permissions_service,
+    _generate_sse_router,
     _smoke_test,
 )
 from aether_os.phases.p04a_backend_codegen.validator import validate_generated_backend
 from aether_os.core.error_registry import ErrorCategory, get_registry
 
 logger = logging.getLogger(__name__)
-
-
-# ── SSE realtime router generator ─────────────────────────────────────────────
-
-def _generate_sse_router(features: List[str], project_name: str) -> str:
-    """Generate src/routers/realtime_router.py with a Server-Sent Events stream endpoint.
-
-    The generated router streams a JSON heartbeat every 5 seconds, scoped to the
-    calling user's org_id when present. The list of realtime_features is embedded
-    as a comment so developers can see what spec features drove generation.
-    """
-    features_comment = ", ".join(features) if features else "generic realtime stream"
-    return textwrap.dedent(f"""\
-        # Generated realtime SSE router for {project_name}
-        # Realtime features: {features_comment}
-        from __future__ import annotations
-        import asyncio
-        import json
-        import time
-        from fastapi import APIRouter, Depends
-        from fastapi.responses import StreamingResponse
-        from auth import get_current_user
-
-        realtime_router = APIRouter(prefix="/realtime", tags=["Realtime"])
-
-
-        @realtime_router.get("/stream")
-        async def event_stream(user: dict = Depends(get_current_user)):
-            \"\"\"Server-Sent Events stream scoped to the caller's org.\"\"\"
-            async def generate():
-                while True:
-                    payload = json.dumps({{
-                        "ts": time.time(),
-                        "org_id": user.get("org_id"),
-                        "user_id": user.get("id"),
-                    }})
-                    yield f"data: {{payload}}\\n\\n"
-                    await asyncio.sleep(5)
-
-            return StreamingResponse(generate(), media_type="text/event-stream")
-    """)
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -163,6 +123,25 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 api_endpoints = arch_doc.get("api_endpoints", [])
         except Exception as exc:
             logger.warning("[p04a] could not load arch doc: %s", exc)
+
+    # ── Pre-generation architecture checks (before ANY file is written) ────────
+    # Catches circular FK refs, implicit unique fields, and reserved names early
+    # so we fail fast before spending time on file writes or LLM calls.
+    try:
+        from aether_os.phases.p04a_backend_codegen.pre_gen_validator import run_pre_gen_checks
+        _pre_gen_report = run_pre_gen_checks({"entities": entities})
+        if _pre_gen_report.warnings:
+            data.setdefault("pre_gen_warnings", []).extend(_pre_gen_report.warnings)
+        if not _pre_gen_report.passed:
+            data.setdefault("pre_gen_errors", []).extend(_pre_gen_report.errors)
+            raise PipelineBlockedError(
+                f"P04a pre-generation check failed: {_pre_gen_report.errors}. "
+                "Fix circular foreign-key references in entity definitions before retrying."
+            )
+    except PipelineBlockedError:
+        raise
+    except Exception as _pgv_exc:
+        logger.warning("[p04a] pre-gen validator import/run failed (non-fatal): %s", _pgv_exc)
 
     # ── Step 1: Write fixed template files ────────────────────────────────────
     (src_dir / "__init__.py").write_text("")
