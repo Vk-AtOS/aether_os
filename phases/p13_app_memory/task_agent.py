@@ -1,12 +1,25 @@
+"""
+STUB PHASE: p13_app_memory generates a JSON-file-backed semantic memory store.
+This is NOT production-grade. For production, use ChromaDB, Pinecone, pgvector,
+or Weaviate as the vector backend — this stub provides local development storage only.
+"""
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 from aether_os.phases.base import TaskResult
 
+logger = logging.getLogger(__name__)
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
-    Implements p13_app_memory: Semantic Memory Layer
+    Implements p13_app_memory: Semantic Memory Layer (JSON-file-backed stub).
     """
+    logger.warning(
+        "p13_app_memory: generating JSON-file-backed stub (not production-grade). "
+        "For production semantic memory use ChromaDB, pgvector, Pinecone, or Weaviate."
+    )
     mem_dir = output_dir / "memory"
     migrations_dir = output_dir / "migrations"
     test_dir = output_dir / "tests"
