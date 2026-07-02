@@ -65,6 +65,8 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
     _generate_permissions_service,
     _smoke_test,
 )
+from aether_os.phases.p04a_backend_codegen.validator import validate_generated_backend
+from aether_os.core.error_registry import ErrorCategory, get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -504,6 +506,49 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "Rollback one step:   alembic downgrade -1\n"
     )
 
+    # ── Step 6c: Post-generation deterministic validation ─────────────────────
+    # Collect all generated source files into a flat dict for the validator.
+    # Keys are relative paths within src/ (e.g. "models.py", "routers/crud.py").
+    _validation_files: Dict[str, str] = {}
+    for _vfile in src_dir.rglob("*.py"):
+        try:
+            _rel = str(_vfile.relative_to(src_dir))
+            _validation_files[_rel] = _vfile.read_text(encoding="utf-8")
+        except Exception as _vread_exc:
+            logger.warning("[p04a] validator: could not read %s: %s", _vfile, _vread_exc)
+
+    _validation_report = validate_generated_backend(_validation_files)
+    _error_registry = get_registry()
+
+    # Record every category seen in this run into the error registry
+    _cat_str_to_enum = {e.value: e for e in ErrorCategory}
+    for _cat_str in _validation_report.categories:
+        _cat_enum = _cat_str_to_enum.get(_cat_str, ErrorCategory.UNKNOWN)
+        # Grab first matching detail message for the registry entry
+        _detail_msgs = (
+            [m for m in _validation_report.errors if _cat_str in m]
+            or [m for m in _validation_report.warnings if _cat_str in m]
+        )
+        _detail = _detail_msgs[0] if _detail_msgs else _cat_str
+        _error_registry.record(_cat_enum, "p04a", _detail[:300])
+
+    if not _validation_report.passed:
+        # Hard errors (AST parse failure or missing all_routers) — log and record
+        # in accumulated_context so downstream phases and the UI can surface them.
+        _gen_warnings: List[str] = _validation_report.errors + _validation_report.warnings
+        logger.warning(
+            "[p04a] validation FAILED: %d error(s): %s",
+            len(_validation_report.errors), _validation_report.errors,
+        )
+        # Store into phase_input so downstream phases see the warnings
+        if hasattr(phase_input, "input_data") and isinstance(phase_input.input_data, dict):
+            phase_input.input_data.setdefault("generation_warnings", []).extend(_gen_warnings)
+    elif _validation_report.warnings:
+        logger.info(
+            "[p04a] validation passed with %d warning(s): %s",
+            len(_validation_report.warnings), _validation_report.warnings[:3],
+        )
+
     # ── Step 7: Smoke test ────────────────────────────────────────────────────
     smoke = {"passed": True, "errors": [], "skipped": False}
     try:
@@ -543,6 +588,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "realtime_router_py": str(routers_dir / "realtime_router.py") if _inject_realtime_router else None,
             "user_personas_count": len(user_personas),
             "has_customer_portal": has_customer_portal,
+            "validation_passed": _validation_report.passed,
+            "validation_errors": _validation_report.errors,
+            "validation_warnings": _validation_report.warnings[:10],
         },
         success=True,
         issues=smoke.get("errors", []) if not smoke.get("passed") else [],
