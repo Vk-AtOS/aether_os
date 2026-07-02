@@ -321,6 +321,67 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         md_lines.append(f"- **{ent.get('name', '')}** (`{ent.get('table', '')}`)")
     (output_dir / "requirements.md").write_text("\n".join(md_lines))
 
+    # ── Intent verification pass ──────────────────────────────────────────────
+    # Second pass: validate the interpretation makes sense for the given input.
+    # If the original prompt is very short (<30 words) or the entity count is 0,
+    # flag ambiguity in the result rather than silently proceeding.
+    _raw_input = data.get("raw_input", "")
+    _word_count = len(_raw_input.split())
+    _entity_count_iv = len(requirements_doc.get("entities", []))
+
+    if _word_count < 30 or _entity_count_iv == 0:
+        logger.warning(
+            "p01 intent_verification: prompt is %s — "
+            "short input (%d words) or no entities (%d). "
+            "Flagging ambiguity in accumulated_context.",
+            "ambiguous" if _word_count < 30 else "entity-empty",
+            _word_count, _entity_count_iv,
+        )
+        record_decision(
+            phase_input.input_data,
+            "intent_ambiguity_flag",
+            {
+                "word_count": _word_count,
+                "entity_count": _entity_count_iv,
+                "flag": "ambiguous" if _word_count < 30 else "no_entities_found",
+                "recommendation": "Consider providing more detail about the app's core features",
+            },
+            reason="p01 detected low-detail prompt — downstream phases should use conservative defaults",
+            phase="p01_intake_requirements",
+        )
+        phase_input.input_data["intent_ambiguity"] = True
+    else:
+        phase_input.input_data["intent_ambiguity"] = False
+
+    # Second LLM pass: verify the top 3 entities make sense together
+    try:
+        _entity_names = [e.get("name", "") for e in requirements_doc.get("entities", [])[:3]]
+        if _entity_names:
+            from aether_os.core.llm.client import get_llm_client as _get_llm
+            _llm_iv = _get_llm()
+            _verify_prompt = (
+                f"Given the user's app description: '{_raw_input[:300]}'\n"
+                f"I interpreted the core entities as: {', '.join(_entity_names)}.\n"
+                f"In one sentence, does this interpretation make sense? "
+                f"Reply with 'YES: <reason>' or 'NO: <correct interpretation>'."
+            )
+            _verify_resp = await _llm_iv.complete(_verify_prompt, max_tokens=100)
+            _verify_text = getattr(_verify_resp, "content", str(_verify_resp))
+            phase_input.input_data["intent_verification"] = _verify_text[:200]
+            if str(_verify_text).upper().startswith("NO"):
+                logger.warning(
+                    "p01 intent_verification: LLM flagged misinterpretation: %s",
+                    _verify_text[:100],
+                )
+                record_decision(
+                    phase_input.input_data, "intent_mismatch",
+                    {"verification_response": _verify_text[:200]},
+                    reason="Second-pass LLM disagrees with first-pass interpretation",
+                    phase="p01_intake_requirements",
+                )
+    except Exception as _iv_exc:
+        logger.warning("p01 intent_verification failed (non-fatal): %s", _iv_exc)
+
     # Confidence: based on richness of extracted spec
     _entities_extracted = requirements_doc.get("entities", [])
     _entity_count = len(_entities_extracted)
