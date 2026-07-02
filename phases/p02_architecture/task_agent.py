@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
 from aether_os.core.llm.client import get_llm_client
+from aether_os.core.context_helpers import record_decision
 
 from .helpers import (
     ARCHITECTURE_SCHEMA,
@@ -218,6 +219,39 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         logger.info("[p02] architecture.json cached to %s", cache_path)
     logger.info("[p02] architecture.json written (%d endpoints, fallback=%s)",
                 len(doc.get("api_endpoints", [])), used_fallback)
+
+    # ── Record tech-stack decisions for downstream phases ─────────────────────
+    # Every downstream phase that generates code reads these decisions from
+    # accumulated_context["decisions"] so it does not re-guess the same choices.
+    _stack = doc.get("tech_stack", {})
+    _ctx = phase_input.input_data
+    _src = "fallback" if used_fallback else "LLM"
+    if _stack.get("database"):
+        _db_reason = (
+            f"chosen by {_src} architecture; "
+            + (
+                "user override via designer_spec/tech_preferences"
+                if _preferred_db
+                else f"domain profile '{profile.name}' preference"
+            )
+        )
+        record_decision(_ctx, key="database", value=_stack["database"],
+                        reason=_db_reason, phase="p02")
+    if _stack.get("backend"):
+        record_decision(_ctx, key="backend_framework", value=_stack["backend"],
+                        reason=f"chosen by {_src}; stack must stay consistent across p04a→p04b→p06",
+                        phase="p02")
+    if _stack.get("frontend"):
+        record_decision(_ctx, key="frontend_framework", value=_stack["frontend"],
+                        reason=f"chosen by {_src}; p05 code_writer will use this framework",
+                        phase="p02")
+    # Auth method — infer from security_considerations when present
+    _sec = " ".join(doc.get("security_considerations", [])).lower()
+    if "jwt" in _sec or "json web token" in _sec:
+        record_decision(_ctx, key="auth_method", value="JWT",
+                        reason="JWT found in architecture security_considerations; "
+                               "p04a auth.py uses JWT access+refresh tokens",
+                        phase="p02")
 
     # ── Human-readable Markdown ───────────────────────────────────────────────
     stack = doc.get("tech_stack", {})
