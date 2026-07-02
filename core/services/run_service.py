@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import select, desc
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -234,3 +234,22 @@ async def get_run_name_and_domain(
     except Exception as exc:
         logger.debug("get_run_name_and_domain failed for run %s: %s", run_id, exc)
     return "", "general"
+
+
+_ORG_RUN_LIMIT = 3
+_PLATFORM_RUN_LIMIT = 10
+
+
+async def count_active_runs(sess: AsyncSession, org_id: str) -> Tuple[int, int]:
+    """Return (org_active, platform_active) counts for 'running'/'queued' runs."""
+    from aether_os.core.models import Run as _Run
+    _active = ["running", "queued"]
+    org_ct = (await sess.execute(
+        select(func.count()).select_from(_Run).where(
+            _Run.org_id == org_id, _Run.status.in_(_active)
+        )
+    )).scalar() or 0
+    plat_ct = (await sess.execute(
+        select(func.count()).select_from(_Run).where(_Run.status.in_(_active))
+    )).scalar() or 0
+    return org_ct, plat_ct
