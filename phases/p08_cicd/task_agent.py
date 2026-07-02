@@ -197,6 +197,31 @@ jobs:
           tags: {safe_name}:${{{{ github.sha }}}}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+        env:
+          IMAGE_NAME: {safe_name}
+
+      - name: Smoke test generated app
+        run: |
+          docker run -d --name app_test -p 8080:8080 \\
+            -e SECRET_KEY=ci-test-key-$(date +%s) \\
+            -e DATABASE_URL=sqlite:///./test.db \\
+            ${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}
+          echo "Waiting for app to start..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "App healthy after ${{i}}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "App failed health check after 30s"
+          docker logs app_test
+          exit 1
+        if: always()
+
+      - name: Cleanup test container
+        run: docker rm -f app_test || true
+        if: always()
 
   compliance-drift:
     name: Compliance Drift Check
