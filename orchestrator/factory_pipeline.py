@@ -56,6 +56,8 @@ from aether_os.orchestrator.artifact_collector import (
     extract_learning,
     store_run_memory,
 )
+from aether_os.orchestrator.phase_dag import get_execution_waves
+from aether_os.orchestrator.parallel_runner import run_phases_in_wave
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +377,85 @@ class FactoryPipeline:
         results = {}
         pipeline_start = time.time()
 
-        for phase_name in phases_to_run:
+        # ── DAG-based execution: compute waves of parallelisable phases ──
+        # Phases within a wave have no dependencies on each other and run
+        # concurrently via asyncio.gather().  Single-phase waves use the
+        # existing sequential path with no asyncio overhead.
+        try:
+            _execution_waves = get_execution_waves(list(phases_to_run))
+        except Exception as _dag_exc:
+            logger.warning(
+                "[pipeline] DAG wave computation failed (%s) — falling back to sequential",
+                _dag_exc,
+            )
+            _execution_waves = [[p] for p in phases_to_run]
+
+        for _wave in _execution_waves:
+            # ── Multi-phase wave: run concurrently, then merge results ────
+            if len(_wave) > 1:
+                try:
+                    _wave_results = await run_phases_in_wave(
+                        wave=_wave,
+                        run_phase_fn=self._run_phase,
+                        accumulated_context=accumulated_context,
+                        run_id=run_id,
+                        org_id=org_id,
+                        project_dir=project_dir,
+                        domain=domain,
+                        client_id=client_id,
+                        emit_fn=emit,
+                        update_state_fn=self._update_state,
+                        phase_input_cls=PhaseInput,
+                        critical_phases=CRITICAL_PHASES,
+                    )
+                except Exception as _wave_exc:
+                    logger.error(
+                        "[pipeline] Parallel wave %s raised unexpectedly: %s — aborting",
+                        _wave, _wave_exc,
+                    )
+                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
+                                                 "error": str(_wave_exc), "ts": time.time()})
+                    return {"run_id": run_id, "status": "failed", "error": str(_wave_exc)}
+
+                for _wp in _wave:
+                    _wr = _wave_results.get(_wp, {})
+                    results[_wp] = _wr
+                    # Persist checkpoint after each completed parallel phase
+                    await save_checkpoint(run_id, _wp, accumulated_context)
+                    # D6: record in project memory
+                    _pm_update(project_dir, {
+                        f"phase_{_wp}": {
+                            "status": _wr.get("status"),
+                            "duration_s": _wr.get("duration_s"),
+                        }
+                    })
+                    # Abort if a critical phase failed inside the wave
+                    if _wp in CRITICAL_PHASES and _wr.get("status") in ("failed", "timeout"):
+                        _err = _wr.get("error", f"Phase {_wp} {_wr.get('status')}")
+                        logger.error(
+                            "[pipeline] Critical phase %s failed in parallel wave — aborting run %s",
+                            _wp, run_id,
+                        )
+                        await self.ledger.async_update_run_status(run_id, "failed")
+                        await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
+                                                     "error": _err, "ts": time.time()})
+                        return {"run_id": run_id, "status": "failed", "error": _err}
+
+                # Control signal check after every wave
+                _wave_control = await get_control(run_id)
+                if _wave_control == "cancel":
+                    logger.info("Pipeline %s cancelled after wave %s", run_id, _wave)
+                    await self.ledger.async_update_run_status(run_id, "cancelled")
+                    await publish_event(run_id, {"type": "pipeline_complete", "status": "cancelled",
+                                                 "ts": time.time()})
+                    return {"run_id": run_id, "status": "cancelled",
+                            "phases": results, "output_dir": str(project_dir)}
+                continue  # advance to the next wave
+
+            # ── Single-phase wave: existing sequential path (no overhead) ──
+            phase_name = _wave[0]
+            # Original per-phase loop body below — unchanged from before DAG wiring.
             # Set context vars so LLM calls in this phase can emit to the queue
             run_token   = ACTIVE_RUN_ID.set(run_id)
             phase_token = ACTIVE_PHASE.set(phase_name)
