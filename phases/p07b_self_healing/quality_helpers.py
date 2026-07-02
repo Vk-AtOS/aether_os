@@ -19,17 +19,36 @@ from pathlib import Path
 from typing import Optional
 
 from aether_os.core.error_registry import ErrorCategory, get_registry
+from aether_os.core.repair_learning import BugClass, RepairEvent, learn_from_repair
 
 logger = logging.getLogger(__name__)
 
 
-def _record_repair(category: ErrorCategory, detail: str, phase: str = "p07b_self_healing") -> None:
-    """Record a successful repair to the error registry for future learning."""
+def _record_repair(
+    category: ErrorCategory,
+    detail: str,
+    phase: str = "p07b_self_healing",
+    bug_class: Optional[BugClass] = None,
+    domain: str = "unknown",
+    entity: str = "unknown",
+    file_path: str = "",
+) -> None:
+    """Record a successful repair to the error registry and trigger validator learning."""
     try:
         reg = get_registry()
         reg.record(category=category, phase=phase, detail=detail, fix_applied=True)
     except Exception as e:
         logger.warning("p07b: error_registry record failed (non-fatal): %s", e)
+
+    if bug_class is not None:
+        event = RepairEvent(
+            bug_class=bug_class,
+            domain=domain,
+            entity=entity,
+            file_path=file_path,
+            fix_applied=detail,
+        )
+        learn_from_repair(event)
 
 
 # ── Seed unique-field deduplication ─────────────────────────────────────────────
@@ -103,6 +122,9 @@ def fix_seed_unique_violations(seed_content: str) -> Optional[str]:
         _record_repair(
             ErrorCategory.SEED_UNIQUE_VIOLATION,
             "Deduplicated UNIQUE-field values in seed.py (suffix appended to duplicates)",
+            bug_class=BugClass.SEED_UNIQUE_VIOLATION,
+            entity="seed",
+            file_path="src/seed.py",
         )
     return seed_content if changed else None
 
@@ -152,6 +174,9 @@ def fix_crud_relative_imports(crud_content: str) -> Optional[str]:
     _record_repair(
         ErrorCategory.RELATIVE_IMPORT,
         "Replaced relative imports (from .X / import .X) with flat absolute imports in crud.py",
+        bug_class=BugClass.RELATIVE_IMPORT,
+        entity="crud",
+        file_path="src/routers/crud.py",
     )
     return crud_content
 
