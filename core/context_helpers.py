@@ -191,3 +191,69 @@ def compress_context_for_prompt(
     >>> prompt = f"Context: {json.dumps(compressed)}"
     """
     return {k: ctx[k] for k in relevant_keys if k in ctx}
+
+
+# ── Context size management ────────────────────────────────────────────────
+
+_CONTEXT_KEYS_ALWAYS_KEEP = frozenset({
+    "run_id", "org_id", "app_name", "domain", "entities", "architecture",
+    "phase_confidence", "low_confidence_phases", "decisions", "stack_profile",
+    "personas", "multi_tenancy", "governor_report", "pre_gen_warnings",
+})
+
+_CONTEXT_KEYS_TRIM_AFTER_PHASE_15 = frozenset({
+    # Large intermediate outputs safe to truncate after early phases complete.
+    # These grow unbounded (research blobs, raw spec text, scaffold lists) and
+    # are no longer needed after the code generation phases begin (~phase 15).
+    "raw_requirements", "research_output", "domain_analysis_raw",
+    "scaffolding_file_list", "scaffold_manifest",
+})
+
+
+def trim_context(ctx: Dict[str, Any], current_phase_index: int) -> Dict[str, Any]:
+    """Trim stale large keys from accumulated_context after phase 15.
+
+    Keys in _CONTEXT_KEYS_ALWAYS_KEEP are never removed.  Large raw
+    intermediate outputs are truncated to first 500 chars for strings or
+    first 10 items for lists.  Mutates in place for efficiency and also
+    returns the same dict so callers can chain: ctx = trim_context(ctx, idx).
+
+    Parameters
+    ----------
+    ctx:
+        The accumulated_context dict flowing through the pipeline.
+    current_phase_index:
+        Zero-based index of the phase that is about to run.  Trimming begins
+        once this is >= 15 (i.e. code-gen phases are underway).
+
+    Returns
+    -------
+    dict
+        The same ctx dict, mutated in place.
+    """
+    if current_phase_index < 15:
+        return ctx
+    for key in _CONTEXT_KEYS_TRIM_AFTER_PHASE_15:
+        if key in ctx:
+            val = ctx[key]
+            if isinstance(val, str) and len(val) > 500:
+                ctx[key] = val[:500] + "... [trimmed after phase 15]"
+                logger.debug("trim_context: trimmed '%s' (%d chars)", key, len(val))
+            elif isinstance(val, list) and len(val) > 50:
+                ctx[key] = val[:10] + [f"... [{len(val) - 10} more items trimmed]"]
+                logger.debug("trim_context: trimmed list '%s' (%d items)", key, len(val))
+    return ctx
+
+
+def get_context_size_estimate(ctx: Dict[str, Any]) -> int:
+    """Return approximate character count of accumulated_context for monitoring.
+
+    Uses json.dumps with default=str to handle non-serialisable values
+    (datetime, Enum, etc.) without raising.  Returns -1 on unexpected failure.
+    """
+    try:
+        import json as _json
+        return len(_json.dumps(ctx, default=str))
+    except Exception as e:
+        logger.warning("get_context_size_estimate: serialisation failed: %s", e)
+        return -1
