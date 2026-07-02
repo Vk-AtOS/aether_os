@@ -34,7 +34,7 @@ from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import (
 _SA_IMPORTS = """\
 from __future__ import annotations
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Integer, JSON
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, JSON
 from sqlalchemy import Numeric, String, Text
 from sqlalchemy.orm import relationship
 from database import Base
@@ -94,11 +94,16 @@ def _sa_column(field: IRField) -> str:
         enum_list = ", ".join([f"'{v}'" for v in field.enum_values])
         parts.append(f"CheckConstraint(\"{field.name} IN ({enum_list})\", name='ck_{field.name}')")
 
+    # FK columns always get an index for join performance
+    if atype == AetherType.FK:
+        parts.append("index=True")
+
     if not field.nullable:
         parts.append("nullable=False")
     if field.unique:
         parts.append("unique=True")
-    if field.index:
+    if field.index and atype != AetherType.FK:
+        # FK already added index=True above; avoid duplicates
         parts.append("index=True")
     if field.default is not None and atype == AetherType.BOOLEAN:
         parts.append(f"default={str(field.default).capitalize()}")
@@ -162,12 +167,29 @@ def generate_models_py(ir: DomainIR) -> str:
         if entity.name == "User" or getattr(entity, "table", "") == "users":
             continue
         constraints = _sql_check_constraints(entity.name, ir.business_rules)
+
+        # Build performance indexes for commonly-queried field patterns
+        perf_indexes = []
+        table = entity.table
+        field_names = {f.name for f in entity.fields}
+        # created_at index — every time-range query benefits from this
+        perf_indexes.append(
+            f"        Index('ix_{table}_created_at', 'created_at')"
+        )
+        # status / state field index — filtering by status is the most common query pattern
+        for fname in ("status", "state"):
+            if fname in field_names:
+                perf_indexes.append(
+                    f"        Index('ix_{table}_{fname}', '{fname}')"
+                )
+
+        table_args_parts = constraints + perf_indexes
         lines.append(f"class {entity.name}(Base):")
         lines.append(f"    __tablename__ = '{entity.table}'")
-        if constraints:
+        if table_args_parts:
             lines.append("    __table_args__ = (")
-            for c in constraints:
-                lines.append(c + ",")
+            for part in table_args_parts:
+                lines.append(part + ",")
             lines.append("    )")
         lines.append("")
         lines.append("    id = Column(Integer, primary_key=True, index=True)")
