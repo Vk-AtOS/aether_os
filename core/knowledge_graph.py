@@ -234,6 +234,100 @@ class KnowledgeGraph:
         except Exception as e:
             logger.warning("[kg] load failed for %s: %s", path, e)
 
+    # ------------------------------------------------------------------ domain IR integration
+
+    @classmethod
+    def record_from_ir(cls, domain_ir: dict, run_id: str, domain: str) -> "KnowledgeGraph":
+        """Create a KnowledgeGraph populated from a completed domain IR.
+
+        Called after p02b completes to persist entity patterns for future retrieval.
+        Each entity becomes a DOMAIN node; FK relationships become REQUIRES edges.
+        """
+        kg = cls()
+        for entity in domain_ir.get("entities", []):
+            entity_name = entity.get("name", "")
+            if not entity_name:
+                continue
+            fields = entity.get("fields", []) or []
+            field_names = [
+                f.get("name") if isinstance(f, dict) else str(f)
+                for f in fields
+            ]
+            relationships = [
+                f.get("references")
+                for f in fields
+                if isinstance(f, dict)
+                and f.get("type") == "foreign_key"
+                and f.get("references")
+            ]
+            node_id = f"{run_id}:{entity_name}"
+            kg.add_node(KGNode(
+                id=node_id,
+                type=NodeType.ENTITY,
+                label=entity_name,
+                properties={
+                    "run_id": run_id,
+                    "domain": domain,
+                    "fields": field_names,
+                    "relationships": relationships,
+                },
+            ))
+            # Wire FK relationships as REQUIRES edges
+            for ref in relationships:
+                ref_id = f"{run_id}:{ref}"
+                kg.add_edge(KGEdge(node_id, ref_id, EdgeType.REQUIRES))
+        return kg
+
+    def save_for_domain(self, domain: str, run_id: str) -> None:
+        """Persist entity patterns to /tmp/aetheros_knowledge_graphs/{domain}.json.
+
+        Appends this run's entity patterns to the existing domain file so future
+        runs can retrieve similar entity structures via load_for_domain().
+        """
+        try:
+            kg_dir = Path("/tmp/aetheros_knowledge_graphs")
+            kg_dir.mkdir(parents=True, exist_ok=True)
+            safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
+            kg_file = kg_dir / f"{safe_domain}.json"
+            existing: dict = {}
+            if kg_file.exists():
+                try:
+                    existing = json.loads(kg_file.read_text())
+                except Exception as _read_err:
+                    logger.warning("[kg] domain file unreadable, starting fresh: %s", _read_err)
+            patterns = existing.get("patterns", [])
+            # Append new entity nodes from this run
+            new_entries = [
+                n.properties for n in self._nodes.values()
+                if n.properties.get("run_id") == run_id
+            ]
+            patterns.extend(new_entries)
+            # Keep at most 50 most recent patterns per domain (rolling window)
+            patterns = patterns[-50:]
+            kg_file.write_text(json.dumps({"domain": domain, "patterns": patterns}, indent=2))
+            logger.debug("[kg] saved %d entity patterns for domain '%s'", len(new_entries), domain)
+        except Exception as e:
+            logger.warning("[kg] save_for_domain failed (non-fatal): %s", e)
+
+    @classmethod
+    def load_for_domain(cls, domain: str, limit: int = 5) -> list:
+        """Load recent entity patterns from similar past runs for a given domain.
+
+        Returns a plain list of entity property dicts so callers don't need to
+        import KGNode. Returns empty list if storage unavailable (fail open).
+        """
+        try:
+            kg_dir = Path("/tmp/aetheros_knowledge_graphs")
+            safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
+            kg_file = kg_dir / f"{safe_domain}.json"
+            if not kg_file.exists():
+                return []
+            data = json.loads(kg_file.read_text())
+            return data.get("patterns", [])[:limit]
+        except Exception as e:
+            logger.warning("[kg] load_for_domain failed (non-fatal): %s", e)
+            return []
+
 
 # ---------------------------------------------------------------------------
 # Pre-populated fix patterns
