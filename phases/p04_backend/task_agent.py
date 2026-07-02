@@ -18,6 +18,14 @@ async def _noop_emit(event: dict) -> None:  # noqa: ARG001
     pass
 
 
+def _read_if_exists(path: Path) -> str:
+    """Return file contents as a string, or '' if the file does not exist."""
+    try:
+        return path.read_text()
+    except OSError:
+        return ""
+
+
 async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noqa: ARG001
     """Ask LLM to fix a startup error in main.py. Returns True if fixed."""
     from aether_os.core.llm.client import get_llm_client
@@ -354,6 +362,31 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     logger.debug("p04 smoke test error (non-fatal): %s", _se)
 
         logger.info("p04a_backend_codegen completed: %s", r.output_path)
+
+        # ── Architecture Governor: verify generated entities match Domain IR ──────
+        try:
+            from aether_os.core.architecture_governor import ArchitectureGovernor
+            _gov = ArchitectureGovernor.from_output_dir(output_dir)
+            if _gov is not None:
+                _backend_src = Path(r.output_path) / "src"
+                _gov_report = _gov.generate_report("p04_backend", {
+                    "models.py": _read_if_exists(_backend_src / "models.py"),
+                    "crud.py": _read_if_exists(_backend_src / "routers" / "crud.py"),
+                })
+                if _gov_report.phantom_entities:
+                    logger.warning(
+                        "p04_backend governor: phantom entities in generated code: %s",
+                        _gov_report.phantom_entities,
+                    )
+                accumulated_context = phase_input.input_data.setdefault("accumulated_context", {})
+                accumulated_context["governor_report"] = {
+                    "phantom_entities": _gov_report.phantom_entities,
+                    "missing_entities": _gov_report.missing_entities,
+                    "violation_count": len(_gov_report.violations),
+                }
+        except Exception as _gov_exc:
+            logger.warning("p04_backend governor check failed (non-fatal): %s", _gov_exc)
+
     except Exception as e:
         logger.warning("p04a_backend_codegen failed: %s", e)
 
