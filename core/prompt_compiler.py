@@ -2,11 +2,18 @@
 
 Combines: constraints (ConstraintEngine) + decisions (accumulated_context) +
 error prevention (ErrorRegistry) + few-shot examples + task description.
+
+Enhanced with:
+- Context Compression (core/llm/context_compressor.py) — per-phase key filtering
+- Knowledge Retrieval Ranking (core/llm/retrieval_ranker.py) — ranked knowledge injection
 """
 from __future__ import annotations
 
 import json
 import logging
+
+from aether_os.core.llm.context_compressor import compress_context
+from aether_os.core.llm.retrieval_ranker import retrieve_for_phase, format_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +57,16 @@ class PromptCompiler:
         accumulated_context: dict,
         entities: list[dict],
         stack: str = "fastapi",
+        phase_name: str = "p04a_backend_codegen",
     ) -> str:
         """Assemble a backend codegen prompt from all available context.
 
         Returns a complete, structured prompt ready to send to the LLM.
         """
+        # Compress context to only what this phase reads before any extraction
+        domain = accumulated_context.get("domain", "")
+        compressed_ctx = compress_context(phase_name, accumulated_context)
+
         sections: list[str] = []
 
         # 1. Hard constraints from ConstraintEngine
@@ -63,7 +75,7 @@ class PromptCompiler:
             sections.append(self._format_constraints(constraints))
 
         # 2. Architectural decisions already recorded by upstream phases
-        decisions = self._extract_decisions(accumulated_context)
+        decisions = self._extract_decisions(compressed_ctx)
         if decisions:
             sections.append(self._format_decisions(decisions))
 
@@ -72,16 +84,22 @@ class PromptCompiler:
         if error_block:
             sections.append(error_block)
 
-        # 4. Positive few-shot example
+        # 4. Ranked knowledge: domain rules + KG fix patterns + past run warnings
+        ranked_knowledge = retrieve_for_phase(phase_name, domain, compressed_ctx)
+        knowledge_block = format_for_prompt(ranked_knowledge)
+        if knowledge_block:
+            sections.append(knowledge_block)
+
+        # 5. Positive few-shot example
         sections.append(self._get_backend_few_shot())
 
-        # 5. Negative examples — what NOT to do
+        # 6. Negative examples — what NOT to do
         sections.append(self._get_backend_negative_examples())
 
-        # 6. Task description
+        # 7. Task description
         sections.append(f"## YOUR TASK:\n{task_description}")
 
-        # 7. Entities to implement
+        # 8. Entities to implement
         sections.append(self._format_entities(entities))
 
         return "\n\n".join(sections)
@@ -92,21 +110,30 @@ class PromptCompiler:
         accumulated_context: dict,
         entities: list[dict],
         stack: str = "react",
+        phase_name: str = "p05_frontend",
     ) -> str:
         """Assemble a frontend codegen prompt from all available context."""
+        domain = accumulated_context.get("domain", "")
+        compressed_ctx = compress_context(phase_name, accumulated_context)
+
         sections: list[str] = []
 
         constraints = self._get_frontend_constraints(stack)
         if constraints:
             sections.append(self._format_constraints(constraints))
 
-        decisions = self._extract_decisions(accumulated_context)
+        decisions = self._extract_decisions(compressed_ctx)
         if decisions:
             sections.append(self._format_decisions(decisions))
 
         error_block = self._build_error_prevention_block()
         if error_block:
             sections.append(error_block)
+
+        ranked_knowledge = retrieve_for_phase(phase_name, domain, compressed_ctx)
+        knowledge_block = format_for_prompt(ranked_knowledge)
+        if knowledge_block:
+            sections.append(knowledge_block)
 
         sections.append(self._get_frontend_few_shot())
         sections.append(f"## YOUR TASK:\n{task_description}")
@@ -119,8 +146,12 @@ class PromptCompiler:
         task_description: str,
         accumulated_context: dict,
         entities: list[dict],
+        phase_name: str = "p04a_backend_codegen",
     ) -> str:
         """Assemble a seed data generation prompt with unique-value constraints."""
+        domain = accumulated_context.get("domain", "")
+        compressed_ctx = compress_context(phase_name, accumulated_context)
+
         sections: list[str] = []
 
         entity_names = [e.get("name", "") for e in entities if e.get("name")]
@@ -128,12 +159,19 @@ class PromptCompiler:
         if constraints:
             sections.append(self._format_constraints(constraints))
 
-        decisions = self._extract_decisions(accumulated_context)
+        decisions = self._extract_decisions(compressed_ctx)
         if decisions:
             sections.append(self._format_decisions(decisions))
 
         # Always include seed error prevention — uniqueness violations are very common
         sections.append(self._get_seed_negative_examples())
+
+        # Seed-specific knowledge: uniqueness fixes have highest relevance here
+        ranked_knowledge = retrieve_for_phase(phase_name, domain, compressed_ctx)
+        knowledge_block = format_for_prompt(ranked_knowledge, max_items=3)
+        if knowledge_block:
+            sections.append(knowledge_block)
+
         sections.append(self._get_seed_few_shot())
         sections.append(f"## YOUR TASK:\n{task_description}")
         sections.append(self._format_entities(entities))
