@@ -27,15 +27,37 @@ from phases.p04a_backend_codegen.templates_main import (  # noqa: F401
 # ── Fixed production templates ─────────────────────────────────────────────────
 
 _DATABASE_PY = '''\
-"""Async SQLAlchemy engine + session factory."""
+"""Async SQLAlchemy engine + session factory.
+
+PostgreSQL is the production default (asyncpg driver).
+SQLite with aiosqlite is supported as a local-dev fallback when DATABASE_URL starts with 'sqlite'.
+"""
 from __future__ import annotations
 import os
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")
+# PostgreSQL is first-class default; SQLite is local-dev fallback only.
+_RAW_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/appdb")
 
-_is_sqlite = "sqlite" in DATABASE_URL
+# Normalise the driver suffix so the correct async driver is always used.
+if _RAW_URL.startswith("sqlite"):
+    # SQLite path: ensure aiosqlite driver prefix
+    if _RAW_URL.startswith("sqlite:///") and "+aiosqlite" not in _RAW_URL:
+        DATABASE_URL = _RAW_URL.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+    else:
+        DATABASE_URL = _RAW_URL
+elif _RAW_URL.startswith("postgresql"):
+    # PostgreSQL path: ensure asyncpg driver prefix
+    if "+asyncpg" not in _RAW_URL:
+        DATABASE_URL = _RAW_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    else:
+        DATABASE_URL = _RAW_URL
+else:
+    DATABASE_URL = _RAW_URL
+
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
 if _is_sqlite:
     from sqlalchemy.pool import NullPool as _NullPool
     engine = create_async_engine(
@@ -70,6 +92,60 @@ async def get_db():
             await session.rollback()
             raise
 '''
+
+# Default .env content for generated apps — PostgreSQL first-class, SQLite as local-dev fallback.
+# Exported so task_agent.py and helpers.py can import a single canonical template.
+_ENV_TEMPLATE = """\
+# Database — PostgreSQL is the production default.
+# For local development without PostgreSQL, set to: sqlite+aiosqlite:///./app.db
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/appdb
+# For local SQLite fallback (development only): DATABASE_URL=sqlite:///./app.db
+SECRET_KEY={secret_key}
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+ENVIRONMENT=development
+DEBUG=false
+ADMIN_PASSWORD=Admin1234!
+"""
+
+# Docker-compose template — adds a postgres:15-alpine service alongside the app.
+_DOCKER_COMPOSE_TEMPLATE = """\
+version: '3.9'
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: appdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/appdb
+      SECRET_KEY: ${SECRET_KEY:-changeme-set-in-env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+"""
 
 _AUTH_PY = '''\
 """JWT access + refresh tokens, bcrypt password hashing, FastAPI dependencies."""
