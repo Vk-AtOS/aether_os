@@ -325,6 +325,16 @@ GET /metrics →  Prometheus metrics
 ## Scaling
 - Horizontal: run multiple API replicas behind a load balancer
 - Database: enable read replicas for read-heavy workloads
+
+## Observability Status
+
+The generated app includes a Prometheus metrics endpoint (`/metrics`) and structured
+JSON logging configuration.
+However, no Prometheus scraper or Grafana dashboard is pre-configured in this deployment.
+To enable full observability:
+1. Point a Prometheus scraper at `<app-url>/metrics`
+2. Import the generated `grafana_dashboard.json` into your Grafana instance
+3. Set `ENABLE_METRICS=true` in the generated app's `.env`
 """
 
 
