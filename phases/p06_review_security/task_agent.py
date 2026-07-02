@@ -356,6 +356,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("Compliance scan failed (non-critical): %s", e)
 
+    # Sub-task 4: Per-dimension artifact critique (static analysis, fail-open)
+    _accumulated: dict = phase_input.input_data if hasattr(phase_input, "input_data") else {}
+    try:
+        from aether_os.phases.p06_review_security.critique_integration import run_dimension_critique
+        run_dimension_critique(phase_input, _accumulated)
+    except Exception as _ce:
+        logger.warning("[p06] dimension critique wiring failed (non-critical): %s", _ce)
+
     summary = {
         "phases": {
             k: {
