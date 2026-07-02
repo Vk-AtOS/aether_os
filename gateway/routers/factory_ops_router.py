@@ -80,6 +80,29 @@ class FactoryStartRequest(BaseModel):
 # ── Strong references prevent GC from silently killing in-flight tasks ────────
 _background_tasks: set = set()
 
+async def _check_db_run_limits(org_id: str) -> None:
+    """DB-level concurrent run gate — authoritative (Redis may drift on crash).
+
+    Raises 429 if org >= 3 active runs; 503 if platform >= 10.  Fails open on
+    DB error so a slow DB at startup doesn't block all pipeline starts.
+    """
+    try:
+        from aether_os.core.db import get_session_factory as _gsf_rl
+        from aether_os.core.services.run_service import count_active_runs, _ORG_RUN_LIMIT, _PLATFORM_RUN_LIMIT
+        async with _gsf_rl()() as _s:
+            org_ct, plat_ct = await count_active_runs(_s, org_id)
+        if org_ct >= _ORG_RUN_LIMIT:
+            raise HTTPException(status_code=429, detail={
+                "detail": "Rate limit: maximum 3 concurrent pipeline runs per organization. Please wait for a run to complete.",
+                "running_count": org_ct, "limit": _ORG_RUN_LIMIT,
+            })
+        if plat_ct >= _PLATFORM_RUN_LIMIT:
+            raise HTTPException(status_code=503, detail="Platform is at capacity. Please try again in a few minutes.")
+    except HTTPException:
+        raise
+    except Exception as _e:
+        logger.warning("DB run limit check failed (allowing request): %s", _e)
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -206,6 +229,10 @@ async def start_factory_run(
             status_code=429,
             detail=f"Max concurrent runs reached ({_rl.max_concurrent_runs}). Wait for a run to complete.",
         )
+
+    # ── DB-level per-org and global limits (authoritative — Redis may drift) ──
+    await _check_db_run_limits(org_id)
+
     await _rl.record_factory_start(org_id)
 
     # B9: Atomic trial run check — single UPDATE prevents TOCTOU race
