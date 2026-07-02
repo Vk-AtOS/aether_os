@@ -114,6 +114,18 @@ _DOMAIN_ALIASES: dict[str, str] = {
     "multi-tenant": "saas",
     "multitenant": "saas",
     "platform": "saas",
+    # fintech
+    "fintech": "fintech",
+    "finance": "fintech",
+    "financial": "fintech",
+    "payment": "fintech",
+    "payments": "fintech",
+    "banking": "fintech",
+    "bank": "fintech",
+    "invoice": "fintech",
+    "invoicing": "fintech",
+    "wallet": "fintech",
+    "ledger": "fintech",
 }
 
 
@@ -130,14 +142,20 @@ def _load_pack(canonical: str) -> Optional[DomainPack]:
             from aether_os.core.domain_packs.ai_integrated_pack import AI_INTEGRATED_PACK
             return AI_INTEGRATED_PACK
         if canonical == "traditional_erp":
-            from aether_os.core.domain_packs.traditional_erp_pack import TRADITIONAL_ERP_PACK
-            return TRADITIONAL_ERP_PACK
+            from aether_os.core.domain_packs.erp_pack import ERP_PACK
+            return ERP_PACK
         if canonical == "marketplace":
             from aether_os.core.domain_packs.marketplace_pack import MARKETPLACE_PACK
             return MARKETPLACE_PACK
         if canonical == "saas":
             from aether_os.core.domain_packs.saas_pack import SAAS_PACK
             return SAAS_PACK
+        if canonical == "fintech":
+            from aether_os.core.domain_packs.fintech_pack import FINTECH_PACK
+            return FINTECH_PACK
+        if canonical == "erp":
+            from aether_os.core.domain_packs.erp_pack import ERP_PACK
+            return ERP_PACK
     except Exception as e:
         logger.warning("Failed to load domain pack for '%s': %s", canonical, e)
     return None
