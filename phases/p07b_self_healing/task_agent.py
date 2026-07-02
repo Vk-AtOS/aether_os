@@ -24,7 +24,9 @@ from aether_os.phases.p07b_self_healing.quality_helpers import (
     find_crud_py,
     fix_seed_unique_violations,
     fix_crud_relative_imports,
+    _record_repair,
 )
+from aether_os.core.error_registry import ErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -521,6 +523,9 @@ async def _quality_probe(
                         "text": f"[p07b quality] Fixed UNIQUE constraint violations in {seed_path.name}",
                     })
                     logger.info("[p07b quality_probe] Applied seed dedup fix to %s", seed_path)
+                else:
+                    # Seed had no fixable duplicates — record auth failure for learning
+                    _record_repair(ErrorCategory.UNKNOWN, "auth_failure detected but no seed duplicates found")
 
         elif failure_type == "empty_crud":
             crud_path = find_crud_py(project_dir)
@@ -535,6 +540,12 @@ async def _quality_probe(
                         "text": f"[p07b quality] Fixed relative imports in {crud_path.name}",
                     })
                     logger.info("[p07b quality_probe] Applied relative import fix to %s", crud_path)
+                else:
+                    # CRUD was empty but no relative imports found — record for learning
+                    _record_repair(
+                        ErrorCategory.MISSING_ROUTER_REFERENCE,
+                        "empty_crud detected but no relative imports found in crud.py",
+                    )
 
         return {
             "skipped": False,
