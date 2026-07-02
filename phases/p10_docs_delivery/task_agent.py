@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -415,6 +416,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     if _p70_issues:
         logger.warning("[p10] gate check issues: %s", _p70_issues)
+
+    # Add quality_report.json to handoff package with error_registry summary
+    try:
+        from aether_os.core.error_registry import get_registry
+        _reg = get_registry()
+        _quality_report = {
+            "error_registry_summary": _reg.get_summary(),
+            "phase_confidence": data.get("phase_confidence", {}),
+            "low_confidence_phases": data.get("low_confidence_phases", []),
+            "governor_report": data.get("governor_report", {}),
+            "generated_at": datetime.utcnow().isoformat(),
+        }
+        (output_dir / "quality_report.json").write_text(
+            json.dumps(_quality_report, indent=2, default=str)
+        )
+        logger.info("p10: quality_report.json written to handoff package")
+    except Exception as _qr_exc:
+        logger.warning("p10: quality_report.json failed (non-fatal): %s", _qr_exc)
 
     summary = {
         "phases": {
