@@ -212,6 +212,57 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if input_domain and input_domain != 'general' and doc.get('domain', 'general') == 'general':
         doc['domain'] = input_domain
 
+    # ── Architecture compatibility check ─────────────────────────────────────
+    def _check_arch_compatibility(architecture: dict) -> list:
+        """Verify that chosen framework, DB, and auth method are mutually compatible."""
+        issues = []
+        framework = (architecture.get("backend_framework") or
+                     architecture.get("tech_stack", {}).get("backend") or "").lower()
+        database = (architecture.get("database") or
+                    architecture.get("tech_stack", {}).get("database") or "").lower()
+        auth = (architecture.get("auth_method") or "").lower()
+        tenancy = architecture.get("multi_tenancy", False)
+        _domain = (architecture.get("domain") or "").lower()
+
+        # FastAPI + async driver check
+        if "fastapi" in framework and "sqlite" in database and tenancy:
+            issues.append(
+                "multi_tenancy=True with SQLite is not safe — SQLite has no row-level security. "
+                "Recommend PostgreSQL for multi-tenant apps."
+            )
+
+        # Auth vs tenancy compatibility
+        if "jwt" in auth and not tenancy and "saas" in _domain:
+            issues.append(
+                "SaaS domain with JWT auth but multi_tenancy=False — "
+                "SaaS apps typically require org_id on all models."
+            )
+
+        # SQLite in production warning
+        if "sqlite" in database:
+            issues.append(
+                "SQLite is not recommended for production multi-user apps. "
+                "Consider PostgreSQL. This will be noted in the handoff documentation."
+            )
+
+        return issues
+
+    _arch_warnings = _check_arch_compatibility(doc)
+    if _arch_warnings:
+        for _warn in _arch_warnings:
+            logger.warning("[p02] architecture_warning: %s", _warn)
+        phase_input.input_data["architecture_warnings"] = _arch_warnings
+        record_decision(
+            phase_input.input_data,
+            key="architecture_warnings",
+            value="; ".join(_arch_warnings),
+            reason="Compatibility check detected potentially unsafe tech stack combinations",
+            phase="p02",
+        )
+    else:
+        phase_input.input_data["architecture_warnings"] = []
+        logger.info("[p02] architecture compatibility check: no issues found")
+
     # ── Always write architecture.json ───────────────────────────────────────
     out_json.write_text(json.dumps(doc, indent=2))
     if cache_path:
