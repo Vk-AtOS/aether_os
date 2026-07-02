@@ -25,6 +25,7 @@ from aether_os.phases.p07b_self_healing.quality_helpers import (
     fix_seed_unique_violations,
     fix_crud_relative_imports,
     _record_repair,
+    apply_deterministic_fallback,
 )
 from aether_os.core.error_registry import ErrorCategory
 
@@ -87,6 +88,7 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
                 logger.debug("[p07b] Pattern matched failing file: %s", candidate)
                 return candidate
     return None
+
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
@@ -206,6 +208,9 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
         fix = await _get_fix(failing_file, test_file, last_output)
         if not fix:
             logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
+            # After attempt 1 LLM failure, switch to deterministic fallback generator
+            if attempt >= 2:
+                _apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
             continue
 
         # Validate syntax before applying — use compile() not ast.parse() because
@@ -236,6 +241,11 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
                 logger.info("[p07b_self_healing] Auto-injected all_routers: %s", router_vars)
 
         failing_file.write_text(fix)
+
+        # After attempt 1 LLM repair — also regenerate crud/seed deterministically
+        # so any structural issues (missing all_routers, bad seed values) are reset cleanly
+        if attempt >= 2:
+            _apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
 
     # Problem 45 fix: Max attempts reached — tests still failing → report failure accurately
     # Do NOT propagate a false success=True; set gate_result accordingly
