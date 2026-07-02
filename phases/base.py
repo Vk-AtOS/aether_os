@@ -20,6 +20,7 @@ class TaskResult:
     issues: List[str] = field(default_factory=list)
     success: bool = True
     escalated: bool = False  # True when all retries failed and a human ticket was filed
+    confidence_reason: str = ""  # Human-readable explanation of confidence score
 
 
 @dataclass

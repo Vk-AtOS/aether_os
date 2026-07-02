@@ -566,9 +566,31 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     code_size = sum(f.stat().st_size for f in src_dir.rglob("*.py") if f.exists())
     logger.info("[p04a] backend complete: %d bytes total, %s", code_size, generated_via)
 
+    # Confidence: IR fast-path = highest (deterministic), LLM = high, fallback = lower
+    if generated_via == "templates+llm":
+        _confidence = 0.9
+        _confidence_reason = "LLM generated models/schemas with syntax validation passed"
+    elif generated_via == "deterministic_fallback":
+        _confidence = 0.6
+        _confidence_reason = "Fallback generator used — no LLM or IR; output may be minimal"
+    else:
+        # IR fast-path: deterministic generation from domain_ir.json
+        _confidence = 0.85
+        _confidence_reason = f"Generated via {generated_via}"
+    if smoke.get("passed"):
+        _confidence = min(1.0, _confidence + 0.05)
+        _confidence_reason += "; smoke test passed"
+    elif not smoke.get("skipped"):
+        _confidence = max(0.0, _confidence - 0.2)
+        _confidence_reason += "; smoke test failed"
+    if not _validation_report.passed:
+        _confidence = max(0.0, _confidence - 0.1)
+        _confidence_reason += f"; validation errors: {len(_validation_report.errors)}"
+
     return TaskResult(
         output_path=str(output_dir),
-        confidence=0.92 if generated_via == "templates+llm" else 0.7,
+        confidence=_confidence,
+        confidence_reason=_confidence_reason,
         metadata={
             "backend_src_dir": str(src_dir),
             "main_py": str(src_dir / "main.py"),

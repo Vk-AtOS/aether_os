@@ -85,6 +85,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         return TaskResult(
             output_path=str(output_dir / "self_healing.json"),
             confidence=0.3,
+            confidence_reason="Self-healing phase hard-timeout reached — repairs incomplete",
             metadata=result,
             success=True,
             issues=["Self-healing phase timed out"],
@@ -131,9 +132,20 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
                 "output": test_result["output"][:500],
             }
             (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
+            # Confidence reflects how many repair attempts were needed
+            if attempt == 1:
+                _heal_confidence = 0.9
+                _heal_reason = "Tests passed on first attempt — no repairs needed"
+            elif attempt == 2:
+                _heal_confidence = 0.7
+                _heal_reason = "Tests passed after 1 LLM repair"
+            else:
+                _heal_confidence = 0.5
+                _heal_reason = f"Tests passed after {attempt - 1} LLM repairs — code may be fragile"
             return TaskResult(
                 output_path=str(output_dir / "self_healing.json"),
-                confidence=1.0,
+                confidence=_heal_confidence,
+                confidence_reason=_heal_reason,
                 metadata=result,
                 success=True,
                 issues=[],
@@ -199,7 +211,8 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
     (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
     return TaskResult(
         output_path=str(output_dir / "self_healing.json"),
-        confidence=0.0,                     # Problem 45: was 0.4, should be 0.0 on full exhaustion
+        confidence=0.3,                     # Low but non-zero: code exists, tests just don't pass
+        confidence_reason=f"Max repair attempts ({MAX_ATTEMPTS}) exhausted — tests still failing",
         metadata=result,
         success=False,                      # Problem 45: was True
         issues=[f"Self-healing exhausted: tests still failing after {MAX_ATTEMPTS} attempts"],
