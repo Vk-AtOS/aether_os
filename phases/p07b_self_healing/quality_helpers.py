@@ -196,3 +196,29 @@ def find_crud_py(project_dir: Path) -> Optional[Path]:
             if "src" in parts:
                 return candidate_crud
     return None
+
+
+def apply_deterministic_fallback(project_dir: Path, entities: list, input_data: dict) -> None:
+    """Re-generate crud.py and seed.py from the deterministic fallback generator.
+
+    Called on attempt >= 2 so LLM retry loops that produce broken code are interrupted
+    and replaced with a structurally correct baseline that passes syntax checks.
+    """
+    try:
+        from aether_os.phases.p04a_backend_codegen.crud_generator import (  # noqa: PLC0415
+            _fallback_crud_routers,
+            _fallback_seed,
+        )
+        project_name = input_data.get("project_name", "App") if isinstance(input_data, dict) else "App"
+        crud_path = find_crud_py(project_dir)
+        seed_path = find_seed_py(project_dir)
+        if entities and crud_path and crud_path.exists():
+            fallback_code = _fallback_crud_routers(entities)
+            crud_path.write_text(fallback_code)
+            logger.info("p07b: switched to deterministic fallback crud generator at %s", crud_path)
+        if entities and seed_path and seed_path.exists():
+            fallback_seed = _fallback_seed(project_name, entities)
+            seed_path.write_text(fallback_seed)
+            logger.info("p07b: switched to deterministic fallback seed generator at %s", seed_path)
+    except Exception as _fb_exc:
+        logger.warning("p07b: fallback generator failed: %s", _fb_exc)
