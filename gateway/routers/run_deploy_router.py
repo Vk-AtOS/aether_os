@@ -186,8 +186,15 @@ async def get_run_artifacts(
             parts = rel.parts
             if any(p in _ARTIFACT_SKIP for p in parts):
                 continue
-            if fpath.name == "run_app.log" and not _is_superadmin:
-                continue
+            if fpath.name == "run_app.log":
+                # Allow superadmin OR the org owner/admin who owns this run
+                if not _is_superadmin:
+                    _run_org_id = getattr(run, "org_id", None)
+                    _user_org_id = user.get("org_id")
+                    _user_role = user.get("role", "")
+                    if _run_org_id != _user_org_id or _user_role not in ("owner", "admin"):
+                        continue
+                    # else: org owner/admin can see their own run's log
             if any(p.startswith(".") for p in parts):
                 if not (parts[0] in _ALLOW_HIDDEN_DIRS or fpath.name in _ALLOW_HIDDEN):
                     continue
