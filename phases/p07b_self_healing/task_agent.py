@@ -1,15 +1,30 @@
-"""P07b Self-Healing — autonomous bug fix loop using Ollama."""
+"""P07b Self-Healing — autonomous bug fix loop using Ollama.
+
+Also runs a QualityMonitor multi-layer health check (L1–L4) after tests pass
+to catch auth failures and empty CRUD endpoints that unit tests can't detect.
+"""
 from __future__ import annotations
 import asyncio
 import ast
 import json
 import logging
 import os
+import re
+import secrets
+import socket
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.orchestrator.events import emit
+from aether_os.core.quality_monitor import QualityMonitor
+from aether_os.phases.p07b_self_healing.quality_helpers import (
+    find_seed_py,
+    find_crud_py,
+    fix_seed_unique_violations,
+    fix_crud_relative_imports,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +34,6 @@ LLM_TIMEOUT = 45
 # Hard cap so the phase never blocks the orchestrator beyond this
 _PHASE_HARD_TIMEOUT = MAX_ATTEMPTS * (TEST_TIMEOUT + LLM_TIMEOUT + 15)  # 600s
 
-
-import re
 
 def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path]:
     """
@@ -98,6 +111,15 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
     run_id = phase_input.run_id
     project_dir = Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
 
+    # Extract entity names for the quality probe (L3/L4 CRUD checks)
+    _input_data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
+    _raw_entities = _input_data.get("entities", []) if isinstance(_input_data, dict) else []
+    _entity_names: List[str] = [
+        e.get("name", "") if isinstance(e, dict) else str(e)
+        for e in _raw_entities
+        if e
+    ]
+
     main_py = _find_file(project_dir, "main.py")
     test_file = _find_file(project_dir, "test_*.py")
 
@@ -125,11 +147,19 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             msg = f"✓ [p07b_self_healing] Tests passing after {attempt} attempt(s)"
             logger.info(msg)
             await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg})
+
+            # Run multi-layer quality check (L1 startup / L2 auth / L3 crud / L4 data)
+            # Non-blocking: if probe fails to start, we still report test success.
+            _qp_msg = "[p07b_self_healing] Running quality probe (L1–L4)..."
+            await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": _qp_msg})
+            quality_probe_result = await _quality_probe(project_dir, _entity_names, output_dir)
+
             result = {
                 "success": True,
                 "attempts": attempt,
                 "status": "all_tests_passing",
                 "output": test_result["output"][:500],
+                "quality_probe": quality_probe_result,
             }
             (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
             # Confidence reflects how many repair attempts were needed
@@ -142,13 +172,22 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             else:
                 _heal_confidence = 0.5
                 _heal_reason = f"Tests passed after {attempt - 1} LLM repairs — code may be fragile"
+
+            # Downgrade confidence if quality probe detected a live failure
+            _qp_failure = quality_probe_result.get("failure_type")
+            if _qp_failure:
+                _heal_confidence = min(_heal_confidence, 0.5)
+                _heal_reason += f" — quality probe detected {_qp_failure}"
+                logger.warning("[p07b_self_healing] Quality probe found %s — fixes applied: %s",
+                               _qp_failure, quality_probe_result.get("fixes_applied", []))
+
             return TaskResult(
                 output_path=str(output_dir / "self_healing.json"),
                 confidence=_heal_confidence,
                 confidence_reason=_heal_reason,
                 metadata=result,
                 success=True,
-                issues=[],
+                issues=[f"quality_probe:{_qp_failure}"] if _qp_failure else [],
             )
 
         last_output = test_result["output"]
@@ -375,6 +414,150 @@ No explanation. No markdown. No code fences. Just valid Python."""
             logger.warning("[p07b_self_healing] Anthropic fallback also failed: %s", fallback_exc)
 
     return None
+
+
+async def _quality_probe(
+    project_dir: Path,
+    entities: List[str],
+    output_dir: Path,
+) -> Dict[str, Any]:
+    """Run QualityMonitor L1–L4 against the generated app on a temp port.
+
+    Spins up uvicorn on a free port, waits for startup, runs the full check,
+    applies deterministic fixes for auth_failure / empty_crud, then tears down.
+
+    Returns a dict with keys: skipped, failure_type, quality_summary, fixes_applied.
+    Non-fatal — any exception returns skipped=True so the pipeline continues.
+    """
+    # Locate src/main.py to know the backend directory
+    main_py = _find_file(project_dir, "main.py")
+    if not main_py:
+        logger.info("[p07b quality_probe] No main.py found — skipping quality probe")
+        return {"skipped": True, "reason": "no_main_py"}
+
+    src_dir = main_py.parent
+    backend_dir = src_dir.parent  # the dir that contains src/
+
+    # Find a free port
+    try:
+        with socket.socket() as _s:
+            _s.bind(("127.0.0.1", 0))
+            probe_port = _s.getsockname()[1]
+    except Exception as exc:
+        logger.warning("[p07b quality_probe] Could not bind free port: %s", exc)
+        return {"skipped": True, "reason": "no_free_port"}
+
+    base_url = f"http://127.0.0.1:{probe_port}"
+
+    # Ensure .env exists so the app has a valid SECRET_KEY / DATABASE_URL
+    env_file = backend_dir / ".env"
+    _wrote_env = False
+    if not env_file.exists():
+        env_file.write_text(
+            f"DATABASE_URL=sqlite+aiosqlite:///{backend_dir}/probe_q.db\n"
+            f"SECRET_KEY={secrets.token_hex(32)}\n"
+            f"ADMIN_PASSWORD=Admin1234!\n"
+            f"CORS_ORIGINS=http://localhost:3000\n"
+        )
+        _wrote_env = True
+
+    proc = None
+    try:
+        _env = {**os.environ}
+        for line in env_file.read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                _env[k.strip()] = v.strip()
+
+        log_path = output_dir / "quality_probe.log"
+        with open(log_path, "w") as _lf:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "uvicorn", "src.main:app",
+                "--host", "127.0.0.1", "--port", str(probe_port),
+                "--timeout-graceful-shutdown", "1",
+                cwd=str(backend_dir),
+                stdout=_lf,
+                stderr=_lf,
+                env=_env,
+            )
+
+        # Wait up to 10 s for the server to accept connections
+        _ready = False
+        for _ in range(20):
+            await asyncio.sleep(0.5)
+            try:
+                with socket.create_connection(("127.0.0.1", probe_port), timeout=0.3):
+                    _ready = True
+                    break
+            except OSError as sock_exc:
+                logger.debug("[p07b quality_probe] Waiting for server on port %d: %s", probe_port, sock_exc)
+
+        if not _ready:
+            logger.warning("[p07b quality_probe] Server did not start in 10s — skipping quality check")
+            return {"skipped": True, "reason": "server_startup_timeout"}
+
+        monitor = QualityMonitor(
+            base_url=base_url,
+            admin_email="admin@example.com",
+            admin_password="Admin1234!",
+            entities=entities,
+        )
+        results = await monitor.run_full_check()
+        failure_type = monitor.get_failure_type(results)
+        quality_summary = monitor.to_dict()
+
+        fixes_applied: List[str] = []
+
+        if failure_type == "auth_failure":
+            seed_path = find_seed_py(project_dir)
+            if seed_path and seed_path.exists():
+                original = seed_path.read_text()
+                fixed = fix_seed_unique_violations(original)
+                if fixed:
+                    seed_path.write_text(fixed)
+                    fixes_applied.append(f"seed_unique_dedup:{seed_path}")
+                    await emit({
+                        "type": "llm_chunk", "phase": "p07b_self_healing",
+                        "text": f"[p07b quality] Fixed UNIQUE constraint violations in {seed_path.name}",
+                    })
+                    logger.info("[p07b quality_probe] Applied seed dedup fix to %s", seed_path)
+
+        elif failure_type == "empty_crud":
+            crud_path = find_crud_py(project_dir)
+            if crud_path and crud_path.exists():
+                original = crud_path.read_text()
+                fixed = fix_crud_relative_imports(original)
+                if fixed:
+                    crud_path.write_text(fixed)
+                    fixes_applied.append(f"crud_relative_imports:{crud_path}")
+                    await emit({
+                        "type": "llm_chunk", "phase": "p07b_self_healing",
+                        "text": f"[p07b quality] Fixed relative imports in {crud_path.name}",
+                    })
+                    logger.info("[p07b quality_probe] Applied relative import fix to %s", crud_path)
+
+        return {
+            "skipped": False,
+            "failure_type": failure_type,
+            "quality_summary": quality_summary,
+            "fixes_applied": fixes_applied,
+        }
+
+    except Exception as exc:
+        logger.warning("[p07b quality_probe] Probe raised unexpected error: %s", exc)
+        return {"skipped": True, "reason": f"exception:{exc}"}
+    finally:
+        if proc is not None:
+            try:
+                proc.terminate()
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except Exception as term_exc:
+                logger.debug("[p07b quality_probe] Failed to terminate probe server: %s", term_exc)
+        if _wrote_env and env_file.exists():
+            try:
+                env_file.unlink()
+            except Exception as unlink_exc:
+                logger.debug("[p07b quality_probe] Failed to remove temp .env: %s", unlink_exc)
 
 
 def _find_file(project_dir: Path, pattern: str) -> Optional[Path]:
