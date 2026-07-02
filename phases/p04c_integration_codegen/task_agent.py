@@ -1,10 +1,10 @@
 """P04c Integration Codegen — generate async client code for each discovered integration.
 
 Reads integration_map from accumulated context (set by p01b_integration_discovery).
-For each integration, makes one LLM call to generate a production-ready async httpx client.
-Also generates services/integration_manager.py that imports and initializes all clients.
-
-Skips gracefully if no integrations were discovered.
+For named integrations (Stripe, SendGrid, Twilio, OpenAI, RAG), uses a deterministic
+production-ready template — no LLM needed, no hallucinated code.
+For unknown integrations, falls back to an LLM-generated generic httpx client.
+Also generates services/__init__.py and services/integration_manager.py.
 """
 from __future__ import annotations
 import json
@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p04c_integration_codegen.templates import NAMED_TEMPLATES
 
 logger = logging.getLogger(__name__)
 
@@ -212,8 +213,30 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         auth_method = integration.get("auth_method", "api_key")
         endpoints = integration.get("endpoints_needed", [])
         slug = _slugify(name)
-        client_path = services_dir / f"{slug}_client.py"
 
+        # Check if this is a named integration with a production-ready template
+        name_lower = name.lower().strip()
+        template_entry = None
+        for key in NAMED_TEMPLATES:
+            if key in name_lower or name_lower in key:
+                template_entry = NAMED_TEMPLATES[key]
+                break
+
+        if template_entry:
+            gen_fn, out_filename = template_entry
+            client_path = services_dir / out_filename
+            try:
+                client_code = gen_fn(output_dir=services_dir, config=integration)
+                client_path.write_text(client_code)
+                module_name = out_filename.replace(".py", "")
+                clients_generated.append(module_name)
+                logger.info("p04c: named template used for %s → %s", name, out_filename)
+            except Exception as exc:
+                logger.warning("p04c: named template for %s failed: %s — using stub", name, exc)
+            continue
+
+        # Unknown integration — use LLM or stub fallback
+        client_path = services_dir / f"{slug}_client.py"
         client_code = _fallback_client(integration)
 
         if llm:
@@ -256,6 +279,11 @@ File: services/{slug}_client.py"""
         client_path.write_text(client_code)
         clients_generated.append(f"{slug}_client")
         logger.info("p04c: wrote %s", client_path)
+
+    # Write services/__init__.py so the directory is a proper package
+    (services_dir / "__init__.py").write_text(
+        '"""Auto-generated services package — AetherOS p04c_integration_codegen."""\n'
+    )
 
     # Generate integration_manager.py
     manager_imports = "\n".join(
