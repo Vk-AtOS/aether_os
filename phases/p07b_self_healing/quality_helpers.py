@@ -18,7 +18,18 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from aether_os.core.error_registry import ErrorCategory, get_registry
+
 logger = logging.getLogger(__name__)
+
+
+def _record_repair(category: ErrorCategory, detail: str, phase: str = "p07b_self_healing") -> None:
+    """Record a successful repair to the error registry for future learning."""
+    try:
+        reg = get_registry()
+        reg.record(category=category, phase=phase, detail=detail, fix_applied=True)
+    except Exception as e:
+        logger.warning("p07b: error_registry record failed (non-fatal): %s", e)
 
 
 # ── Seed unique-field deduplication ─────────────────────────────────────────────
@@ -88,6 +99,11 @@ def fix_seed_unique_violations(seed_content: str) -> Optional[str]:
                 field_name, start,
             )
 
+    if changed:
+        _record_repair(
+            ErrorCategory.SEED_UNIQUE_VIOLATION,
+            "Deduplicated UNIQUE-field values in seed.py (suffix appended to duplicates)",
+        )
     return seed_content if changed else None
 
 
@@ -133,6 +149,10 @@ def fix_crud_relative_imports(crud_content: str) -> Optional[str]:
         return None
 
     logger.info("[quality_helpers] Fixed relative imports in crud.py")
+    _record_repair(
+        ErrorCategory.RELATIVE_IMPORT,
+        "Replaced relative imports (from .X / import .X) with flat absolute imports in crud.py",
+    )
     return crud_content
 
 
