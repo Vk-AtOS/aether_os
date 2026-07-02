@@ -11,6 +11,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ── Phase-level LLM temperature ───────────────────────────────────────────────
+# Code generation requires precision: low temperature reduces hallucinations
+# and keeps generated code syntactically consistent. Callers should pass this
+# when invoking llm.call() for CRUD/seed generation.
+CODEGEN_TEMPERATURE: float = 0.2
+SEED_TEMPERATURE: float = 0.2
+
 # ── Positive few-shot example ─────────────────────────────────────────────────
 
 CRUD_POSITIVE_EXAMPLE = '''\

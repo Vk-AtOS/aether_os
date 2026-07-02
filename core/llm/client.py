@@ -127,9 +127,14 @@ class LLMClient:
         run_id: Optional[str] = None,
         phase: Optional[str] = None,
         attempt: int = 1,
+        temperature: float = 0.4,
     ) -> str:
         """
         Call the LLM via the multi-model router. (FIX 22 with tracing)
+
+        temperature: Controls output randomness. Use 0.2 for code generation
+        (precision), 0.7 for brainstorming (creativity). Default 0.4 is a
+        balanced midpoint. See core/llm/phase_config.py for per-phase values.
         """
         start_time = time.time()
         tokens_in = len(prompt) // 4
@@ -190,7 +195,8 @@ class LLMClient:
         from aether_os.core.model_router import get_router
         try:
             _router = get_router()
-            raw_response, provider = await _router.call(
+            # Pass temperature if the router supports it; older routers ignore unknown kwargs
+            _router_kwargs: Dict[str, Any] = dict(
                 prompt=full_prompt,
                 task_type=task_type,
                 system=system,
@@ -199,6 +205,11 @@ class LLMClient:
                 org_id=org_id,
                 plan=plan,
             )
+            import inspect as _inspect
+            _router_sig = _inspect.signature(_router.call)
+            if "temperature" in _router_sig.parameters:
+                _router_kwargs["temperature"] = temperature
+            raw_response, provider = await _router.call(**_router_kwargs)
             self.last_provider = provider
             # Model name is stored on the router instance after a successful call
             model = _router.last_model or provider
