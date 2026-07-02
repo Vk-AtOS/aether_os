@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.context_helpers import record_decision
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,56 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     contract["commercial_defaults"]["tenant_isolation_model"] = tenant_isolation
     phase_input.input_data["tenant_isolation_model"] = tenant_isolation
 
+    # ── Record architectural decisions for downstream phases ──────────────────
+    # Reason text is deterministic so LLM phases receive consistent context.
+    _multi_tenancy_val = contract["commercial_defaults"]["multi_tenancy"]
+    _mt_reason_parts = []
+    if _b2b_domain:
+        _mt_reason_parts.append(f"domain '{_effective_domain}' is B2B/SaaS")
+    if _has_customer_persona:
+        _mt_reason_parts.append("spec has a customer-type persona")
+    if _b2b_in_raw:
+        _mt_reason_parts.append("B2B keywords found in raw input")
+    _mt_reason = "; ".join(_mt_reason_parts) if _mt_reason_parts else "no B2B signals detected"
+    record_decision(
+        phase_input.input_data,
+        key="multi_tenancy",
+        value=str(_multi_tenancy_val),
+        reason=_mt_reason,
+        phase="p01",
+    )
+    record_decision(
+        phase_input.input_data,
+        key="tenant_isolation",
+        value=tenant_isolation,
+        reason=(
+            f"derived from multi_tenancy={_multi_tenancy_val}; "
+            "org_id_filter is the safe default for multi-tenant apps, "
+            "'none' for single-tenant"
+        ),
+        phase="p01",
+    )
+    _domain_decision = contract.get("domain") or domain
+    record_decision(
+        phase_input.input_data,
+        key="domain",
+        value=_domain_decision,
+        reason="LLM-classified from intake text; affects entity defaults and security requirements",
+        phase="p01",
+    )
+    _data_sens = contract["scalability"].get("data_sensitivity", "internal")
+    if _data_sens == "regulated" or contract["scalability"].get("handles_money"):
+        record_decision(
+            phase_input.input_data,
+            key="audit_log",
+            value="True",
+            reason=(
+                f"data_sensitivity={_data_sens} or handles_money=True — "
+                "regulated/financial data requires immutable audit trail"
+            ),
+            phase="p01",
+        )
+
     phase_input.input_data["project_contract"] = contract
     logger.info(
         "[p01] contract: tier=%s sensitivity=%s money=%s",
@@ -270,9 +321,27 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         md_lines.append(f"- **{ent.get('name', '')}** (`{ent.get('table', '')}`)")
     (output_dir / "requirements.md").write_text("\n".join(md_lines))
 
+    # Confidence: based on richness of extracted spec
+    _entities_extracted = requirements_doc.get("entities", [])
+    _entity_count = len(_entities_extracted)
+    _used_fallback = not intake_record.get("project_name") or intake_record.get("project_name") == "App"
+    if _used_fallback:
+        _confidence = 0.4
+        _confidence_reason = "LLM extraction failed — deterministic fallback used; spec may be incomplete"
+    elif _entity_count >= 4:
+        _confidence = 0.92
+        _confidence_reason = f"Rich spec: {_entity_count} entities extracted from LLM"
+    elif _entity_count >= 2:
+        _confidence = 0.75
+        _confidence_reason = f"Adequate spec: {_entity_count} entities; consider adding more detail"
+    else:
+        _confidence = 0.55
+        _confidence_reason = f"Sparse spec: only {_entity_count} entities detected; downstream phases may produce minimal output"
+
     return TaskResult(
         output_path=str(summary_path),
-        confidence=0.90,
+        confidence=_confidence,
+        confidence_reason=_confidence_reason,
         metadata=summary,
         success=True,
         issues=[],

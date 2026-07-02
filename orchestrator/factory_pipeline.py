@@ -235,6 +235,10 @@ class FactoryPipeline:
             "raw_input": raw_input,
             "domain": domain,
             "project_name": project_name or _extract_project_name(raw_input, run_id),
+            # Decision log: each phase appends {"key", "value", "reason", "phase", "timestamp"}
+            # so downstream phases know WHY architectural choices were made.
+            # Use core.context_helpers.record_decision() to append entries.
+            "decisions": [],
             "project_dir": str(project_dir),
             "is_change_request": is_change_request,
             # Cross-run memory context injected from MemoryService (may be "")
@@ -517,6 +521,23 @@ class FactoryPipeline:
                 # Add phase output to context for next phase to use
                 accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
                 accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
+
+                # Confidence propagation: record every phase's confidence in a central trail
+                _phase_conf = phase_result.get("confidence", 1.0)
+                _phase_conf_reason = phase_result.get("confidence_reason", "")
+                _conf_trail = accumulated_context.setdefault("phase_confidence", {})
+                _conf_trail[phase_name] = {
+                    "confidence": _phase_conf,
+                    "reason": _phase_conf_reason,
+                }
+                # Flag any phase below 0.5 so downstream phases and the UI can surface it
+                _low_conf = accumulated_context.setdefault("low_confidence_phases", [])
+                if _phase_conf < 0.5 and phase_name not in _low_conf:
+                    _low_conf.append(phase_name)
+                    logger.warning(
+                        "[pipeline] Phase %s has low confidence %.2f (%s) — flagging for review",
+                        phase_name, _phase_conf, _phase_conf_reason or "no reason given",
+                    )
 
                 # Sliding context window: append a compact phase summary so every
                 # downstream phase receives structured facts, not just raw paths.
@@ -1313,6 +1334,7 @@ class FactoryPipeline:
                 "status": phase_status,
                 "output_path": task_result.output_path,
                 "confidence": task_result.confidence,
+                "confidence_reason": task_result.confidence_reason,
                 "issues": task_result.issues,
                 "metadata": task_result.metadata,
                 "artifacts": task_result.metadata.get("artifacts", {}),
