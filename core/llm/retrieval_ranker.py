@@ -10,8 +10,10 @@ Sources ranked by relevance:
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,8 @@ _W_DOMAIN_PACK    = 0.90   # Must-follow domain rules: nearly as important
 _W_KG_PATTERN     = 0.75   # Patterns from similar past runs
 _W_KG_FIX         = 0.80   # Known fix patterns from knowledge graph
 _W_CTX_WARNING    = 0.50   # Architecture warnings from the current run
+
+_GOLDEN_EXAMPLES_DIR = Path(__file__).parent.parent / "knowledge_graph" / "golden_examples"
 
 
 def _get_error_registry_knowledge(phase_name: str, domain: str) -> list[RankedKnowledge]:
@@ -183,6 +187,55 @@ def _get_knowledge_graph_knowledge(domain: str) -> list[RankedKnowledge]:
     return items
 
 
+def _get_golden_examples_knowledge(domain: str, phase_name: str) -> list[RankedKnowledge]:
+    """Load pre-seeded golden examples from JSON files for this domain/phase."""
+    items: list[RankedKnowledge] = []
+    if not _GOLDEN_EXAMPLES_DIR.exists():
+        return items
+    try:
+        domain_file = _GOLDEN_EXAMPLES_DIR / f"{domain}.json"
+        if domain_file.exists():
+            data = json.loads(domain_file.read_text())
+            examples = data.get("examples", [])[:3]
+            if examples:
+                lines = []
+                for ex in examples:
+                    name = ex.get("name", "")
+                    fields = ex.get("fields", [])
+                    field_names = ", ".join(
+                        f["name"] for f in fields[:6] if isinstance(f, dict)
+                    )
+                    lines.append(f"  {name}: {field_names}")
+                items.append(RankedKnowledge(
+                    source="golden_examples",
+                    content=f"Golden entity examples for {domain}:\n" + "\n".join(lines),
+                    weight=_W_KG_PATTERN,
+                    phase_relevance=0.90,
+                ))
+
+        # Inject relevant bug fixes for code-generation phases
+        bug_file = _GOLDEN_EXAMPLES_DIR / "bug_fixes.json"
+        _CODEGEN_PHASES = {"p04a", "p04b", "backend_codegen", "crud", "p04"}
+        if bug_file.exists() and phase_name in _CODEGEN_PHASES:
+            data = json.loads(bug_file.read_text())
+            priority_classes = {"RELATIVE_IMPORT", "SEED_UNIQUENESS", "MISSING_AWAIT"}
+            shown = 0
+            for fix in data.get("examples", []):
+                if shown >= 2:
+                    break
+                if fix.get("bug_class", "") in priority_classes:
+                    items.append(RankedKnowledge(
+                        source="golden_examples_bugfix",
+                        content=f"[Known Fix – {fix.get('bug_class','')}] {fix.get('description', '')}: {fix.get('fix', '')}",
+                        weight=_W_KG_FIX,
+                        phase_relevance=0.85,
+                    ))
+                    shown += 1
+    except Exception as exc:
+        logger.warning("retrieval_ranker: golden_examples load failed (non-fatal): %s", exc)
+    return items
+
+
 def _get_architecture_warning_knowledge(ctx: dict) -> list[RankedKnowledge]:
     """Extract architecture_warnings from the current run context."""
     items: list[RankedKnowledge] = []
@@ -225,6 +278,7 @@ def retrieve_for_phase(
     all_items.extend(_get_error_registry_knowledge(phase_name, domain))
     all_items.extend(_get_domain_pack_knowledge(domain))
     all_items.extend(_get_knowledge_graph_knowledge(domain))
+    all_items.extend(_get_golden_examples_knowledge(domain, phase_name))
     all_items.extend(_get_architecture_warning_knowledge(ctx))
 
     # Sort by score descending — highest priority items first

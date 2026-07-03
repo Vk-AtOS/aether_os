@@ -1,0 +1,1287 @@
+{
+  "domain": "traditional_erp",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "trad_001",
+      "type": "app_description_to_domain_ir",
+      "input": "General ledger with chart of accounts, journal entries, and period close",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Account",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "JournalEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "JournalLine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "FiscalPeriod",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/accounts",
+          "/journalentrys",
+          "/journallines"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_002",
+      "type": "app_description_to_domain_ir",
+      "input": "Accounts payable with vendor invoices, payment runs, and aging reports",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Vendor",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "VendorInvoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PaymentRun",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PaymentLine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/vendors",
+          "/vendorinvoices",
+          "/paymentruns"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Accounts receivable with customer invoices, collections, and aging",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Customer",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "CustomerInvoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Receipt",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "CollectionAction",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/customers",
+          "/customerinvoices",
+          "/receipts"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_004",
+      "type": "app_description_to_domain_ir",
+      "input": "Payroll with salary grades, deductions, tax filing, and bank transfer",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Employee",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PayRun",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PaySlip",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "TaxFiling",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/employees",
+          "/payruns",
+          "/payslips"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Fixed assets with depreciation, revaluations, and disposal accounting",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Asset",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "DepreciationRun",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Revaluation",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Disposal",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/assets",
+          "/depreciationruns",
+          "/revaluations"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_006",
+      "type": "app_description_to_domain_ir",
+      "input": "Project accounting with budgets, timesheets, and cost allocation",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Project",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Budget",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Timesheet",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "CostAllocation",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/projects",
+          "/budgets",
+          "/timesheets"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Bank reconciliation with statement import and matching rules",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "BankStatement",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "BankLine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ReconciliationRule",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "MatchedEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/bankstatements",
+          "/banklines",
+          "/reconciliationrules"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_008",
+      "type": "app_description_to_domain_ir",
+      "input": "Budget planning with scenario modeling, approval, and variance tracking",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Budget",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "BudgetLine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Scenario",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Variance",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/budgets",
+          "/budgetlines",
+          "/scenarios"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Financial consolidation with intercompany eliminations and minority interest",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "Entity",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ConsolidationRun",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "IntercompanyElim",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ConsolidatedReport",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/entitys",
+          "/consolidationruns",
+          "/intercompanyelims"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "trad_010",
+      "type": "app_description_to_domain_ir",
+      "input": "Management reporting with KPI dashboards, drill-down, and scheduled delivery",
+      "output": {
+        "domain": "traditional_erp",
+        "entities": [
+          {
+            "name": "KpiMetric",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Report",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ReportSchedule",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Dashboard",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/kpimetrics",
+          "/reports",
+          "/reportschedules"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "traditional_erp"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}

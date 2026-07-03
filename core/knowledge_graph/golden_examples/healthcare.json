@@ -1,0 +1,2394 @@
+{
+  "domain": "healthcare",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "heal_001",
+      "type": "app_description_to_domain_ir",
+      "input": "Patient management system for a multi-doctor family practice clinic",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Patient",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "mrn",
+                "type": "str"
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "dob",
+                "type": "datetime"
+              },
+              {
+                "name": "gender",
+                "type": "enum",
+                "values": [
+                  "male",
+                  "female",
+                  "other"
+                ]
+              },
+              {
+                "name": "phone",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "email",
+                "type": "str",
+                "unique": true
+              }
+            ]
+          },
+          {
+            "name": "Appointment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "doctor_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "scheduled_at",
+                "type": "datetime"
+              },
+              {
+                "name": "duration_min",
+                "type": "int"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "scheduled",
+                  "completed",
+                  "cancelled"
+                ]
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "VitalSign",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "recorded_at",
+                "type": "datetime"
+              },
+              {
+                "name": "bp_systolic",
+                "type": "int"
+              },
+              {
+                "name": "bp_diastolic",
+                "type": "int"
+              },
+              {
+                "name": "pulse",
+                "type": "int"
+              },
+              {
+                "name": "temp_c",
+                "type": "decimal"
+              },
+              {
+                "name": "weight_kg",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/patients",
+          "/appointments",
+          "/vitals",
+          "/patients/{id}/history"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "patient_records",
+          "scheduling"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_002",
+      "type": "app_description_to_domain_ir",
+      "input": "Telemedicine platform with video consultations, e-prescriptions, and follow-ups",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Consultation",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "doctor_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "scheduled_at",
+                "type": "datetime"
+              },
+              {
+                "name": "video_room_id",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "upcoming",
+                  "in_progress",
+                  "completed"
+                ]
+              },
+              {
+                "name": "duration_min",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Prescription",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "consultation_id",
+                "type": "int",
+                "foreign_key": "Consultation.id"
+              },
+              {
+                "name": "medication",
+                "type": "str"
+              },
+              {
+                "name": "dosage",
+                "type": "str"
+              },
+              {
+                "name": "frequency",
+                "type": "str"
+              },
+              {
+                "name": "duration_days",
+                "type": "int"
+              },
+              {
+                "name": "refills",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "FollowUp",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "consultation_id",
+                "type": "int",
+                "foreign_key": "Consultation.id"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "completed",
+                "type": "bool"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/consultations",
+          "/consultations/{id}/join",
+          "/prescriptions",
+          "/follow-ups"
+        ],
+        "integrations": [
+          "twilio"
+        ],
+        "features": [
+          "auth",
+          "video",
+          "prescriptions"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Pharmacy inventory and dispensing system with drug interaction alerts",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Drug",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "ndc",
+                "type": "str"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "generic_name",
+                "type": "str"
+              },
+              {
+                "name": "manufacturer",
+                "type": "str"
+              },
+              {
+                "name": "form",
+                "type": "enum",
+                "values": [
+                  "tablet",
+                  "capsule",
+                  "liquid",
+                  "injection"
+                ]
+              },
+              {
+                "name": "strength",
+                "type": "str"
+              },
+              {
+                "name": "controlled",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "Inventory",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "drug_id",
+                "type": "int",
+                "foreign_key": "Drug.id"
+              },
+              {
+                "name": "lot_no",
+                "type": "str"
+              },
+              {
+                "name": "expiry",
+                "type": "datetime"
+              },
+              {
+                "name": "qty_on_hand",
+                "type": "int"
+              },
+              {
+                "name": "reorder_level",
+                "type": "int"
+              },
+              {
+                "name": "unit_cost",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Dispense",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "prescription_id",
+                "type": "int",
+                "foreign_key": "Prescription.id"
+              },
+              {
+                "name": "drug_id",
+                "type": "int",
+                "foreign_key": "Drug.id"
+              },
+              {
+                "name": "qty",
+                "type": "int"
+              },
+              {
+                "name": "dispensed_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "dispensed_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "DrugInteraction",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "drug_a_id",
+                "type": "int",
+                "foreign_key": "Drug.id"
+              },
+              {
+                "name": "drug_b_id",
+                "type": "int",
+                "foreign_key": "Drug.id"
+              },
+              {
+                "name": "severity",
+                "type": "enum",
+                "values": [
+                  "minor",
+                  "moderate",
+                  "major"
+                ]
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/drugs",
+          "/inventory",
+          "/dispense",
+          "/interactions"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "dispensing",
+          "alerts"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_004",
+      "type": "app_description_to_domain_ir",
+      "input": "Mental health tracker with mood journaling, therapy session booking, and progress charts",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "MoodLog",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "logged_at",
+                "type": "datetime"
+              },
+              {
+                "name": "mood_score",
+                "type": "int"
+              },
+              {
+                "name": "energy",
+                "type": "int"
+              },
+              {
+                "name": "anxiety",
+                "type": "int"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "TherapySession",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "therapist_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "scheduled_at",
+                "type": "datetime"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "individual",
+                  "group",
+                  "cbt"
+                ]
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "upcoming",
+                  "completed",
+                  "cancelled"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Goal",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "target_date",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "achieved"
+                ]
+              },
+              {
+                "name": "category",
+                "type": "enum",
+                "values": [
+                  "sleep",
+                  "anxiety",
+                  "mood",
+                  "relationships"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/mood-logs",
+          "/sessions",
+          "/goals",
+          "/progress"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "journaling",
+          "scheduling"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Lab results portal where patients view test results with reference ranges",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "LabOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "ordered_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "ordered_at",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "ordered",
+                  "collected",
+                  "processing",
+                  "resulted"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "LabTest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "code",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "category",
+                "type": "str"
+              },
+              {
+                "name": "units",
+                "type": "str"
+              },
+              {
+                "name": "ref_range_low",
+                "type": "decimal"
+              },
+              {
+                "name": "ref_range_high",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "LabResult",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "order_id",
+                "type": "int",
+                "foreign_key": "LabOrder.id"
+              },
+              {
+                "name": "test_id",
+                "type": "int",
+                "foreign_key": "LabTest.id"
+              },
+              {
+                "name": "value",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "normal",
+                  "low",
+                  "high",
+                  "critical"
+                ]
+              },
+              {
+                "name": "resulted_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/lab-orders",
+          "/lab-results",
+          "/patients/{id}/labs"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "lab_results",
+          "notifications"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_006",
+      "type": "app_description_to_domain_ir",
+      "input": "Dental practice management with treatment plans, X-ray storage, and insurance claims",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Patient",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "dob",
+                "type": "datetime"
+              },
+              {
+                "name": "insurance_provider",
+                "type": "str"
+              },
+              {
+                "name": "insurance_id",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "TreatmentPlan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "created_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "approved",
+                  "in_progress",
+                  "complete"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "TreatmentItem",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "plan_id",
+                "type": "int",
+                "foreign_key": "TreatmentPlan.id"
+              },
+              {
+                "name": "tooth_no",
+                "type": "int"
+              },
+              {
+                "name": "procedure_code",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "cost",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "planned",
+                  "completed"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "InsuranceClaim",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "items",
+                "type": "json"
+              },
+              {
+                "name": "submitted_at",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "denied"
+                ]
+              },
+              {
+                "name": "approved_amount",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/patients",
+          "/treatment-plans",
+          "/claims",
+          "/xrays"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "treatment_planning",
+          "insurance"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Vaccination record system for schools with parent consent and reminder notifications",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Student",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "dob",
+                "type": "datetime"
+              },
+              {
+                "name": "school_id",
+                "type": "int",
+                "foreign_key": "School.id"
+              },
+              {
+                "name": "grade",
+                "type": "str"
+              },
+              {
+                "name": "parent_email",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Vaccine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "manufacturer",
+                "type": "str"
+              },
+              {
+                "name": "doses_required",
+                "type": "int"
+              },
+              {
+                "name": "schedule_months",
+                "type": "json"
+              }
+            ]
+          },
+          {
+            "name": "VaccinationRecord",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "student_id",
+                "type": "int",
+                "foreign_key": "Student.id"
+              },
+              {
+                "name": "vaccine_id",
+                "type": "int",
+                "foreign_key": "Vaccine.id"
+              },
+              {
+                "name": "dose_no",
+                "type": "int"
+              },
+              {
+                "name": "administered_at",
+                "type": "datetime"
+              },
+              {
+                "name": "lot_no",
+                "type": "str"
+              },
+              {
+                "name": "administered_by",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "ConsentForm",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "student_id",
+                "type": "int",
+                "foreign_key": "Student.id"
+              },
+              {
+                "name": "vaccine_id",
+                "type": "int",
+                "foreign_key": "Vaccine.id"
+              },
+              {
+                "name": "consented",
+                "type": "bool"
+              },
+              {
+                "name": "signed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "guardian_name",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/students",
+          "/vaccines",
+          "/records",
+          "/consent-forms"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "consent",
+          "notifications"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_008",
+      "type": "app_description_to_domain_ir",
+      "input": "Hospital bed management system with real-time occupancy and transfer requests",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Ward",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "floor",
+                "type": "int"
+              },
+              {
+                "name": "bed_count",
+                "type": "int"
+              },
+              {
+                "name": "specialty",
+                "type": "enum",
+                "values": [
+                  "general",
+                  "icu",
+                  "pediatric",
+                  "maternity",
+                  "surgical"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Bed",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "ward_id",
+                "type": "int",
+                "foreign_key": "Ward.id"
+              },
+              {
+                "name": "bed_no",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "available",
+                  "occupied",
+                  "cleaning",
+                  "maintenance"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Admission",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "bed_id",
+                "type": "int",
+                "foreign_key": "Bed.id"
+              },
+              {
+                "name": "admitted_at",
+                "type": "datetime"
+              },
+              {
+                "name": "discharged_at",
+                "type": "datetime"
+              },
+              {
+                "name": "diagnosis",
+                "type": "str"
+              },
+              {
+                "name": "attending_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "TransferRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "admission_id",
+                "type": "int",
+                "foreign_key": "Admission.id"
+              },
+              {
+                "name": "from_ward_id",
+                "type": "int",
+                "foreign_key": "Ward.id"
+              },
+              {
+                "name": "to_ward_id",
+                "type": "int",
+                "foreign_key": "Ward.id"
+              },
+              {
+                "name": "reason",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "completed"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/wards",
+          "/beds",
+          "/admissions",
+          "/transfers"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "bed_management",
+          "realtime"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Sports medicine clinic with injury tracking, rehab plans, and athlete performance",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Athlete",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "sport",
+                "type": "str"
+              },
+              {
+                "name": "team",
+                "type": "str"
+              },
+              {
+                "name": "position",
+                "type": "str"
+              },
+              {
+                "name": "date_of_birth",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Injury",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "athlete_id",
+                "type": "int",
+                "foreign_key": "Athlete.id"
+              },
+              {
+                "name": "body_part",
+                "type": "str"
+              },
+              {
+                "name": "injury_type",
+                "type": "str"
+              },
+              {
+                "name": "severity",
+                "type": "enum",
+                "values": [
+                  "mild",
+                  "moderate",
+                  "severe"
+                ]
+              },
+              {
+                "name": "injured_at",
+                "type": "datetime"
+              },
+              {
+                "name": "return_date",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "RehabExercise",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "video_url",
+                "type": "str"
+              },
+              {
+                "name": "target_area",
+                "type": "str"
+              },
+              {
+                "name": "sets",
+                "type": "int"
+              },
+              {
+                "name": "reps",
+                "type": "int"
+              },
+              {
+                "name": "duration_sec",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "RehabSession",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "injury_id",
+                "type": "int",
+                "foreign_key": "Injury.id"
+              },
+              {
+                "name": "scheduled_at",
+                "type": "datetime"
+              },
+              {
+                "name": "exercises",
+                "type": "json"
+              },
+              {
+                "name": "pain_score",
+                "type": "int"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/athletes",
+          "/injuries",
+          "/rehab-plans",
+          "/sessions"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "injury_tracking",
+          "rehab"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_010",
+      "type": "app_description_to_domain_ir",
+      "input": "Home care coordination platform for elderly patients with caregiver scheduling",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Client",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "dob",
+                "type": "datetime"
+              },
+              {
+                "name": "address",
+                "type": "str"
+              },
+              {
+                "name": "emergency_contact",
+                "type": "str"
+              },
+              {
+                "name": "care_level",
+                "type": "enum",
+                "values": [
+                  "basic",
+                  "intermediate",
+                  "intensive"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Caregiver",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "certifications",
+                "type": "json"
+              },
+              {
+                "name": "availability",
+                "type": "json"
+              },
+              {
+                "name": "hourly_rate",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Visit",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "caregiver_id",
+                "type": "int",
+                "foreign_key": "Caregiver.id"
+              },
+              {
+                "name": "scheduled_at",
+                "type": "datetime"
+              },
+              {
+                "name": "duration_hours",
+                "type": "decimal"
+              },
+              {
+                "name": "tasks",
+                "type": "json"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "scheduled",
+                  "in_progress",
+                  "completed"
+                ]
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "CareLog",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "visit_id",
+                "type": "int",
+                "foreign_key": "Visit.id"
+              },
+              {
+                "name": "vital_signs",
+                "type": "json"
+              },
+              {
+                "name": "medications_given",
+                "type": "json"
+              },
+              {
+                "name": "concerns",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/clients",
+          "/caregivers",
+          "/visits",
+          "/care-logs"
+        ],
+        "integrations": [
+          "sendgrid",
+          "twilio"
+        ],
+        "features": [
+          "auth",
+          "scheduling",
+          "care_coordination"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_011",
+      "type": "app_description_to_domain_ir",
+      "input": "Weight loss clinic with meal planning, progress tracking, and coach check-ins",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Client",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "start_weight",
+                "type": "decimal"
+              },
+              {
+                "name": "goal_weight",
+                "type": "decimal"
+              },
+              {
+                "name": "height_cm",
+                "type": "int"
+              },
+              {
+                "name": "program",
+                "type": "enum",
+                "values": [
+                  "standard",
+                  "keto",
+                  "mediterranean",
+                  "intermittent_fasting"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WeightLog",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "logged_at",
+                "type": "datetime"
+              },
+              {
+                "name": "weight_kg",
+                "type": "decimal"
+              },
+              {
+                "name": "body_fat_pct",
+                "type": "decimal"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "MealPlan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "week_start",
+                "type": "datetime"
+              },
+              {
+                "name": "meals",
+                "type": "json"
+              },
+              {
+                "name": "calories_target",
+                "type": "int"
+              },
+              {
+                "name": "protein_g",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "CoachNote",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "coach_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "follow_up_date",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/clients",
+          "/weight-logs",
+          "/meal-plans",
+          "/coach-notes"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "progress_tracking",
+          "coaching"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_012",
+      "type": "app_description_to_domain_ir",
+      "input": "Blood bank management with donor tracking, inventory, and compatibility checks",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Donor",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "blood_type",
+                "type": "enum",
+                "values": [
+                  "A+",
+                  "A-",
+                  "B+",
+                  "B-",
+                  "AB+",
+                  "AB-",
+                  "O+",
+                  "O-"
+                ]
+              },
+              {
+                "name": "last_donation",
+                "type": "datetime"
+              },
+              {
+                "name": "eligible",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "Donation",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "donor_id",
+                "type": "int",
+                "foreign_key": "Donor.id"
+              },
+              {
+                "name": "donated_at",
+                "type": "datetime"
+              },
+              {
+                "name": "volume_ml",
+                "type": "int"
+              },
+              {
+                "name": "unit_no",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "collected",
+                  "tested",
+                  "available",
+                  "used",
+                  "discarded"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "BloodRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "blood_type",
+                "type": "enum",
+                "values": [
+                  "A+",
+                  "A-",
+                  "B+",
+                  "B-",
+                  "AB+",
+                  "AB-",
+                  "O+",
+                  "O-"
+                ]
+              },
+              {
+                "name": "units_needed",
+                "type": "int"
+              },
+              {
+                "name": "urgency",
+                "type": "enum",
+                "values": [
+                  "routine",
+                  "urgent",
+                  "emergency"
+                ]
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "fulfilled"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "CrossMatch",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "request_id",
+                "type": "int",
+                "foreign_key": "BloodRequest.id"
+              },
+              {
+                "name": "donation_id",
+                "type": "int",
+                "foreign_key": "Donation.id"
+              },
+              {
+                "name": "result",
+                "type": "enum",
+                "values": [
+                  "compatible",
+                  "incompatible"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/donors",
+          "/donations",
+          "/blood-requests",
+          "/cross-matches"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "inventory",
+          "compatibility"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_013",
+      "type": "app_description_to_domain_ir",
+      "input": "Physiotherapy clinic with exercise videos, home program assignment, and outcome tracking",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Patient",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "diagnosis",
+                "type": "str"
+              },
+              {
+                "name": "referring_doctor",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Exercise",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "video_url",
+                "type": "str"
+              },
+              {
+                "name": "difficulty",
+                "type": "enum",
+                "values": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ]
+              },
+              {
+                "name": "target_area",
+                "type": "str"
+              },
+              {
+                "name": "sets",
+                "type": "int"
+              },
+              {
+                "name": "reps",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "HomeProgram",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "therapist_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "exercises",
+                "type": "json"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "review_date",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "OutcomeMeasure",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "patient_id",
+                "type": "int",
+                "foreign_key": "Patient.id"
+              },
+              {
+                "name": "scale_name",
+                "type": "str"
+              },
+              {
+                "name": "score",
+                "type": "decimal"
+              },
+              {
+                "name": "recorded_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/patients",
+          "/exercises",
+          "/home-programs",
+          "/outcomes"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "exercise_library",
+          "home_programs"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_014",
+      "type": "app_description_to_domain_ir",
+      "input": "Medical education LMS for residency programs with case libraries and assessments",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "ClinicalCase",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "specialty",
+                "type": "str"
+              },
+              {
+                "name": "difficulty",
+                "type": "enum",
+                "values": [
+                  "novice",
+                  "intermediate",
+                  "advanced"
+                ]
+              },
+              {
+                "name": "presentation",
+                "type": "str"
+              },
+              {
+                "name": "diagnosis",
+                "type": "str"
+              },
+              {
+                "name": "learning_points",
+                "type": "json"
+              },
+              {
+                "name": "created_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "Assessment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "case_id",
+                "type": "int",
+                "foreign_key": "ClinicalCase.id"
+              },
+              {
+                "name": "resident_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "answers",
+                "type": "json"
+              },
+              {
+                "name": "score",
+                "type": "decimal"
+              },
+              {
+                "name": "completed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "faculty_feedback",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Competency",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "domain",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "ResidentProgress",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "resident_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "competency_id",
+                "type": "int",
+                "foreign_key": "Competency.id"
+              },
+              {
+                "name": "level",
+                "type": "enum",
+                "values": [
+                  "novice",
+                  "developing",
+                  "competent",
+                  "proficient"
+                ]
+              },
+              {
+                "name": "evidence",
+                "type": "json"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/cases",
+          "/assessments",
+          "/competencies",
+          "/progress"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "case_library",
+          "assessments"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "heal_015",
+      "type": "app_description_to_domain_ir",
+      "input": "Occupational health program for employers with work injury tracking and fitness-for-duty assessments",
+      "output": {
+        "domain": "healthcare",
+        "entities": [
+          {
+            "name": "Employee",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "str"
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "department",
+                "type": "str"
+              },
+              {
+                "name": "job_title",
+                "type": "str"
+              },
+              {
+                "name": "hire_date",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "WorkInjury",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "injury_date",
+                "type": "datetime"
+              },
+              {
+                "name": "body_part",
+                "type": "str"
+              },
+              {
+                "name": "mechanism",
+                "type": "str"
+              },
+              {
+                "name": "lost_time_days",
+                "type": "int"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "open",
+                  "medical_only",
+                  "lost_time",
+                  "closed"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "FitnessDetermination",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "assessed_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "assessed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "result",
+                "type": "enum",
+                "values": [
+                  "fit",
+                  "fit_with_restrictions",
+                  "unfit"
+                ]
+              },
+              {
+                "name": "restrictions",
+                "type": "json"
+              },
+              {
+                "name": "review_date",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "HealthSurveillance",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "type",
+                "type": "str"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "completed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "findings",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/employees",
+          "/injuries",
+          "/fitness-determinations",
+          "/surveillance"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "injury_tracking",
+          "compliance"
+        ]
+      },
+      "tags": [
+        "healthcare"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}
