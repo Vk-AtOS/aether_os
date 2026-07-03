@@ -103,6 +103,51 @@ class BackendStageSupervisor(PhaseBase):
         # ── Design tokens placeholder (populated by UI/UX sub-phase if present) ─
         merged_data.setdefault("design_tokens", {})
 
+        # ── Record stage output for feedback tracker ──────────────────────────
+        try:
+            from aether_os.core.stage_feedback import record_stage_output
+            _run_id = str(getattr(phase_input, "project_id", "unknown"))
+            _backend_out = merged_data.get("backend_output_path", "")
+            _backend_files: list[str] = []
+            if _backend_out:
+                _bp = Path(_backend_out)
+                if _bp.exists():
+                    _backend_files = [str(p) for p in _bp.rglob("*.py") if "__pycache__" not in str(p)]
+            _gov_report = merged_data.get("governor_report", {})
+            _quality_scores = {
+                "p04_confidence": float(p04_result.confidence),
+                "p04b_confidence": float(p04b_result.confidence),
+                "phantom_entities": float(len(_gov_report.get("phantom_entities", []))),
+                "violation_count": float(_gov_report.get("violation_count", 0)),
+            }
+            record_stage_output("s03_backend", _run_id, _backend_files, _quality_scores)
+        except Exception as _fb_exc:
+            logger.warning("[s03_backend] stage_feedback record failed (non-critical): %s", _fb_exc)
+
+        # Record governor phantom-entity corrections in repair learning
+        try:
+            from aether_os.core.repair_learning import BugClass, RepairEvent, learn_from_repair
+            from aether_os.core.stage_feedback import record_stage_fix
+            _gov = merged_data.get("governor_report", {})
+            for _phantom in _gov.get("phantom_entities", []):
+                try:
+                    _event = RepairEvent(
+                        bug_class=BugClass.MISSING_ROUTER,
+                        domain=(data.get("domain_ir") or {}).get("domain_name", "unknown"),
+                        entity=str(_phantom),
+                        file_path="",
+                        fix_applied=f"phantom entity detected by governor: {_phantom}",
+                    )
+                    learn_from_repair(_event)
+                    record_stage_fix(
+                        "s03_backend", _run_id,
+                        f"phantom entity in governor: {_phantom}", "phantom_entity",
+                    )
+                except Exception as _le:
+                    logger.warning("[s03_backend] learn_from_repair failed (non-critical): %s", _le)
+        except Exception as _rl_exc:
+            logger.warning("[s03_backend] repair_learning wiring failed (non-critical): %s", _rl_exc)
+
         # ── Write consolidated summary ─────────────────────────────────────────
         summary = {
             "stage": "s03_backend",
