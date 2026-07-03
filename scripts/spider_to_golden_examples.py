@@ -19,6 +19,8 @@ from pathlib import Path
 
 OUTPUT_DIR = Path("core/knowledge_graph/golden_examples")
 
+_JUNK_RE = re.compile(r'^Table\d+$', re.IGNORECASE)
+
 # SQL type → SQLAlchemy type
 _TYPE_MAP: dict[str, str] = {
     "integer":   "Integer",
@@ -198,6 +200,8 @@ def main() -> None:
         existing_names = {e["name"] for e in existing.get("examples", []) if "name" in e}
         added = 0
         for ex in new_examples:
+            if _JUNK_RE.match(ex["name"]):
+                continue  # skip Wikipedia auto-named tables
             if ex["name"] not in existing_names:
                 existing.setdefault("examples", []).append(ex)
                 existing_names.add(ex["name"])

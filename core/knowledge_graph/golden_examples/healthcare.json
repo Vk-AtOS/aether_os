@@ -2591,63 +2591,6 @@
           "foreign_key": false
         }
       ]
-    },
-    {
-      "name": "Table265615081",
-      "domain": "healthcare",
-      "source": "sql-create-context",
-      "fields": [
-        {
-          "name": "production_code",
-          "type": "String",
-          "primary_key": false,
-          "foreign_key": false
-        },
-        {
-          "name": "patient_portrayer",
-          "type": "String",
-          "primary_key": false,
-          "foreign_key": false
-        }
-      ]
-    },
-    {
-      "name": "Table16611241",
-      "domain": "healthcare",
-      "source": "sql-create-context",
-      "fields": [
-        {
-          "name": "approved_treatment_s_",
-          "type": "String",
-          "primary_key": false,
-          "foreign_key": false
-        },
-        {
-          "name": "target",
-          "type": "String",
-          "primary_key": false,
-          "foreign_key": false
-        }
-      ]
-    },
-    {
-      "name": "Table265615091",
-      "domain": "healthcare",
-      "source": "sql-create-context",
-      "fields": [
-        {
-          "name": "patient_portrayer",
-          "type": "String",
-          "primary_key": false,
-          "foreign_key": false
-        },
-        {
-          "name": "production_code",
-          "type": "String",
-          "primary_key": false,
-          "foreign_key": false
-        }
-      ]
     }
   ]
 }
