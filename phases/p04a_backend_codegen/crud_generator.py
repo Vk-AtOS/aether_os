@@ -460,9 +460,48 @@ def _fallback_seed(
     When seed_vocabulary contains domain-specific terms and entities has records,
     those terms are used to produce more realistic seed record names rather than the
     generic 'Alpha/Beta/Gamma' fallbacks.
+
+    Uniqueness enforcement: any field marked unique=True in the entity definition
+    (or implicitly unique by name: email, username, slug, phone, file_path) is seeded
+    using an indexed pattern (e.g. "user_1@example.com", "user_2@example.com") so that
+    multiple seed records never collide on UNIQUE DB constraints.
     """
     vocab = seed_vocabulary or {}
     prefix = project_name  # used to prefix seed record titles for traceability
+
+    # Fields that are implicitly unique even when not explicitly declared
+    _IMPLICIT_UNIQUE_FIELDS = frozenset({"email", "username", "slug", "phone", "file_path"})
+
+    def _is_unique_field(field_def: dict) -> bool:
+        """Return True if the field requires unique values in seed data."""
+        fname = (field_def.get("name") or "").lower()
+        if fname in _IMPLICIT_UNIQUE_FIELDS:
+            return True
+        return bool(
+            field_def.get("unique")
+            or "unique" in str(field_def.get("type", "")).lower()
+            or "unique" in str(field_def.get("constraints", "")).lower()
+        )
+
+    def _seed_value_for_field(field_def: dict, index: int, entity_name: str) -> str:
+        """Return a repr()-ready seed value for a field, ensuring uniqueness when needed."""
+        fname = (field_def.get("name") if isinstance(field_def, dict) else str(field_def)) or "value"
+        fname_lower = fname.lower()
+        if fname_lower == "email" or fname_lower.endswith("_email"):
+            slug = entity_name.lower().replace(" ", "_")
+            return repr(f"{slug}_{index + 1}@example.com")
+        if fname_lower in ("username", "login", "handle"):
+            slug = entity_name.lower().replace(" ", "_")
+            return repr(f"{slug}_{index + 1}")
+        if fname_lower == "slug":
+            slug = entity_name.lower().replace(" ", "-")
+            return repr(f"{slug}-{index + 1}")
+        if fname_lower == "phone" or fname_lower.endswith("_phone"):
+            return repr(f"+1555000{index + 1:04d}")
+        if fname_lower == "file_path":
+            return repr(f"/uploads/{entity_name.lower()}_{index + 1}.bin")
+        # Generic unique field: append index
+        return repr(f"{entity_name} {fname} {index + 1}")
 
     # Build a small sample of domain-specific records for each entity when vocabulary exists
     entity_blocks = []
@@ -470,21 +509,39 @@ def _fallback_seed(
     for ent in safe_entities:
         name = ent.get("name", "Item")
         table = ent.get("table", name.lower() + "s")
+        fields = ent.get("fields", []) or []
+
+        # Identify unique fields so we can enforce uniqueness in seed rows
+        unique_field_names = {
+            (f.get("name") if isinstance(f, dict) else str(f))
+            for f in fields
+            if isinstance(f, dict) and _is_unique_field(f)
+        }
+
         # Use vocab list for this entity if available, else generic names
         vocab_list = vocab.get(name, vocab.get(name.lower(), vocab.get(domain, [])))
         if vocab_list:
             sample_names = [repr(f"{prefix} {v}") for v in vocab_list[:5]]
         else:
             sample_names = [repr(f"{prefix} {name} {i + 1}") for i in range(5)]
+
         # Emit a simple name-field seed if entity has a 'name' field
-        fields = ent.get("fields", []) or []
         has_name_field = any(
             (f.get("name") if isinstance(f, dict) else f) == "name" for f in fields
         )
         if has_name_field and sample_names:
-            rows = "\n".join(
-                f"            {name}(name={n})," for n in sample_names
-            )
+            rows_parts = []
+            for i, n in enumerate(sample_names):
+                # Build keyword args: name=..., plus unique fields with indexed values
+                kwargs = [f"name={n}"]
+                for field_def in fields:
+                    if not isinstance(field_def, dict):
+                        continue
+                    fn = field_def.get("name", "")
+                    if fn in unique_field_names and fn != "name":
+                        kwargs.append(f"{fn}={_seed_value_for_field(field_def, i, name)}")
+                rows_parts.append(f"            {name}({', '.join(kwargs)}),")
+            rows = "\n".join(rows_parts)
             entity_blocks.append(
                 f"        try:\n"
                 f"            from models import {name}\n"
