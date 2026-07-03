@@ -109,6 +109,23 @@ class HealingStageSupervisor(PhaseBase):
         except Exception as exc:
             logger.warning("s07_healing: post-heal validator run failed (non-fatal): %s", exc)
 
+        # ── Record stage feedback for learning tracker ────────────────────────
+        try:
+            from aether_os.core.stage_feedback import record_stage_output, record_stage_fix
+            _run_id = str(getattr(phase_input, "project_id", "unknown"))
+            _heal_meta = result.metadata or {}
+            _qp = _heal_meta.get("quality_probe", {})
+            _quality_scores = {
+                "healing_attempts": float(_heal_meta.get("attempts", 0)),
+                "fixes_applied": float(len(_qp.get("fixes_applied", []))),
+            }
+            record_stage_output("s07_healing", _run_id, [], _quality_scores)
+            # Record each deterministic fix as a stage_fix event
+            for _fix in _qp.get("fixes_applied", []):
+                record_stage_fix("s07_healing", _run_id, str(_fix), "deterministic_fix")
+        except Exception as _fb_exc:
+            logger.warning("s07_healing: stage_feedback record failed (non-critical): %s", _fb_exc)
+
         # ── Enrich metadata with stage-level output keys ──────────────────────
         # The pipeline accumulates these keys into accumulated_context so Stage 8+
         # can read healing_passed without parsing the raw self_healing.json file.

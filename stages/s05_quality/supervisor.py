@@ -39,8 +39,10 @@ from typing import Any, Dict, List
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.core.projects import get_project_manager
 from stages.s05_quality.helpers import quality_gate_summary
+from stages.s05_quality.gate_functions import detect_critical_issues, regenerate_file
 
 logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Supervisor
@@ -60,6 +62,9 @@ class QualityGateSupervisor(PhaseBase):
         pm = get_project_manager()
         data: Dict[str, Any] = phase_input.input_data or {}
         issues: List[str] = []
+
+        # Resolve run_id for stage feedback tracking
+        run_id = str(getattr(phase_input, "project_id", "") or data.get("run_id", "unknown"))
 
         # ── Sub-steps 1 & 2: run p06 + p06b in parallel ─────────────────────
         logger.info("[s05] launching p06_review_security and p06b_formal_verification in parallel")
@@ -95,18 +100,19 @@ class QualityGateSupervisor(PhaseBase):
         _merge_p06_into_data(p06_result, merged_data, phase_input)
 
         dimension_critique: Dict[str, Any] = {}
+        critic_reports: list = []
+        backend_path = merged_data.get("backend_output_path", "")
         try:
             from aether_os.core.quality.dimension_critic import critique_directory
-            backend_path = merged_data.get("backend_output_path", "")
             if backend_path:
-                reports = critique_directory(backend_path)
-                failed = [r.artifact_path for r in reports if not r.passed]
+                critic_reports = critique_directory(backend_path)
+                failed = [r.artifact_path for r in critic_reports if not r.passed]
                 dimension_critique = {
-                    "total": len(reports),
+                    "total": len(critic_reports),
                     "failed": len(failed),
                     "failed_artifacts": failed,
                     "overall_score": (
-                        sum(r.overall_score for r in reports) / max(len(reports), 1)
+                        sum(r.overall_score for r in critic_reports) / max(len(critic_reports), 1)
                     ),
                 }
                 logger.info(
@@ -119,6 +125,18 @@ class QualityGateSupervisor(PhaseBase):
                 logger.info("[s05] dimension critic: backend_output_path empty — skipping")
         except Exception as e:
             logger.warning("Dimension critique failed (non-critical): %s", e)
+
+        # ── Record stage output for feedback tracker ─────────────────────────
+        try:
+            from aether_os.core.stage_feedback import record_stage_output
+            quality_scores = {
+                "compliance_score": merged_data.get("compliance_score", 0.0),
+                "dimension_overall": dimension_critique.get("overall_score", 0.0),
+            }
+            output_files = [r.artifact_path for r in critic_reports]
+            record_stage_output("s05_quality", run_id, output_files, quality_scores)
+        except Exception as e:
+            logger.warning("[s05] stage_feedback record_stage_output failed (non-critical): %s", e)
 
         # ── Build Z3 verification report dict from p06b metadata ─────────────
         verification_report = _extract_verification_report(p06b_result)
@@ -134,6 +152,64 @@ class QualityGateSupervisor(PhaseBase):
         # Overlay verification_report from p06b
         if verification_report:
             gate_summary["verification_report"] = verification_report
+
+        # ── Critical issue detection + per-file regeneration ─────────────────
+        security_findings = gate_summary.get("security_findings", [])
+        backend_src = Path(backend_path) if backend_path else None
+        # Resolve LLM for regeneration
+        llm = getattr(phase_input, "llm", None) or data.get("llm")
+        domain_ir = data.get("domain_ir") or {}
+        project_name = data.get("project_name", run_id)
+
+        output_data: Dict[str, Any] = gate_summary
+        critical_issues = detect_critical_issues(backend_src, security_findings, dimension_critique)
+        resolved = 0
+
+        if critical_issues and llm is not None:
+            for issue in critical_issues:
+                for attempt in range(2):
+                    success = await regenerate_file(
+                        issue["file"], issue, domain_ir, project_name, llm
+                    )
+                    if success:
+                        resolved += 1
+                        # Record fix in stage feedback
+                        try:
+                            from aether_os.core.stage_feedback import record_stage_fix
+                            record_stage_fix(
+                                "s05_quality", run_id,
+                                issue["description"], issue["issue_type"],
+                            )
+                        except Exception as e:
+                            logger.warning("[s05] stage_feedback record_stage_fix failed: %s", e)
+                        break
+                    logger.warning(
+                        "[s05] attempt %d failed to fix %s in %s",
+                        attempt + 1, issue["issue_type"],
+                        issue["file"].name if hasattr(issue["file"], "name") else issue["file"],
+                    )
+        elif critical_issues and llm is None:
+            logger.warning(
+                "[s05] %d critical issue(s) found but no LLM available for regeneration",
+                len(critical_issues),
+            )
+
+        remaining = len(critical_issues) - resolved
+        if remaining > 0:
+            # Escalate to healing stage with priority flag
+            output_data["healing_priority"] = "critical"
+            output_data["unresolved_critical_issues"] = [
+                i["description"] for i in critical_issues[resolved:]
+            ]
+            logger.warning(
+                "[s05] %d critical issue(s) remain after regeneration — escalated to healing",
+                remaining,
+            )
+
+        logger.info(
+            "[s05] quality gate: %d critical issues found, %d resolved, %d remaining",
+            len(critical_issues), resolved, remaining,
+        )
 
         # Write consolidated quality report to the stage output dir
         output_dir = pm.get_output_dir(phase_input.project_id, self.phase_name)
@@ -155,6 +231,12 @@ class QualityGateSupervisor(PhaseBase):
         phase_input.input_data["verification_report"] = gate_summary.get("verification_report", {})
         if gate_summary.get("compliance_pdf_path"):
             phase_input.input_data["compliance_pdf_path"] = gate_summary["compliance_pdf_path"]
+        if gate_summary.get("healing_priority"):
+            phase_input.input_data["healing_priority"] = gate_summary["healing_priority"]
+        if gate_summary.get("unresolved_critical_issues"):
+            phase_input.input_data["unresolved_critical_issues"] = gate_summary[
+                "unresolved_critical_issues"
+            ]
 
         logger.info(
             "[s05] quality gate complete: passed=%s compliance=%.2f findings=%d",
