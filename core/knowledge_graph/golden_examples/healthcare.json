@@ -2389,6 +2389,265 @@
         "healthcare"
       ],
       "quality_score": 1.0
+    },
+    {
+      "name": "Patient",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "ssn",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Stay",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "patient",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "room",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Prescribes",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "patient",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "physician",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Nurse",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "employeeid",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Undergoes",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "patient",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "dateundergoes",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "OnCall",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nurse",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "blockfloor",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "blockcode",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TrainedIn",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "physician",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "treatment",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Treatments",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "age",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "dog_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Dogs",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "dog_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "cost_of_treatment",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TreatmentTypes",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "treatment_type_description",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "treatment_type_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table265615081",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "patient_portrayer",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table16611241",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "approved_treatment_s_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "target",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table265615091",
+      "domain": "healthcare",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "patient_portrayer",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
     }
   ]
 }
