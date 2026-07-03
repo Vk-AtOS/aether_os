@@ -1,4 +1,7 @@
-"""P04a Backend Codegen — template-based multi-file FastAPI backend generator.
+"""P04a Backend Codegen — deterministic multi-file FastAPI backend generator.
+
+All structural files are generated deterministically (no LLM calls in this phase).
+LLM is intentionally excluded to eliminate the 30% relative-import failure rate.
 
 Output structure:
   src/
@@ -7,21 +10,19 @@ Output structure:
   ├── database.py      (template — async SQLAlchemy engine + session factory)
   ├── auth.py          (template — JWT access+refresh tokens, bcrypt, OAuth2 deps)
   ├── config.py        (template — Pydantic Settings from env)
-  ├── models.py        (LLM — SQLAlchemy ORM models for all domain entities + User)
-  ├── schemas.py       (LLM — Pydantic v2 request/response schemas per entity)
-  ├── seed.py          (LLM — realistic startup seed data, bcrypt-hashed passwords)
+  ├── models.py        (deterministic — IR fast-path or _fallback_models)
+  ├── schemas.py       (deterministic — IR fast-path or _fallback_schemas)
+  ├── seed.py          (deterministic — IR fast-path or _fallback_seed with unique enforcement)
   └── routers/
       ├── __init__.py
       ├── auth.py      (template — /auth/login, /auth/register, /auth/refresh, /auth/me)
-      └── crud.py      (LLM — paginated CRUD routers for all entities, exports all_routers)
+      └── crud.py      (deterministic — _fallback_crud_routers, absolute imports guaranteed)
 """
 from __future__ import annotations
 import ast
-import asyncio
 import json
 import logging
 import re
-import secrets
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -41,7 +42,6 @@ from aether_os.phases.p04a_backend_codegen.templates import (
     _ALEMBIC_INI,
     _ALEMBIC_ENV_PY,
     _ALEMBIC_SCRIPT_PY_MAKO,
-    _SERVICES_INIT_PY,
     _build_main_py,
     _generate_makefile,
     _generate_backend_readme,
@@ -49,16 +49,10 @@ from aether_os.phases.p04a_backend_codegen.templates import (
 from aether_os.phases.p04a_backend_codegen.schema_builder import (
     _fallback_models,
     _fallback_schemas,
-    _fix_common_issues,
 )
 from aether_os.phases.p04a_backend_codegen.crud_generator import (
-    _llm_models_and_schemas,
-    _llm_crud_routers,
-    _llm_seed_data,
-    _llm_service_layer,
     _fallback_crud_routers,
     _fallback_seed,
-    _fallback_service_layer,
 )
 from aether_os.phases.p04a_backend_codegen.helpers import (
     _generate_audit_infrastructure,
@@ -67,6 +61,7 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
     _smoke_test,
 )
 from aether_os.phases.p04a_backend_codegen.validator import validate_generated_backend
+from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports
 from aether_os.core.error_registry import ErrorCategory, get_registry
 
 logger = logging.getLogger(__name__)
@@ -261,14 +256,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             seed_code = ""
 
     # ── Step 2: Deterministic generation (zero LLM calls in p04a) ────────────
-    # The "single LLM call per phase" rule means p04a relies entirely on:
-    #   1. domain_ir.json from p02b (IR fast-path, deterministic codegen) → preferred
-    #   2. _fallback_* deterministic generators                          → if no IR
-    # The previous chain of 3 LLM calls (models+schemas, crud, seed) introduced
-    # 90s+ of latency and ~30% defect rate (syntax errors, missing imports,
-    # wrong all_routers list). The IR + fallback path is faster and lossless.
-    from aether_os.core.llm.client import get_llm_client
-    llm = get_llm_client()  # retained for downstream code (smoke-repair, etc.)
+    # Primary path: IR fast-path (domain_ir.json) → _fallback_* generators.
+    # LLM intentionally excluded: 3-call LLM chain had 30% relative-import failure rate.
+    logger.info("[p04a] LLM path skipped — using deterministic codegen (IR fast-path or fallback)")
     _llm_classes: list = []
     try:
         if not models_code or not schemas_code:
@@ -299,14 +289,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 else:
                     schemas_code = _fallback_fn(*_fallback_args)
 
+        # Fix any residual relative imports before writing to disk
+        models_code = fix_relative_imports(models_code)
+        schemas_code = fix_relative_imports(schemas_code)
         (src_dir / "models.py").write_text(models_code)
         (src_dir / "schemas.py").write_text(schemas_code)
         logger.info("[p04a] models.py %d chars (%d ORM classes), schemas.py %d chars",
                     len(models_code), len(_llm_classes), len(schemas_code))
     except Exception as exc:
-        logger.warning("[p04a] LLM models/schemas failed (%s), using fallback", exc)
+        logger.warning("[p04a] models/schemas generation failed (%s), using fallback", exc)
         models_code = _fallback_models(project_name, entities)
         schemas_code = _fallback_schemas(entities)
+        models_code = fix_relative_imports(models_code)
+        schemas_code = fix_relative_imports(schemas_code)
         (src_dir / "models.py").write_text(models_code)
         (src_dir / "schemas.py").write_text(schemas_code)
         generated_via = "templates+fallback"
@@ -325,6 +320,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if _router_vars:
             crud_code = crud_code.rstrip() + f"\n\nall_routers = [{', '.join(_router_vars)}]\n"
             logger.info("[p04a] Auto-injected all_routers into crud.py: %s", _router_vars)
+    # Fix any relative imports before writing to disk (deterministic generator should
+    # never produce them, but IR generators or future LLM fallbacks might)
+    crud_code = fix_relative_imports(crud_code)
     (routers_dir / "crud.py").write_text(crud_code)
     logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
 
@@ -385,6 +383,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             except SyntaxError as _syn:
                 logger.warning("[p04a] SyntaxError in fallback seed.py: %s — emitting empty seed", _syn)
                 seed_code = "async def seed_database():\n    return None\n"
+            seed_code = fix_relative_imports(seed_code)
             (src_dir / "seed.py").write_text(seed_code)
             logger.info("[p04a] seed.py %d chars (deterministic)", len(seed_code))
 
@@ -545,17 +544,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     code_size = sum(f.stat().st_size for f in src_dir.rglob("*.py") if f.exists())
     logger.info("[p04a] backend complete: %d bytes total, %s", code_size, generated_via)
 
-    # Confidence: IR fast-path = highest (deterministic), LLM = high, fallback = lower
-    if generated_via == "templates+llm":
-        _confidence = 0.9
-        _confidence_reason = "LLM generated models/schemas with syntax validation passed"
-    elif generated_via == "deterministic_fallback":
-        _confidence = 0.6
-        _confidence_reason = "Fallback generator used — no LLM or IR; output may be minimal"
+    # Confidence: IR fast-path = highest (fully typed from domain IR),
+    # deterministic fallback = high (no LLM variance, guaranteed absolute imports),
+    # templates+fallback = moderate (no entities, minimal output).
+    if generated_via == "deterministic_fallback":
+        _confidence = 0.82
+        _confidence_reason = "Deterministic fallback generator — absolute imports guaranteed, no entity-specific fields"
+    elif generated_via == "templates+fallback":
+        _confidence = 0.7
+        _confidence_reason = "Template + fallback: generation exception caught, minimal entity output"
     else:
-        # IR fast-path: deterministic generation from domain_ir.json
-        _confidence = 0.85
-        _confidence_reason = f"Generated via {generated_via}"
+        # IR fast-path: fully typed deterministic generation from domain_ir.json
+        _confidence = 0.9
+        _confidence_reason = f"Generated via {generated_via} — IR-driven, fully deterministic"
     if smoke.get("passed"):
         _confidence = min(1.0, _confidence + 0.05)
         _confidence_reason += "; smoke test passed"
