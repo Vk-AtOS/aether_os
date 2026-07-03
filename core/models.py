@@ -496,3 +496,23 @@ class LLMTrace(Base):
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class QuestionnaireSession(Base):
+    """Interactive phase-by-phase questionnaire session for guided pipeline mode."""
+    __tablename__ = "questionnaire_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    stage_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending|sent|completed|expired
+    access_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    token_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    respondent_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    respondent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    agency_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    agency_logo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    questions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    answers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

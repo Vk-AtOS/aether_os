@@ -76,6 +76,18 @@ class FactoryStartRequest(BaseModel):
     seed_vocabulary: Optional[Dict[str, Any]] = None
     multi_tenancy: Optional[bool] = None   # top-level; also readable from designer_spec.features
 
+    # ── Interactive Questionnaire fields ──────────────────────────────────────
+    # mode: "autonomous" (default) skips questionnaire gates;
+    #       "guided" pauses after each phase for respondent input.
+    mode: str = "autonomous"
+    # intake_answers: pre-filled answers for autonomous mode (keyed by question id)
+    intake_answers: Dict[str, Any] = {}
+    # respondent_email: external client email for guided mode link delivery
+    respondent_email: Optional[str] = None
+    # agency_name / agency_logo_url: white-label branding on questionnaire pages
+    agency_name: Optional[str] = None
+    agency_logo_url: Optional[str] = None
+
 
 # ── Strong references prevent GC from silently killing in-flight tasks ────────
 _background_tasks: set = set()
@@ -297,6 +309,12 @@ async def start_factory_run(
     # Promote multi_tenancy to top-level (also keep backward compat in designer_spec)
     _ds_multi = ((req.designer_spec or {}).get("features") or {}).get("multi_tenancy", False)
     multi_tenancy = req.multi_tenancy if req.multi_tenancy is not None else (_ds_multi or False)
+    # ── Interactive questionnaire fields ──────────────────────────────────────
+    run_mode = req.mode or "autonomous"
+    intake_answers = req.intake_answers or {}
+    respondent_email = req.respondent_email or None
+    agency_name = req.agency_name or None
+    agency_logo_url = req.agency_logo_url or None
 
     if not raw_input:
         raise HTTPException(status_code=400, detail="raw_input or requirement is required")
@@ -371,6 +389,12 @@ async def start_factory_run(
         "realtime_features": realtime_features,
         "seed_vocabulary": seed_vocabulary,
         "multi_tenancy": multi_tenancy,
+        # Interactive questionnaire fields
+        "mode": run_mode,
+        "intake_answers": intake_answers,
+        "respondent_email": respondent_email,
+        "agency_name": agency_name,
+        "agency_logo_url": agency_logo_url,
     }
     if _sqs_enabled():
         _queued = send_pipeline_job(run_id, _enriched_payload)
@@ -411,6 +435,11 @@ async def start_factory_run(
         realtime_features=realtime_features,
         seed_vocabulary=seed_vocabulary,
         multi_tenancy=multi_tenancy,
+        mode=run_mode,
+        intake_answers=intake_answers,
+        respondent_email=respondent_email,
+        agency_name=agency_name,
+        agency_logo_url=agency_logo_url,
     ))
     _background_tasks.add(_t)
     _t.add_done_callback(_background_tasks.discard)
