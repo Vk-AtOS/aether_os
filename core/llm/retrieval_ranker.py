@@ -187,6 +187,31 @@ def _get_knowledge_graph_knowledge(domain: str) -> list[RankedKnowledge]:
     return items
 
 
+def _extract_example_entity(ex: dict) -> tuple[str, list[str]]:
+    """Extract (entity_name, field_names) from either golden example schema.
+
+    Two schemas exist:
+    - Spider/sql-context format: {name, fields: [{name, type}]}
+    - Original seed format:      {type, output: {entities: [{name, fields}]}}
+    """
+    # Spider format
+    name = ex.get("name", "")
+    fields = ex.get("fields", [])
+    if name and fields:
+        return name, [f["name"] for f in fields[:6] if isinstance(f, dict) and f.get("name")]
+
+    # Original seed format
+    output = ex.get("output", {})
+    entities = output.get("entities", [])
+    if entities:
+        ent = entities[0]
+        ent_name = ent.get("name", "")
+        ent_fields = [f["name"] for f in ent.get("fields", [])[:6] if isinstance(f, dict) and f.get("name")]
+        return ent_name, ent_fields
+
+    return "", []
+
+
 def _get_golden_examples_knowledge(domain: str, phase_name: str) -> list[RankedKnowledge]:
     """Load pre-seeded golden examples from JSON files for this domain/phase."""
     items: list[RankedKnowledge] = []
@@ -196,16 +221,16 @@ def _get_golden_examples_knowledge(domain: str, phase_name: str) -> list[RankedK
         domain_file = _GOLDEN_EXAMPLES_DIR / f"{domain}.json"
         if domain_file.exists():
             data = json.loads(domain_file.read_text())
-            examples = data.get("examples", [])[:3]
-            if examples:
-                lines = []
-                for ex in examples:
-                    name = ex.get("name", "")
-                    fields = ex.get("fields", [])
-                    field_names = ", ".join(
-                        f["name"] for f in fields[:6] if isinstance(f, dict)
-                    )
-                    lines.append(f"  {name}: {field_names}")
+            all_examples = data.get("examples", [])
+            # Pick up to 3 examples that have extractable entity data
+            lines = []
+            for ex in all_examples:
+                if len(lines) >= 3:
+                    break
+                name, field_names = _extract_example_entity(ex)
+                if name and field_names:
+                    lines.append(f"  {name}: {', '.join(field_names)}")
+            if lines:
                 items.append(RankedKnowledge(
                     source="golden_examples",
                     content=f"Golden entity examples for {domain}:\n" + "\n".join(lines),
@@ -223,10 +248,19 @@ def _get_golden_examples_knowledge(domain: str, phase_name: str) -> list[RankedK
             for fix in data.get("examples", []):
                 if shown >= 2:
                     break
-                if fix.get("bug_class", "") in priority_classes:
+                # bug_class lives in output.bug_class (original seed schema)
+                output = fix.get("output", {})
+                bug_class = output.get("bug_class", "")
+                if bug_class in priority_classes:
+                    error = fix.get("input", {}).get("error", "")
+                    fix_code = output.get("fix", "")
+                    explanation = output.get("explanation", "")
+                    content = f"[Known Fix – {bug_class}] Error: {error} → Fix: {fix_code}"
+                    if explanation:
+                        content += f" ({explanation})"
                     items.append(RankedKnowledge(
                         source="golden_examples_bugfix",
-                        content=f"[Known Fix – {fix.get('bug_class','')}] {fix.get('description', '')}: {fix.get('fix', '')}",
+                        content=content,
                         weight=_W_KG_FIX,
                         phase_relevance=0.85,
                     ))
