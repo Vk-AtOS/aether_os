@@ -372,7 +372,8 @@ async def signup(req: SignupRequest, request: Request):
                 raise HTTPException(status_code=409, detail="Email already registered")
         except HTTPException:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning("auth_router: email uniqueness check failed (may be schema mismatch): %s", e)
             pass  # email column may not exist in older schema — allow signup
 
         pw_hash = hash_password(req.password)

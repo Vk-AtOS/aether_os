@@ -24,6 +24,7 @@ async def _hit_endpoint(session, url: str) -> Dict:
             resp = await client.get(url)
             return {"status": resp.status_code, "latency_ms": (time.monotonic() - start) * 1000}
     except Exception as exc:
+        logger.warning("p07b_perf: HTTP probe failed for %s: %s", url, exc)
         return {"status": 0, "error": str(exc), "latency_ms": (time.monotonic() - start) * 1000}
 
 

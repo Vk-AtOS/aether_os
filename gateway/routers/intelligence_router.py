@@ -77,7 +77,8 @@ async def get_global_insights(user: Dict[str, Any] = _current_user()) -> Dict[st
                     )
                 )
                 stats = [{"domain": r[0], "count": r[1]} for r in domain_rows]
-            except Exception:
+            except Exception as e:
+                logger.warning("intelligence_router: failed to query domain stats: %s", e)
                 stats = []
 
         return {
@@ -217,7 +218,8 @@ async def get_quality_benchmark(user: Dict[str, Any] = _current_user()) -> Dict[
             domain_counts = {r[0]: r[1] for r in domain_rows}
             max_count = max(domain_counts.values()) if domain_counts else 1
             domain_scores = {d: min(100, round(70 + 30 * c / max_count)) for d, c in domain_counts.items()}
-    except Exception:
+    except Exception as e:
+        logger.warning("intelligence_router: failed to compute learning score: %s", e)
         total, domain_scores = 0, {}
     overall = round(sum(domain_scores.values()) / max(len(domain_scores), 1), 1) if domain_scores else 0.0
     return {

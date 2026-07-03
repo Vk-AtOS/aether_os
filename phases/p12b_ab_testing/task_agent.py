@@ -1,7 +1,10 @@
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 from aether_os.phases.base import TaskResult
+
+logger = logging.getLogger(__name__)
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
@@ -43,7 +46,8 @@ def _load() -> None:
                     fcntl.flock(_f, fcntl.LOCK_UN)
         else:
             _EXPERIMENTS = json.loads(_EXPERIMENTS_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning("p12b_ab_testing: _load failed: %s", e)
         _EXPERIMENTS = {}
 
 
@@ -62,8 +66,8 @@ def _save() -> None:
                     fcntl.flock(_f, fcntl.LOCK_UN)
         else:
             _EXPERIMENTS_FILE.write_text(json.dumps(_EXPERIMENTS, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("p12b_ab_testing: _save failed: %s", e)
 
 
 _load()

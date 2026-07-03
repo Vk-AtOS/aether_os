@@ -1,8 +1,11 @@
 """P02b Gate — validates domain IR has entities, fields, and relationships."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:
@@ -33,6 +36,7 @@ def validate(result: TaskResult) -> GateOutcome:
         else:
             issues.append("domain_ir.json not found in output directory")
     except Exception as e:
+        logger.warning("p02b gate: could not parse domain IR: %s", e)
         issues.append(f"Could not parse domain IR: {e}")
 
     passed = len(issues) == 0 or (len(issues) == 1 and "generic" in issues[0])

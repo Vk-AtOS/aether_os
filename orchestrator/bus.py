@@ -32,7 +32,8 @@ class MessageBus:
         try:
             from aether_os.core.pipeline_state import get_redis
             return await get_redis()
-        except Exception:
+        except Exception as e:
+            logger.warning("MessageBus: could not get Redis client: %s", e)
             return None
 
     def _serialize(self, message: PhaseMessage) -> str:

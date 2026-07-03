@@ -4,9 +4,12 @@ Java language adapter.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 from aether_os.phases.p08_cicd.lang.base import LanguageAdapter, LanguageFailure
+
+logger = logging.getLogger(__name__)
 
 
 class JavaAdapter(LanguageAdapter):
@@ -69,5 +72,6 @@ class JavaAdapter(LanguageAdapter):
                 line_number=line_number,
                 raw_traceback=log_output # Simplified
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("JavaAdapter.parse_log failed: %s", e)
             return None

@@ -129,7 +129,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             stats = report.get("stats", {})
             run_results["passed"] = stats.get("expected", 0)
             run_results["failed"] = stats.get("unexpected", 0)
-        except Exception:
+        except Exception as e:
+            logger.warning("p07d_e2e: could not parse playwright report JSON: %s", e)
             run_results["raw_output"] = output_text[-500:]
 
         logger.info("[p07d] playwright done: %d passed, %d failed", run_results["passed"], run_results["failed"])

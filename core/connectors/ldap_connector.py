@@ -140,6 +140,7 @@ class LDAPConnector(BaseConnector):
             except ConnectorError as exc:
                 return {"ok": False, "message": str(exc)}
             except Exception as exc:
+                logger.warning("ldap_connector validate failed: %s", exc)
                 return {"ok": False, "message": str(exc)}
 
         return await asyncio.get_running_loop().run_in_executor(None, _sync)

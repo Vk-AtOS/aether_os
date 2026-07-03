@@ -50,6 +50,7 @@ async def upload_requirement_file(
                 with pdfplumber.open(io.BytesIO(content)) as pdf:
                     extracted = "\n".join(p.extract_text() or "" for p in pdf.pages)
             except Exception as e:
+                logger.warning("factory_intake: PDF parsing unavailable: %s", e)
                 return {"text": "", "error": f"PDF parsing unavailable: {e}"}
     elif ext in ("png", "jpg", "jpeg", "webp"):
         try:
@@ -72,6 +73,7 @@ async def upload_requirement_file(
             doc = docx.Document(io.BytesIO(content))
             extracted = "\n".join(p.text for p in doc.paragraphs)
         except Exception as e:
+            logger.warning("factory_intake: DOCX parsing failed: %s", e)
             return {"text": "", "error": f"DOCX parsing failed: {e}"}
     else:
         extracted = content.decode("utf-8", errors="ignore")

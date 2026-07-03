@@ -18,7 +18,8 @@ def get_hardware_id():
         mac = ':'.join(['{:02x}'.format((uuid.getnode() >> ele) & 0xff) for ele in range(0,8*6,8)][::-1])
         hostname = socket.gethostname()
         return hashlib.sha256((mac + hostname).encode()).hexdigest()
-    except Exception:
+    except Exception as e:
+        logger.warning("license_check: get_hardware_id failed: %s", e)
         return "unknown_hwid"
 
 def verify_license():

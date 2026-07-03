@@ -127,6 +127,7 @@ def run_in_sandbox(
             )
         
         except Exception as e:
+            logger.warning("p08_cicd docker sandbox: run_in_sandbox execution failed: %s", e)
             timed_out = "timeout" in str(e).lower()
             return SandboxResult(
                 success=False,
@@ -145,6 +146,7 @@ def run_in_sandbox(
                 logger.debug("p08 docker: failed to unlink temp file %s (non-fatal): %s", tmp_path, exc)
     
     except Exception as e:
+        logger.warning("p08_cicd docker sandbox: run_in_sandbox outer error: %s", e)
         return SandboxResult(
             success=False,
             exit_code=-1,
@@ -177,6 +179,7 @@ def validate_patch_in_sandbox(
         patched_code = _apply_simple_patch(original_code, patch_diff)
         return run_in_sandbox(patched_code, language)
     except Exception as e:
+        logger.warning("p08_cicd docker sandbox: validate_patch_in_sandbox failed: %s", e)
         return SandboxResult(
             success=False,
             exit_code=-1,

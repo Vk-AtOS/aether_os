@@ -29,9 +29,12 @@ Public API:
 from __future__ import annotations
 
 import ast
+import logging
 import os
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Set, Tuple, Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -91,7 +94,8 @@ def _parse_imports(file_path: str) -> List[str]:
         with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
         tree = ast.parse(source)
-    except Exception:
+    except Exception as e:
+        logger.debug("_parse_imports failed for %s: %s", file_path, e)
         return out
 
     for node in ast.walk(tree):
@@ -110,7 +114,8 @@ def _parse_symbol_defs(file_path: str) -> List[SymbolDef]:
         with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
         tree = ast.parse(source)
-    except Exception:
+    except Exception as e:
+        logger.debug("_parse_symbol_defs failed for %s: %s", file_path, e)
         return defs
 
     for node in ast.walk(tree):

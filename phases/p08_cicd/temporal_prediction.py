@@ -19,11 +19,14 @@ feed:
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from .telemetry_spine import (
     TelemetryEvent,
@@ -49,7 +52,8 @@ def _parse_ts(ts: str) -> float:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.timestamp()
-    except Exception:
+    except Exception as e:
+        logger.debug("temporal_prediction: could not parse timestamp %r: %s", ts, e)
         return 0.0
 
 

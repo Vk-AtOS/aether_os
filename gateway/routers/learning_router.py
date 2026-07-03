@@ -9,12 +9,14 @@ GET  /learning/golden-builds
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from aether_os.gateway.dependencies import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["learning"])
 
 
@@ -53,7 +55,8 @@ async def get_clarifications(user: Dict[str, Any] = _current_user()):
                 org_id=user["org_id"], user_id=user["user_id"], session=session
             )
         return {"clarifications": questions}
-    except Exception:
+    except Exception as e:
+        logger.warning("learning_router: get_clarifications failed: %s", e)
         return {"clarifications": []}
 
 

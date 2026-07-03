@@ -48,7 +48,8 @@ if os.path.isdir(_DIST):
                 html = html.replace("<script ", f'<script nonce="{nonce}" ')
                 html = html.replace("<script>", f'<script nonce="{nonce}">')
             return HTMLResponse(html, headers=_NO_CACHE)
-        except Exception:
+        except Exception as e:
+            logger.warning("spa_router: could not read index.html, falling back to FileResponse: %s", e)
             return FileResponse(_index, headers=_NO_CACHE)
 
 else:

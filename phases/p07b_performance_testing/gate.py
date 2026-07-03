@@ -1,8 +1,11 @@
 """P07b Gate — validates performance test produced latency metrics within acceptable bounds."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 _P95_WARN_MS = 500    # warn if p95 > 500ms
@@ -44,6 +47,7 @@ def validate(result: TaskResult) -> GateOutcome:
             if error_rate and error_rate > _ERROR_RATE_WARN:
                 issues.append(f"Error rate {error_rate:.1%} exceeds {_ERROR_RATE_WARN:.0%} warning threshold")
     except Exception as e:
+        logger.warning("p07b_perf gate: could not parse performance results: %s", e)
         issues.append(f"Could not parse performance results: {e}")
 
     confidence = 0.9 if not issues else 0.65

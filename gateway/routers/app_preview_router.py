@@ -170,6 +170,7 @@ p{color:#94a3b8;font-size:14px;text-align:center}a{color:#6366f1}</style>
         )
 
     except Exception as _pe:
+        logger.warning("app_preview_router: preview proxy error: %s", _pe)
         return Response(
             content=f"Preview proxy error: {_pe}",
             status_code=502,

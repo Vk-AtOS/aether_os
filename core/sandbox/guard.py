@@ -1,8 +1,11 @@
 from __future__ import annotations
+import logging
 import re
 from pathlib import Path
 from typing import List
 from aether_os.core.errors import SandboxViolation
+
+logger = logging.getLogger(__name__)
 
 FORBIDDEN_EXEC_PATTERNS = [
     (r"os\.kill\s*\(", "os.kill"),
@@ -79,6 +82,7 @@ class Sandbox:
             except subprocess.TimeoutExpired:
                 return "Error: Test execution timed out (30s)"
             except Exception as e:
+                logger.warning("SandboxGuard.run_tests failed: %s", e)
                 return f"Error running tests: {str(e)}"
 
     def scan_code(self, code: str) -> List[str]:

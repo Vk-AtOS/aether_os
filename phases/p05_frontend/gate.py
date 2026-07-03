@@ -10,10 +10,13 @@ Checks:
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 _REQUIRED_DEPS = ["react", "@tanstack/react-query", "@tanstack/react-router", "@tanstack/react-table"]
 
@@ -67,6 +70,7 @@ def validate(result: TaskResult) -> GateOutcome:
                 if dep not in deps:
                     issues.append(f"Missing dependency in package.json: {dep}")
         except Exception as exc:
+            logger.warning("p05_frontend gate: could not parse package.json: %s", exc)
             issues.append(f"Could not parse package.json: {exc}")
 
     # Hard-fail if all critical files are missing
@@ -97,6 +101,7 @@ def validate(result: TaskResult) -> GateOutcome:
         except subprocess.TimeoutExpired:
             issues.append("tsc --noEmit timed out (60s) — skipped")
         except Exception as exc:
+            logger.warning("p05_frontend gate: tsc check error: %s", exc)
             issues.append(f"tsc check error (non-fatal): {exc}")
 
     # ── 5. Schema contract: FK endpoints vs api_routes.json ───────────────────
@@ -134,6 +139,7 @@ def validate(result: TaskResult) -> GateOutcome:
                 )
                 confidence = min(confidence, 0.70)
         except Exception as exc:
+            logger.warning("p05_frontend gate: schema contract check error: %s", exc)
             issues.append(f"Schema contract check error (non-fatal): {exc}")
 
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

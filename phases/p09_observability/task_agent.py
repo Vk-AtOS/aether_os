@@ -367,6 +367,7 @@ groups:
             files_written.append(str(_alerts_file))
             _features_present.append("prometheus_alerts")
         except Exception as _ae:
+            logger.warning("p09_observability: prometheus_alerts.yml generation failed: %s", _ae)
             _gate_issues.append(f"prometheus_alerts.yml generation failed: {_ae}")
     else:
         _features_present.append("prometheus_alerts")
@@ -402,8 +403,8 @@ def setup_opentelemetry(app) -> None:
         FastAPIInstrumentor.instrument_app(app)
         try:
             SQLAlchemyInstrumentor().instrument()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("p09_observability: SQLAlchemyInstrumentor failed (non-critical): %s", e)
         logger.info("OpenTelemetry tracing enabled — exporting to %s", otlp_endpoint)
     except ImportError:
         logger.warning(
@@ -416,6 +417,7 @@ def setup_opentelemetry(app) -> None:
             files_written.append(str(_otel_py))
             _features_present.append("opentelemetry_tracing")
         except Exception as _oe:
+            logger.warning("p09_observability: OpenTelemetry setup file generation failed: %s", _oe)
             _gate_issues.append(f"OpenTelemetry setup file generation failed: {_oe}")
     else:
         _features_present.append("opentelemetry_tracing")

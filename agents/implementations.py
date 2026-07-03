@@ -187,7 +187,8 @@ class StabilityGuardianAgent(Agent):
             async with get_session_factory()() as s:
                 await s.execute(text("SELECT 1"))
             checks["database"] = "ok"
-        except Exception:
+        except Exception as e:
+            logger.warning("StabilityCheckerAgent: DB unreachable: %s", e)
             checks["database"] = "unreachable"
 
         # Redis reachability
@@ -199,7 +200,8 @@ class StabilityGuardianAgent(Agent):
                 checks["redis"] = "ok"
             else:
                 checks["redis"] = "unavailable"
-        except Exception:
+        except Exception as e:
+            logger.warning("StabilityCheckerAgent: Redis unavailable: %s", e)
             checks["redis"] = "unavailable"
 
         failing = [k for k, v in checks.items() if v not in ("ok", "unavailable")]
@@ -242,6 +244,7 @@ class BusNetworkManagerAgent(Agent):
             keys = await r.keys("pipeline:events:*")
             return _ok(self.name, "Bus network healthy", {"active_channels": len(keys)})
         except Exception as exc:
+            logger.warning("BusNetworkManagerAgent: bus check failed: %s", exc)
             return _err(self.name, f"Bus check failed: {exc}")
 
 
@@ -268,6 +271,7 @@ class FixEngineAgent(Agent):
             fix = await client.complete(prompt, max_tokens=512)
             return _ok(self.name, "Fix suggestion generated", {"fix": fix})
         except Exception as exc:
+            logger.warning("FixEngineAgent: fix engine failed: %s", exc)
             return _err(self.name, f"Fix engine failed: {exc}")
 
 
@@ -292,6 +296,7 @@ class CodeReviewAgent(Agent):
             review = await client.complete(prompt, max_tokens=1024)
             return _ok(self.name, "Code review complete", {"review": review})
         except Exception as exc:
+            logger.warning("CodeReviewAgent: code review failed: %s", exc)
             return _err(self.name, f"Code review failed: {exc}")
 
 
@@ -334,6 +339,7 @@ class RefactorAgent(Agent):
             refactored = await client.complete(prompt, max_tokens=2048)
             return _ok(self.name, "Refactoring complete", {"refactored_code": refactored})
         except Exception as exc:
+            logger.warning("RefactorAgent: refactor failed: %s", exc)
             return _err(self.name, f"Refactor failed: {exc}")
 
 

@@ -74,6 +74,7 @@ class GitHubConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected as {data.get('login')}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("GitHubConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_list_repos(self, params: Dict[str, Any]) -> List[Dict]:
@@ -171,6 +172,7 @@ class GitLabConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected as {r.json().get('username')}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("GitLabConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_list_projects(self, params: Dict[str, Any]) -> List[Dict]:
@@ -223,6 +225,7 @@ class JiraConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected as {r.json().get('displayName')}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("JiraConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_create_issue(self, params: Dict[str, Any]) -> Dict:
@@ -280,6 +283,7 @@ class LinearConnector(BaseConnector):
                 return {"ok": True, "message": f"Connected as {viewer.get('name')}"}
             return {"ok": False, "message": "Auth failed"}
         except Exception as exc:
+            logger.warning("LinearConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_create_issue(self, params: Dict[str, Any]) -> Dict:
@@ -318,6 +322,7 @@ class SlackConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected as {data.get('user')} in {data.get('team')}"}
                 return {"ok": False, "message": data.get("error", "Unknown error")}
         except Exception as exc:
+            logger.warning("SlackConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_send_message(self, params: Dict[str, Any]) -> Dict:

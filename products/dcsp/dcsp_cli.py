@@ -5,11 +5,13 @@ DCSP Command Line Interface.
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
 from urllib import request, error
 
+logger = logging.getLogger(__name__)
 BASE_URL = os.environ.get("DCSP_URL", "http://localhost:8000")
 
 def get_health():
@@ -17,7 +19,8 @@ def get_health():
     try:
         with request.urlopen(f"{BASE_URL}/health", timeout=5) as response:
             return json.loads(response.read().decode())
-    except Exception:
+    except Exception as e:
+        logger.debug("dcsp_cli: get_health failed: %s", e)
         return None
 
 def cmd_status(args):
@@ -56,6 +59,7 @@ def cmd_metrics(args):
         else:
             print(f"Error fetching metrics: {e}")
     except Exception as e:
+        logger.warning("dcsp_cli: cmd_metrics failed: %s", e)
         print(f"Error connecting to API: {e}")
 
 def cmd_seed(args):

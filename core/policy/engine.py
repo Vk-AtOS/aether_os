@@ -206,6 +206,7 @@ def load_policy(project_root: str, filename: str = DEFAULT_POLICY_FILENAME) -> P
             data = json.load(f)
     except Exception as e:
         # On parse errors, fall back to a safe default.
+        logger.warning("policy/engine: failed to parse policy file %s, using default: %s", path, e)
         cfg = default_policy()
         cfg.notes = f"Policy file could not be parsed: {e}. Default policy was applied."
         return cfg

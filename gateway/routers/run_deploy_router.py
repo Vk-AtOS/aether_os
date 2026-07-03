@@ -54,7 +54,8 @@ async def deploy_run(
     def _docker_check():
         try:
             return _sp.run(["docker", "info"], capture_output=True, timeout=10)
-        except Exception:
+        except Exception as e:
+            logger.warning("run_deploy_router: docker check failed: %s", e)
             return None
 
     check = await _aio.to_thread(_docker_check)
@@ -113,7 +114,8 @@ async def stop_deployment(
     def _docker_check_stop():
         try:
             return _sp.run(["docker", "info"], capture_output=True, timeout=10)
-        except Exception:
+        except Exception as e:
+            logger.warning("run_deploy_router: docker stop-check failed: %s", e)
             return None
 
     docker_check = await _aio.to_thread(_docker_check_stop)

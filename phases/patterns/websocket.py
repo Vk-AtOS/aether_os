@@ -57,7 +57,8 @@ class ConnectionManager:
         for ws in conns:
             try:
                 await ws.send_json(message)
-            except Exception:
+            except Exception as e:
+                logger.warning("websocket broadcast: send failed, marking connection dead: %s", e)
                 dead.append(ws)
         # Clean up dead connections
         if dead:

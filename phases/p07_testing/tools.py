@@ -21,10 +21,13 @@ Public API:
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 def run_tests(project_path: str, command: str = "pytest") -> Dict[str, Any]:
@@ -79,6 +82,7 @@ def run_tests(project_path: str, command: str = "pytest") -> Dict[str, Any]:
             "stderr": f"Failed to run tests: {e}",
         }
     except Exception as e:
+        logger.warning("p07_testing tools: unexpected error while running tests: %s", e)
         return {
             "ok": False,
             "exit_code": -1,

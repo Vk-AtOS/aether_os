@@ -9,10 +9,13 @@ Tier 3: Full test suite (asynchronous).
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 
@@ -47,6 +50,7 @@ class TieredTestRunner:
             )
             return result.returncode == 0, result.stdout + result.stderr
         except Exception as e:
+            logger.warning("p08_cicd dsee test_runner: pytest execution failed: %s", e)
             return False, str(e)
 
     def run_tier1(self, test_name: str) -> TieredTestRunResult:

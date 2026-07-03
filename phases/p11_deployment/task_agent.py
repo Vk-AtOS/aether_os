@@ -46,7 +46,8 @@ class TaskAgent:
             )
             await asyncio.wait_for(proc.communicate(), timeout=10)
             return proc.returncode == 0
-        except Exception:
+        except Exception as e:
+            logger.warning("p11_deployment: docker availability check failed: %s", e)
             return False
 
     async def run(self, phase_input: Any) -> Dict[str, Any]:

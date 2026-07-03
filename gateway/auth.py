@@ -203,6 +203,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
             last_exc = exc
             continue
         except Exception as exc:
+            logger.debug("JWT decode: unexpected error with alg %s: %s", algorithm, exc)
             last_exc = exc
             continue
 

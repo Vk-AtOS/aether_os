@@ -1,6 +1,8 @@
 from fastapi import WebSocket
 from typing import List
-import asyncio, json
+import asyncio, json, logging
+
+logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     def __init__(self):

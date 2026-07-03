@@ -1,8 +1,11 @@
 """P02c Gate — validates ABAC permission model has roles and resource rules."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:
@@ -30,6 +33,7 @@ def validate(result: TaskResult) -> GateOutcome:
             if not rules:
                 issues.append("No access rules/policies defined in permission model")
     except Exception as e:
+        logger.warning("p02c gate: could not parse permission model: %s", e)
         issues.append(f"Could not parse permission model: {e}")
 
     confidence = 0.9 if not issues else 0.6

@@ -40,7 +40,8 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('', 0))
             port = s.getsockname()[1]
-    except Exception:
+    except Exception as e:
+        logger.warning("p05_frontend preview: could not find free port, using 8888: %s", e)
         port = 8888  # fallback
 
     # 4. Start a temporary local server to serve the build

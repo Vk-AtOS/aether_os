@@ -84,6 +84,7 @@ class SalesforceConnector(BaseConnector):
                     "message": f"HTTP {r.status_code}: {r.text[:200]}",
                 }
         except Exception as exc:
+            logger.warning("salesforce_connector validate failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def test(self) -> Dict[str, Any]:

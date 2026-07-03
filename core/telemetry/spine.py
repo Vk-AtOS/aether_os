@@ -295,7 +295,8 @@ class TelemetrySpine:
                         severity=str(obj.get("severity", "")),
                         data=obj.get("data") or {},
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("telemetry spine: could not parse event line: %s", e)
                     continue
 
     def query_recent(

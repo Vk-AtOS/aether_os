@@ -333,7 +333,8 @@ async def _get_fix(target_file: Path, test_file: Path, failure_output: str) -> O
     src_dir = target_file.parent
     try:
         _target_content = target_file.read_text()
-    except Exception:
+    except Exception as e:
+        logger.warning("p07b_self_healing: could not read target file %s: %s", target_file, e)
         _target_content = "# (could not read file)"
 
     _src_ctx = f"# === {target_file.name} (FAILING FILE) ===\n{_target_content}\n"

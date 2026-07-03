@@ -72,6 +72,7 @@ class TruthEngine:
                             logger.debug("TruthEngine.audit_run could not read %s: %s", candidate, exc)
                 code = "\n\n---\n\n".join(code_parts) if code_parts else f"[No generated files found for run {run_id}]"
         except Exception as exc:
+            logger.warning("truth_engine.audit_run failed: %s", exc)
             return {"error": str(exc)}
         return await self.validate(req, code)
 

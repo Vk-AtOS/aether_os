@@ -97,7 +97,8 @@ def read_architecture(data: dict) -> dict:
                 try:
                     arch = json.loads(candidate.read_text())
                     break
-                except Exception:
+                except Exception as e:
+                    logger.warning("p05_frontend scaffold: could not parse %s: %s", candidate, e)
                     continue
 
     if arch is None:

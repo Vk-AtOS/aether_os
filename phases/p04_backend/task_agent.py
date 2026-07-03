@@ -65,7 +65,8 @@ async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noq
                 return True
             except SyntaxError:
                 return False
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning("p04_backend: _autofix_syntax_error failed: %s", e)
         return False
     return False
 

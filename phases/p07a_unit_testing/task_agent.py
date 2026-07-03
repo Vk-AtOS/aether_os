@@ -196,8 +196,8 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
                 from database import engine, Base
                 async with engine.begin() as conn:
                     await conn.run_sync(Base.metadata.create_all)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("p07a: table creation failed (non-critical, may already exist): %s", e)
             from httpx import AsyncClient
             from httpx._transports.asgi import ASGITransport
             async with AsyncClient(

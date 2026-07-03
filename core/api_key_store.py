@@ -107,7 +107,8 @@ async def save_api_key(provider: str, org_id: str, api_key: str, user_id: str = 
                 },
             )
             await session.execute(stmt)
-        except Exception:
+        except Exception as e:
+            logger.debug("upsert_uq_org_provider conflict strategy unavailable, using fallback: %s", e)
             # SQLite fallback (or any non-postgres dialect)
             existing = (
                 await session.execute(

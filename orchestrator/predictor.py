@@ -42,6 +42,7 @@ class PipelinePredictor:
                     try:
                         fut.set_result(await asyncio.to_thread(self._fetch_timing_rows))
                     except Exception as _e:
+                        logger.debug("predictor: _fetch_timing_rows thread error: %s", _e)
                         fut.set_exception(_e)
                 asyncio.run_coroutine_threadsafe(_run(), loop)
                 rows = fut.result(timeout=5)

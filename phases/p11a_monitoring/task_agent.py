@@ -360,6 +360,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                         content = content[:_end_nl + 1] + _metrics_snippet + content[_end_nl + 1:]
                         _main_py_path.write_text(content)
         except Exception as _e:
+            logger.warning("p11a_monitoring: Prometheus injection failed: %s", _e)
             issues.append(f"Prometheus injection skipped: {_e}")
 
     # PIPELINE-039: count files actually written instead of hardcoding

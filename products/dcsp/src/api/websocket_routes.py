@@ -42,6 +42,7 @@ def register_routes(app: FastAPI) -> None:
                     await websocket.send_text(
                         json.dumps({"type": "pong"}))
         except WebSocketDisconnect:
+            logger.debug("WebSocket client disconnected normally")
             MANAGER.disconnect(websocket)
         except Exception as e:
             logger.warning("WebSocket error, disconnecting: %s", e)

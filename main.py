@@ -257,6 +257,7 @@ def status(
         stats = get_memory_store().stats()
         table.add_row("Memory Store", "[green]OK[/green]", f"{stats['total_records']} records")
     except Exception as exc:
+        logger.warning("main: memory store check failed: %s", exc)
         table.add_row("Memory Store", "[yellow]WARN[/yellow]", str(exc)[:50])
 
     # Check DB
@@ -265,6 +266,7 @@ def status(
         history = get_ledger().get_run_history(limit=1)
         table.add_row("Ledger DB", "[green]OK[/green]", f"Last run: {history[0]['status'] if history else 'none'}")
     except Exception as exc:
+        logger.warning("main: ledger DB check failed: %s", exc)
         table.add_row("Ledger DB", "[yellow]WARN[/yellow]", str(exc)[:50])
 
     console.print(table)

@@ -1,8 +1,11 @@
 """P07c Gate — validates accessibility test found no critical WCAG violations."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 _CRITICAL_IMPACT = {"critical", "serious"}
 
@@ -36,6 +39,7 @@ def validate(result: TaskResult) -> GateOutcome:
             if minor > 10:
                 issues.append(f"{minor} minor accessibility violations — review before release")
     except Exception as e:
+        logger.warning("p07c_a11y gate: could not parse accessibility results: %s", e)
         issues.append(f"Could not parse accessibility results: {e}")
 
     passed = not any("critical" in i or "serious" in i for i in issues) or len([i for i in issues if "critical" in i or "serious" in i]) <= 3

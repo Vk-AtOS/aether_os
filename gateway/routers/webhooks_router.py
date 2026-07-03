@@ -73,7 +73,8 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
             logger.warning("webhooks_router: %r is not a raw IP (hostname, DNS resolves at delivery time): %s", _host, e)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        logger.warning("webhooks_router: invalid webhook URL rejected: %s", e)
         raise HTTPException(status_code=422, detail="Invalid webhook URL")
 
     events = req.get("events", [])

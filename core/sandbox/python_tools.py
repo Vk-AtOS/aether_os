@@ -1,8 +1,11 @@
+import logging
 import subprocess
 import sys
 import os
 from pathlib import Path
 from typing import Tuple
+
+logger = logging.getLogger(__name__)
 
 # Allowed root for sandboxed project files
 _SANDBOX_ROOT = Path.home() / ".aether_os" / "projects"
@@ -49,6 +52,7 @@ def check_syntax(file_path: str) -> Tuple[bool, str]:
             timeout=10,
         )
     except Exception as e:
+        logger.warning("check_python_syntax failed for %s: %s", file_path, e)
         return False, f"Failed to run syntax check: {e}"
 
     if result.returncode == 0:
@@ -84,6 +88,7 @@ def run_python_file(file_path: str) -> Tuple[bool, str]:
             timeout=10,
         )
     except Exception as e:
+        logger.warning("run_python_file failed for %s: %s", file_path, e)
         return False, f"Failed to run: {e}"
 
     if result.returncode == 0:

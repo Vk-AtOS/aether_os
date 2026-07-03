@@ -1,8 +1,11 @@
 """P04b Gate — validates UI/UX design output."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:
@@ -19,7 +22,8 @@ def validate(result: TaskResult) -> GateOutcome:
 
     try:
         data = json.loads(json_path.read_text())
-    except Exception:
+    except Exception as e:
+        logger.warning("p04_uiux gate: design output is not valid JSON: %s", e)
         return GateOutcome(passed=True, confidence=0.5,
                            issues=["Design output is not JSON — may be a wireframe doc"])
 
