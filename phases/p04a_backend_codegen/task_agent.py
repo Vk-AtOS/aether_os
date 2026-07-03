@@ -62,6 +62,7 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
 )
 from aether_os.phases.p04a_backend_codegen.validator import validate_generated_backend
 from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports
+from aether_os.phases.p04a_backend_codegen.pattern_injector import detect_active_patterns, inject_patterns
 from aether_os.core.error_registry import ErrorCategory, get_registry
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
-
     # Load architecture doc
     arch_doc: dict = {}
     arch_path = data.get("architecture_path", "") or data.get("json_path", "")
@@ -337,7 +337,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _sse_exc:
             logger.warning("[p04a] SSE router generation failed (non-fatal): %s", _sse_exc)
 
-    # ── Step 3b: Business process pipeline orchestrators (Gap 11) ────────────
+    # ── Step 3b: Business process pipeline orchestrators ─────────────────────
     _pipeline_files_written: list = []
     try:
         from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
@@ -386,6 +386,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             seed_code = fix_relative_imports(seed_code)
             (src_dir / "seed.py").write_text(seed_code)
             logger.info("[p04a] seed.py %d chars (deterministic)", len(seed_code))
+
+    # ── Step 4a: Pattern library injection ───────────────────────────────────
+    _active_patterns = detect_active_patterns(data, raw_input)
+    inject_patterns(_active_patterns, src_dir, output_dir)
 
     # ── Step 4b: Audit infrastructure ────────────────────────────────────────
     try:
@@ -544,9 +548,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     code_size = sum(f.stat().st_size for f in src_dir.rglob("*.py") if f.exists())
     logger.info("[p04a] backend complete: %d bytes total, %s", code_size, generated_via)
 
-    # Confidence: IR fast-path = highest (fully typed from domain IR),
-    # deterministic fallback = high (no LLM variance, guaranteed absolute imports),
-    # templates+fallback = moderate (no entities, minimal output).
+    # Confidence tiers: IR fast-path > deterministic_fallback > templates+fallback
     if generated_via == "deterministic_fallback":
         _confidence = 0.82
         _confidence_reason = "Deterministic fallback generator — absolute imports guaranteed, no entity-specific fields"
@@ -554,7 +556,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _confidence = 0.7
         _confidence_reason = "Template + fallback: generation exception caught, minimal entity output"
     else:
-        # IR fast-path: fully typed deterministic generation from domain_ir.json
         _confidence = 0.9
         _confidence_reason = f"Generated via {generated_via} — IR-driven, fully deterministic"
     if smoke.get("passed"):
