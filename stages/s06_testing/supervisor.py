@@ -19,17 +19,20 @@ OUTPUTS:
   - test_quality_flag    : str   — "pass" | "warn" | "fail" — overall verdict
   - consolidated_report  : dict  — merged across all test types
 
-SUB-STEPS (all run, failures are non-critical individually):
-  1. [PARALLEL] p07a_unit_testing      — pytest unit tests (generated + run)
-  2. [PARALLEL] p07b_performance_testing — 10×5 concurrent requests, p50/p95/p99
-  3. [PARALLEL] p07c_accessibility_testing — axe-core + ARIA scan
-  4. [PARALLEL] p07d_e2e_testing       — Playwright TypeScript E2E
+SUB-STEPS:
+  1. p07a_unit_testing — pytest unit tests on static files (runs here, no app needed)
 
-  NOTE: All 4 test types run concurrently via asyncio.gather.
-        p07b_performance_testing only runs if backend_port is set.
-        p07c + p07d only run if frontend_url is set.
+  DEFERRED to Stage 7 (runs after app is proven live):
+  2. p07b_performance_testing — 10×5 concurrent requests, p50/p95/p99
+  3. p07c_accessibility_testing — axe-core + ARIA scan
+  4. p07d_e2e_testing — Playwright TypeScript E2E
 
-  5. [SEQUENTIAL] Consolidation — aggregate pass rates into test_quality_flag
+  NOTE: Performance, accessibility, and E2E tests require a running app
+        (backend_port / frontend_url). Stage 6 runs before the app is started.
+        These three are deferred to Stage 7 (HealingStageSupervisor) which starts
+        the app first and then triggers the live test pass.
+
+  2. [SEQUENTIAL] Consolidation — aggregate pass rates into test_quality_flag
 
 CRITICAL: No — pipeline continues even on test failures (self-healing handles them)
 """
@@ -49,9 +52,14 @@ logger = logging.getLogger(__name__)
 # How long to allow each sub-phase before giving up (non-fatal timeout)
 _SUBTASK_TIMEOUT = 150.0  # 2.5 minutes per test type
 
-# Maps a logical key to the legacy phase module path + run function
+# Unit tests only — run on static files, no running app required.
 _SUB_PHASES = [
-    ("unit_testing",          "aether_os.phases.p07a_unit_testing.task_agent",          "run"),
+    ("unit_testing", "aether_os.phases.p07a_unit_testing.task_agent", "run"),
+]
+
+# Live tests — deferred to Stage 7 after the app is confirmed healthy.
+# HealingStageSupervisor imports and runs these after its health probe passes.
+LIVE_TEST_PHASES = [
     ("performance_testing",   "aether_os.phases.p07b_performance_testing.task_agent",   "run"),
     ("accessibility_testing", "aether_os.phases.p07c_accessibility_testing.task_agent", "run"),
     ("e2e_testing",           "aether_os.phases.p07d_e2e_testing.task_agent",           "run"),
@@ -62,10 +70,8 @@ STAGE_CONTRACT = {
     "display_name": "Testing",
     "critical": False,
     "parallel_substeps": [
-        "p07a_unit_testing",
-        "p07b_performance_testing",
-        "p07c_accessibility_testing",
-        "p07d_e2e_testing",
+        "p07a_unit_testing",  # runs here (static)
+        # p07b/p07c/p07d deferred to s07_healing after app is live
     ],
     "inputs": [
         "backend_output_path",
