@@ -561,6 +561,8 @@ def create_app() -> FastAPI:
         ("saml",          "aether_os.gateway.auth_saml",                    "saml_router",  {},                        False),
         ("oauth",         "aether_os.gateway.auth_oauth",                   "oauth_router", {},                        False),
         ("mfa",           "aether_os.gateway.auth_mfa",                     "mfa_router",   {},                        False),
+        # Interactive Questionnaire System
+        ("questionnaire", "aether_os.gateway.routers.questionnaire_router",  "router",       {},                        True),
     ]
 
     import importlib as _importlib
