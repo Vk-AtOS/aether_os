@@ -1,0 +1,255 @@
+{
+  "domain": "cross_domain",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "sqla_001",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": [
+        "model",
+        "enum",
+        "decimal"
+      ],
+      "input": {
+        "name": "Product",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "name": "price",
+            "type": "decimal"
+          },
+          {
+            "name": "status",
+            "type": "enum",
+            "values": [
+              "active",
+              "inactive"
+            ]
+          }
+        ]
+      },
+      "output": "class Product(Base):\n    __tablename__ = 'products'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(255), nullable=False)\n    price = Column(Numeric(10, 2), nullable=False)\n    status = Column(Enum('active', 'inactive', name='product_status'), default='active')\n    created_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "sqla_002",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": [
+        "model",
+        "fk",
+        "relationship"
+      ],
+      "input": {
+        "name": "Comment",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "name": "post_id",
+            "type": "int",
+            "foreign_key": "Post.id"
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "foreign_key": "User.id"
+          },
+          {
+            "name": "body",
+            "type": "str"
+          }
+        ]
+      },
+      "output": "class Comment(Base):\n    __tablename__ = 'comments'\n    id = Column(Integer, primary_key=True, index=True)\n    post_id = Column(Integer, ForeignKey('posts.id', ondelete='CASCADE'), nullable=False, index=True)\n    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)\n    body = Column(Text, nullable=False)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    post = relationship('Post', back_populates='comments')\n    user = relationship('User')"
+    },
+    {
+      "id": "sqla_003",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": [
+        "model",
+        "json",
+        "unique"
+      ],
+      "input": {
+        "name": "ApiKey",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "name": "key_hash",
+            "type": "str",
+            "unique": true
+          },
+          {
+            "name": "scopes",
+            "type": "json"
+          }
+        ]
+      },
+      "output": "class ApiKey(Base):\n    __tablename__ = 'api_keys'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(100), nullable=False)\n    key_hash = Column(String(64), unique=True, nullable=False, index=True)\n    scopes = Column(JSON, default=list)\n    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)\n    last_used = Column(DateTime(timezone=True), nullable=True)\n    revoked_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "sqla_004",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": [
+        "model",
+        "uuid",
+        "pk"
+      ],
+      "input": {
+        "name": "Session",
+        "fields": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "user_id",
+            "type": "int"
+          },
+          {
+            "name": "expires_at",
+            "type": "datetime"
+          }
+        ]
+      },
+      "output": "import uuid\nclass Session(Base):\n    __tablename__ = 'sessions'\n    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    token_hash = Column(String(64), unique=True, nullable=False)\n    expires_at = Column(DateTime(timezone=True), nullable=False)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')"
+    },
+    {
+      "id": "sqla_005",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": [
+        "model",
+        "many_to_many",
+        "association"
+      ],
+      "input": {
+        "name": "ProductTag",
+        "note": "Association table for many-to-many between Product and Tag"
+      },
+      "output": "product_tags = Table(\n    'product_tags', Base.metadata,\n    Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True),\n    Column('tag_id', Integer, ForeignKey('tags.id', ondelete='CASCADE'), primary_key=True),\n)\n\n# In Product model:\n# tags = relationship('Tag', secondary=product_tags, back_populates='products')"
+    },
+    {
+      "id": "sqla_006",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": [
+        "model",
+        "soft_delete"
+      ],
+      "input": {
+        "name": "Order",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int"
+          },
+          {
+            "name": "deleted_at",
+            "type": "datetime",
+            "nullable": true
+          }
+        ]
+      },
+      "output": "class Order(Base):\n    __tablename__ = 'orders'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)\n    total = Column(Numeric(10, 2), nullable=False)\n    status = Column(Enum('pending','paid','shipped','delivered','cancelled', name='order_status'), default='pending')\n    deleted_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n\n    @property\n    def is_deleted(self):\n        return self.deleted_at is not None"
+    },
+    {
+      "id": "sqla_007",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": [
+        "model",
+        "composite_unique",
+        "index"
+      ],
+      "input": {
+        "name": "OrgMember",
+        "fields": [
+          {
+            "name": "org_id",
+            "type": "int"
+          },
+          {
+            "name": "user_id",
+            "type": "int"
+          },
+          {
+            "name": "role",
+            "type": "enum"
+          }
+        ]
+      },
+      "output": "class OrgMember(Base):\n    __tablename__ = 'org_members'\n    __table_args__ = (UniqueConstraint('org_id', 'user_id', name='uq_org_member'),)\n    id = Column(Integer, primary_key=True, index=True)\n    org_id = Column(Integer, ForeignKey('orgs.id', ondelete='CASCADE'), nullable=False, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    role = Column(Enum('owner','admin','member', name='member_role'), default='member')\n    joined_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "sqla_008",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": [
+        "model",
+        "check_constraint"
+      ],
+      "input": {
+        "name": "VitalSign",
+        "fields": [
+          {
+            "name": "pulse",
+            "type": "int"
+          },
+          {
+            "name": "bp_systolic",
+            "type": "int"
+          }
+        ]
+      },
+      "output": "class VitalSign(Base):\n    __tablename__ = 'vital_signs'\n    __table_args__ = (\n        CheckConstraint('pulse > 0 AND pulse < 300', name='ck_pulse_range'),\n        CheckConstraint('bp_systolic > 50 AND bp_systolic < 300', name='ck_bp_range'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id'), nullable=False, index=True)\n    pulse = Column(Integer, nullable=True)\n    bp_systolic = Column(Integer, nullable=True)\n    bp_diastolic = Column(Integer, nullable=True)\n    temp_c = Column(Numeric(4, 1), nullable=True)\n    recorded_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "sqla_009",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": [
+        "model",
+        "audit_fields"
+      ],
+      "input": {
+        "name": "AuditedModel",
+        "note": "Mixin for models needing created_by / updated_by audit fields"
+      },
+      "output": "class AuditMixin:\n    created_by = Column(Integer, ForeignKey('users.id'), nullable=True)\n    updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    updated_at = Column(DateTime(timezone=True), onupdate=func.now())\n\nclass Document(AuditMixin, Base):\n    __tablename__ = 'documents'\n    id = Column(Integer, primary_key=True)\n    title = Column(String(255), nullable=False)\n    body = Column(Text)"
+    },
+    {
+      "id": "sqla_010",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": [
+        "model",
+        "self_referential"
+      ],
+      "input": {
+        "name": "Category",
+        "fields": [
+          {
+            "name": "parent_id",
+            "type": "int",
+            "foreign_key": "Category.id",
+            "nullable": true
+          }
+        ]
+      },
+      "output": "class Category(Base):\n    __tablename__ = 'categories'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(100), nullable=False)\n    slug = Column(String(100), unique=True, nullable=False)\n    parent_id = Column(Integer, ForeignKey('categories.id'), nullable=True, index=True)\n    children = relationship('Category', back_populates='parent', lazy='dynamic')\n    parent = relationship('Category', back_populates='children', remote_side=[id])"
+    }
+  ]
+}

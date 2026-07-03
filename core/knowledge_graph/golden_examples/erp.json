@@ -1,0 +1,1287 @@
+{
+  "domain": "erp",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "erp_001",
+      "type": "app_description_to_domain_ir",
+      "input": "Inventory management with multi-warehouse, FIFO costing, and reorder alerts",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Item",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Warehouse",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "StockLevel",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PurchaseOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/items",
+          "/warehouses",
+          "/stocklevels"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_002",
+      "type": "app_description_to_domain_ir",
+      "input": "Manufacturing orders with BOM, work centers, and production scheduling",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "BillOfMaterial",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "WorkOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "WorkCenter",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/billofmaterials",
+          "/workorders"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Procurement system with vendor management, approval workflows, and 3-way matching",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Vendor",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PurchaseOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "GoodsReceipt",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "VendorInvoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/vendors",
+          "/purchaseorders",
+          "/goodsreceipts"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_004",
+      "type": "app_description_to_domain_ir",
+      "input": "Warehouse management with pick/pack/ship, barcode scanning, and location tracking",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Location",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "StockMove",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PickingOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ShipmentLabel",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/locations",
+          "/stockmoves",
+          "/pickingorders"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Quality control with inspection plans, non-conformance reports, and corrective actions",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "InspectionPlan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "InspectionResult",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "NonConformance",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "CorrectiveAction",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/inspectionplans",
+          "/inspectionresults",
+          "/nonconformances"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_006",
+      "type": "app_description_to_domain_ir",
+      "input": "Fixed asset management with depreciation schedules and disposal tracking",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Asset",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "DepreciationSchedule",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "MaintenanceRecord",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Disposal",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/assets",
+          "/depreciationschedules",
+          "/maintenancerecords"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Fleet management with vehicle tracking, fuel logs, and maintenance scheduling",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Vehicle",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "FuelLog",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "MaintenanceJob",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "DriverAssignment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/vehicles",
+          "/fuellogs",
+          "/maintenancejobs"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_008",
+      "type": "app_description_to_domain_ir",
+      "input": "Production planning with demand forecasting, MRP, and capacity planning",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "ProductionPlan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "MaterialRequirement",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "CapacityLoad",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "WorkOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/productionplans",
+          "/materialrequirements",
+          "/capacityloads"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Supply chain visibility with multi-tier supplier tracking and risk scoring",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Supplier",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "SupplierTier",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "RiskScore",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ShipmentTracking",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/suppliers",
+          "/suppliertiers",
+          "/riskscores"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "erp_010",
+      "type": "app_description_to_domain_ir",
+      "input": "Maintenance management (CMMS) with preventive schedules and spare parts",
+      "output": {
+        "domain": "erp",
+        "entities": [
+          {
+            "name": "Equipment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "MaintenanceSchedule",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "WorkOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "SparePart",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/equipments",
+          "/maintenanceschedules",
+          "/workorders"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "erp"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}

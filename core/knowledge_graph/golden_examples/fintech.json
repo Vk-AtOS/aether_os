@@ -1,0 +1,2478 @@
+{
+  "domain": "fintech",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "fint_001",
+      "type": "app_description_to_domain_ir",
+      "input": "Personal expense tracker with bank sync, budget envelopes, and spending insights",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Account",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "checking",
+                  "savings",
+                  "credit",
+                  "cash"
+                ]
+              },
+              {
+                "name": "balance",
+                "type": "decimal"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Transaction",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "account_id",
+                "type": "int",
+                "foreign_key": "Account.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "category",
+                "type": "str"
+              },
+              {
+                "name": "merchant",
+                "type": "str"
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "Budget",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "category",
+                "type": "str"
+              },
+              {
+                "name": "monthly_limit",
+                "type": "decimal"
+              },
+              {
+                "name": "month",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/accounts",
+          "/transactions",
+          "/budgets",
+          "/insights"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "bank_sync",
+          "budgeting"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_002",
+      "type": "app_description_to_domain_ir",
+      "input": "Invoice management for freelancers with time tracking, auto-reminders, and PDF export",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Client",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "email",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "company",
+                "type": "str"
+              },
+              {
+                "name": "tax_id",
+                "type": "str"
+              },
+              {
+                "name": "address",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Invoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "number",
+                "type": "str"
+              },
+              {
+                "name": "issue_date",
+                "type": "datetime"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "sent",
+                  "paid",
+                  "overdue"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "InvoiceItem",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "invoice_id",
+                "type": "int",
+                "foreign_key": "Invoice.id"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "qty",
+                "type": "decimal"
+              },
+              {
+                "name": "rate",
+                "type": "decimal"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "TimeEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "hours",
+                "type": "decimal"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "invoiced",
+                "type": "bool"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/clients",
+          "/invoices",
+          "/time-entries",
+          "/invoices/{id}/pdf"
+        ],
+        "integrations": [
+          "sendgrid",
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "invoicing",
+          "time_tracking"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Crypto portfolio tracker with live prices, P&L calculation, and tax lot tracking",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Asset",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "symbol",
+                "type": "str"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "coingecko_id",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Holding",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "asset_id",
+                "type": "int",
+                "foreign_key": "Asset.id"
+              },
+              {
+                "name": "quantity",
+                "type": "decimal"
+              },
+              {
+                "name": "avg_cost",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Trade",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "asset_id",
+                "type": "int",
+                "foreign_key": "Asset.id"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "buy",
+                  "sell"
+                ]
+              },
+              {
+                "name": "quantity",
+                "type": "decimal"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "fee",
+                "type": "decimal"
+              },
+              {
+                "name": "traded_at",
+                "type": "datetime"
+              },
+              {
+                "name": "exchange",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "PriceSnapshot",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "asset_id",
+                "type": "int",
+                "foreign_key": "Asset.id"
+              },
+              {
+                "name": "price_usd",
+                "type": "decimal"
+              },
+              {
+                "name": "market_cap",
+                "type": "decimal"
+              },
+              {
+                "name": "recorded_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/assets",
+          "/holdings",
+          "/trades",
+          "/portfolio/pnl"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "portfolio",
+          "price_tracking"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_004",
+      "type": "app_description_to_domain_ir",
+      "input": "Small business accounting with chart of accounts, journal entries, and P&L reports",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Account",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "code",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "asset",
+                  "liability",
+                  "equity",
+                  "revenue",
+                  "expense"
+                ]
+              },
+              {
+                "name": "parent_id",
+                "type": "int",
+                "foreign_key": "Account.id"
+              },
+              {
+                "name": "balance",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "JournalEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "reference",
+                "type": "str"
+              },
+              {
+                "name": "created_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "posted",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "JournalLine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "entry_id",
+                "type": "int",
+                "foreign_key": "JournalEntry.id"
+              },
+              {
+                "name": "account_id",
+                "type": "int",
+                "foreign_key": "Account.id"
+              },
+              {
+                "name": "debit",
+                "type": "decimal"
+              },
+              {
+                "name": "credit",
+                "type": "decimal"
+              },
+              {
+                "name": "memo",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "FiscalPeriod",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "end_date",
+                "type": "datetime"
+              },
+              {
+                "name": "closed",
+                "type": "bool"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/accounts",
+          "/journal-entries",
+          "/reports/profit-loss",
+          "/reports/balance-sheet"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "accounting",
+          "reporting"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Payroll system with salary bands, deductions, tax withholding, and payslip generation",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Employee",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "tax_id",
+                "type": "str"
+              },
+              {
+                "name": "salary",
+                "type": "decimal"
+              },
+              {
+                "name": "pay_frequency",
+                "type": "enum",
+                "values": [
+                  "weekly",
+                  "biweekly",
+                  "monthly"
+                ]
+              },
+              {
+                "name": "bank_account",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "PayRun",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "period_start",
+                "type": "datetime"
+              },
+              {
+                "name": "period_end",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "approved",
+                  "paid"
+                ]
+              },
+              {
+                "name": "total_gross",
+                "type": "decimal"
+              },
+              {
+                "name": "total_net",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "PaySlip",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "pay_run_id",
+                "type": "int",
+                "foreign_key": "PayRun.id"
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "gross",
+                "type": "decimal"
+              },
+              {
+                "name": "deductions",
+                "type": "json"
+              },
+              {
+                "name": "net",
+                "type": "decimal"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Deduction",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "tax",
+                  "insurance",
+                  "pension",
+                  "other"
+                ]
+              },
+              {
+                "name": "calculation",
+                "type": "enum",
+                "values": [
+                  "fixed",
+                  "percentage"
+                ]
+              },
+              {
+                "name": "value",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/employees",
+          "/pay-runs",
+          "/payslips",
+          "/deductions"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "payroll",
+          "tax"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_006",
+      "type": "app_description_to_domain_ir",
+      "input": "P2P lending marketplace where borrowers list requests and lenders fund portions",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "LoanRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "borrower_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "purpose",
+                "type": "str"
+              },
+              {
+                "name": "term_months",
+                "type": "int"
+              },
+              {
+                "name": "interest_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "funded",
+                  "active",
+                  "repaid",
+                  "defaulted"
+                ]
+              },
+              {
+                "name": "credit_score",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "LoanFunding",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "loan_id",
+                "type": "int",
+                "foreign_key": "LoanRequest.id"
+              },
+              {
+                "name": "lender_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "funded_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Repayment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "loan_id",
+                "type": "int",
+                "foreign_key": "LoanRequest.id"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "paid",
+                  "late"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "LenderAccount",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "balance",
+                "type": "decimal"
+              },
+              {
+                "name": "total_invested",
+                "type": "decimal"
+              },
+              {
+                "name": "total_earned",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/loan-requests",
+          "/fundings",
+          "/repayments",
+          "/lender/dashboard"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "p2p_lending",
+          "repayments"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Corporate expense management with approval workflows, receipt capture, and policy enforcement",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Employee",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "department",
+                "type": "str"
+              },
+              {
+                "name": "manager_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "expense_limit",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "ExpenseReport",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "period_start",
+                "type": "datetime"
+              },
+              {
+                "name": "period_end",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "submitted",
+                  "approved",
+                  "rejected",
+                  "paid"
+                ]
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Expense",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "report_id",
+                "type": "int",
+                "foreign_key": "ExpenseReport.id"
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "category",
+                "type": "enum",
+                "values": [
+                  "travel",
+                  "meals",
+                  "accommodation",
+                  "equipment",
+                  "other"
+                ]
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "receipt_url",
+                "type": "str"
+              },
+              {
+                "name": "merchant",
+                "type": "str"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "ApprovalStep",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "report_id",
+                "type": "int",
+                "foreign_key": "ExpenseReport.id"
+              },
+              {
+                "name": "approver_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "rejected"
+                ]
+              },
+              {
+                "name": "decided_at",
+                "type": "datetime"
+              },
+              {
+                "name": "comments",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/expense-reports",
+          "/expenses",
+          "/approvals",
+          "/policies"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "expense_management",
+          "approvals"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_008",
+      "type": "app_description_to_domain_ir",
+      "input": "Insurance claims processing with document upload, adjuster assignment, and payment tracking",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Policy",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "policy_no",
+                "type": "str"
+              },
+              {
+                "name": "holder_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "auto",
+                  "home",
+                  "health",
+                  "life"
+                ]
+              },
+              {
+                "name": "premium",
+                "type": "decimal"
+              },
+              {
+                "name": "coverage_amount",
+                "type": "decimal"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "end_date",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Claim",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "policy_id",
+                "type": "int",
+                "foreign_key": "Policy.id"
+              },
+              {
+                "name": "filed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "incident_date",
+                "type": "datetime"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "amount_claimed",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "filed",
+                  "under_review",
+                  "approved",
+                  "denied"
+                ]
+              },
+              {
+                "name": "adjuster_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "ClaimDocument",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "claim_id",
+                "type": "int",
+                "foreign_key": "Claim.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "url",
+                "type": "str"
+              },
+              {
+                "name": "uploaded_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Payment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "claim_id",
+                "type": "int",
+                "foreign_key": "Claim.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              },
+              {
+                "name": "method",
+                "type": "enum",
+                "values": [
+                  "bank_transfer",
+                  "check"
+                ]
+              },
+              {
+                "name": "reference",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/policies",
+          "/claims",
+          "/claims/{id}/documents",
+          "/payments"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "claims",
+          "document_management"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Revenue-based financing platform for SaaS companies with MRR-linked repayments",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Company",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "website",
+                "type": "str"
+              },
+              {
+                "name": "arr",
+                "type": "decimal"
+              },
+              {
+                "name": "mrr",
+                "type": "decimal"
+              },
+              {
+                "name": "growth_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "industry",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "FinancingOffer",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "company_id",
+                "type": "int",
+                "foreign_key": "Company.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "revenue_share_pct",
+                "type": "decimal"
+              },
+              {
+                "name": "cap_multiple",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "offered",
+                  "accepted",
+                  "declined"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Repayment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "offer_id",
+                "type": "int",
+                "foreign_key": "FinancingOffer.id"
+              },
+              {
+                "name": "month",
+                "type": "str"
+              },
+              {
+                "name": "mrr",
+                "type": "decimal"
+              },
+              {
+                "name": "amount_owed",
+                "type": "decimal"
+              },
+              {
+                "name": "amount_paid",
+                "type": "decimal"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "BankConnection",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "company_id",
+                "type": "int",
+                "foreign_key": "Company.id"
+              },
+              {
+                "name": "provider",
+                "type": "str"
+              },
+              {
+                "name": "access_token",
+                "type": "str"
+              },
+              {
+                "name": "last_synced",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/companies",
+          "/offers",
+          "/repayments",
+          "/bank-connections"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "financing",
+          "bank_sync"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_010",
+      "type": "app_description_to_domain_ir",
+      "input": "Treasury management for mid-market companies with cash pooling and FX hedging",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "BankAccount",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "entity_id",
+                "type": "int",
+                "foreign_key": "Entity.id"
+              },
+              {
+                "name": "bank",
+                "type": "str"
+              },
+              {
+                "name": "account_no",
+                "type": "str"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "balance",
+                "type": "decimal"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "operating",
+                  "payroll",
+                  "reserve"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "CashPosition",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "account_id",
+                "type": "int",
+                "foreign_key": "BankAccount.id"
+              },
+              {
+                "name": "opening",
+                "type": "decimal"
+              },
+              {
+                "name": "inflows",
+                "type": "decimal"
+              },
+              {
+                "name": "outflows",
+                "type": "decimal"
+              },
+              {
+                "name": "closing",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "FxHedge",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "from_currency",
+                "type": "str"
+              },
+              {
+                "name": "to_currency",
+                "type": "str"
+              },
+              {
+                "name": "notional",
+                "type": "decimal"
+              },
+              {
+                "name": "rate",
+                "type": "decimal"
+              },
+              {
+                "name": "maturity",
+                "type": "datetime"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "forward",
+                  "option"
+                ]
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "open",
+                  "settled"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "CashForecast",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "entity_id",
+                "type": "int",
+                "foreign_key": "Entity.id"
+              },
+              {
+                "name": "horizon_days",
+                "type": "int"
+              },
+              {
+                "name": "scenarios",
+                "type": "json"
+              },
+              {
+                "name": "generated_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/bank-accounts",
+          "/cash-positions",
+          "/fx-hedges",
+          "/forecasts"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "treasury",
+          "fx_management"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_011",
+      "type": "app_description_to_domain_ir",
+      "input": "Buy-now-pay-later platform with installment plans and merchant integration API",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Merchant",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "api_key",
+                "type": "str"
+              },
+              {
+                "name": "webhook_url",
+                "type": "str"
+              },
+              {
+                "name": "settlement_account",
+                "type": "str"
+              },
+              {
+                "name": "fee_pct",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "LoanApplication",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "merchant_id",
+                "type": "int",
+                "foreign_key": "Merchant.id"
+              },
+              {
+                "name": "order_amount",
+                "type": "decimal"
+              },
+              {
+                "name": "installments",
+                "type": "int"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "declined"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "InstallmentPlan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "application_id",
+                "type": "int",
+                "foreign_key": "LoanApplication.id"
+              },
+              {
+                "name": "installment_no",
+                "type": "int"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "paid",
+                  "late"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "MerchantSettlement",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "merchant_id",
+                "type": "int",
+                "foreign_key": "Merchant.id"
+              },
+              {
+                "name": "period_start",
+                "type": "datetime"
+              },
+              {
+                "name": "period_end",
+                "type": "datetime"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/applications",
+          "/installments",
+          "/merchants",
+          "/settlements"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "bnpl",
+          "merchant_api"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_012",
+      "type": "app_description_to_domain_ir",
+      "input": "Freelancer invoicing with multi-currency support, VAT calculation, and Stripe payouts",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Client",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "country",
+                "type": "str"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "vat_number",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Project",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "hourly_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "paused",
+                  "complete"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Invoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "project_id",
+                "type": "int",
+                "foreign_key": "Project.id"
+              },
+              {
+                "name": "number",
+                "type": "str"
+              },
+              {
+                "name": "subtotal",
+                "type": "decimal"
+              },
+              {
+                "name": "vat_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "vat_amount",
+                "type": "decimal"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "sent",
+                  "paid"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Payout",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "stripe_transfer_id",
+                "type": "str"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/clients",
+          "/projects",
+          "/invoices",
+          "/payouts"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "multi_currency",
+          "vat"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_013",
+      "type": "app_description_to_domain_ir",
+      "input": "Stock portfolio tracker with dividend tracking, asset allocation, and rebalancing alerts",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Portfolio",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              },
+              {
+                "name": "benchmark_index",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Holding",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "portfolio_id",
+                "type": "int",
+                "foreign_key": "Portfolio.id"
+              },
+              {
+                "name": "ticker",
+                "type": "str"
+              },
+              {
+                "name": "shares",
+                "type": "decimal"
+              },
+              {
+                "name": "avg_cost",
+                "type": "decimal"
+              },
+              {
+                "name": "current_price",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Dividend",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "holding_id",
+                "type": "int",
+                "foreign_key": "Holding.id"
+              },
+              {
+                "name": "ex_date",
+                "type": "datetime"
+              },
+              {
+                "name": "pay_date",
+                "type": "datetime"
+              },
+              {
+                "name": "amount_per_share",
+                "type": "decimal"
+              },
+              {
+                "name": "total_received",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "RebalanceTarget",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "portfolio_id",
+                "type": "int",
+                "foreign_key": "Portfolio.id"
+              },
+              {
+                "name": "ticker",
+                "type": "str"
+              },
+              {
+                "name": "target_pct",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/portfolios",
+          "/holdings",
+          "/dividends",
+          "/rebalance"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "portfolio",
+          "dividends"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_014",
+      "type": "app_description_to_domain_ir",
+      "input": "Microfinance platform for rural borrowers with group lending and loan officer mobile app",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "LendingGroup",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "village",
+                "type": "str"
+              },
+              {
+                "name": "loan_officer_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "member_count",
+                "type": "int"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "dissolved"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Member",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "group_id",
+                "type": "int",
+                "foreign_key": "LendingGroup.id"
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "id_no",
+                "type": "str"
+              },
+              {
+                "name": "phone",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "savings_balance",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "GroupLoan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "group_id",
+                "type": "int",
+                "foreign_key": "LendingGroup.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "interest_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "term_weeks",
+                "type": "int"
+              },
+              {
+                "name": "disbursed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "active",
+                  "repaid"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WeeklyRepayment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "loan_id",
+                "type": "int",
+                "foreign_key": "GroupLoan.id"
+              },
+              {
+                "name": "week_no",
+                "type": "int"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "collected",
+                "type": "decimal"
+              },
+              {
+                "name": "collected_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/groups",
+          "/members",
+          "/loans",
+          "/repayments"
+        ],
+        "integrations": [
+          "twilio"
+        ],
+        "features": [
+          "auth",
+          "group_lending",
+          "mobile"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "fint_015",
+      "type": "app_description_to_domain_ir",
+      "input": "Accounts payable automation with invoice OCR, 3-way matching, and ERP sync",
+      "output": {
+        "domain": "fintech",
+        "entities": [
+          {
+            "name": "Vendor",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "tax_id",
+                "type": "str"
+              },
+              {
+                "name": "payment_terms_days",
+                "type": "int"
+              },
+              {
+                "name": "bank_account",
+                "type": "str"
+              },
+              {
+                "name": "email",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "PurchaseOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "vendor_id",
+                "type": "int",
+                "foreign_key": "Vendor.id"
+              },
+              {
+                "name": "po_no",
+                "type": "str"
+              },
+              {
+                "name": "ordered_at",
+                "type": "datetime"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "open",
+                  "partial",
+                  "received"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "VendorInvoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "vendor_id",
+                "type": "int",
+                "foreign_key": "Vendor.id"
+              },
+              {
+                "name": "po_id",
+                "type": "int",
+                "foreign_key": "PurchaseOrder.id"
+              },
+              {
+                "name": "invoice_no",
+                "type": "str"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "received",
+                  "matched",
+                  "approved",
+                  "paid"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Payment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "invoice_id",
+                "type": "int",
+                "foreign_key": "VendorInvoice.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              },
+              {
+                "name": "reference",
+                "type": "str"
+              },
+              {
+                "name": "method",
+                "type": "enum",
+                "values": [
+                  "bank_transfer",
+                  "check",
+                  "ach"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/vendors",
+          "/purchase-orders",
+          "/vendor-invoices",
+          "/payments"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "ap_automation",
+          "3way_match"
+        ]
+      },
+      "tags": [
+        "fintech"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}

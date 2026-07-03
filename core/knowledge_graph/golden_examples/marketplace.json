@@ -1,0 +1,1287 @@
+{
+  "domain": "marketplace",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "mark_001",
+      "type": "app_description_to_domain_ir",
+      "input": "Freelancer marketplace with project bidding, escrow, and milestone payments",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Project",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Bid",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Contract",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Milestone",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/projects",
+          "/bids",
+          "/contracts"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_002",
+      "type": "app_description_to_domain_ir",
+      "input": "Job board for tech companies with applicant tracking and interview scheduling",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "JobPosting",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Application",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Interview",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Offer",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/jobpostings",
+          "/applications",
+          "/interviews"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Real estate listings with agent profiles, virtual tours, and mortgage calculator",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Listing",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Agent",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ViewingRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "SavedListing",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/listings",
+          "/agents",
+          "/viewingrequests"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_004",
+      "type": "app_description_to_domain_ir",
+      "input": "Used car marketplace with inspection reports, price history, and financing",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "CarListing",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "InspectionReport",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Offer",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "FinancingRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/carlistings",
+          "/inspectionreports",
+          "/offers"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Food delivery platform with restaurant menus, order tracking, and driver app",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Restaurant",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "MenuItem",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Delivery",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/restaurants",
+          "/menuitems",
+          "/orders"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_006",
+      "type": "app_description_to_domain_ir",
+      "input": "Online tutoring marketplace with lesson booking, video sessions, and reviews",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Tutor",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Lesson",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Booking",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Review",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/tutors",
+          "/lessons",
+          "/bookings"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Home services booking for cleaners, plumbers, and electricians",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "ServiceProvider",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Service",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Booking",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Review",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/serviceproviders",
+          "/services",
+          "/bookings"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_008",
+      "type": "app_description_to_domain_ir",
+      "input": "Event ticket marketplace with seat selection and transfer support",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Event",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Ticket",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Transfer",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/events",
+          "/tickets",
+          "/orders"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Vacation rental platform with availability calendar and host messaging",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Property",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Booking",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Review",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Message",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/propertys",
+          "/bookings",
+          "/reviews"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "mark_010",
+      "type": "app_description_to_domain_ir",
+      "input": "B2B wholesale procurement with RFQ, bulk pricing, and supplier ratings",
+      "output": {
+        "domain": "marketplace",
+        "entities": [
+          {
+            "name": "Supplier",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "RfqRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Quote",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "PurchaseOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "inactive"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/suppliers",
+          "/rfqrequests",
+          "/quotes"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "crud"
+        ]
+      },
+      "tags": [
+        "marketplace"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}

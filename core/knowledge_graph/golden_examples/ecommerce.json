@@ -1,0 +1,2178 @@
+{
+  "domain": "ecommerce",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "ecom_001",
+      "type": "app_description_to_domain_ir",
+      "input": "Online store for handmade jewelry with product listings, shopping cart, and Stripe checkout",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "stock_qty",
+                "type": "int"
+              },
+              {
+                "name": "image_url",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "category",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "paid",
+                  "shipped",
+                  "delivered"
+                ]
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "CartItem",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "quantity",
+                "type": "int"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/products/{id}",
+          "/cart",
+          "/orders",
+          "/checkout"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "cart",
+          "checkout",
+          "order_tracking"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_002",
+      "type": "app_description_to_domain_ir",
+      "input": "B2B wholesale catalog with tiered pricing, bulk ordering, and credit terms",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "sku",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "unit_price",
+                "type": "decimal"
+              },
+              {
+                "name": "min_order_qty",
+                "type": "int"
+              },
+              {
+                "name": "category",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Pricetier",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "min_qty",
+                "type": "int"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "customer_tier",
+                "type": "enum",
+                "values": [
+                  "bronze",
+                  "silver",
+                  "gold"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "submitted",
+                  "approved",
+                  "shipped"
+                ]
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "payment_terms",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "OrderLine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "order_id",
+                "type": "int",
+                "foreign_key": "Order.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "qty",
+                "type": "int"
+              },
+              {
+                "name": "unit_price",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/orders",
+          "/orders/{id}/lines",
+          "/pricing"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "bulk_ordering",
+          "tiered_pricing"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Digital downloads store for fonts, templates, and design assets with instant delivery",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "file_url",
+                "type": "str"
+              },
+              {
+                "name": "preview_url",
+                "type": "str"
+              },
+              {
+                "name": "downloads_count",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Purchase",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "payment_id",
+                "type": "str"
+              },
+              {
+                "name": "download_token",
+                "type": "str"
+              },
+              {
+                "name": "expires_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Review",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "rating",
+                "type": "int"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/purchase",
+          "/downloads/{token}",
+          "/reviews"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "instant_delivery",
+          "download_tracking"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_004",
+      "type": "app_description_to_domain_ir",
+      "input": "Monthly subscription box for artisan coffee with preferences and pause/resume",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Plan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "price_monthly",
+                "type": "decimal"
+              },
+              {
+                "name": "beans_count",
+                "type": "int"
+              },
+              {
+                "name": "grind_type",
+                "type": "enum",
+                "values": [
+                  "whole",
+                  "coarse",
+                  "medium",
+                  "fine"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Subscription",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "plan_id",
+                "type": "int",
+                "foreign_key": "Plan.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "paused",
+                  "cancelled"
+                ]
+              },
+              {
+                "name": "next_billing",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Shipment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "subscription_id",
+                "type": "int",
+                "foreign_key": "Subscription.id"
+              },
+              {
+                "name": "tracking_no",
+                "type": "str"
+              },
+              {
+                "name": "shipped_at",
+                "type": "datetime"
+              },
+              {
+                "name": "delivered_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/plans",
+          "/subscriptions",
+          "/subscriptions/{id}/pause",
+          "/shipments"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "subscriptions",
+          "shipping"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Online auction platform with real-time bidding, reserve prices, and auto-extend",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Auction",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "start_price",
+                "type": "decimal"
+              },
+              {
+                "name": "reserve_price",
+                "type": "decimal"
+              },
+              {
+                "name": "ends_at",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "live",
+                  "ended"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Bid",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "auction_id",
+                "type": "int",
+                "foreign_key": "Auction.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "AuctionImage",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "auction_id",
+                "type": "int",
+                "foreign_key": "Auction.id"
+              },
+              {
+                "name": "url",
+                "type": "str"
+              },
+              {
+                "name": "is_primary",
+                "type": "bool"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/auctions",
+          "/auctions/{id}/bid",
+          "/auctions/{id}/bids"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "realtime",
+          "bidding"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_006",
+      "type": "app_description_to_domain_ir",
+      "input": "Camera and lens rental marketplace with calendar availability and damage deposits",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Equipment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "brand",
+                "type": "str"
+              },
+              {
+                "name": "model",
+                "type": "str"
+              },
+              {
+                "name": "daily_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "deposit",
+                "type": "decimal"
+              },
+              {
+                "name": "condition",
+                "type": "enum",
+                "values": [
+                  "excellent",
+                  "good",
+                  "fair"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Rental",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "equipment_id",
+                "type": "int",
+                "foreign_key": "Equipment.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "end_date",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "confirmed",
+                  "active",
+                  "returned"
+                ]
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Availability",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "equipment_id",
+                "type": "int",
+                "foreign_key": "Equipment.id"
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "is_available",
+                "type": "bool"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/equipment",
+          "/rentals",
+          "/rentals/{id}",
+          "/availability"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "calendar",
+          "rentals"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Print-on-demand platform for custom t-shirts with design upload and Printful fulfillment",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "base_price",
+                "type": "decimal"
+              },
+              {
+                "name": "sizes",
+                "type": "json"
+              },
+              {
+                "name": "colors",
+                "type": "json"
+              }
+            ]
+          },
+          {
+            "name": "Design",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "file_url",
+                "type": "str"
+              },
+              {
+                "name": "preview_url",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "rejected"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "printing",
+                  "shipped"
+                ]
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "printful_order_id",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "OrderItem",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "order_id",
+                "type": "int",
+                "foreign_key": "Order.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "design_id",
+                "type": "int",
+                "foreign_key": "Design.id"
+              },
+              {
+                "name": "size",
+                "type": "str"
+              },
+              {
+                "name": "color",
+                "type": "str"
+              },
+              {
+                "name": "qty",
+                "type": "int"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/designs",
+          "/orders",
+          "/orders/{id}"
+        ],
+        "integrations": [
+          "stripe",
+          "printful"
+        ],
+        "features": [
+          "auth",
+          "design_upload",
+          "fulfillment"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_008",
+      "type": "app_description_to_domain_ir",
+      "input": "Farmers market online store with local pickup slots and seasonal product availability",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Farm",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "location",
+                "type": "str"
+              },
+              {
+                "name": "bio",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          },
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "farm_id",
+                "type": "int",
+                "foreign_key": "Farm.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "unit",
+                "type": "str"
+              },
+              {
+                "name": "stock_qty",
+                "type": "int"
+              },
+              {
+                "name": "season",
+                "type": "enum",
+                "values": [
+                  "spring",
+                  "summer",
+                  "autumn",
+                  "winter",
+                  "year_round"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "PickupSlot",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "location",
+                "type": "str"
+              },
+              {
+                "name": "capacity",
+                "type": "int"
+              },
+              {
+                "name": "booked",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "pickup_slot_id",
+                "type": "int",
+                "foreign_key": "PickupSlot.id"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "confirmed",
+                  "ready",
+                  "collected"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/farms",
+          "/products",
+          "/pickup-slots",
+          "/orders"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "local_pickup",
+          "seasonal"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Sneaker resale marketplace with authentication verification and price history",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Listing",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "seller_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "brand",
+                "type": "str"
+              },
+              {
+                "name": "model",
+                "type": "str"
+              },
+              {
+                "name": "size",
+                "type": "str"
+              },
+              {
+                "name": "condition",
+                "type": "enum",
+                "values": [
+                  "new",
+                  "like_new",
+                  "used"
+                ]
+              },
+              {
+                "name": "asking_price",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "sold",
+                  "removed"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Offer",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "listing_id",
+                "type": "int",
+                "foreign_key": "Listing.id"
+              },
+              {
+                "name": "buyer_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "accepted",
+                  "declined"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "PriceHistory",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "brand",
+                "type": "str"
+              },
+              {
+                "name": "model",
+                "type": "str"
+              },
+              {
+                "name": "size",
+                "type": "str"
+              },
+              {
+                "name": "sale_price",
+                "type": "decimal"
+              },
+              {
+                "name": "sold_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "AuthRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "listing_id",
+                "type": "int",
+                "foreign_key": "Listing.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "authentic",
+                  "rejected"
+                ]
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/listings",
+          "/listings/{id}/offer",
+          "/price-history",
+          "/auth-requests"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "authentication",
+          "price_tracking"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_010",
+      "type": "app_description_to_domain_ir",
+      "input": "Wine club with sommelier-curated monthly boxes and tasting notes",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Wine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "producer",
+                "type": "str"
+              },
+              {
+                "name": "vintage",
+                "type": "int"
+              },
+              {
+                "name": "region",
+                "type": "str"
+              },
+              {
+                "name": "varietal",
+                "type": "str"
+              },
+              {
+                "name": "score",
+                "type": "decimal"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Box",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "month",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "BoxWine",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "box_id",
+                "type": "int",
+                "foreign_key": "Box.id"
+              },
+              {
+                "name": "wine_id",
+                "type": "int",
+                "foreign_key": "Wine.id"
+              },
+              {
+                "name": "quantity",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Subscription",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "tier",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "white",
+                  "mixed",
+                  "premium"
+                ]
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "paused"
+                ]
+              },
+              {
+                "name": "next_ship",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/wines",
+          "/boxes",
+          "/subscriptions",
+          "/tasting-notes"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "subscriptions",
+          "curation"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_011",
+      "type": "app_description_to_domain_ir",
+      "input": "Online bookstore with reading lists, wishlists, and staff picks",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Book",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "isbn",
+                "type": "str"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "author",
+                "type": "str"
+              },
+              {
+                "name": "publisher",
+                "type": "str"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "stock",
+                "type": "int"
+              },
+              {
+                "name": "genre",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "ReadingList",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "is_public",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "ReadingListBook",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "list_id",
+                "type": "int",
+                "foreign_key": "ReadingList.id"
+              },
+              {
+                "name": "book_id",
+                "type": "int",
+                "foreign_key": "Book.id"
+              },
+              {
+                "name": "order_index",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "processing",
+                  "shipped"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/books",
+          "/reading-lists",
+          "/orders",
+          "/staff-picks"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "wishlist",
+          "recommendations"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_012",
+      "type": "app_description_to_domain_ir",
+      "input": "Pet supplies store with subscription autoship and vet diet recommendations",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "brand",
+                "type": "str"
+              },
+              {
+                "name": "pet_type",
+                "type": "enum",
+                "values": [
+                  "dog",
+                  "cat",
+                  "bird",
+                  "fish",
+                  "reptile"
+                ]
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "stock",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "AutoShip",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "frequency_days",
+                "type": "int"
+              },
+              {
+                "name": "next_ship",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "paused"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Pet",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "owner_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "species",
+                "type": "str"
+              },
+              {
+                "name": "breed",
+                "type": "str"
+              },
+              {
+                "name": "weight_kg",
+                "type": "decimal"
+              },
+              {
+                "name": "birth_date",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "VetRecommendation",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "pet_id",
+                "type": "int",
+                "foreign_key": "Pet.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/autoship",
+          "/pets",
+          "/recommendations"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "subscriptions",
+          "pet_profiles"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_013",
+      "type": "app_description_to_domain_ir",
+      "input": "Handmade crafts marketplace where artisans sell directly to buyers",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Shop",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "owner_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "bio",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "location",
+                "type": "str"
+              },
+              {
+                "name": "banner_url",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "shop_id",
+                "type": "int",
+                "foreign_key": "Shop.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "stock",
+                "type": "int"
+              },
+              {
+                "name": "materials",
+                "type": "str"
+              },
+              {
+                "name": "processing_days",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "buyer_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "seller_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "paid",
+                  "shipped",
+                  "complete"
+                ]
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Review",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "buyer_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "rating",
+                "type": "int"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/shops",
+          "/products",
+          "/orders",
+          "/reviews"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "marketplace",
+          "seller_portal"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_014",
+      "type": "app_description_to_domain_ir",
+      "input": "Furniture store with AR room preview, custom dimensions, and white-glove delivery",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Product",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "category",
+                "type": "str"
+              },
+              {
+                "name": "material",
+                "type": "str"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "lead_days",
+                "type": "int"
+              },
+              {
+                "name": "ar_model_url",
+                "type": "str"
+              },
+              {
+                "name": "dimensions",
+                "type": "json"
+              }
+            ]
+          },
+          {
+            "name": "CustomOrder",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "Product.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "custom_dimensions",
+                "type": "json"
+              },
+              {
+                "name": "custom_finish",
+                "type": "str"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "quote",
+                  "confirmed",
+                  "producing",
+                  "shipped"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "DeliverySlot",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "slots_available",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Order",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "delivery_slot_id",
+                "type": "int",
+                "foreign_key": "DeliverySlot.id"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "confirmed",
+                  "delivered"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/products",
+          "/custom-orders",
+          "/delivery-slots",
+          "/orders"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "custom_orders",
+          "scheduling"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "ecom_015",
+      "type": "app_description_to_domain_ir",
+      "input": "Sports equipment rental for ski resorts with size fitting and damage waiver",
+      "output": {
+        "domain": "ecommerce",
+        "entities": [
+          {
+            "name": "Equipment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "ski",
+                  "snowboard",
+                  "boots",
+                  "helmet",
+                  "poles"
+                ]
+              },
+              {
+                "name": "brand",
+                "type": "str"
+              },
+              {
+                "name": "size",
+                "type": "str"
+              },
+              {
+                "name": "daily_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "available",
+                  "rented",
+                  "maintenance"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Rental",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "equipment_id",
+                "type": "int",
+                "foreign_key": "Equipment.id"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "end_date",
+                "type": "datetime"
+              },
+              {
+                "name": "total",
+                "type": "decimal"
+              },
+              {
+                "name": "waiver_signed",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "FitProfile",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "height_cm",
+                "type": "int"
+              },
+              {
+                "name": "weight_kg",
+                "type": "int"
+              },
+              {
+                "name": "boot_size",
+                "type": "decimal"
+              },
+              {
+                "name": "skill_level",
+                "type": "enum",
+                "values": [
+                  "beginner",
+                  "intermediate",
+                  "advanced"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/equipment",
+          "/rentals",
+          "/fit-profiles",
+          "/availability"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "rentals",
+          "fitting"
+        ]
+      },
+      "tags": [
+        "ecommerce"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}

@@ -1,0 +1,2619 @@
+{
+  "domain": "saas",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "saas_001",
+      "type": "app_description_to_domain_ir",
+      "input": "Project management tool with tasks, sprints, Kanban boards, and time tracking",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Project",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "archived"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Task",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "project_id",
+                "type": "int",
+                "foreign_key": "Project.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "assignee_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "todo",
+                  "in_progress",
+                  "review",
+                  "done"
+                ]
+              },
+              {
+                "name": "priority",
+                "type": "enum",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "urgent"
+                ]
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "estimate_hours",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Sprint",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "project_id",
+                "type": "int",
+                "foreign_key": "Project.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "end_date",
+                "type": "datetime"
+              },
+              {
+                "name": "goal",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "planning",
+                  "active",
+                  "completed"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "TimeEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "task_id",
+                "type": "int",
+                "foreign_key": "Task.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "hours",
+                "type": "decimal"
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/projects",
+          "/tasks",
+          "/sprints",
+          "/time-entries"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "kanban",
+          "sprints"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_002",
+      "type": "app_description_to_domain_ir",
+      "input": "CRM for sales teams with pipeline stages, deal tracking, and activity logging",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Contact",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "email",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "phone",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "company",
+                "type": "str"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Deal",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "contact_id",
+                "type": "int",
+                "foreign_key": "Contact.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "value",
+                "type": "decimal"
+              },
+              {
+                "name": "stage",
+                "type": "enum",
+                "values": [
+                  "lead",
+                  "qualified",
+                  "proposal",
+                  "negotiation",
+                  "closed_won",
+                  "closed_lost"
+                ]
+              },
+              {
+                "name": "close_date",
+                "type": "datetime"
+              },
+              {
+                "name": "owner_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "Activity",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "deal_id",
+                "type": "int",
+                "foreign_key": "Deal.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "call",
+                  "email",
+                  "meeting",
+                  "note"
+                ]
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "occurred_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Pipeline",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "stages",
+                "type": "json"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/contacts",
+          "/deals",
+          "/activities",
+          "/pipeline"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "crm",
+          "pipeline"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_003",
+      "type": "app_description_to_domain_ir",
+      "input": "Customer help desk with ticket routing, SLA tracking, and canned responses",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Ticket",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "subject",
+                "type": "str"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "open",
+                  "pending",
+                  "resolved",
+                  "closed"
+                ]
+              },
+              {
+                "name": "priority",
+                "type": "enum",
+                "values": [
+                  "low",
+                  "normal",
+                  "high"
+                ]
+              },
+              {
+                "name": "assignee_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "customer_email",
+                "type": "str"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "TicketMessage",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "ticket_id",
+                "type": "int",
+                "foreign_key": "Ticket.id"
+              },
+              {
+                "name": "author_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "is_internal",
+                "type": "bool"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "SlaPolicy",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "first_response_hours",
+                "type": "int"
+              },
+              {
+                "name": "resolution_hours",
+                "type": "int"
+              },
+              {
+                "name": "priority",
+                "type": "enum",
+                "values": [
+                  "low",
+                  "normal",
+                  "high"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "CannedResponse",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "category",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/tickets",
+          "/tickets/{id}/messages",
+          "/sla-policies",
+          "/canned-responses"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "helpdesk",
+          "sla"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_004",
+      "type": "app_description_to_domain_ir",
+      "input": "HR management system with org chart, leave management, and performance reviews",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Employee",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "first_name",
+                "type": "str"
+              },
+              {
+                "name": "last_name",
+                "type": "str"
+              },
+              {
+                "name": "department",
+                "type": "str"
+              },
+              {
+                "name": "job_title",
+                "type": "str"
+              },
+              {
+                "name": "manager_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "on_leave",
+                  "terminated"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "LeaveRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "annual",
+                  "sick",
+                  "maternity",
+                  "paternity"
+                ]
+              },
+              {
+                "name": "start_date",
+                "type": "datetime"
+              },
+              {
+                "name": "end_date",
+                "type": "datetime"
+              },
+              {
+                "name": "days",
+                "type": "int"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "rejected"
+                ]
+              },
+              {
+                "name": "approver_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "PerformanceReview",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "employee_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "reviewer_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "period",
+                "type": "str"
+              },
+              {
+                "name": "ratings",
+                "type": "json"
+              },
+              {
+                "name": "comments",
+                "type": "str"
+              },
+              {
+                "name": "overall_score",
+                "type": "decimal"
+              },
+              {
+                "name": "completed_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Department",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "head_id",
+                "type": "int",
+                "foreign_key": "Employee.id"
+              },
+              {
+                "name": "parent_id",
+                "type": "int",
+                "foreign_key": "Department.id"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/employees",
+          "/leave-requests",
+          "/performance-reviews",
+          "/departments"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "hr",
+          "leave_management"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_005",
+      "type": "app_description_to_domain_ir",
+      "input": "Learning management system with courses, quizzes, certificates, and progress tracking",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Course",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "instructor_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "published"
+                ]
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              },
+              {
+                "name": "duration_hours",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "Lesson",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "course_id",
+                "type": "int",
+                "foreign_key": "Course.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "order_index",
+                "type": "int"
+              },
+              {
+                "name": "content_type",
+                "type": "enum",
+                "values": [
+                  "video",
+                  "text",
+                  "quiz"
+                ]
+              },
+              {
+                "name": "content_url",
+                "type": "str"
+              },
+              {
+                "name": "duration_min",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Enrollment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "course_id",
+                "type": "int",
+                "foreign_key": "Course.id"
+              },
+              {
+                "name": "enrolled_at",
+                "type": "datetime"
+              },
+              {
+                "name": "completed_at",
+                "type": "datetime"
+              },
+              {
+                "name": "progress_pct",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "QuizAttempt",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "lesson_id",
+                "type": "int",
+                "foreign_key": "Lesson.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "answers",
+                "type": "json"
+              },
+              {
+                "name": "score",
+                "type": "decimal"
+              },
+              {
+                "name": "passed",
+                "type": "bool"
+              },
+              {
+                "name": "attempted_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Certificate",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "enrollment_id",
+                "type": "int",
+                "foreign_key": "Enrollment.id"
+              },
+              {
+                "name": "issued_at",
+                "type": "datetime"
+              },
+              {
+                "name": "url",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/courses",
+          "/lessons",
+          "/enrollments",
+          "/certificates"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "lms",
+          "quizzes",
+          "certificates"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_006",
+      "type": "app_description_to_domain_ir",
+      "input": "OKR tracker with company/team/individual objectives and weekly check-ins",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Objective",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "owner_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "period",
+                "type": "str"
+              },
+              {
+                "name": "level",
+                "type": "enum",
+                "values": [
+                  "company",
+                  "team",
+                  "individual"
+                ]
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "on_track",
+                  "at_risk",
+                  "behind"
+                ]
+              },
+              {
+                "name": "parent_id",
+                "type": "int",
+                "foreign_key": "Objective.id"
+              }
+            ]
+          },
+          {
+            "name": "KeyResult",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "objective_id",
+                "type": "int",
+                "foreign_key": "Objective.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "percentage",
+                  "number",
+                  "currency",
+                  "milestone"
+                ]
+              },
+              {
+                "name": "start_value",
+                "type": "decimal"
+              },
+              {
+                "name": "target_value",
+                "type": "decimal"
+              },
+              {
+                "name": "current_value",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "CheckIn",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "key_result_id",
+                "type": "int",
+                "foreign_key": "KeyResult.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "value",
+                "type": "decimal"
+              },
+              {
+                "name": "confidence",
+                "type": "int"
+              },
+              {
+                "name": "notes",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "checked_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/objectives",
+          "/key-results",
+          "/check-ins",
+          "/reports"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "okr",
+          "reporting"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_007",
+      "type": "app_description_to_domain_ir",
+      "input": "Customer success platform with health scores, playbooks, and renewal tracking",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Account",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "arr",
+                "type": "decimal"
+              },
+              {
+                "name": "tier",
+                "type": "enum",
+                "values": [
+                  "starter",
+                  "growth",
+                  "enterprise"
+                ]
+              },
+              {
+                "name": "csm_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "renewal_date",
+                "type": "datetime"
+              },
+              {
+                "name": "health_score",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "HealthFactor",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "account_id",
+                "type": "int",
+                "foreign_key": "Account.id"
+              },
+              {
+                "name": "factor",
+                "type": "enum",
+                "values": [
+                  "product_usage",
+                  "support_tickets",
+                  "nps",
+                  "payment_history"
+                ]
+              },
+              {
+                "name": "score",
+                "type": "int"
+              },
+              {
+                "name": "recorded_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Playbook",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "trigger",
+                "type": "enum",
+                "values": [
+                  "low_health",
+                  "upcoming_renewal",
+                  "onboarding"
+                ]
+              },
+              {
+                "name": "tasks",
+                "type": "json"
+              }
+            ]
+          },
+          {
+            "name": "PlaybookRun",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "account_id",
+                "type": "int",
+                "foreign_key": "Account.id"
+              },
+              {
+                "name": "playbook_id",
+                "type": "int",
+                "foreign_key": "Playbook.id"
+              },
+              {
+                "name": "started_at",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "completed"
+                ]
+              },
+              {
+                "name": "completed_tasks",
+                "type": "json"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/accounts",
+          "/health-scores",
+          "/playbooks",
+          "/playbook-runs"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "customer_success",
+          "playbooks"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_008",
+      "type": "app_description_to_domain_ir",
+      "input": "API management portal with key provisioning, rate limiting, and usage analytics",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "ApiProduct",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "base_url",
+                "type": "str"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "deprecated"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "ApiKey",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "product_id",
+                "type": "int",
+                "foreign_key": "ApiProduct.id"
+              },
+              {
+                "name": "key_prefix",
+                "type": "str"
+              },
+              {
+                "name": "key_hash",
+                "type": "str"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "rate_limit",
+                "type": "int"
+              },
+              {
+                "name": "monthly_quota",
+                "type": "int"
+              },
+              {
+                "name": "last_used",
+                "type": "datetime"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "revoked"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "ApiUsage",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "key_id",
+                "type": "int",
+                "foreign_key": "ApiKey.id"
+              },
+              {
+                "name": "endpoint",
+                "type": "str"
+              },
+              {
+                "name": "method",
+                "type": "str"
+              },
+              {
+                "name": "status_code",
+                "type": "int"
+              },
+              {
+                "name": "response_ms",
+                "type": "int"
+              },
+              {
+                "name": "recorded_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Plan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "rate_limit_per_min",
+                "type": "int"
+              },
+              {
+                "name": "monthly_quota",
+                "type": "int"
+              },
+              {
+                "name": "price",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/api-products",
+          "/api-keys",
+          "/usage",
+          "/plans"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "api_management",
+          "rate_limiting"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_009",
+      "type": "app_description_to_domain_ir",
+      "input": "Survey and feedback platform with logic branching, NPS tracking, and report export",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Survey",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "active",
+                  "closed"
+                ]
+              },
+              {
+                "name": "created_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "Question",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "survey_id",
+                "type": "int",
+                "foreign_key": "Survey.id"
+              },
+              {
+                "name": "type",
+                "type": "enum",
+                "values": [
+                  "nps",
+                  "rating",
+                  "multiple_choice",
+                  "text",
+                  "matrix"
+                ]
+              },
+              {
+                "name": "text",
+                "type": "str"
+              },
+              {
+                "name": "options",
+                "type": "json"
+              },
+              {
+                "name": "required",
+                "type": "bool"
+              },
+              {
+                "name": "order_index",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Response",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "survey_id",
+                "type": "int",
+                "foreign_key": "Survey.id"
+              },
+              {
+                "name": "respondent_email",
+                "type": "str"
+              },
+              {
+                "name": "answers",
+                "type": "json"
+              },
+              {
+                "name": "submitted_at",
+                "type": "datetime"
+              },
+              {
+                "name": "ip_address",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "SurveyDistribution",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "survey_id",
+                "type": "int",
+                "foreign_key": "Survey.id"
+              },
+              {
+                "name": "method",
+                "type": "enum",
+                "values": [
+                  "email",
+                  "link",
+                  "embed"
+                ]
+              },
+              {
+                "name": "sent_count",
+                "type": "int"
+              },
+              {
+                "name": "open_count",
+                "type": "int"
+              },
+              {
+                "name": "complete_count",
+                "type": "int"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/surveys",
+          "/questions",
+          "/responses",
+          "/reports"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "surveys",
+          "nps"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_010",
+      "type": "app_description_to_domain_ir",
+      "input": "Revenue intelligence platform with deal forecasting, pipeline analytics, and quota tracking",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "SalesRep",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "quota",
+                "type": "decimal"
+              },
+              {
+                "name": "team_id",
+                "type": "int",
+                "foreign_key": "Team.id"
+              },
+              {
+                "name": "region",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Deal",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "rep_id",
+                "type": "int",
+                "foreign_key": "SalesRep.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "value",
+                "type": "decimal"
+              },
+              {
+                "name": "close_date",
+                "type": "datetime"
+              },
+              {
+                "name": "stage",
+                "type": "str"
+              },
+              {
+                "name": "probability",
+                "type": "int"
+              },
+              {
+                "name": "forecast_category",
+                "type": "enum",
+                "values": [
+                  "pipeline",
+                  "best_case",
+                  "commit",
+                  "closed"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "ForecastSubmission",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "rep_id",
+                "type": "int",
+                "foreign_key": "SalesRep.id"
+              },
+              {
+                "name": "period",
+                "type": "str"
+              },
+              {
+                "name": "commit_amount",
+                "type": "decimal"
+              },
+              {
+                "name": "best_case",
+                "type": "decimal"
+              },
+              {
+                "name": "submitted_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "QuotaAttainment",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "rep_id",
+                "type": "int",
+                "foreign_key": "SalesRep.id"
+              },
+              {
+                "name": "period",
+                "type": "str"
+              },
+              {
+                "name": "quota",
+                "type": "decimal"
+              },
+              {
+                "name": "achieved",
+                "type": "decimal"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/deals",
+          "/forecasts",
+          "/quotas",
+          "/reports/pipeline"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "forecasting",
+          "quota_tracking"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_011",
+      "type": "app_description_to_domain_ir",
+      "input": "Knowledge base and documentation platform with versioning and public/private spaces",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Space",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "is_public",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "Article",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "space_id",
+                "type": "int",
+                "foreign_key": "Space.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "author_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "published"
+                ]
+              },
+              {
+                "name": "version",
+                "type": "int"
+              },
+              {
+                "name": "parent_id",
+                "type": "int",
+                "foreign_key": "Article.id"
+              }
+            ]
+          },
+          {
+            "name": "ArticleVersion",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "article_id",
+                "type": "int",
+                "foreign_key": "Article.id"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "version",
+                "type": "int"
+              },
+              {
+                "name": "saved_by",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Feedback",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "article_id",
+                "type": "int",
+                "foreign_key": "Article.id"
+              },
+              {
+                "name": "helpful",
+                "type": "bool"
+              },
+              {
+                "name": "comment",
+                "type": "str"
+              },
+              {
+                "name": "created_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/spaces",
+          "/articles",
+          "/articles/{id}/versions",
+          "/search"
+        ],
+        "integrations": [],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "docs",
+          "versioning"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_012",
+      "type": "app_description_to_domain_ir",
+      "input": "Subscription billing platform with usage metering, invoicing, and dunning",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Plan",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "interval",
+                "type": "enum",
+                "values": [
+                  "monthly",
+                  "annual"
+                ]
+              },
+              {
+                "name": "base_price",
+                "type": "decimal"
+              },
+              {
+                "name": "features",
+                "type": "json"
+              }
+            ]
+          },
+          {
+            "name": "Subscription",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "plan_id",
+                "type": "int",
+                "foreign_key": "Plan.id"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "trialing",
+                  "active",
+                  "past_due",
+                  "cancelled"
+                ]
+              },
+              {
+                "name": "trial_ends",
+                "type": "datetime"
+              },
+              {
+                "name": "current_period_end",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "UsageMeter",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "subscription_id",
+                "type": "int",
+                "foreign_key": "Subscription.id"
+              },
+              {
+                "name": "metric",
+                "type": "str"
+              },
+              {
+                "name": "quantity",
+                "type": "decimal"
+              },
+              {
+                "name": "period",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "BillingInvoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "subscription_id",
+                "type": "int",
+                "foreign_key": "Subscription.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "open",
+                  "paid",
+                  "void"
+                ]
+              },
+              {
+                "name": "due_date",
+                "type": "datetime"
+              },
+              {
+                "name": "stripe_invoice_id",
+                "type": "str"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/plans",
+          "/subscriptions",
+          "/usage",
+          "/invoices"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "billing",
+          "usage_metering",
+          "dunning"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_013",
+      "type": "app_description_to_domain_ir",
+      "input": "Product feedback and roadmap tool with voting, status updates, and changelog",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Board",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "is_public",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "FeatureRequest",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "board_id",
+                "type": "int",
+                "foreign_key": "Board.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "under_review",
+                  "planned",
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              {
+                "name": "vote_count",
+                "type": "int"
+              },
+              {
+                "name": "author_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              }
+            ]
+          },
+          {
+            "name": "Vote",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "feature_id",
+                "type": "int",
+                "foreign_key": "FeatureRequest.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "voted_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "ChangelogEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "title",
+                "type": "str"
+              },
+              {
+                "name": "body",
+                "type": "str"
+              },
+              {
+                "name": "version",
+                "type": "str"
+              },
+              {
+                "name": "published_at",
+                "type": "datetime"
+              },
+              {
+                "name": "linked_features",
+                "type": "json"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/boards",
+          "/features",
+          "/votes",
+          "/changelog"
+        ],
+        "integrations": [
+          "sendgrid"
+        ],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "roadmap",
+          "voting"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_014",
+      "type": "app_description_to_domain_ir",
+      "input": "Affiliate management platform with link tracking, commission calculation, and payouts",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Affiliate",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "code",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "commission_pct",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "active",
+                  "suspended"
+                ]
+              },
+              {
+                "name": "balance",
+                "type": "decimal"
+              }
+            ]
+          },
+          {
+            "name": "AffiliateLink",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "affiliate_id",
+                "type": "int",
+                "foreign_key": "Affiliate.id"
+              },
+              {
+                "name": "url",
+                "type": "str"
+              },
+              {
+                "name": "slug",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "clicks",
+                "type": "int"
+              },
+              {
+                "name": "conversions",
+                "type": "int"
+              }
+            ]
+          },
+          {
+            "name": "Conversion",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "link_id",
+                "type": "int",
+                "foreign_key": "AffiliateLink.id"
+              },
+              {
+                "name": "order_id",
+                "type": "str"
+              },
+              {
+                "name": "order_value",
+                "type": "decimal"
+              },
+              {
+                "name": "commission",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "approved",
+                  "paid"
+                ]
+              },
+              {
+                "name": "converted_at",
+                "type": "datetime"
+              }
+            ]
+          },
+          {
+            "name": "Payout",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "affiliate_id",
+                "type": "int",
+                "foreign_key": "Affiliate.id"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "method",
+                "type": "enum",
+                "values": [
+                  "paypal",
+                  "bank_transfer"
+                ]
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "pending",
+                  "paid"
+                ]
+              },
+              {
+                "name": "paid_at",
+                "type": "datetime"
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/affiliates",
+          "/links",
+          "/conversions",
+          "/payouts"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "affiliate_tracking",
+          "commissions"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    },
+    {
+      "id": "saas_015",
+      "type": "app_description_to_domain_ir",
+      "input": "Time tracking and billing for professional services firms with project budgets",
+      "output": {
+        "domain": "saas",
+        "entities": [
+          {
+            "name": "Client",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "org_id",
+                "type": "int",
+                "foreign_key": "Org.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "email",
+                "type": "str",
+                "unique": true
+              },
+              {
+                "name": "billing_rate",
+                "type": "decimal"
+              },
+              {
+                "name": "currency",
+                "type": "str"
+              }
+            ]
+          },
+          {
+            "name": "Project",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "name",
+                "type": "str"
+              },
+              {
+                "name": "budget_hours",
+                "type": "decimal"
+              },
+              {
+                "name": "budget_amount",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "active",
+                  "on_hold",
+                  "complete"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "TimeEntry",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "project_id",
+                "type": "int",
+                "foreign_key": "Project.id"
+              },
+              {
+                "name": "user_id",
+                "type": "int",
+                "foreign_key": "User.id"
+              },
+              {
+                "name": "date",
+                "type": "datetime"
+              },
+              {
+                "name": "hours",
+                "type": "decimal"
+              },
+              {
+                "name": "description",
+                "type": "str",
+                "nullable": true
+              },
+              {
+                "name": "billable",
+                "type": "bool"
+              },
+              {
+                "name": "billed",
+                "type": "bool"
+              }
+            ]
+          },
+          {
+            "name": "Invoice",
+            "fields": [
+              {
+                "name": "id",
+                "type": "int",
+                "primary_key": true
+              },
+              {
+                "name": "client_id",
+                "type": "int",
+                "foreign_key": "Client.id"
+              },
+              {
+                "name": "period_start",
+                "type": "datetime"
+              },
+              {
+                "name": "period_end",
+                "type": "datetime"
+              },
+              {
+                "name": "hours",
+                "type": "decimal"
+              },
+              {
+                "name": "amount",
+                "type": "decimal"
+              },
+              {
+                "name": "status",
+                "type": "enum",
+                "values": [
+                  "draft",
+                  "sent",
+                  "paid"
+                ]
+              }
+            ]
+          }
+        ],
+        "api_endpoints": [
+          "/clients",
+          "/projects",
+          "/time-entries",
+          "/invoices"
+        ],
+        "integrations": [
+          "stripe"
+        ],
+        "features": [
+          "auth",
+          "multi_tenant",
+          "time_billing"
+        ]
+      },
+      "tags": [
+        "saas"
+      ],
+      "quality_score": 1.0
+    }
+  ]
+}

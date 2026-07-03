@@ -1,0 +1,1087 @@
+{
+  "domain": "cross_domain",
+  "version": "1.0",
+  "generated_at": "2026-07-03",
+  "examples": [
+    {
+      "id": "bug_001",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import with no known parent package",
+        "file": "routers/crud.py",
+        "bad_code": "from .models import User, Product"
+      },
+      "output": {
+        "fix": "from src.models import User, Product",
+        "explanation": "App runs with PYTHONPATH=/app. src is a top-level package, not a sub-package.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_002",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import",
+        "file": "routers/crud.py",
+        "bad_code": "from .schemas import UserCreate, UserOut"
+      },
+      "output": {
+        "fix": "from src.schemas import UserCreate, UserOut",
+        "explanation": "Use absolute imports everywhere. src/ is on PYTHONPATH.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_003",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "main.py",
+        "bad_code": "from .database import get_db, engine"
+      },
+      "output": {
+        "fix": "from src.database import get_db, engine",
+        "explanation": "main.py is loaded directly by uvicorn, relative imports have no parent.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_004",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import",
+        "file": "services.py",
+        "bad_code": "from ..models import Order\nfrom ..database import get_db"
+      },
+      "output": {
+        "fix": "from src.models import Order\nfrom src.database import get_db",
+        "explanation": "Never use .. \u2014 use absolute path from src root.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_005",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "routers/crud.py",
+        "bad_code": "from . import schemas"
+      },
+      "output": {
+        "fix": "from src import schemas",
+        "explanation": "Relative dot-import of a module \u2014 use absolute.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_006",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: no known parent package",
+        "file": "routers/crud.py",
+        "bad_code": "from..models import Product"
+      },
+      "output": {
+        "fix": "from src.models import Product",
+        "explanation": "Bedrock Nova variant: no space after from. Same fix.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_007",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ModuleNotFoundError",
+        "file": "routers/auth.py",
+        "bad_code": "from .models import User\nfrom .utils import hash_password"
+      },
+      "output": {
+        "fix": "from src.models import User\nfrom src.utils import hash_password",
+        "explanation": "Auth router uses relative imports. Fix all to absolute.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_008",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "seed.py",
+        "bad_code": "from .models import Base, User, Product"
+      },
+      "output": {
+        "fix": "from src.models import Base, User, Product",
+        "explanation": "Seed script must use absolute imports when run standalone.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_009",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "routers/crud.py",
+        "bad_code": "from .schemas import (ItemCreate, ItemUpdate, ItemOut)"
+      },
+      "output": {
+        "fix": "from src.schemas import (ItemCreate, ItemUpdate, ItemOut)",
+        "explanation": "Multi-line relative import \u2014 fix prefix.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_010",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "routers/items.py",
+        "bad_code": "from .crud import create_item, get_items"
+      },
+      "output": {
+        "fix": "from src.crud import create_item, get_items",
+        "explanation": "CRUD helper functions imported relatively.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_011",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "services.py",
+        "bad_code": "from .models import Category\nfrom .schemas import CategoryBase"
+      },
+      "output": {
+        "fix": "from src.models import Category\nfrom src.schemas import CategoryBase",
+        "explanation": "Service layer relative import.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_012",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "dependencies.py",
+        "bad_code": "from .models import User\nfrom .database import get_db"
+      },
+      "output": {
+        "fix": "from src.models import User\nfrom src.database import get_db",
+        "explanation": "FastAPI dependencies file with relative imports.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_013",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "routers/admin.py",
+        "bad_code": "from ..models import User, Role\nfrom ..auth import require_admin"
+      },
+      "output": {
+        "fix": "from src.models import User, Role\nfrom src.auth import require_admin",
+        "explanation": "Double-dot relative imports \u2014 replace with absolute.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_014",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "tasks.py",
+        "bad_code": "from .models import Task\nfrom .database import AsyncSession"
+      },
+      "output": {
+        "fix": "from src.models import Task\nfrom src.database import AsyncSession",
+        "explanation": "Background task file using relative imports.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_015",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError",
+        "file": "routers/crud.py",
+        "bad_code": "from .models import *"
+      },
+      "output": {
+        "fix": "from src.models import *",
+        "explanation": "Star import with relative prefix.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": [
+        "relative_import",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_016",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: object SQLAlchemy... is a coroutine",
+        "file": "routers/crud.py",
+        "bad_code": "result = db.execute(select(User))"
+      },
+      "output": {
+        "fix": "result = await db.execute(select(User))",
+        "explanation": "AsyncSession.execute() is a coroutine \u2014 must be awaited.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_017",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: coroutine was never awaited",
+        "file": "routers/crud.py",
+        "bad_code": "db.commit()"
+      },
+      "output": {
+        "fix": "await db.commit()",
+        "explanation": "commit() on AsyncSession must be awaited.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_018",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: coroutine",
+        "file": "routers/crud.py",
+        "bad_code": "db.refresh(obj)"
+      },
+      "output": {
+        "fix": "await db.refresh(obj)",
+        "explanation": "refresh() is async on AsyncSession.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_019",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: coroutine",
+        "file": "routers/crud.py",
+        "bad_code": "result = db.scalar(select(User).where(User.id==id))"
+      },
+      "output": {
+        "fix": "result = await db.scalar(select(User).where(User.id==id))",
+        "explanation": "scalar() must be awaited on async session.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_020",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: coroutine",
+        "file": "seed.py",
+        "bad_code": "db.execute(text('DELETE FROM users'))"
+      },
+      "output": {
+        "fix": "await db.execute(text('DELETE FROM users'))",
+        "explanation": "Async db.execute() in seed script must be awaited.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_021",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError",
+        "file": "routers/crud.py",
+        "bad_code": "rows = db.scalars(select(Product)).all()"
+      },
+      "output": {
+        "fix": "rows = (await db.scalars(select(Product))).all()",
+        "explanation": "scalars() is async \u2014 await before calling .all().",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_022",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: coroutine",
+        "file": "routers/crud.py",
+        "bad_code": "db.delete(obj)\ndb.commit()"
+      },
+      "output": {
+        "fix": "await db.delete(obj)\nawait db.commit()",
+        "explanation": "Both delete() and commit() need await on AsyncSession.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_023",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: coroutine",
+        "file": "routers/crud.py",
+        "bad_code": "db.add(new_user)\ndb.commit()\ndb.refresh(new_user)"
+      },
+      "output": {
+        "fix": "db.add(new_user)\nawait db.commit()\nawait db.refresh(new_user)",
+        "explanation": "add() is sync but commit() and refresh() are async.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_024",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError",
+        "file": "routers/crud.py",
+        "bad_code": "result = db.execute(update(Order).where(Order.id==id).values(status='paid'))"
+      },
+      "output": {
+        "fix": "result = await db.execute(update(Order).where(Order.id==id).values(status='paid'))",
+        "explanation": "UPDATE statement execute() must be awaited.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_025",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "RuntimeError: coroutine never awaited",
+        "file": "routers/crud.py",
+        "bad_code": "count = db.scalar(select(func.count()).select_from(User))"
+      },
+      "output": {
+        "fix": "count = await db.scalar(select(func.count()).select_from(User))",
+        "explanation": "Count query scalar() must be awaited.",
+        "bug_class": "MISSING_AWAIT"
+      },
+      "tags": [
+        "missing_await",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_026",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.IntegrityError: UNIQUE constraint failed: users.email",
+        "file": "seed.py",
+        "bad_code": "for i in range(20):\n    db.add(User(email='admin@example.com', name=f'User {i}'))"
+      },
+      "output": {
+        "fix": "for i in range(20):\n    db.add(User(email=f'user_{i+1}@example.com', name=f'User {i+1}'))",
+        "explanation": "Every seed row needs a unique email. Use f-string with index.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_027",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError: UNIQUE constraint failed: users.username",
+        "file": "seed.py",
+        "bad_code": "users = [User(username='admin') for _ in range(10)]"
+      },
+      "output": {
+        "fix": "users = [User(username=f'user_{i+1}') for i in range(10)]",
+        "explanation": "Username must be unique per row.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_028",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError: UNIQUE constraint failed: products.slug",
+        "file": "seed.py",
+        "bad_code": "products = [Product(slug='product-slug') for i in range(20)]"
+      },
+      "output": {
+        "fix": "products = [Product(slug=f'product-{i+1}') for i in range(20)]",
+        "explanation": "Slug must be unique \u2014 append index.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_029",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError UNIQUE: items.sku",
+        "file": "seed.py",
+        "bad_code": "items = [Item(sku='ITEM-001', name=f'Item {i}') for i in range(10)]"
+      },
+      "output": {
+        "fix": "items = [Item(sku=f'ITEM-{i+1:03d}', name=f'Item {i+1}') for i in range(10)]",
+        "explanation": "SKU must be unique across all seed items.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_030",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError: UNIQUE phone",
+        "file": "seed.py",
+        "bad_code": "contacts = [Contact(phone='+1555000001') for i in range(5)]"
+      },
+      "output": {
+        "fix": "contacts = [Contact(phone=f'+155500000{i+1}') for i in range(5)]",
+        "explanation": "Phone numbers must differ per seed record.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_031",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError UNIQUE: organizations.slug",
+        "file": "seed.py",
+        "bad_code": "orgs = [Org(slug='my-org') for _ in range(3)]"
+      },
+      "output": {
+        "fix": "orgs = [Org(slug=f'org-{i+1}') for i in range(3)]",
+        "explanation": "Org slug must be unique.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_032",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError UNIQUE: api_keys.key_hash",
+        "file": "seed.py",
+        "bad_code": "keys = [ApiKey(key_hash='abc123') for _ in range(5)]"
+      },
+      "output": {
+        "fix": "import secrets\nkeys = [ApiKey(key_hash=secrets.token_hex(32)) for _ in range(5)]",
+        "explanation": "Generate random unique tokens for API key seeds.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_033",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError UNIQUE: employees.employee_id",
+        "file": "seed.py",
+        "bad_code": "emps = [Employee(employee_id='EMP001') for _ in range(10)]"
+      },
+      "output": {
+        "fix": "emps = [Employee(employee_id=f'EMP{i+1:03d}') for i in range(10)]",
+        "explanation": "Employee ID must be unique \u2014 use formatted index.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_034",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError UNIQUE: invoices.number",
+        "file": "seed.py",
+        "bad_code": "invoices = [Invoice(number='INV-001') for _ in range(5)]"
+      },
+      "output": {
+        "fix": "invoices = [Invoice(number=f'INV-{i+1:04d}') for i in range(5)]",
+        "explanation": "Invoice number must be unique per record.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_035",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError UNIQUE: domains.domain_name",
+        "file": "seed.py",
+        "bad_code": "tenants = [Tenant(domain='example.com') for _ in range(3)]"
+      },
+      "output": {
+        "fix": "tenants = [Tenant(domain=f'tenant{i+1}.example.com') for i in range(3)]",
+        "explanation": "Each tenant needs a unique subdomain.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": [
+        "seed_uniqueness",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_036",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Endpoint accessible without authentication",
+        "file": "routers/crud.py",
+        "bad_code": "@router.delete('/{id}')\nasync def delete_item(id: int, db: AsyncSession = Depends(get_db)):\n    ..."
+      },
+      "output": {
+        "fix": "@router.delete('/{id}')\nasync def delete_item(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):\n    ...",
+        "explanation": "Delete endpoints must require authentication.",
+        "bug_class": "MISSING_AUTH"
+      },
+      "tags": [
+        "missing_auth",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_037",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "No auth on PUT endpoint",
+        "file": "routers/crud.py",
+        "bad_code": "@router.put('/{id}')\nasync def update_item(id: int, body: ItemUpdate, db=Depends(get_db)):"
+      },
+      "output": {
+        "fix": "@router.put('/{id}')\nasync def update_item(id: int, body: ItemUpdate, db=Depends(get_db), current_user=Depends(get_current_user)):",
+        "explanation": "Update endpoints need auth dependency.",
+        "bug_class": "MISSING_AUTH"
+      },
+      "tags": [
+        "missing_auth",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_038",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "POST endpoint missing auth",
+        "file": "routers/crud.py",
+        "bad_code": "@router.post('/')\nasync def create_item(body: ItemCreate, db=Depends(get_db)):"
+      },
+      "output": {
+        "fix": "@router.post('/')\nasync def create_item(body: ItemCreate, db=Depends(get_db), current_user=Depends(get_current_user)):",
+        "explanation": "Create endpoints must be authenticated.",
+        "bug_class": "MISSING_AUTH"
+      },
+      "tags": [
+        "missing_auth",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_039",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Admin endpoint unprotected",
+        "file": "routers/admin.py",
+        "bad_code": "@router.delete('/users/{id}')\nasync def admin_delete_user(id: int, db=Depends(get_db)):"
+      },
+      "output": {
+        "fix": "@router.delete('/users/{id}')\nasync def admin_delete_user(id: int, db=Depends(get_db), current_user=Depends(require_admin)):",
+        "explanation": "Admin endpoints need elevated auth check.",
+        "bug_class": "MISSING_AUTH"
+      },
+      "tags": [
+        "missing_auth",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_040",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Bulk operation unprotected",
+        "file": "routers/crud.py",
+        "bad_code": "@router.post('/bulk-delete')\nasync def bulk_delete(ids: list[int], db=Depends(get_db)):"
+      },
+      "output": {
+        "fix": "@router.post('/bulk-delete')\nasync def bulk_delete(ids: list[int], db=Depends(get_db), current_user=Depends(get_current_user)):",
+        "explanation": "Bulk destructive operations require auth.",
+        "bug_class": "MISSING_AUTH"
+      },
+      "tags": [
+        "missing_auth",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_041",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.ArgumentError: Could not determine join condition",
+        "file": "models.py",
+        "bad_code": "class Product:\n    id: int\n    name: str\n    price: float"
+      },
+      "output": {
+        "fix": "class Product(Base):\n    __tablename__ = 'products'\n    id = Column(Integer, primary_key=True)\n    name = Column(String(255), nullable=False)\n    price = Column(Numeric(10, 2), nullable=False)",
+        "explanation": "Use SQLAlchemy Column types not Python type hints for model fields.",
+        "bug_class": "SQLALCHEMY_TYPE"
+      },
+      "tags": [
+        "sqlalchemy_type",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_042",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ArgumentError: Mapper could not assemble",
+        "file": "models.py",
+        "bad_code": "class User(Base):\n    id = int\n    email = str\n    is_active = bool"
+      },
+      "output": {
+        "fix": "class User(Base):\n    __tablename__ = 'users'\n    id = Column(Integer, primary_key=True)\n    email = Column(String(255), unique=True, nullable=False)\n    is_active = Column(Boolean, default=True)",
+        "explanation": "Class attributes must be Column() instances.",
+        "bug_class": "SQLALCHEMY_TYPE"
+      },
+      "tags": [
+        "sqlalchemy_type",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_043",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: expected Column",
+        "file": "models.py",
+        "bad_code": "class Order(Base):\n    total = float\n    status = str"
+      },
+      "output": {
+        "fix": "class Order(Base):\n    __tablename__ = 'orders'\n    total = Column(Numeric(10, 2), nullable=False)\n    status = Column(String(50), default='pending')",
+        "explanation": "Use Numeric for money, String for status fields.",
+        "bug_class": "SQLALCHEMY_TYPE"
+      },
+      "tags": [
+        "sqlalchemy_type",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_044",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ProgrammingError: column type",
+        "file": "models.py",
+        "bad_code": "class Event(Base):\n    starts_at = datetime"
+      },
+      "output": {
+        "fix": "class Event(Base):\n    __tablename__ = 'events'\n    starts_at = Column(DateTime(timezone=True), nullable=False)",
+        "explanation": "datetime Python type \u2192 Column(DateTime(timezone=True)).",
+        "bug_class": "SQLALCHEMY_TYPE"
+      },
+      "tags": [
+        "sqlalchemy_type",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_045",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError",
+        "file": "models.py",
+        "bad_code": "class Tag(Base):\n    metadata = dict"
+      },
+      "output": {
+        "fix": "class Tag(Base):\n    __tablename__ = 'tags'\n    extra_data = Column(JSON, nullable=True)",
+        "explanation": "dict \u2192 Column(JSON). Also avoid 'metadata' as column name \u2014 it's reserved by SQLAlchemy.",
+        "bug_class": "SQLALCHEMY_TYPE"
+      },
+      "tags": [
+        "sqlalchemy_type",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_046",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "PydanticUserError: `validator` is removed in V2",
+        "file": "schemas.py",
+        "bad_code": "from pydantic import BaseModel, validator\nclass UserCreate(BaseModel):\n    @validator('email')\n    def email_must_be_lowercase(cls, v):\n        return v.lower()"
+      },
+      "output": {
+        "fix": "from pydantic import BaseModel, field_validator\nclass UserCreate(BaseModel):\n    @field_validator('email', mode='before')\n    @classmethod\n    def email_must_be_lowercase(cls, v):\n        return v.lower()",
+        "explanation": "Pydantic v2: @validator \u2192 @field_validator with mode='before' and @classmethod.",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": [
+        "pydantic_v2",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_047",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "PydanticUserError: `orm_mode` is removed",
+        "file": "schemas.py",
+        "bad_code": "class UserOut(BaseModel):\n    class Config:\n        orm_mode = True"
+      },
+      "output": {
+        "fix": "from pydantic import ConfigDict\nclass UserOut(BaseModel):\n    model_config = ConfigDict(from_attributes=True)",
+        "explanation": "Pydantic v2: Config.orm_mode \u2192 model_config = ConfigDict(from_attributes=True).",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": [
+        "pydantic_v2",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_048",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ValidationError: BaseModel.schema() removed",
+        "file": "schemas.py",
+        "bad_code": "schema = UserCreate.schema()"
+      },
+      "output": {
+        "fix": "schema = UserCreate.model_json_schema()",
+        "explanation": "Pydantic v2: .schema() \u2192 .model_json_schema().",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": [
+        "pydantic_v2",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_049",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: BaseModel.dict() removed",
+        "file": "routers/crud.py",
+        "bad_code": "data = user.dict()"
+      },
+      "output": {
+        "fix": "data = user.model_dump()",
+        "explanation": "Pydantic v2: .dict() \u2192 .model_dump().",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": [
+        "pydantic_v2",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_050",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "AttributeError: parse_obj",
+        "file": "routers/crud.py",
+        "bad_code": "user = UserOut.parse_obj(row.__dict__)"
+      },
+      "output": {
+        "fix": "user = UserOut.model_validate(row)",
+        "explanation": "Pydantic v2: .parse_obj() \u2192 .model_validate().",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": [
+        "pydantic_v2",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_051",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "PydanticUserError: root_validator removed",
+        "file": "schemas.py",
+        "bad_code": "from pydantic import root_validator\n@root_validator\ndef check_dates(cls, values):\n    return values"
+      },
+      "output": {
+        "fix": "from pydantic import model_validator\n@model_validator(mode='after')\ndef check_dates(self):\n    return self",
+        "explanation": "Pydantic v2: root_validator \u2192 @model_validator(mode='after').",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": [
+        "pydantic_v2",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_052",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS error: Credentials not allowed with wildcard origin",
+        "file": "main.py",
+        "bad_code": "app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True)"
+      },
+      "output": {
+        "fix": "app.add_middleware(CORSMiddleware, allow_origins=['https://yourapp.com'], allow_credentials=True)",
+        "explanation": "Browsers block credentials with allow_origins=['*']. List exact origins.",
+        "bug_class": "CORS_CREDENTIALS"
+      },
+      "tags": [
+        "cors_credentials",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_053",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Access-Control-Allow-Origin cannot be *",
+        "file": "main.py",
+        "bad_code": "CORSMiddleware(allow_origins=['*'], allow_credentials=True, allow_methods=['*'])"
+      },
+      "output": {
+        "fix": "CORSMiddleware(allow_origins=['https://app.example.com'], allow_credentials=True, allow_methods=['GET','POST','PUT','DELETE'])",
+        "explanation": "Specify exact origins and methods when allow_credentials=True.",
+        "bug_class": "CORS_CREDENTIALS"
+      },
+      "tags": [
+        "cors_credentials",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_054",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS blocked",
+        "file": "main.py",
+        "bad_code": "allow_origins=['*']\nallow_credentials=True"
+      },
+      "output": {
+        "fix": "# If you need wildcard, disable credentials:\nallow_origins=['*']\nallow_credentials=False\n# Or specify origins to keep credentials:\nallow_origins=['https://frontend.example.com']",
+        "explanation": "Choose: wildcard origins OR credentials, not both.",
+        "bug_class": "CORS_CREDENTIALS"
+      },
+      "tags": [
+        "cors_credentials",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_055",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Object not persisted after add()",
+        "file": "routers/crud.py",
+        "bad_code": "db.add(new_user)\nreturn new_user"
+      },
+      "output": {
+        "fix": "db.add(new_user)\nawait db.commit()\nawait db.refresh(new_user)\nreturn new_user",
+        "explanation": "Must commit and refresh to persist and get DB-generated fields.",
+        "bug_class": "MISSING_COMMIT"
+      },
+      "tags": [
+        "missing_commit",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_056",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Changes lost after session close",
+        "file": "routers/crud.py",
+        "bad_code": "obj.status = 'paid'\ndb.add(obj)"
+      },
+      "output": {
+        "fix": "obj.status = 'paid'\ndb.add(obj)\nawait db.commit()\nawait db.refresh(obj)",
+        "explanation": "Updates need commit() to be persisted to the database.",
+        "bug_class": "MISSING_COMMIT"
+      },
+      "tags": [
+        "missing_commit",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_057",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError on next request",
+        "file": "routers/crud.py",
+        "bad_code": "for item in items:\n    db.add(item)"
+      },
+      "output": {
+        "fix": "for item in items:\n    db.add(item)\nawait db.commit()",
+        "explanation": "Bulk adds need a single commit after the loop.",
+        "bug_class": "MISSING_COMMIT"
+      },
+      "tags": [
+        "missing_commit",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_058",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "APIRouter already included",
+        "file": "main.py",
+        "bad_code": "app.include_router(users_router, prefix='/api')\n# ... other code ...\napp.include_router(users_router, prefix='/api')"
+      },
+      "output": {
+        "fix": "# Include each router exactly once\napp.include_router(users_router, prefix='/api')",
+        "explanation": "Duplicate include_router causes duplicate routes and potential middleware issues.",
+        "bug_class": "DUPLICATE_ROUTER"
+      },
+      "tags": [
+        "duplicate_router",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_059",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Duplicate routes registered",
+        "file": "main.py",
+        "bad_code": "app.include_router(items_router)\napp.include_router(items_router)"
+      },
+      "output": {
+        "fix": "app.include_router(items_router)",
+        "explanation": "Search for all app.include_router() calls and ensure each router appears once.",
+        "bug_class": "DUPLICATE_ROUTER"
+      },
+      "tags": [
+        "duplicate_router",
+        "fastapi"
+      ]
+    },
+    {
+      "id": "bug_060",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "422 on second call only",
+        "file": "main.py",
+        "bad_code": "routers = [users_router, items_router, users_router]\nfor r in routers:\n    app.include_router(r)"
+      },
+      "output": {
+        "fix": "routers = [users_router, items_router]  # no duplicates\nfor r in routers:\n    app.include_router(r)",
+        "explanation": "Deduplicate the routers list before iterating.",
+        "bug_class": "DUPLICATE_ROUTER"
+      },
+      "tags": [
+        "duplicate_router",
+        "fastapi"
+      ]
+    }
+  ]
+}
