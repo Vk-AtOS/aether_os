@@ -6,10 +6,13 @@ When p07b_self_healing fixes a bug, this module:
 2. Generates a static validator function for that bug class
 3. Stores the validator in core/validators/auto_generated/ as a .py file
 4. Registers it in core/validators/registry.py so future runs check it pre-submission
+5. Persists a JSON summary of each generated validator to knowledge_graph/auto_validators.json
+   so load_validators() can reconstruct the catalogue on startup.
 """
 from __future__ import annotations
 
 import ast
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,6 +21,9 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Persistent store for validator metadata (not the source code — that's in auto_generated/)
+_VALIDATOR_STORE = Path(__file__).parent / "knowledge_graph" / "auto_validators.json"
 
 # Directory where auto-generated validators land, relative to this file's package root
 _VALIDATORS_DIR = Path(__file__).parent / "validators" / "auto_generated"
@@ -432,6 +438,52 @@ def save_validator(event: RepairEvent, validator_src: str) -> str:
     return str(file_path)
 
 
+def _save_validator_meta(event: RepairEvent, saved_path: str) -> None:
+    """Append new validator metadata to persistent JSON store.
+
+    Persists a compact record (no source code) so load_validators() can
+    reconstruct the catalogue on startup without scanning the filesystem.
+    """
+    try:
+        _VALIDATOR_STORE.parent.mkdir(parents=True, exist_ok=True)
+        existing: list = []
+        if _VALIDATOR_STORE.exists():
+            try:
+                existing = json.loads(_VALIDATOR_STORE.read_text())
+            except Exception as e:
+                logger.warning("repair_learning: corrupt auto_validators.json, resetting: %s", e)
+                existing = []
+        existing.append({
+            "bug_class": event.bug_class.value,
+            "domain": event.domain,
+            "entity": event.entity,
+            "file_path": event.file_path,
+            "fix_applied": event.fix_applied,
+            "validator_path": saved_path,
+            "timestamp": event.timestamp,
+        })
+        _VALIDATOR_STORE.write_text(json.dumps(existing, indent=2, default=str))
+    except Exception as e:
+        logger.warning("repair_learning: failed to persist validator metadata: %s", e)
+
+
+def load_validators() -> list[dict]:
+    """Load all auto-generated validator metadata from disk. Call on startup.
+
+    Returns a list of dicts, each describing one learned validator.
+    The list is informational — the actual .py validators live in auto_generated/.
+    """
+    try:
+        if _VALIDATOR_STORE.exists():
+            validators = json.loads(_VALIDATOR_STORE.read_text())
+            logger.info("repair_learning: loaded %d auto-validators from disk", len(validators))
+            return validators
+        return []
+    except Exception as e:
+        logger.warning("repair_learning: failed to load validators: %s", e)
+        return []
+
+
 def learn_from_repair(event: RepairEvent) -> Optional[str]:
     """Generate and save a static validator from a repair event.
 
@@ -443,6 +495,8 @@ def learn_from_repair(event: RepairEvent) -> Optional[str]:
     try:
         validator_src = generate_validator(event)
         saved_path = save_validator(event, validator_src)
+        # Persist metadata to disk so startup can log/surface the learned catalogue
+        _save_validator_meta(event, saved_path)
         logger.info(
             "[repair_learning] learned from repair: bug_class=%s domain=%s entity=%s → validator at %s",
             event.bug_class.value, event.domain, event.entity, saved_path,

@@ -201,6 +201,29 @@ class FrontendStageSupervisor(PhaseBase):
                 build_profile.get("architecture", "monolith"),
             )
 
+        # ── Record stage output for feedback tracker ──────────────────────────
+        try:
+            from aether_os.core.stage_feedback import record_stage_output
+            _run_id = str(getattr(phase_input, "project_id", "unknown"))
+            _fe_files: list[str] = []
+            if frontend_output_path:
+                _fe_p = Path(frontend_output_path)
+                if _fe_p.exists():
+                    _fe_files = [
+                        str(p) for p in _fe_p.rglob("*.tsx")
+                        if "node_modules" not in str(p)
+                    ][:50]  # cap at 50 to avoid huge payloads
+            _quality_scores = {
+                "p05_confidence": float(p05_result.confidence),
+                "sub_steps_run": float(len(all_results)),
+                "any_critical_fail": 1.0 if any(
+                    not r.success and not r.metadata.get("skipped") for r in all_results
+                ) else 0.0,
+            }
+            record_stage_output("s04_frontend", _run_id, _fe_files, _quality_scores)
+        except Exception as _fb_exc:
+            logger.warning("[s04] stage_feedback record failed (non-critical): %s", _fb_exc)
+
         # ── Merge metadata from all sub-steps ─────────────────────────────────
         merged_meta = _merge_metadata(all_results)
 

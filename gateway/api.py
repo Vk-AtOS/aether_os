@@ -213,6 +213,13 @@ def create_app() -> FastAPI:
         except Exception as _seed_exc:
             logger.warning("Seed: demo user creation skipped: %s", _seed_exc)
 
+        # Load auto-generated validators learned from past repairs
+        try:
+            from aether_os.core.repair_learning import load_validators
+            _validators = load_validators()  # loads from disk, logs count
+        except Exception as exc:
+            logger.warning("repair_learning: load_validators skipped: %s", exc)
+
         # Initialise LangSmith tracing (graceful degradation if key absent)
         try:
             from aether_os.core.telemetry.langsmith_tracer import init_langsmith
