@@ -300,6 +300,12 @@ async def run_pipeline_background(
     realtime_features: Optional[List[str]] = None,
     seed_vocabulary: Optional[Dict[str, Any]] = None,
     multi_tenancy: Optional[bool] = None,
+    # Interactive questionnaire fields
+    mode: str = "autonomous",
+    intake_answers: Optional[Dict[str, Any]] = None,
+    respondent_email: Optional[str] = None,
+    agency_name: Optional[str] = None,
+    agency_logo_url: Optional[str] = None,
 ) -> None:
     """Run factory pipeline with council pre-flight and post-build hooks."""
     # LLM Council pre-flight check (non-blocking)
@@ -366,6 +372,11 @@ async def run_pipeline_background(
             realtime_features=realtime_features,
             seed_vocabulary=seed_vocabulary,
             multi_tenancy=multi_tenancy,
+            mode=mode,
+            intake_answers=intake_answers,
+            respondent_email=respondent_email,
+            agency_name=agency_name,
+            agency_logo_url=agency_logo_url,
         )
     except Exception as exc:
         logger.error("Background factory run failed: %s", exc)
