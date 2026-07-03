@@ -479,6 +479,36 @@ export default function LandingPage() {{
 """
 
 
+# ── Premium UI component scaffold ────────────────────────────────────────────
+
+def write_ui_components(src_dir: "Path") -> None:  # type: ignore[name-defined]
+    """Write the full shadcn/ui-compatible component library to src/components/ui/.
+
+    Called from task_agent.py Phase 2b. Each component file is written only if it
+    does not already exist (via _write_with_guard) so incremental runs are idempotent.
+    """
+    from pathlib import Path as _Path
+    from aether_os.phases.p05_frontend.code_writer import (
+        generate_ui_button, generate_ui_input, generate_ui_card,
+        generate_ui_badge, generate_ui_skeleton, generate_ui_modal,
+        generate_ui_select, generate_ui_toast, generate_ui_tooltip,
+        generate_ui_table,
+    )
+    _ui_dir = _Path(src_dir) / "components" / "ui"
+    _ui_dir.mkdir(parents=True, exist_ok=True)
+    _write_with_guard(_ui_dir / "Button.tsx",  generate_ui_button())
+    _write_with_guard(_ui_dir / "Input.tsx",   generate_ui_input())
+    _write_with_guard(_ui_dir / "Card.tsx",    generate_ui_card())
+    _write_with_guard(_ui_dir / "Badge.tsx",   generate_ui_badge())
+    _write_with_guard(_ui_dir / "Skeleton.tsx",generate_ui_skeleton())
+    _write_with_guard(_ui_dir / "Modal.tsx",   generate_ui_modal())
+    _write_with_guard(_ui_dir / "Select.tsx",  generate_ui_select())
+    _write_with_guard(_ui_dir / "Toast.tsx",   generate_ui_toast())
+    _write_with_guard(_ui_dir / "Tooltip.tsx", generate_ui_tooltip())
+    _write_with_guard(_ui_dir / "Table.tsx",   generate_ui_table())
+    logger.info("p05: wrote 10 shadcn/ui-compatible components to %s", _ui_dir)
+
+
 # ── SSE / Realtime Hook Generation ───────────────────────────────────────────
 
 def _generate_sse_hook(features: List[Any], project_name: str) -> str:

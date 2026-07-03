@@ -69,6 +69,7 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_product_grid_page,
     generate_docker_compose,
     is_product_entity,
+    generate_lib_utils, generate_domain_dashboard, generate_mobile_first_layout,
 )
 from aether_os.phases.p05_frontend.preview import (
     take_preview_screenshot,
@@ -82,6 +83,7 @@ from aether_os.phases.p05_frontend.helpers import (
     _generate_customer_portal,
     _generate_landing_page,
     _generate_sse_hook,
+    write_ui_components,
 )
 from aether_os.phases.p05_frontend.governor_integration import run_frontend_governor
 
@@ -312,7 +314,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "lib").mkdir(parents=True, exist_ok=True)
     (src_dir / "types").mkdir(parents=True, exist_ok=True)
     (src_dir / "components").mkdir(parents=True, exist_ok=True)
+    (src_dir / "components" / "ui").mkdir(parents=True, exist_ok=True)
     (src_dir / "pages").mkdir(parents=True, exist_ok=True)
+    (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
 
     # ── Phase 1: Scaffolding (Static Files) ──
     logger.info("p05: Writing static scaffold files...")
@@ -341,7 +345,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Phase 2: Core Logic (Library & Types) ──
     _write_with_guard(src_dir / "lib" / "auth.ts", generate_auth_ts())
     _write_with_guard(src_dir / "lib" / "api.ts", generate_api(entities, route_map))
+    _write_with_guard(src_dir / "lib" / "utils.ts", generate_lib_utils())
     _write_with_guard(src_dir / "types" / "index.ts", generate_types(entities))
+
+    # ── Phase 2b: shadcn/ui-compatible component library ──
+    write_ui_components(src_dir)
 
     # ── Phase 3: Critical Skeleton (App.tsx) ──
     logger.info("p05: Writing App.tsx skeleton...")
@@ -385,7 +393,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _write_with_guard(src_dir / "components" / "AdminLayout.tsx", generate_admin_layout(entities, project_name))
         _write_with_guard(src_dir / "components" / "Layout.tsx", "export { AdminLayout as Layout } from './AdminLayout'\n")
     else:
-        _write_with_guard(src_dir / "components" / "Layout.tsx", generate_layout(entities, project_name, layout_mode=layout_mode))
+        # Use mobile-first layout (bottom tab bar on <768px) for admin/storefront modes
+        _layout_code = generate_mobile_first_layout(entities, project_name)
+        _write_with_guard(src_dir / "components" / "Layout.tsx", _layout_code)
 
     _write_with_guard(src_dir / "components" / "DataTable.tsx", generate_data_table())
     _write_with_guard(src_dir / "components" / "CrudModal.tsx", generate_crud_modal())
@@ -414,7 +424,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 _write_with_guard(src_dir / "pages" / f"{pascal_name}Page.tsx", _gen_ent_page(ir_entity))
         (src_dir / "types" / "index.ts").write_text(_gen_types(_domain_ir))
     else:
-        (src_dir / "pages" / "Dashboard.tsx").write_text(generate_dashboard(entities, route_map, domain, ui_theme))
+        # Use premium domain dashboard (Recharts + Framer Motion) for all non-IR paths
+        _dash_code = generate_domain_dashboard(domain, entities)
+        (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_code)
         _global_fk_refs: Dict[str, Dict[str, str]] = {}
         if _domain_ir:
             try:
