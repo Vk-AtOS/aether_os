@@ -2173,6 +2173,4667 @@
         "ecommerce"
       ],
       "quality_score": 1.0
+    },
+    {
+      "name": "CatalogStructure",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "catalog_level_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "catalog_level_number",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Catalogs",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "catalog_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "date_of_publication",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "catalog_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "CatalogContentsAdditionalAttributes",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "catalog_entry_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "attribute_value",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "CatalogContents",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "catalog_entry_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "catalog_entry_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Shop",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "address",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "open_year",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "HappyHour",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "address",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "num_of_staff",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "shop_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "order_details",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "OrderItems",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_quantity",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ProductsForHire",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_description",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ProductsBooked",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "booked_amount",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ViewProductAvailability",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "available_yn",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Company",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "company",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Sales_billion",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ActualOrders",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "actual_order_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order_status_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "inventory_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Manufacturer",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "open_year",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "num_of_shops",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "AllDocuments",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "date_stored",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Document_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ProductsInEvents",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Product_Name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Product_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "CustomerOrders",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "order_shipping_charges",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "customer_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order_status_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ProductSuppliers",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "total_amount_purchased",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "DepartmentStoreChain",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "dept_store_chain_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "dept_store_chain_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "DepartmentStores",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "dept_store_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "store_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "StoreDistrict",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "store_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "district_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Store",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "store_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "store_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "StoreProduct",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "store_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Product",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Stock",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Device_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Shop_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Stores",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Address_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Store_Name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "DramaWorkshopGroups",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Store_Phone",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Store_Email_Address",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Workshop_Group_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "RefProductCategories",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_category_description",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_category_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "ProductCharacteristics",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "characteristic_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Workshop",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Venue",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Sales",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "sales_details",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "sales_transaction_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Purchases",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "sales_details",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "purchase_details",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Shops",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Shop_Details",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Shop_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Shipments",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "shipment_tracking_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Hiring",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "shop_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Cartoon",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table104086175",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "bts_retail_price__regulated_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "tariff_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1087569411",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "publisher",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_no",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table112227443",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "catalog_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table116300086",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table120775401",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "import",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table121757551",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "result",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "theme",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table124513762",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table140351323",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table148356741",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "introductory_phrase",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table157961001",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "order__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "theme",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table159385431",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table197449153",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "public_vote",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table207262625",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directedby",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22268177",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table231806381",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "oricon_albums_chart",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "debut_sales__copies_",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table232899341",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table234831821",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table237994171",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24532435",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table246254671",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table262502181",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "episode",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table267022041",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__million_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table271159601",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2727728427",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "l2_cache",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order_part_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table277137211",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__millions_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table280140961",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table280199885",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "series__number",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table280896661",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28181645",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28181647",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table281948791",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table290549021",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__million_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table290870042",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table292730571",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table295699692",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "us_viewers__millions_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table297471783",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName30",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "model",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "total_production",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName49",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "sales__x1000_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_of_stores",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table100881011",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table116300088",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table123108141",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "order__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "original_artist",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table151851331",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table154720611",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1580882",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table16820266",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "market_value__billion_$_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "sales__billion_$_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table17739083",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "provider",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "resale",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "up__up_to_kbit_s_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table183351172",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18572161",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "top_speed",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "transmission",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table194227021",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table199299701",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table203605352",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "television_order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22213743",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table228356021",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table229485591",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_season",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2338301",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "horizontal_order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "channels",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table23519521",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "numbers",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table256624341",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table257405484",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table257506352",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table265615061",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table276155201",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "latency__microseconds_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table279883821",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_season",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table294360591",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table102694273",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "episode__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table107491432",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table108423441",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table109531972",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table109531973",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table109531974",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table109531977",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table109531976",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table112227442",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "catalog_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table116300087",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "series__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table116948321",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table119512372",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "musical_guest_and_song",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table120330131",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table120330133",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table121591152",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table122263903",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table12318924",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "broadcast_order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table131830763",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table148456401",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__millions_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table148899881",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table160103761",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "muzzle_velocity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "cartridge",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table163310252",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "dates__mdy_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "gross_sales",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table163845964",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "broadcast_order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table164321671",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table16565551",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "archbishop",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "ordained_bishop",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table165816953",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_airdate",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table165816954",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1663461",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "joined_opec",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production___bbl__day_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table170043673",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nightly_rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "episode_number_production_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table17069421",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "constructor",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "q1_order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1731031",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "max_pressure",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "cartridge",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table174674471",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table176249651",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table178272711",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "actor_required",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "actor_in_original_production",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table179212211",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "status_at_production",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "project",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18059191",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "standard_order",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "transcription__based_on_pinyin_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table182744251",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table183676942",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18547282",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table187342981",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18768252",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18768255",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18768257",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table189434441",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "samples_taken",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "product",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table190685661",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table192665571",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__millions_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table193962591",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table201244133",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table206132921",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table207262622",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "originalairdate",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table207262623",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "usviewers__million_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table207262624",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table211652551",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table211725391",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table213041551",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2130881",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "location_chernobyl_1_chernobyl_2_chernobyl_3_chernobyl_4_chernobyl_5_ignalina_1_ignalina_2_ignalina_3_kursk_1_kursk_2_kursk_3_kursk_4_kursk_5_kursk_6_leningrad_1_leningrad_2_leningrad_3_leningrad_4_smolensk_1_smolensk_2_smolensk_3_smolensk_4_directorate_for_construction_of_kostoma_npp__for_kostroma_1_and_2__table_31_technology_and_soviet_energy_availability___november_1981___ntis_order__numberpb82_133455__for_ignalina_4_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "net_capacity__mw_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table217267931",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table217815782",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "season_no",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table222618771",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "us_viewers__million_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22268172",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22268174",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table222681712",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22268178",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table222698391",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table223470905",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "us_viewers__million_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table223470906",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table224107801",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_stagemanager",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "male_rep",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table227365231",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "result",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "song_choice",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table232429332",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table232794341",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "season__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table232867221",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "season__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table237937701",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table238028221",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_receipts",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_or_shipments__$1",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "sales",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "establishments",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table240184303",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24090413",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24090415",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table242229294",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "episode_number_production_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table244259762",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24532433",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_season",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table246490821",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24770851",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "alpina_model",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table249386212",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table249386213",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table25017542",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_count",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "episode__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table253906942",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "writer",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table255482131",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table255485051",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table256040144",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2569183812",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "guest",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table257405482",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table258106563",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table258308342",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26030172",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "ba___running_bear",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "b___bishop",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26180611",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26181131",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table261991301",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table261987091",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__million_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2626784911",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "performance_order",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "artist",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table264093281",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table264295431",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__millions_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table264481793",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table264481792",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table265614981",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table267018611",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table268018211",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table268244841",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table268253491",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table268456681",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "us_viewers__millions_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table27018513",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table27018515",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table271166961",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2727728428",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "model_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order_part_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table273039753",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "catalog_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table276147071",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "week__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "theme",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "order__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table277160911",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table277550401",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_in_season",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table277762661",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "no_in_series",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table279323991",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "release_date",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "catalogue_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table279694324",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table279882811",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table279885591",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table280273071",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table281165281",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table281405901",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28181642",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table281961051",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table283487573",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table283487576",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table283584873",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table284663232",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table285820912",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table287878713",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table289672752",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "series__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table291528201",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "directed_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table292731821",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table292732431",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table293918881",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "season__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table295834411",
+      "domain": "ecommerce",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "written_by",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "production_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
     }
   ]
 }

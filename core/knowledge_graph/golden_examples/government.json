@@ -1282,6 +1282,6570 @@
         "government"
       ],
       "quality_score": 1.0
+    },
+    {
+      "name": "City",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Official_Name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Addresses",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "address_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Flight",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "flno",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "origin",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "destination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "AvailablePolicies",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "customer_phone",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "policy_type_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "CustomersPolicies",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "customer_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "policy_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Election",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Vote_Percent",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Classroom",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "building",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Policies",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "policy_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "customer_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Elimination",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Elimination_Move",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Cinema",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "LOCATION",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Constructors",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "constructorid",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Campuses",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "campus",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "CountyPublicSafety",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Host",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Age",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "County",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "County_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "CustomerPolicies",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "customer_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "policy_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Nomination",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Artwork_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Festival_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Airport",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "International_Passengers",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Domestic_Passengers",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "Airport_Name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "District",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "District_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_area",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "College",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "enr",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Branch",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "address_road",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "open_year",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "VotingRecord",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Secretary_Vote",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "ELECTION_CYCLE",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "HostingCity",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "host_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "YEAR",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Temperature",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Jan",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Driver",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "home_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "age",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Statements",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "STATEMENT_ID",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "statement_details",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Appellations",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "Area",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "County",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Airports",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Architect",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "gender",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Votes",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "vote_id",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "phone_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "AreaCodeState",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "area_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Professionals",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "role_code",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "street",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1001513216",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table10131293",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nhl_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table105860642",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "total",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table106018432",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table106441883",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_represented",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table11083946",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "staten_island",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "brooklyn",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table112081439",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "capacity",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table11338444",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "candidates_winning_candidate_in_bold",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state__linked_to_summaries_below_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table114562515",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "power_capacity__gw_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "number_of_generators",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table114979801",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "gvm__kg__technical_capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "model",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table116541691",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "area_in_1000km\u00b2__1930_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "voivodeship_separate_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table119007734",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "denomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "theme",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table11935681",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "electorate",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table119488571",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county_s__represented",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "member_senator",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table136257921",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "total__number",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table14044861",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "area__km_2__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table142531231",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "population__2010___rank_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table14278681",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "load_bearing_capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "scientific_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table145737704",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "fourth_place",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table147520493",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "change__2009_to_2010_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_tourist_arrivals__2011_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table147520491",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "international_tourist_arrivals__2011_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table147520495",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_tourist_arrivals__2011_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table155724431",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "district",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table157406664",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "current_streak",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "kansas_state_vs",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1582821",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "european_parliament_seats",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_affiliation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table159291563",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "mccain__percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table161861521",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_delegate",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "candidate",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table164256144",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "official__number",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "tf1__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1709692",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "status",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1712362",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1713612",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "status",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1716661",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "comparable_country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "national_share___percentage_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table174162211",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "largest_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "population__2013_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1765242",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "census_ranking",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table185639543",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "reason_for_change",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state__class_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table189873771",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table193122743",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table193291171",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "version",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1981752",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "residence_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "english_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table205732321",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "others_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table209630741",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table212694414",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "tournament_venue__city_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "regular_season_winner",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table217902031",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "year__ceremony_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2235511",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "athlete",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2235550",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "athlete",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table223570651",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "league",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table225826631",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "states_contested",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "party_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table226070621",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "ticket___office",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "secretary_of_state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table228495756",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "tournament_venue__city_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "conference",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table232148331",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "team_captain",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table243295208",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "borough",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "members",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "franchise_type",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2495122",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "a_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county_ies__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "place_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table25727881",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "milepost",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26790617",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nhl_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28405006",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "college_junior_club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28418652",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "district_home",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "congress",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28866173",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "college_junior_club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table290236802",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "company",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "date_of_election_commission",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table294744814",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "french_head_of_state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "head_of_mission",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table294836731",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "location___city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "institution",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table30059991",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "provider",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "destination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName9",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName74",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "pick",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName86",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "location",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName85",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "pick",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName91",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "voting_turnout",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "general_elections",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName44",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "bronze",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "silver",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName41",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "constituency",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "candidate",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "party",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName46",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "interview",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "swimsuit",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName73",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "closed",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName34",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "closed",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName24",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "pick",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "TableName81",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "result",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "score",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table10086531",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "country___exonym__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_or_native_language_s___alphabet_script_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table107335303",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_percentage_growth__2000_2008_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table109923",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city_district__stadtteil_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "foreign_nationals",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table121414961",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "inclination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "alt_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1234622",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_number_of_seats_won",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13565552",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "median_household_income",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table142092459",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "college_junior_club_team__league_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table14470851",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "number_of_households",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table156520271",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "extortion_theft_3",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "united_nations_mission",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1578261",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "municipality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table160660631",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city_1",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_2",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table175169671",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "swimsuit",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1765212",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "census_ranking",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table197656852",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "tournament",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table198469753",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city___town",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "principal",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table206843901",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "obama_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22312411",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "seat_no_4",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table228155682",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "unemployment_rate",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table228979671",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "audition_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "callback_venue",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table228974531",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "kr_narayanan__values_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "states",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24545891",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "last_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "home_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table252444121",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "renewable_electricity__gw",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table263873821",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "year_operational",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "location__county_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity__mw_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table265913093",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "first_broadcast_denmark___dr1__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_barb_ratings",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26790612",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28405001",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28405008",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28509121",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nhl_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table288848582",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table292022762",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "destination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "train_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2980417623",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "official_rating_16_39",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "share_16_39",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table299971123",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "international_use",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "flag_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table300834991",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "tournament",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1011961",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "english_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table102368304",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "actors_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table103218051",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1063672",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "general_election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "result",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_percentage_of_popular_vote",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table107989281",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table108745961",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table111291231",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "audition_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "callback_venue",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table111478521",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "owned_since",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_of_license_market",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table113030729",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1154528217",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "years_for_jazz",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1154528219",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table115452825",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "years_for_jazz",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table116087353",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_federal",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "property_taxes",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1180364820",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table11823145",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "percent__1990_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table120860157",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "year_s_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table12135116",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nhl_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table122519361",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "live_births_2006",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table122803961",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "isolation__km_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table123035631",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "winners",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table12313165",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table123035632",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "runners_up",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table123385951",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "interview",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table127918091",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "freight_carried_s_tonne",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "super_b_capacity_reached_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_citation_needed_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table128371",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "days_with_rain__year_summer_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_town",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13013737",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "australian_marquee",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_marquee",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13028861",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "kerry_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13044432",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "kerry_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13295322",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "date_of_election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "appointed_successor",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1349873",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_of_license",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "format",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13503502",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "per_capita_income",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table13530962",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "channel_tv___dt__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_of_license_market",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table137132061",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "club__city_town_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "w_l_d",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table137197881",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table138367047",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "transit_passengers",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_passengers",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table138342981",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table138367049",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "aircraft_movements",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_passengers",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table139988971",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "frequency_mhz",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_of_license",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table140031081",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table141151684",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "national_titles",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "school",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table14147431",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "fte_teachers",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "school_level",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table141585671",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "congress",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "member_elect",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table14166121",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "mean_elevation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "lowest_point",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table142453",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "population__1931__in_1",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "voivodeship_or_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1425731",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "channels",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "designation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1440751223",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table14586664",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "individual_winners",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table145989",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "females___percentage_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "india_state_ut",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table147859031",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "females_rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "states",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1493301",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "general_election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "votes_swing",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table150555946",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "states",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "fall_06",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table150597831",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "combination_classification",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "points_classification",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "winner",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table150885571",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "team_classification",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "combination_classification",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table151625031",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "result",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "viewers_selection",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1528342",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "province",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table153149011",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "condition_parameter",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "velocity_angle_\u03b7_in_i_radians",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table153290301",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "date_of_polls",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table155323422",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "swimsuit",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1562196516",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "school_club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table15695161",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "destination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "service_pattern",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table157406666",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "kansas_state_vs",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "last_meeting",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table15856092",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "date_of_designation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1604668929",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "bowl_game",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table16068241",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "pop_density_people_km_2",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "population__percentage_of_eu",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "member_state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table162552451",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table162788941",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "capital",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table164256143",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "english_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1649459910",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "school_club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table166421",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "islam",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "ethnicity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table16728042",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "region",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name_of_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1684821",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_percentage_of_popular_vote",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1709582",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "area_km_2",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table171561991",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table173502551",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table17545314",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "international_freight",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "domestic_mail",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table17628871",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1765292",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "status",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table178205564",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "e_greenberg",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table1782427",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "runner_up",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_destination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18027603",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state__class_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "date_of_successors_formal_installation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table181596011",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "charter_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table181628831",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "original_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18182541",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "population",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18257514",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "binibining_pilipinas_international",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "miss_universe_philippines",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table182991481",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "resolution",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table18475232",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "station",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_of_license__market",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table186007608",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "township",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table186380671",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "actor_actress",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table186667523",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "rider",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table189586481",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_and_district_of_columbia",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "overweight__incl_obese__adults",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table189947241",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "director_s_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table193337521",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "national_cup",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "championship",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table194571",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "villages",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state_region",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table195269111",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "arena__capacity_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "head_coach",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table196259761",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "result",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table19656504",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table19656509",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "college_junior_club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table19745453",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "baseball_stadium",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table200268491",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "network",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "destination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table200654251",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "termination_of_mission",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table20265481",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "explanation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "rank_by_time_in_office",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table202787162",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "obama__percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2038022",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county_councils___2011__",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "english_party_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table204047161",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "spanish_title",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table204536811",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "obama_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table205240901",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "mccain_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table205398261",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "mccain_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table206880301",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "obama_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table207999051",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "mccain_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table207995871",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "mccain_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table208660242",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "engine",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "model_designation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table208660243",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "engine",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "model_designation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table208660244",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "gvw__kg_ton_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "model_designation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table20939951",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "parking",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city__neighborhood",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "stations",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table210463993",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "walker__percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table21463642",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "second_place",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table21500681",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "satellite",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table21595063",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state__class_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "reason_for_change",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table216552901",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "year__ceremony_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table219269852",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_rank_by_revenue",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "known_for",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table220207241",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "director",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table220348531",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "language_s_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table220737451",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "languages",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "film_title_used_in_nomination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table220975889",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "spent_per_voter___php__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "amount_spent___php__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2235544",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "athlete",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2248403",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state__class_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "vacator",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22489912",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "world_rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2250993",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "successor",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state__class_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table226457145",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "tournament_venue__city_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "tournament_winner",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table22737381",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "type",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table227710483",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "extension",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_neighborhood",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table227710484",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "city_neighborhood",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "station",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2281556813",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "market_income_per_capita",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table228155683",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table229169795",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "_places",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "principal_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table231955",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "present_share",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "producing_nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table232484201",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_town",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table235128644",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "winning_party_coalition",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "election_year",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table237189056",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table239637811",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "athletica_career",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "minutes",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table239637813",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "minutes",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table24173083",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state__class_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "successor",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table242397482",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "exports__us$_mil_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table243295204",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "times_contested",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table244156272",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_served",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "time_since_entry",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2456500420",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "appearances\u00b9",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality\u00b2",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table245650047",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality\u00b2",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table246286832",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "method_of_elimination",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "time",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table247658152",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "competition",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "vote_percentage",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table248377501",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "turbine_manufacturer",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table250349832",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "day_power___w__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table252004619",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "population",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table25188504",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "prefecture",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city_town",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table252444122",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "total_electricity__gw",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "renewable_electricity_w_o_hydro__gw\u00b7h_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table254381105",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "road",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table255942711",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "race_number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table255948881",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "state_country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "skipper",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table25625727",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "urban_settlement",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city___municipality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table258207862",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "win_loss",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table258269547",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table25923081",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "denominations__gold_weight_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table259650033",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "conditions_of_access",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "access_using_a_croatian_identity_card",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "length_of_stay_permitted",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table263624721",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "election_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "left_office",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table266143655",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "galician___reintegrationist__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "galician___official__",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table266778361",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "place",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26769804",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "participating_parties",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "registered_voters",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table267906111",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nhl_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table26790619",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "pick__number",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table269809232",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table270031863",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "no_party_preference",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table272790501",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "poles",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "points",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table274558671",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "audition_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "episode_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table276154451",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "audition_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "episode_air_date",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table278714602",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "network",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "state_or_territory",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table279563",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "national_rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "percentage_change_yoy",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table280051602",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28011852",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "former_county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "district",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2832031",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "location",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "capacity",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table283672421",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "corporate_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "incorporation_date__city_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28405003",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nhl_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "position",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28509123",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "player",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table28509127",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "nationality",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "college_junior_club_team",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2862711",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "election",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_percentage_of_popular_vote",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table287936721",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "audition_city",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "venue",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table2947440711",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "major_users",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name__designation",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table294587355",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "colonel",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "county",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table295387351",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "tonnes_of_co2_saved",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "_percentage_electricity_reduction",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table297893",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "rank_2012",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "international_tourism_expenditure_2011",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table297891",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "international_tourist_arrivals__2012_",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "country",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table299422051",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "miss_international",
+          "type": "Integer",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "rank",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table3002831",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "official_name",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "name_in_basque",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
+    },
+    {
+      "name": "Table300184601",
+      "domain": "government",
+      "source": "sql-create-context",
+      "fields": [
+        {
+          "name": "manhunt_international",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        },
+        {
+          "name": "country_territory",
+          "type": "String",
+          "primary_key": false,
+          "foreign_key": false
+        }
+      ]
     }
   ]
 }
