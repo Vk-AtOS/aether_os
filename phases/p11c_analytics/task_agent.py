@@ -210,8 +210,8 @@ async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
             import posthog as _ph
             _ph.api_key = posthog_key
             _ph.capture(str(user_id or "anon"), event=event, properties=data)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("p11c_analytics: PostHog capture failed (non-critical): %s", e)
     return {"status": "ok"}
 
 
@@ -318,6 +318,7 @@ async def list_events(
                     content = content[:_end_nl + 1] + _middleware_snippet + content[_end_nl + 1:]
                     _main_py.write_text(content)
         except Exception as exc:
+            logger.warning("p11c_analytics: Analytics middleware injection failed: %s", exc)
             issues.append(f"Analytics middleware injection skipped: {exc}")
 
     return TaskResult(

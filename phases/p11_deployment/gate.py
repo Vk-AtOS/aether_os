@@ -65,6 +65,7 @@ def validate(result: TaskResult) -> GateOutcome:
         except ImportError:
             issues.append("aiohttp not installed — live smoke test skipped")
         except Exception as exc:
+            logger.warning("p11_deployment gate: smoke test error: %s", exc)
             issues.append(f"Smoke test error (non-fatal): {exc}")
 
     if url:

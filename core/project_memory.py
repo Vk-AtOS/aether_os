@@ -123,7 +123,8 @@ def read_memory(project_dir: Path) -> Optional[Dict[str, Any]]:
         return None
     try:
         return json.loads(mem_file.read_text())
-    except Exception:
+    except Exception as e:
+        logger.warning("read_memory failed for %s: %s", mem_file, e)
         return None
 
 

@@ -104,6 +104,7 @@ async def error_middleware(request: Request, call_next):
                         content = content[:_end_nl + 1] + _sentry_snippet + content[_end_nl + 1:]
                         _main_py.write_text(content)
         except Exception as exc:
+            logger.warning("p11b_error_tracking: Sentry injection failed: %s", exc)
             issues.append(f"Sentry injection skipped: {exc}")
 
     # PIPELINE-040: count files actually written instead of hardcoding

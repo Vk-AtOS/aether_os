@@ -303,6 +303,7 @@ class LocalSandboxBackend:
                     exit_code = proc.returncode
 
         except Exception as e:
+            logger.warning("LocalSandboxBackend.run execution failed: %s", e)
             error_msg = f"{type(e).__name__}: {e}"
 
         finished = datetime.now(timezone.utc)
@@ -500,6 +501,7 @@ class DeviceSandboxBackend:
                 sftp.close()
 
         except Exception as e:
+            logger.warning("DeviceSandboxBackend.run execution failed: %s", e)
             error_msg = f"{type(e).__name__}: {e}"
         finally:
             try:

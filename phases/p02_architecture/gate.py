@@ -57,6 +57,7 @@ class ArchitectureGate:
                 issues=issues
             )
         except Exception as e:
+            logger.warning("p02_architecture gate validation failed: %s", e)
             return GateOutcome(
                 passed=False,
                 confidence=0.0,

@@ -40,6 +40,7 @@ class FigmaConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected as {r.json().get('email')}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("FigmaConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_get_file(self, params: Dict[str, Any]) -> Dict:
@@ -88,6 +89,7 @@ class VercelConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected as {r.json().get('user', {}).get('email')}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("VercelConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_list_projects(self, params: Dict[str, Any]) -> List[Dict]:
@@ -127,6 +129,7 @@ class SentryConnector(BaseConnector):
                     return {"ok": True, "message": "Sentry connected"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("SentryConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_list_projects(self, params: Dict[str, Any]) -> List[Dict]:
@@ -170,6 +173,7 @@ class SupabaseConnector(BaseConnector):
                     return {"ok": True, "message": "Supabase connected"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("SupabaseConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     def generate_client_code(self, framework: str = "javascript") -> str:
@@ -203,6 +207,7 @@ class AWSConnector(BaseConnector):
         except ImportError:
             return {"ok": False, "message": "boto3 not installed"}
         except Exception as exc:
+            logger.warning("AWSConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
 
@@ -224,6 +229,7 @@ class StripeConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected to {r.json().get('display_name', 'Stripe')}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("StripeConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
 
@@ -241,6 +247,7 @@ class PlanetScaleConnector(BaseConnector):
                     return {"ok": True, "message": f"Connected to org {org}"}
                 return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
+            logger.warning("PlanetScaleConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
 

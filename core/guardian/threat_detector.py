@@ -60,7 +60,8 @@ async def _get_redis():
     try:
         from aether_os.core.rate_limiter import _get_async_redis
         return await _get_async_redis()
-    except Exception:
+    except Exception as e:
+        logger.debug("threat_detector: could not get Redis client: %s", e)
         return None
 
 
@@ -227,7 +228,8 @@ class ThreatDetector:
         else:
             try:
                 await r.ping()
-            except Exception:
+            except Exception as e:
+                logger.warning("threat_detector: Redis ping failed: %s", e)
                 events.append({
                     "event_type": "service_crash",
                     "severity": "high",
@@ -242,6 +244,7 @@ class ThreatDetector:
             async with sf() as sess:
                 await sess.execute(_t("SELECT 1"))
         except Exception as exc:
+            logger.warning("threat_detector: DB health check failed: %s", exc)
             events.append({
                 "event_type": "service_crash",
                 "severity": "critical",

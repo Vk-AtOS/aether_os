@@ -4,8 +4,11 @@ Builds minimal RAG context from CI failure and AST index.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Any, Union
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from aether_os.phases.p08_cicd.dfle.log_parser import ParsedLog, StackFrame
@@ -38,7 +41,8 @@ class ContextBuilder:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
             lines = text.splitlines()
-        except Exception:
+        except Exception as e:
+            logger.warning("p08_cicd context_builder: could not read %s: %s", path, e)
             return ""
 
         # Find the end of the function. We look for the next function/class start line

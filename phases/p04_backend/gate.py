@@ -106,7 +106,8 @@ def validate(result: TaskResult) -> GateOutcome:
             routes = json.loads(routes_file.read_text())
             if not routes:
                 route_issues.append("api_routes.json is empty — no routes were extracted from generated code")
-        except Exception:
+        except Exception as e:
+            logger.warning("p04_backend gate: api_routes.json parse error: %s", e)
             route_issues.append("api_routes.json is malformed JSON")
 
     all_issues = main_issues + route_issues

@@ -48,7 +48,8 @@ def is_real_app(path: Path) -> bool:
             and "@app." in content
             and content.count("@app.") >= 1   # at least one route (including /health)
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("p11_deployment helpers: _is_real_main_py failed for %s: %s", path, e)
         return False
 
 
@@ -248,6 +249,7 @@ async def deploy_to_aws_ecs(project_dir: Path, run_id: str) -> Dict[str, Any]:
             ),
         }
     except Exception as exc:
+        logger.warning("p11_deployment: deploy_to_aws_ecs failed: %s", exc)
         return {"aws_ecs": False, "reason": str(exc)}
 
 
@@ -313,6 +315,7 @@ async def deploy_to_railway(project_dir: Path, run_id: str) -> Dict[str, Any]:
             "reason": "Railway CLI not installed — install with: npm install -g @railway/cli",
         }
     except Exception as exc:
+        logger.warning("p11_deployment: deploy_to_railway failed: %s", exc)
         return {"railway": False, "reason": str(exc)}
 
 
@@ -337,6 +340,7 @@ async def docker_build(app_dir: Path, image_name: str) -> Dict[str, Any]:
     except FileNotFoundError:
         return {"success": False, "error": "Docker not found — is Docker installed?"}
     except Exception as exc:
+        logger.warning("p11_deployment: docker_build failed: %s", exc)
         return {"success": False, "error": str(exc)}
 
 
@@ -407,6 +411,7 @@ async def docker_run(
             "container_id": stdout.decode().strip()[:12],
         }
     except Exception as exc:
+        logger.warning("p11_deployment: docker_run failed: %s", exc)
         return {"success": False, "error": str(exc)}
 
 

@@ -176,7 +176,8 @@ def _load_tickets() -> None:
             data = json.loads(_TICKETS_FILE.read_text(encoding="utf-8"))
             _TICKETS = data.get("tickets", [])
             _ticket_id = max((t["id"] for t in _TICKETS), default=0)
-        except Exception:
+        except Exception as e:
+            logger.warning("p14_client_portal: _load_tickets failed: %s", e)
             _TICKETS, _ticket_id = [], 0
 
 
@@ -185,8 +186,8 @@ def _save_tickets() -> None:
         _TICKETS_FILE.write_text(
             json.dumps({"tickets": _TICKETS}, indent=2), encoding="utf-8"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("p14_client_portal: _save_tickets failed: %s", e)
 
 
 _load_tickets()

@@ -166,6 +166,7 @@ async def test_plugin_connection(
     except ConnectorError as exc:
         return {"ok": False, "message": str(exc)}
     except Exception as exc:
+        logger.warning("plugins_router: connector test failed for %s: %s", plugin_id, exc)
         return {"ok": False, "message": f"Unexpected error: {exc}"}
 
 

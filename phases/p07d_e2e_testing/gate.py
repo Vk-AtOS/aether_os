@@ -1,8 +1,11 @@
 """P07d Gate — validates E2E tests ran and critical user flows passed."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:
@@ -35,6 +38,7 @@ def validate(result: TaskResult) -> GateOutcome:
                 if pct > 0.5:
                     return GateOutcome(passed=False, confidence=0.2, issues=issues)
     except Exception as e:
+        logger.warning("p07d_e2e gate: could not parse E2E test results: %s", e)
         issues.append(f"Could not parse E2E test results: {e}")
 
     confidence = 0.9 if not issues else 0.55

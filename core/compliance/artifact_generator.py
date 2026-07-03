@@ -5,9 +5,12 @@ Wraps code_scanner + pdf_report for use by the API layer and phase pipeline.
 """
 from __future__ import annotations
 import json
+import logging
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,7 +48,8 @@ class ComplianceArtifactGenerator:
             pdf_out = main_py.parent.parent / "compliance_report.pdf"
             try:
                 actual_pdf = generate_pdf(result, pdf_out)
-            except Exception:
+            except Exception as e:
+                logger.warning("compliance PDF generation failed: %s", e)
                 actual_pdf = None
 
             return ComplianceArtifact(

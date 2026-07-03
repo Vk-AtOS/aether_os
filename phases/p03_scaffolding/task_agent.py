@@ -424,7 +424,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if isinstance(arch, str):
         try:
             arch = json.loads(arch)
-        except Exception:
+        except Exception as e:
+            logger.warning("p03: could not parse architecture_json: %s", e)
             arch = {}
 
     tech_stack = arch.get("tech_stack", {})
@@ -470,7 +471,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _syntax_errors: List[str] = []
     try:
         _llm = get_llm_client()
-    except Exception:
+    except Exception as e:
+        logger.warning("p03: could not get LLM client for syntax repair: %s", e)
         _llm = None
 
     for _py_file in project_dir.rglob("*.py"):

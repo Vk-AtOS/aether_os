@@ -182,6 +182,7 @@ class OfflineGuard:
                 # Good - we can't reach the internet
                 return True, "Network appears offline (cannot reach 8.8.8.8)"
         except Exception as e:
+            logger.warning("network_verify failed unexpectedly: %s", e)
             return True, f"Network verification inconclusive: {e}"
 
 

@@ -1,8 +1,11 @@
 """P01 Gate — validates that intake captured meaningful structured requirements."""
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:
@@ -34,6 +37,7 @@ def validate(result: TaskResult) -> GateOutcome:
                 intake_json.write_text(json.dumps(intake, indent=2))
                 issues.append("structured_requirements was empty — promoted raw_text as fallback")
         except Exception as exc:
+            logger.warning("p01 gate: could not validate intake.json: %s", exc)
             issues.append(f"Could not validate intake.json: {exc}")
 
     confidence = 0.75 if issues else 1.0

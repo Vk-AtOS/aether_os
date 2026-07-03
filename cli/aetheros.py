@@ -56,7 +56,8 @@ def _load_cfg() -> dict:
     if CONFIG_FILE.exists():
         try:
             return json.loads(CONFIG_FILE.read_text())
-        except Exception:
+        except Exception as e:
+            logger.warning("_load_cfg: could not parse config file: %s", e)
             return {}
     return {}
 
@@ -171,7 +172,8 @@ def whoami():
             f"Gateway: {cfg['url']}",
             title="Who am I", border_style="cyan"
         ))
-    except Exception:
+    except Exception as e:
+        logger.warning("whoami: could not fetch account usage: %s", e)
         console.print(f"Email: {cfg.get('email','—')}  Gateway: {cfg['url']}")
 
 
@@ -341,6 +343,7 @@ def logs(
     except KeyboardInterrupt:
         console.print("\n[dim]Stopped.[/dim]")
     except Exception as e:
+        logger.warning("stream_logs: stream error for run %s: %s", run_id, e)
         console.print(f"[red]Stream error:[/red] {e}")
         console.print(f"[dim]Try [bold]aether status {run_id}[/bold] for a snapshot.[/dim]")
 
@@ -364,6 +367,7 @@ def _do_watch(cfg: dict, run_id: str) -> None:
                 if st in ("completed", "failed", "interrupted"):
                     break
             except Exception as _e:
+                logger.warning("_do_watch: watch error for run %s: %s", run_id, _e)
                 console.print(f"[red]Watch error:[/red] {_e}")
                 break
             time.sleep(3)
@@ -425,6 +429,7 @@ def download(
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(res.content)
                 except Exception as e:
+                    logger.warning("download: could not download artifact %s: %s", fpath, e)
                     console.print(f"[red]  ✗ {fpath}:[/red] {e}")
             prog.advance(task)
     console.print(f"[green]Done.[/green] Artifacts saved to [bold]{out}[/bold]")

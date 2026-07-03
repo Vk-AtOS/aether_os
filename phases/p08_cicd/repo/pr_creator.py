@@ -6,10 +6,13 @@ Handles API interactions with GitHub and GitLab to propose repair patches.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 
@@ -54,6 +57,7 @@ class PRCreator:
             error_body = e.read().decode()
             return PRResult(success=False, error=f"GitHub API Error ({e.code}): {error_body}")
         except Exception as e:
+            logger.warning("pr_creator: create_github_pr failed: %s", e)
             return PRResult(success=False, error=str(e))
 
     def create_gitlab_mr(self, branch: str, title: str, body: str, base: str = "main") -> PRResult:
@@ -81,4 +85,5 @@ class PRCreator:
             error_body = e.read().decode()
             return PRResult(success=False, error=f"GitLab API Error ({e.code}): {error_body}")
         except Exception as e:
+            logger.warning("pr_creator: create_gitlab_mr failed: %s", e)
             return PRResult(success=False, error=str(e))

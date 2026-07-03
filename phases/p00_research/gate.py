@@ -50,4 +50,5 @@ def validate(result: TaskResult) -> GateOutcome:
             warnings.append("must_have_features empty — using defaults")
         return GateOutcome(passed=True, issues=warnings, confidence=0.7 if warnings else 1.0)
     except Exception as e:
+        logger.warning("p00_research gate validation error: %s", e)
         return GateOutcome(passed=False, issues=[f"Gate validation error: {e}"])

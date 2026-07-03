@@ -10,6 +10,7 @@ load_dotenv()
 
 import logging as _logging
 _logging.basicConfig(level=_logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
+logger = _logging.getLogger(__name__)
 
 import os
 import redis
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
         print("  ✓ Database: connected")
         db_ok = True
     except Exception as e:
+        logger.warning("dcsp main: DB connectivity check failed: %s", e)
         print(f"  ✗ Database: disconnected ({e})")
 
     # Check Bedrock connectivity
@@ -75,6 +77,7 @@ async def lifespan(app: FastAPI):
         model_id = os.environ.get("BEDROCK_MODEL_ID", "apac.anthropic.claude-3-5-sonnet-20241022-v2:0")
         print(f"  ✓ Bedrock: connected (model: {model_id})")
     except Exception as e:
+        logger.warning("dcsp main: Bedrock connectivity check failed: %s", e)
         print(f"  ⚠ Bedrock: error ({e})")
 
     # Check Notifications
@@ -95,6 +98,7 @@ async def lifespan(app: FastAPI):
     try:
         graph.load()
     except Exception as e:
+        logger.warning("dcsp main: could not load knowledge graph: %s", e)
         print(f"WARNING: Could not load knowledge graph: {e}")
 
     # Load GitHub App installations from DB into memory so they survive restarts.
@@ -122,6 +126,7 @@ async def lifespan(app: FastAPI):
         finally:
             _db.close()
     except Exception as e:
+        logger.warning("dcsp main: could not load GitHub installations from DB: %s", e)
         print(f"  ⚠ GitHub: could not load installations from DB: {e}")
 
     # Run database migration (create all tables)
@@ -133,6 +138,7 @@ async def lifespan(app: FastAPI):
             from src.db.user_repo import upsert_admin_users
             upsert_admin_users()
         except Exception as e:
+            logger.warning("dcsp main: could not seed admin users: %s", e)
             print(f"WARNING: Could not seed admin users: {e}")
 
         # Seed demo data in development mode
@@ -142,6 +148,7 @@ async def lifespan(app: FastAPI):
                 from scripts.seed_demo_data import seed_demo_data
                 seed_demo_data()
             except Exception as e:
+                logger.warning("dcsp main: could not seed demo data: %s", e)
                 print(f"WARNING: Could not seed demo data: {e}")
 
         # Load last 100 jobs into memory
@@ -185,6 +192,7 @@ async def lifespan(app: FastAPI):
             finally:
                 session.close()
     except Exception as e:
+        logger.warning("dcsp main: database initialization error: %s", e)
         print(f"WARNING: Database initialization error: {e}")
 
     yield
@@ -269,7 +277,8 @@ async def health_check():
         session.execute(text("SELECT 1"))
         session.close()
         db_status = "connected"
-    except Exception:
+    except Exception as e:
+        logger.warning("dcsp main health: DB check failed: %s", e)
         db_status = "disconnected"
 
     # Check Redis
@@ -278,7 +287,8 @@ async def health_check():
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
         r = redis.from_url(redis_url)
         r.ping()
-    except Exception:
+    except Exception as e:
+        logger.warning("dcsp main health: Redis check failed: %s", e)
         redis_status = "unavailable"
 
     # Check LLM providers via the fallback chain
@@ -297,8 +307,8 @@ async def health_check():
             bedrock.list_foundation_models()
             llm_status = "connected"
             llm_provider = "bedrock"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("dcsp main health: Bedrock check failed: %s", e)
 
     if llm_status != "connected" and os.environ.get("OPENROUTER_API_KEY"):
         llm_status = "connected"
@@ -310,8 +320,8 @@ async def health_check():
             if _Oc().is_available():
                 llm_status = "connected"
                 llm_provider = "ollama"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("dcsp main health: Ollama check failed: %s", e)
 
     # keep backward-compat key "bedrock" in response but add llm_provider
     bedrock_status = llm_status

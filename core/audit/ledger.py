@@ -231,7 +231,8 @@ def _safe_json(value: Optional[str]) -> Any:
         return {}
     try:
         return json.loads(value)
-    except Exception:
+    except Exception as e:
+        logger.warning("_safe_json could not decode value: %s", e)
         return value
 
 
@@ -247,6 +248,7 @@ def _run_async(coro) -> Any:
             try:
                 fut.set_result(await coro)
             except Exception as exc:
+                logger.debug("_run_async wrapper caught exception: %s", exc)
                 fut.set_exception(exc)
 
         asyncio.run_coroutine_threadsafe(_wrapper(), loop)

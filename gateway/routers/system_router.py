@@ -265,4 +265,5 @@ async def workloop_status(
         from aether_os.core.workloop_monitor import get_workloop_monitor
         return get_workloop_monitor().get_status()
     except Exception as exc:
+        logger.warning("system_router: workloop_status failed: %s", exc)
         return {"error": str(exc), "running": False}

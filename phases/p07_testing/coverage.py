@@ -21,12 +21,15 @@ Requirements:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import subprocess
 import time
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -79,14 +82,16 @@ class CoverageResult:
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
-    except Exception:
+    except Exception as e:
+        logger.debug("_safe_float could not convert %r: %s", value, e)
         return default
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
-    except Exception:
+    except Exception as e:
+        logger.debug("_safe_int could not convert %r: %s", value, e)
         return default
 
 
@@ -125,7 +130,8 @@ def _parse_coverage_json(path: str) -> Tuple[Optional[CoverageSummary], List[Fil
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except Exception as e:
+        logger.warning("_parse_coverage_json: could not read %s: %s", path, e)
         return None, []
 
     files_data = data.get("files") or {}
@@ -284,6 +290,7 @@ def run_coverage(
             error=error,
         )
     except Exception as e:
+        logger.warning("coverage: unexpected error while running tests: %s", e)
         error = f"Unexpected error while running tests under coverage: {e}"
         return CoverageResult(
             ok=False,
@@ -366,6 +373,7 @@ def run_coverage(
             error=error,
         )
     except Exception as e:
+        logger.warning("coverage: unexpected error while generating coverage JSON: %s", e)
         error = f"Unexpected error while generating coverage JSON: {e}"
         return CoverageResult(
             ok=False,

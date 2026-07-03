@@ -93,7 +93,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             )
             try:
                 review_json = _extract_json(review_raw)
-            except Exception:
+            except Exception as e:
+                logger.warning("p06: could not extract JSON from code review response: %s", e)
                 review_json = {"summary": review_raw[:500], "findings": [], "overall_score": 75}
 
             sub_dir = output_dir / "code_review"

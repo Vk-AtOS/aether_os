@@ -39,7 +39,8 @@ def _find_src_dir(data: dict) -> Optional[Path]:
 def _read_safe(path: Path, limit: int = 3000) -> str:
     try:
         return path.read_text(encoding="utf-8")[:limit]
-    except Exception:
+    except Exception as e:
+        logger.debug("p10_docs: could not read %s: %s", path, e)
         return ""
 
 
@@ -82,7 +83,8 @@ async def _generate_docs(
     if isinstance(arch_json, str):
         try:
             arch_json = json.loads(arch_json)
-        except Exception:
+        except Exception as e:
+            logger.warning("p10_docs: could not parse architecture JSON: %s", e)
             arch_json = {}
     entities = arch_json.get("entities", data.get("entities", []))
     entities_text = ", ".join(e.get("name", str(e)) for e in entities[:12]) if entities else models_text

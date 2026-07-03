@@ -122,6 +122,7 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                 if resp.status not in (200, 204):
                     warnings.append(f"GET /health → {resp.status}")
         except Exception as exc:
+            logger.warning("smoke_test: GET /health failed: %s", exc)
             warnings.append(f"GET /health unreachable: {exc}")
 
         # ── 2. Auth ───────────────────────────────────────────────────────────
@@ -140,7 +141,8 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                         token = body.get("access_token") or body.get("token")
                         if token:
                             break
-            except Exception:
+            except Exception as exc:
+                logger.debug("smoke_test: auth attempt to %s failed: %s", login_path, exc)
                 continue
 
         if not token:
@@ -180,7 +182,8 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                         if resp.status in (200, 401, 403):
                             list_route = route
                             break
-                except Exception:
+                except Exception as exc:
+                    logger.debug("smoke_test: list route probe failed for %s: %s", route, exc)
                     continue
 
             if list_route is None:
@@ -199,6 +202,7 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                     if resp.status not in (200, 204):
                         failures.append(f"GET {list_route} → {resp.status} (expected 200)")
             except Exception as exc:
+                logger.warning("smoke_test: GET %s failed: %s", list_route, exc)
                 failures.append(f"GET {list_route} → {exc}")
 
             # POST create
@@ -221,6 +225,7 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                         else:
                             failures.append(f"POST {list_route} → {resp.status} (expected 200/201)")
                 except Exception as exc:
+                    logger.warning("smoke_test: POST %s failed: %s", list_route, exc)
                     failures.append(f"POST {list_route} → {exc}")
 
             # GET single (only if create succeeded)
@@ -234,6 +239,7 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                         if resp.status != 200:
                             failures.append(f"GET {list_route}/{created_id} → {resp.status}")
                 except Exception as exc:
+                    logger.warning("smoke_test: GET %s/%s failed: %s", list_route, created_id, exc)
                     failures.append(f"GET {list_route}/{created_id} → {exc}")
 
     duration = round(time.time() - start_t, 2)
@@ -259,6 +265,8 @@ def run_smoke_sync(base_url: str, project_dir: Path) -> SmokeResult:
         try:
             return asyncio.run(run_smoke(base_url, project_dir))
         except Exception as exc:
+            logger.warning("smoke_test: run_smoke_sync asyncio.run failed: %s", exc)
             return SmokeResult(passed=False, failures=[f"Smoke runner error: {exc}"])
     except Exception as exc:
+        logger.warning("smoke_test: run_smoke_sync failed: %s", exc)
         return SmokeResult(passed=False, failures=[f"Smoke runner error: {exc}"])

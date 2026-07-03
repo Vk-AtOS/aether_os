@@ -334,6 +334,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
             "errors": [] if _health_ok else [f"/health returned {_r.status_code}: {_r.text[:200]}"],
         }
     except Exception as _pe:
+        logger.warning("p04a_backend_codegen: probe failed: %s", _pe)
         return {"passed": False, "skipped": False, "errors": [f"probe error: {_pe}"], "health_status": "error"}
     finally:
         if proc and proc.returncode is None:

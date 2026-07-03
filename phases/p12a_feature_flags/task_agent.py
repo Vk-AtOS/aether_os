@@ -56,7 +56,8 @@ def _load() -> None:
                     fcntl.flock(_f, fcntl.LOCK_UN)
         else:
             _FLAGS = json.loads(_FLAGS_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning("p12a_feature_flags: _load failed: %s", e)
         _FLAGS = {}
 
 
@@ -76,8 +77,8 @@ def _save() -> None:
                     fcntl.flock(_f, fcntl.LOCK_UN)
         else:
             _FLAGS_FILE.write_text(json.dumps(_FLAGS, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("p12a_feature_flags: _save failed: %s", e)
 
 
 # Load on import

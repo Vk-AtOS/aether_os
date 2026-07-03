@@ -93,7 +93,8 @@ async def get_event_history(run_id: str) -> List[dict]:
     try:
         items = await r.lrange(f"pipeline:history:{run_id}", 0, -1)
         return [json.loads(i) for i in items]
-    except Exception:
+    except Exception as e:
+        logger.warning("get_event_history Redis read failed, using local cache: %s", e)
         return [json.loads(i) for i in _local_history.get(run_id, [])]
 
 
@@ -117,7 +118,8 @@ async def get_control(run_id: str) -> str:
     try:
         val = await r.get(f"pipeline:control:{run_id}")
         return val or _local_control.get(run_id, "run")
-    except Exception:
+    except Exception as e:
+        logger.warning("get_control Redis read failed, using local dict: %s", e)
         return _local_control.get(run_id, "run")
 
 

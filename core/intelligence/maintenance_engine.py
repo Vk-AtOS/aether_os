@@ -94,6 +94,7 @@ class MaintenanceEngine:
                 "engine": "maintenance_engine",
             }
         except Exception as exc:
+            logger.warning("maintenance_engine.check_run_health failed: %s", exc)
             return {"healthy": False, "error": str(exc), "engine": "maintenance_engine"}
 
 

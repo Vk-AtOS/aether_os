@@ -377,7 +377,8 @@ async def _db_get_installed(org_id: str) -> List[InstalledPlugin]:
         for r in rows:
             try:
                 cfg = json.loads(r.config_json or "{}")
-            except Exception:
+            except Exception as e:
+                logger.warning("PluginRegistry: could not parse config_json for plugin %s: %s", r.plugin_id, e)
                 cfg = {}
             result.append(InstalledPlugin(
                 install_id=r.id, plugin_id=r.plugin_id, org_id=r.org_id,
@@ -432,7 +433,8 @@ async def _db_uninstall(plugin_id: str, org_id: str) -> bool:
             )
             await session.commit()
         return result.rowcount > 0
-    except Exception:
+    except Exception as e:
+        logger.warning("_db_uninstall failed for plugin %s org %s: %s", plugin_id, org_id, e)
         return False
 
 
@@ -451,7 +453,8 @@ async def _db_update_config(plugin_id: str, org_id: str, config: Dict[str, Any])
             )
             await session.commit()
         return result.rowcount > 0
-    except Exception:
+    except Exception as e:
+        logger.warning("_db_update_config failed for plugin %s org %s: %s", plugin_id, org_id, e)
         return False
 
 

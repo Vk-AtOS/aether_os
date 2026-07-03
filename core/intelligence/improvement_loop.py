@@ -66,6 +66,7 @@ class ImprovementLoop:
             result = await llm.call_json(prompt, task_type="documentation")
             return {**result, "engine": "improvement_loop"}
         except Exception as exc:
+            logger.warning("improvement_loop.generate_improvements failed: %s", exc)
             return {"improvements": [], "estimated_quality_gain": "unknown", "engine": "improvement_loop", "error": str(exc)}
 
     async def run_cycle(self, run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:

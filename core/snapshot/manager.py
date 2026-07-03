@@ -311,7 +311,8 @@ def list_snapshots(project_path: str) -> List[SnapshotInfo]:
         try:
             info = _load_snapshot_metadata(snap_root)
             infos.append(info)
-        except Exception:
+        except Exception as e:
+            logger.warning("snapshot: could not load metadata from %s: %s", snap_root, e)
             continue
 
     # Already sorted lexicographically by ID (which embeds timestamp)
@@ -331,7 +332,8 @@ def get_snapshot(project_path: str, snapshot_id: str) -> Optional[SnapshotInfo]:
         return None
     try:
         return _load_snapshot_metadata(snap_root)
-    except Exception:
+    except Exception as e:
+        logger.warning("get_snapshot: failed to load metadata for %s: %s", snapshot_id, e)
         return None
 
 
@@ -386,7 +388,8 @@ def compare_snapshot_to_workspace(
         try:
             snap_hash = _compute_file_hash(snap_file)
             ws_hash = _compute_file_hash(ws_file)
-        except Exception:
+        except Exception as e:
+            logger.warning("compare_snapshot: could not hash file %s: %s", rel, e)
             # If we can't read one of them, treat as modified
             modified.append(SnapshotDiffEntry(status="modified", path=rel))
             continue
