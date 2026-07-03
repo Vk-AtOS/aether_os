@@ -11,6 +11,7 @@ Public API
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -66,7 +67,6 @@ def check_entity_fk_ordering(entities: List[Dict]) -> List[str]:
             # Detect patterns: ForeignKey('tablename.id'), Integer FK, etc.
             if "foreignkey" in ftype or "foreign_key" in ftype:
                 # Extract table name from e.g. ForeignKey('orders.id')
-                import re
                 match = re.search(r"['\"]([a-z_]+)\.", ftype)
                 if match:
                     ref_table = match.group(1)
@@ -219,3 +219,81 @@ def run_pre_gen_checks(domain_ir: Dict) -> PreGenReport:
         logger.warning("[pre_gen_validator] warning: %s", w)
 
     return PreGenReport(passed=passed, errors=all_errors, warnings=all_warnings)
+
+
+# ── Relative import fixer ─────────────────────────────────────────────────────
+
+def fix_relative_imports(code: str, src_package: str = "src") -> str:
+    """Scan code for relative imports and rewrite them as absolute imports.
+
+    Relative imports (from . / from .. / from ...) break when the generated
+    app's src/ directory is loaded as a flat package by uvicorn.  This function
+    converts them to absolute imports using src_package as the root name.
+
+    Pattern fixes (in priority order):
+      from .models import X      → from models import X
+      from .schemas import X     → from schemas import X
+      from ..models import X     → from models import X
+      from . import models       → import models
+
+    The src_package parameter is accepted for forward-compatibility but the
+    generated apps always run with src/ on sys.path, so the absolute name is
+    just the bare module name (no package prefix).
+
+    Logs every substitution made so the operator can audit what was fixed.
+
+    Args:
+        code: Python source code string (may be multi-line).
+        src_package: Reserved — not used in rewrite; bare module names are correct.
+
+    Returns:
+        Fixed source code string.
+    """
+    lines = code.splitlines(keepends=True)
+    fixed_lines = []
+    for line in lines:
+        original = line
+
+        # Pattern 1: "from .module import X" or "from ..module import X"
+        # Captures: optional spaces, one or more dots, optional module name, import clause
+        m = re.match(r'^(\s*)from\s*\.+\s*(\w+)\s+import\s+(.+)$', line.rstrip('\n'))
+        if m:
+            indent, module, imports = m.group(1), m.group(2), m.group(3)
+            fixed = f"{indent}from {module} import {imports}\n"
+            if fixed != original:
+                logger.info(
+                    "[p04a] fix_relative_imports: %r → %r",
+                    original.rstrip('\n'), fixed.rstrip('\n'),
+                )
+                fixed_lines.append(fixed)
+                continue
+
+        # Pattern 2: "from . import module" (bare relative import of a module)
+        m2 = re.match(r'^(\s*)from\s*\.\s+import\s+(.+)$', line.rstrip('\n'))
+        if m2:
+            indent, imports = m2.group(1), m2.group(2)
+            fixed = f"{indent}import {imports}\n"
+            if fixed != original:
+                logger.info(
+                    "[p04a] fix_relative_imports: %r → %r",
+                    original.rstrip('\n'), fixed.rstrip('\n'),
+                )
+                fixed_lines.append(fixed)
+                continue
+
+        # Pattern 3: no-space variant "from..module import X" (Bedrock Nova style)
+        m3 = re.match(r'^(\s*)from\.+(\w+)\s+import\s+(.+)$', line.rstrip('\n'))
+        if m3:
+            indent, module, imports = m3.group(1), m3.group(2), m3.group(3)
+            fixed = f"{indent}from {module} import {imports}\n"
+            if fixed != original:
+                logger.info(
+                    "[p04a] fix_relative_imports: %r → %r",
+                    original.rstrip('\n'), fixed.rstrip('\n'),
+                )
+                fixed_lines.append(fixed)
+                continue
+
+        fixed_lines.append(line)
+
+    return "".join(fixed_lines)
