@@ -239,32 +239,68 @@ def _get_golden_examples_knowledge(domain: str, phase_name: str) -> list[RankedK
                 ))
 
         # Inject relevant bug fixes for code-generation phases
-        bug_file = _GOLDEN_EXAMPLES_DIR / "bug_fixes.json"
+        # Load from all known bug-fix corpus files
+        _BUGFIX_FILES = ["bug_fixes.json", "so_bugfix_examples.json"]
         _CODEGEN_PHASES = {"p04a", "p04b", "backend_codegen", "crud", "p04"}
-        if bug_file.exists() and phase_name in _CODEGEN_PHASES:
-            data = json.loads(bug_file.read_text())
-            priority_classes = {"RELATIVE_IMPORT", "SEED_UNIQUENESS", "MISSING_AWAIT"}
+        if phase_name in _CODEGEN_PHASES:
+            priority_classes = {"RELATIVE_IMPORT", "SEED_UNIQUENESS", "MISSING_AWAIT",
+                                 "ASYNC_SQLALCHEMY", "PYDANTIC_V2", "PYDANTIC_OPTIONAL",
+                                 "CORS_MISCONFIGURATION", "JWT_ERROR", "FASTAPI_DEPENDS",
+                                 "DETACHED_INSTANCE", "BACKGROUND_TASK_SESSION",
+                                 "N_PLUS_ONE_QUERY", "ALEMBIC_CONFLICT"}
             shown = 0
-            for fix in data.get("examples", []):
-                if shown >= 2:
-                    break
-                # bug_class lives in output.bug_class (original seed schema)
-                output = fix.get("output", {})
-                bug_class = output.get("bug_class", "")
-                if bug_class in priority_classes:
-                    error = fix.get("input", {}).get("error", "")
-                    fix_code = output.get("fix", "")
-                    explanation = output.get("explanation", "")
-                    content = f"[Known Fix – {bug_class}] Error: {error} → Fix: {fix_code}"
-                    if explanation:
-                        content += f" ({explanation})"
-                    items.append(RankedKnowledge(
-                        source="golden_examples_bugfix",
-                        content=content,
-                        weight=_W_KG_FIX,
-                        phase_relevance=0.85,
-                    ))
-                    shown += 1
+            for fname in _BUGFIX_FILES:
+                bug_file = _GOLDEN_EXAMPLES_DIR / fname
+                if not bug_file.exists() or shown >= 3:
+                    continue
+                try:
+                    data = json.loads(bug_file.read_text())
+                except Exception as exc:
+                    logger.warning("retrieval_ranker: failed to load %s: %s", fname, exc)
+                    continue
+                for fix in data.get("examples", []):
+                    if shown >= 3:
+                        break
+                    # bug_class lives in output.bug_class (original seed schema)
+                    output = fix.get("output", {})
+                    bug_class = output.get("bug_class", "")
+                    if bug_class in priority_classes:
+                        error = fix.get("input", {}).get("error", "")
+                        fix_code = output.get("fix", "")
+                        explanation = output.get("explanation", "")
+                        content = f"[Known Fix – {bug_class}] Error: {error} → Fix: {fix_code}"
+                        if explanation:
+                            content += f" ({explanation})"
+                        items.append(RankedKnowledge(
+                            source="golden_examples_bugfix",
+                            content=content,
+                            weight=_W_KG_FIX,
+                            phase_relevance=0.85,
+                        ))
+                        shown += 1
+
+        # Load GitHub entity patterns for relevant phases
+        _ENTITY_PHASES = {"p01", "p02", "p03", "p04a", "domain_ir", "entity_extraction"}
+        gh_file = _GOLDEN_EXAMPLES_DIR / "github_entity_patterns.json"
+        if gh_file.exists() and phase_name in _ENTITY_PHASES:
+            try:
+                gh_data = json.loads(gh_file.read_text())
+                gh_examples = [
+                    ex for ex in gh_data.get("examples", [])
+                    if ex.get("domain") == domain or domain == ""
+                ][:2]
+                for ex in gh_examples:
+                    entity_name = ex.get("input", {}).get("name", "")
+                    output_code = ex.get("output", "")
+                    if entity_name and output_code:
+                        items.append(RankedKnowledge(
+                            source="github_entity_patterns",
+                            content=f"[GitHub Pattern – {entity_name}]\n{output_code[:400]}",
+                            weight=_W_KG_PATTERN,
+                            phase_relevance=0.80,
+                        ))
+            except Exception as exc:
+                logger.warning("retrieval_ranker: github_entity_patterns load failed: %s", exc)
     except Exception as exc:
         logger.warning("retrieval_ranker: golden_examples load failed (non-fatal): %s", exc)
     return items

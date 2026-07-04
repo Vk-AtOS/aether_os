@@ -1,0 +1,863 @@
+{
+  "domain": "cross_domain",
+  "version": "1.0",
+  "generated_at": "2026-07-04",
+  "source": "synthetic_github_style_patterns",
+  "examples": [
+    {
+      "id": "gh_0001",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Product",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "name", "type": "string"},
+          {"name": "slug", "type": "string"},
+          {"name": "price", "type": "numeric"},
+          {"name": "stock_qty", "type": "integer"},
+          {"name": "category_id", "type": "integer", "foreign_key": "categories.id"},
+          {"name": "is_active", "type": "boolean"},
+          {"name": "created_at", "type": "datetime"}
+        ]
+      },
+      "output": "class Product(Base):\n    __tablename__ = 'products'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(255), nullable=False)\n    slug = Column(String(255), unique=True, nullable=False, index=True)\n    price = Column(Numeric(10, 2), nullable=False)\n    stock_qty = Column(Integer, default=0, nullable=False)\n    category_id = Column(Integer, ForeignKey('categories.id', ondelete='SET NULL'), nullable=True, index=True)\n    is_active = Column(Boolean, default=True, nullable=False)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    category = relationship('Category', back_populates='products')\n    order_items = relationship('OrderItem', back_populates='product')\n    reviews = relationship('Review', back_populates='product')"
+    },
+    {
+      "id": "gh_0002",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Cart",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "session_token", "type": "string"},
+          {"name": "expires_at", "type": "datetime"}
+        ]
+      },
+      "output": "class Cart(Base):\n    __tablename__ = 'carts'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)\n    session_token = Column(String(128), unique=True, nullable=True, index=True)\n    expires_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User', back_populates='cart')\n    items = relationship('CartItem', back_populates='cart', cascade='all, delete-orphan')"
+    },
+    {
+      "id": "gh_0003",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Order",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "order_number", "type": "string"},
+          {"name": "status", "type": "enum"},
+          {"name": "total_amount", "type": "numeric"},
+          {"name": "shipping_address_id", "type": "integer", "foreign_key": "addresses.id"}
+        ]
+      },
+      "output": "import enum\n\nclass OrderStatus(str, enum.Enum):\n    pending = 'pending'\n    confirmed = 'confirmed'\n    shipped = 'shipped'\n    delivered = 'delivered'\n    cancelled = 'cancelled'\n    refunded = 'refunded'\n\nclass Order(Base):\n    __tablename__ = 'orders'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)\n    order_number = Column(String(32), unique=True, nullable=False, index=True)\n    status = Column(Enum(OrderStatus), default=OrderStatus.pending, nullable=False, index=True)\n    total_amount = Column(Numeric(12, 2), nullable=False)\n    shipping_address_id = Column(Integer, ForeignKey('addresses.id'), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    updated_at = Column(DateTime(timezone=True), onupdate=func.now())\n    user = relationship('User', back_populates='orders')\n    items = relationship('OrderItem', back_populates='order', cascade='all, delete-orphan')"
+    },
+    {
+      "id": "gh_0004",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Review",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "product_id", "type": "integer", "foreign_key": "products.id"},
+          {"name": "rating", "type": "integer"},
+          {"name": "body", "type": "text"}
+        ]
+      },
+      "output": "class Review(Base):\n    __tablename__ = 'reviews'\n    __table_args__ = (\n        UniqueConstraint('user_id', 'product_id', name='uq_user_product_review'),\n        CheckConstraint('rating BETWEEN 1 AND 5', name='ck_review_rating'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'), nullable=False, index=True)\n    rating = Column(Integer, nullable=False)\n    body = Column(Text, nullable=True)\n    is_verified_purchase = Column(Boolean, default=False)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')\n    product = relationship('Product', back_populates='reviews')"
+    },
+    {
+      "id": "gh_0005",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Coupon",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "code", "type": "string"},
+          {"name": "discount_type", "type": "enum"},
+          {"name": "discount_value", "type": "numeric"},
+          {"name": "max_uses", "type": "integer"},
+          {"name": "expires_at", "type": "datetime"}
+        ]
+      },
+      "output": "class DiscountType(str, enum.Enum):\n    percentage = 'percentage'\n    fixed = 'fixed'\n\nclass Coupon(Base):\n    __tablename__ = 'coupons'\n    id = Column(Integer, primary_key=True, index=True)\n    code = Column(String(64), unique=True, nullable=False, index=True)\n    discount_type = Column(Enum(DiscountType), nullable=False)\n    discount_value = Column(Numeric(10, 2), nullable=False)\n    max_uses = Column(Integer, nullable=True)\n    use_count = Column(Integer, default=0, nullable=False)\n    min_order_amount = Column(Numeric(10, 2), nullable=True)\n    expires_at = Column(DateTime(timezone=True), nullable=True)\n    is_active = Column(Boolean, default=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "gh_0006",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Category",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "name", "type": "string"},
+          {"name": "slug", "type": "string"},
+          {"name": "parent_id", "type": "integer", "foreign_key": "categories.id"}
+        ]
+      },
+      "output": "class Category(Base):\n    __tablename__ = 'categories'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(128), nullable=False)\n    slug = Column(String(128), unique=True, nullable=False, index=True)\n    parent_id = Column(Integer, ForeignKey('categories.id'), nullable=True, index=True)\n    description = Column(Text, nullable=True)\n    image_url = Column(String(512), nullable=True)\n    sort_order = Column(Integer, default=0)\n    is_active = Column(Boolean, default=True)\n    parent = relationship('Category', remote_side='Category.id', back_populates='children')\n    children = relationship('Category', back_populates='parent')\n    products = relationship('Product', back_populates='category')"
+    },
+    {
+      "id": "gh_0007",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Address",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "line1", "type": "string"},
+          {"name": "city", "type": "string"},
+          {"name": "country_code", "type": "string"}
+        ]
+      },
+      "output": "class Address(Base):\n    __tablename__ = 'addresses'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    line1 = Column(String(255), nullable=False)\n    line2 = Column(String(255), nullable=True)\n    city = Column(String(128), nullable=False)\n    state = Column(String(128), nullable=True)\n    postal_code = Column(String(20), nullable=True)\n    country_code = Column(String(2), nullable=False)\n    is_default = Column(Boolean, default=False)\n    user = relationship('User', back_populates='addresses')"
+    },
+    {
+      "id": "gh_0008",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "OrderItem",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "order_id", "type": "integer", "foreign_key": "orders.id"},
+          {"name": "product_id", "type": "integer", "foreign_key": "products.id"},
+          {"name": "quantity", "type": "integer"},
+          {"name": "unit_price", "type": "numeric"}
+        ]
+      },
+      "output": "class OrderItem(Base):\n    __tablename__ = 'order_items'\n    id = Column(Integer, primary_key=True, index=True)\n    order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'), nullable=False, index=True)\n    product_id = Column(Integer, ForeignKey('products.id'), nullable=False, index=True)\n    quantity = Column(Integer, nullable=False)\n    unit_price = Column(Numeric(10, 2), nullable=False)\n    discount_amount = Column(Numeric(10, 2), default=0)\n    order = relationship('Order', back_populates='items')\n    product = relationship('Product', back_populates='order_items')"
+    },
+    {
+      "id": "gh_0009",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "Wishlist",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "product_id", "type": "integer", "foreign_key": "products.id"}
+        ]
+      },
+      "output": "class Wishlist(Base):\n    __tablename__ = 'wishlists'\n    __table_args__ = (\n        UniqueConstraint('user_id', 'product_id', name='uq_wishlist_user_product'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'), nullable=False, index=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')\n    product = relationship('Product')"
+    },
+    {
+      "id": "gh_0010",
+      "type": "entity_to_sqlalchemy",
+      "domain": "ecommerce",
+      "tags": ["model", "sqlalchemy", "fastapi", "ecommerce"],
+      "input": {
+        "name": "CartItem",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "cart_id", "type": "integer", "foreign_key": "carts.id"},
+          {"name": "product_id", "type": "integer", "foreign_key": "products.id"},
+          {"name": "quantity", "type": "integer"}
+        ]
+      },
+      "output": "class CartItem(Base):\n    __tablename__ = 'cart_items'\n    __table_args__ = (\n        UniqueConstraint('cart_id', 'product_id', name='uq_cart_product'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    cart_id = Column(Integer, ForeignKey('carts.id', ondelete='CASCADE'), nullable=False, index=True)\n    product_id = Column(Integer, ForeignKey('products.id'), nullable=False, index=True)\n    quantity = Column(Integer, default=1, nullable=False)\n    added_at = Column(DateTime(timezone=True), server_default=func.now())\n    cart = relationship('Cart', back_populates='items')\n    product = relationship('Product')"
+    },
+    {
+      "id": "gh_0011",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "Patient",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "date_of_birth", "type": "date"},
+          {"name": "blood_type", "type": "string"},
+          {"name": "mrn", "type": "string"}
+        ]
+      },
+      "output": "class Patient(Base):\n    __tablename__ = 'patients'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)\n    mrn = Column(String(32), unique=True, nullable=False, index=True)  # Medical Record Number\n    date_of_birth = Column(Date, nullable=False)\n    blood_type = Column(String(4), nullable=True)\n    gender = Column(String(16), nullable=True)\n    phone = Column(String(20), nullable=True)\n    emergency_contact_name = Column(String(128), nullable=True)\n    emergency_contact_phone = Column(String(20), nullable=True)\n    insurance_provider = Column(String(128), nullable=True)\n    insurance_id = Column(String(64), nullable=True)\n    user = relationship('User', back_populates='patient_profile')\n    appointments = relationship('Appointment', back_populates='patient')\n    medical_records = relationship('MedicalRecord', back_populates='patient')"
+    },
+    {
+      "id": "gh_0012",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "Appointment",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "patient_id", "type": "integer", "foreign_key": "patients.id"},
+          {"name": "doctor_id", "type": "integer", "foreign_key": "doctors.id"},
+          {"name": "scheduled_at", "type": "datetime"},
+          {"name": "status", "type": "enum"},
+          {"name": "appointment_type", "type": "string"}
+        ]
+      },
+      "output": "class AppointmentStatus(str, enum.Enum):\n    scheduled = 'scheduled'\n    confirmed = 'confirmed'\n    completed = 'completed'\n    cancelled = 'cancelled'\n    no_show = 'no_show'\n\nclass Appointment(Base):\n    __tablename__ = 'appointments'\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id', ondelete='CASCADE'), nullable=False, index=True)\n    doctor_id = Column(Integer, ForeignKey('doctors.id'), nullable=False, index=True)\n    scheduled_at = Column(DateTime(timezone=True), nullable=False, index=True)\n    duration_minutes = Column(Integer, default=30)\n    status = Column(Enum(AppointmentStatus), default=AppointmentStatus.scheduled, nullable=False)\n    appointment_type = Column(String(64), nullable=False)\n    reason = Column(Text, nullable=True)\n    notes = Column(Text, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    patient = relationship('Patient', back_populates='appointments')\n    doctor = relationship('Doctor', back_populates='appointments')"
+    },
+    {
+      "id": "gh_0013",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "Prescription",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "patient_id", "type": "integer", "foreign_key": "patients.id"},
+          {"name": "doctor_id", "type": "integer", "foreign_key": "doctors.id"},
+          {"name": "medication_name", "type": "string"},
+          {"name": "dosage", "type": "string"},
+          {"name": "prescribed_at", "type": "datetime"}
+        ]
+      },
+      "output": "class Prescription(Base):\n    __tablename__ = 'prescriptions'\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id'), nullable=False, index=True)\n    doctor_id = Column(Integer, ForeignKey('doctors.id'), nullable=False, index=True)\n    appointment_id = Column(Integer, ForeignKey('appointments.id'), nullable=True)\n    medication_name = Column(String(255), nullable=False)\n    dosage = Column(String(128), nullable=False)\n    frequency = Column(String(64), nullable=False)  # e.g. 'twice daily'\n    duration_days = Column(Integer, nullable=True)\n    refills_remaining = Column(Integer, default=0)\n    instructions = Column(Text, nullable=True)\n    prescribed_at = Column(DateTime(timezone=True), server_default=func.now())\n    expires_at = Column(DateTime(timezone=True), nullable=True)\n    patient = relationship('Patient')\n    doctor = relationship('Doctor')"
+    },
+    {
+      "id": "gh_0014",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "MedicalRecord",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "patient_id", "type": "integer", "foreign_key": "patients.id"},
+          {"name": "record_type", "type": "string"},
+          {"name": "diagnosis", "type": "text"},
+          {"name": "recorded_at", "type": "datetime"}
+        ]
+      },
+      "output": "class MedicalRecord(Base):\n    __tablename__ = 'medical_records'\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id', ondelete='CASCADE'), nullable=False, index=True)\n    doctor_id = Column(Integer, ForeignKey('doctors.id'), nullable=True)\n    appointment_id = Column(Integer, ForeignKey('appointments.id'), nullable=True)\n    record_type = Column(String(64), nullable=False, index=True)  # lab, imaging, consultation, etc.\n    diagnosis = Column(Text, nullable=True)\n    symptoms = Column(JSON, nullable=True)\n    vitals = Column(JSON, nullable=True)  # {bp, hr, temp, weight}\n    attachments = Column(JSON, nullable=True)  # file URLs\n    is_confidential = Column(Boolean, default=False)\n    recorded_at = Column(DateTime(timezone=True), server_default=func.now())\n    patient = relationship('Patient', back_populates='medical_records')"
+    },
+    {
+      "id": "gh_0015",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "Doctor",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "license_number", "type": "string"},
+          {"name": "specialty", "type": "string"},
+          {"name": "department_id", "type": "integer", "foreign_key": "departments.id"}
+        ]
+      },
+      "output": "class Doctor(Base):\n    __tablename__ = 'doctors'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)\n    license_number = Column(String(64), unique=True, nullable=False, index=True)\n    specialty = Column(String(128), nullable=False, index=True)\n    department_id = Column(Integer, ForeignKey('departments.id'), nullable=True)\n    years_experience = Column(Integer, nullable=True)\n    consultation_fee = Column(Numeric(10, 2), nullable=True)\n    bio = Column(Text, nullable=True)\n    is_available = Column(Boolean, default=True)\n    user = relationship('User')\n    appointments = relationship('Appointment', back_populates='doctor')"
+    },
+    {
+      "id": "gh_0016",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "LabResult",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "patient_id", "type": "integer", "foreign_key": "patients.id"},
+          {"name": "test_name", "type": "string"},
+          {"name": "result_value", "type": "string"},
+          {"name": "reference_range", "type": "string"}
+        ]
+      },
+      "output": "class LabResult(Base):\n    __tablename__ = 'lab_results'\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id', ondelete='CASCADE'), nullable=False, index=True)\n    ordered_by_id = Column(Integer, ForeignKey('doctors.id'), nullable=True)\n    test_name = Column(String(256), nullable=False)\n    test_code = Column(String(32), nullable=True, index=True)\n    result_value = Column(String(256), nullable=True)\n    reference_range = Column(String(128), nullable=True)\n    unit = Column(String(32), nullable=True)\n    is_abnormal = Column(Boolean, default=False, index=True)\n    collected_at = Column(DateTime(timezone=True), nullable=False)\n    resulted_at = Column(DateTime(timezone=True), nullable=True)\n    patient = relationship('Patient')"
+    },
+    {
+      "id": "gh_0017",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "InsuranceClaim",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "patient_id", "type": "integer", "foreign_key": "patients.id"},
+          {"name": "claim_number", "type": "string"},
+          {"name": "amount_claimed", "type": "numeric"},
+          {"name": "status", "type": "enum"}
+        ]
+      },
+      "output": "class ClaimStatus(str, enum.Enum):\n    submitted = 'submitted'\n    under_review = 'under_review'\n    approved = 'approved'\n    rejected = 'rejected'\n    paid = 'paid'\n\nclass InsuranceClaim(Base):\n    __tablename__ = 'insurance_claims'\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id'), nullable=False, index=True)\n    appointment_id = Column(Integer, ForeignKey('appointments.id'), nullable=True)\n    claim_number = Column(String(64), unique=True, nullable=False, index=True)\n    amount_claimed = Column(Numeric(12, 2), nullable=False)\n    amount_approved = Column(Numeric(12, 2), nullable=True)\n    status = Column(Enum(ClaimStatus), default=ClaimStatus.submitted, nullable=False)\n    submitted_at = Column(DateTime(timezone=True), server_default=func.now())\n    processed_at = Column(DateTime(timezone=True), nullable=True)\n    rejection_reason = Column(Text, nullable=True)"
+    },
+    {
+      "id": "gh_0018",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "Department",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "name", "type": "string"},
+          {"name": "head_doctor_id", "type": "integer", "foreign_key": "doctors.id"}
+        ]
+      },
+      "output": "class Department(Base):\n    __tablename__ = 'departments'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(128), unique=True, nullable=False)\n    code = Column(String(16), unique=True, nullable=False, index=True)\n    head_doctor_id = Column(Integer, ForeignKey('doctors.id'), nullable=True)\n    floor = Column(String(16), nullable=True)\n    phone_extension = Column(String(10), nullable=True)\n    is_active = Column(Boolean, default=True)\n    head_doctor = relationship('Doctor', foreign_keys=[head_doctor_id])\n    doctors = relationship('Doctor', back_populates='department_ref', foreign_keys='Doctor.department_id')"
+    },
+    {
+      "id": "gh_0019",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "VitalSign",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "patient_id", "type": "integer", "foreign_key": "patients.id"},
+          {"name": "systolic_bp", "type": "integer"},
+          {"name": "diastolic_bp", "type": "integer"},
+          {"name": "heart_rate", "type": "integer"},
+          {"name": "temperature", "type": "numeric"},
+          {"name": "recorded_at", "type": "datetime"}
+        ]
+      },
+      "output": "class VitalSign(Base):\n    __tablename__ = 'vital_signs'\n    id = Column(Integer, primary_key=True, index=True)\n    patient_id = Column(Integer, ForeignKey('patients.id', ondelete='CASCADE'), nullable=False, index=True)\n    appointment_id = Column(Integer, ForeignKey('appointments.id'), nullable=True)\n    systolic_bp = Column(Integer, nullable=True)\n    diastolic_bp = Column(Integer, nullable=True)\n    heart_rate = Column(Integer, nullable=True)\n    temperature = Column(Numeric(4, 1), nullable=True)\n    weight_kg = Column(Numeric(5, 1), nullable=True)\n    height_cm = Column(Numeric(5, 1), nullable=True)\n    oxygen_saturation = Column(Numeric(4, 1), nullable=True)\n    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)\n    patient = relationship('Patient')"
+    },
+    {
+      "id": "gh_0020",
+      "type": "entity_to_sqlalchemy",
+      "domain": "healthcare",
+      "tags": ["model", "sqlalchemy", "fastapi", "healthcare"],
+      "input": {
+        "name": "MedicalStaff",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "role", "type": "enum"},
+          {"name": "department_id", "type": "integer", "foreign_key": "departments.id"}
+        ]
+      },
+      "output": "class StaffRole(str, enum.Enum):\n    nurse = 'nurse'\n    technician = 'technician'\n    admin = 'admin'\n    pharmacist = 'pharmacist'\n    receptionist = 'receptionist'\n\nclass MedicalStaff(Base):\n    __tablename__ = 'medical_staff'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)\n    role = Column(Enum(StaffRole), nullable=False, index=True)\n    department_id = Column(Integer, ForeignKey('departments.id'), nullable=True)\n    employee_id = Column(String(32), unique=True, nullable=False)\n    hire_date = Column(Date, nullable=False)\n    is_active = Column(Boolean, default=True)\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0021",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "Account",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "account_number", "type": "string"},
+          {"name": "account_type", "type": "enum"},
+          {"name": "balance", "type": "numeric"},
+          {"name": "currency", "type": "string"}
+        ]
+      },
+      "output": "class AccountType(str, enum.Enum):\n    checking = 'checking'\n    savings = 'savings'\n    credit = 'credit'\n    investment = 'investment'\n\nclass Account(Base):\n    __tablename__ = 'accounts'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='RESTRICT'), nullable=False, index=True)\n    account_number = Column(String(32), unique=True, nullable=False, index=True)\n    account_type = Column(Enum(AccountType), nullable=False)\n    balance = Column(Numeric(18, 2), default=0, nullable=False)\n    available_balance = Column(Numeric(18, 2), default=0, nullable=False)\n    currency = Column(String(3), default='USD', nullable=False)\n    is_active = Column(Boolean, default=True)\n    opened_at = Column(DateTime(timezone=True), server_default=func.now())\n    closed_at = Column(DateTime(timezone=True), nullable=True)\n    user = relationship('User', back_populates='accounts')\n    transactions = relationship('Transaction', back_populates='account')"
+    },
+    {
+      "id": "gh_0022",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "Transaction",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "account_id", "type": "integer", "foreign_key": "accounts.id"},
+          {"name": "transaction_type", "type": "enum"},
+          {"name": "amount", "type": "numeric"},
+          {"name": "reference_id", "type": "string"}
+        ]
+      },
+      "output": "class TransactionType(str, enum.Enum):\n    debit = 'debit'\n    credit = 'credit'\n    transfer = 'transfer'\n    fee = 'fee'\n    refund = 'refund'\n\nclass Transaction(Base):\n    __tablename__ = 'transactions'\n    id = Column(Integer, primary_key=True, index=True)\n    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, index=True)\n    to_account_id = Column(Integer, ForeignKey('accounts.id'), nullable=True)\n    transaction_type = Column(Enum(TransactionType), nullable=False, index=True)\n    amount = Column(Numeric(18, 2), nullable=False)\n    balance_after = Column(Numeric(18, 2), nullable=False)\n    reference_id = Column(String(64), unique=True, nullable=False, index=True)\n    description = Column(String(512), nullable=True)\n    metadata_ = Column('metadata', JSON, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)\n    account = relationship('Account', back_populates='transactions', foreign_keys=[account_id])"
+    },
+    {
+      "id": "gh_0023",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "Invoice",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "invoice_number", "type": "string"},
+          {"name": "status", "type": "enum"},
+          {"name": "subtotal", "type": "numeric"},
+          {"name": "tax_amount", "type": "numeric"},
+          {"name": "due_date", "type": "date"}
+        ]
+      },
+      "output": "class InvoiceStatus(str, enum.Enum):\n    draft = 'draft'\n    sent = 'sent'\n    paid = 'paid'\n    overdue = 'overdue'\n    cancelled = 'cancelled'\n    void = 'void'\n\nclass Invoice(Base):\n    __tablename__ = 'invoices'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)\n    invoice_number = Column(String(32), unique=True, nullable=False, index=True)\n    status = Column(Enum(InvoiceStatus), default=InvoiceStatus.draft, nullable=False, index=True)\n    subtotal = Column(Numeric(12, 2), nullable=False)\n    tax_rate = Column(Numeric(5, 4), default=0)\n    tax_amount = Column(Numeric(12, 2), default=0)\n    total_amount = Column(Numeric(12, 2), nullable=False)\n    currency = Column(String(3), default='USD')\n    due_date = Column(Date, nullable=True)\n    paid_at = Column(DateTime(timezone=True), nullable=True)\n    notes = Column(Text, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')\n    line_items = relationship('InvoiceLineItem', back_populates='invoice', cascade='all, delete-orphan')"
+    },
+    {
+      "id": "gh_0024",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "PaymentMethod",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "method_type", "type": "enum"},
+          {"name": "last_four", "type": "string"},
+          {"name": "stripe_payment_method_id", "type": "string"}
+        ]
+      },
+      "output": "class PaymentMethodType(str, enum.Enum):\n    card = 'card'\n    bank_account = 'bank_account'\n    paypal = 'paypal'\n    crypto = 'crypto'\n\nclass PaymentMethod(Base):\n    __tablename__ = 'payment_methods'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    method_type = Column(Enum(PaymentMethodType), nullable=False)\n    stripe_payment_method_id = Column(String(128), unique=True, nullable=True, index=True)\n    last_four = Column(String(4), nullable=True)\n    brand = Column(String(32), nullable=True)  # visa, mastercard, etc.\n    exp_month = Column(Integer, nullable=True)\n    exp_year = Column(Integer, nullable=True)\n    billing_name = Column(String(128), nullable=True)\n    is_default = Column(Boolean, default=False)\n    is_active = Column(Boolean, default=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User', back_populates='payment_methods')"
+    },
+    {
+      "id": "gh_0025",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "Ledger",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "account_id", "type": "integer", "foreign_key": "accounts.id"},
+          {"name": "debit", "type": "numeric"},
+          {"name": "credit", "type": "numeric"},
+          {"name": "entry_date", "type": "date"}
+        ]
+      },
+      "output": "class Ledger(Base):\n    __tablename__ = 'ledger_entries'\n    id = Column(Integer, primary_key=True, index=True)\n    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, index=True)\n    transaction_id = Column(Integer, ForeignKey('transactions.id'), nullable=True)\n    debit = Column(Numeric(18, 2), default=0, nullable=False)\n    credit = Column(Numeric(18, 2), default=0, nullable=False)\n    running_balance = Column(Numeric(18, 2), nullable=False)\n    entry_date = Column(Date, nullable=False, index=True)\n    description = Column(String(512), nullable=True)\n    reference = Column(String(64), nullable=True, index=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    account = relationship('Account')"
+    },
+    {
+      "id": "gh_0026",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "KYCVerification",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "status", "type": "enum"},
+          {"name": "document_type", "type": "string"},
+          {"name": "verified_at", "type": "datetime"}
+        ]
+      },
+      "output": "class KYCStatus(str, enum.Enum):\n    pending = 'pending'\n    under_review = 'under_review'\n    approved = 'approved'\n    rejected = 'rejected'\n    expired = 'expired'\n\nclass KYCVerification(Base):\n    __tablename__ = 'kyc_verifications'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    status = Column(Enum(KYCStatus), default=KYCStatus.pending, nullable=False, index=True)\n    document_type = Column(String(64), nullable=False)\n    document_url = Column(String(512), nullable=True)\n    selfie_url = Column(String(512), nullable=True)\n    rejection_reason = Column(Text, nullable=True)\n    verified_at = Column(DateTime(timezone=True), nullable=True)\n    expires_at = Column(DateTime(timezone=True), nullable=True)\n    submitted_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0027",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "Wallet",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "balance", "type": "numeric"},
+          {"name": "currency", "type": "string"},
+          {"name": "wallet_address", "type": "string"}
+        ]
+      },
+      "output": "class Wallet(Base):\n    __tablename__ = 'wallets'\n    __table_args__ = (\n        UniqueConstraint('user_id', 'currency', name='uq_user_currency_wallet'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    balance = Column(Numeric(18, 8), default=0, nullable=False)  # 8 decimals for crypto\n    currency = Column(String(10), nullable=False)\n    wallet_address = Column(String(128), unique=True, nullable=True)\n    is_locked = Column(Boolean, default=False)\n    locked_reason = Column(String(256), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User', back_populates='wallets')"
+    },
+    {
+      "id": "gh_0028",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "BankAccount",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "routing_number", "type": "string"},
+          {"name": "account_number_masked", "type": "string"},
+          {"name": "bank_name", "type": "string"}
+        ]
+      },
+      "output": "class BankAccount(Base):\n    __tablename__ = 'bank_accounts'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    stripe_bank_account_id = Column(String(128), unique=True, nullable=True)\n    routing_number = Column(String(9), nullable=False)\n    account_number_masked = Column(String(8), nullable=False)  # last 4 digits only\n    bank_name = Column(String(128), nullable=True)\n    account_type = Column(String(16), default='checking')\n    is_verified = Column(Boolean, default=False)\n    is_default = Column(Boolean, default=False)\n    verified_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0029",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "FraudAlert",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "account_id", "type": "integer", "foreign_key": "accounts.id"},
+          {"name": "alert_type", "type": "string"},
+          {"name": "risk_score", "type": "numeric"},
+          {"name": "is_resolved", "type": "boolean"}
+        ]
+      },
+      "output": "class FraudAlert(Base):\n    __tablename__ = 'fraud_alerts'\n    id = Column(Integer, primary_key=True, index=True)\n    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, index=True)\n    transaction_id = Column(Integer, ForeignKey('transactions.id'), nullable=True)\n    alert_type = Column(String(64), nullable=False, index=True)\n    risk_score = Column(Numeric(5, 2), nullable=False)  # 0.00-100.00\n    details = Column(JSON, nullable=True)\n    is_resolved = Column(Boolean, default=False, index=True)\n    resolved_at = Column(DateTime(timezone=True), nullable=True)\n    resolved_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    account = relationship('Account')"
+    },
+    {
+      "id": "gh_0030",
+      "type": "entity_to_sqlalchemy",
+      "domain": "fintech",
+      "tags": ["model", "sqlalchemy", "fastapi", "fintech"],
+      "input": {
+        "name": "ExchangeRate",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "from_currency", "type": "string"},
+          {"name": "to_currency", "type": "string"},
+          {"name": "rate", "type": "numeric"},
+          {"name": "effective_at", "type": "datetime"}
+        ]
+      },
+      "output": "class ExchangeRate(Base):\n    __tablename__ = 'exchange_rates'\n    __table_args__ = (\n        Index('ix_exchange_rates_pair_date', 'from_currency', 'to_currency', 'effective_at'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    from_currency = Column(String(3), nullable=False)\n    to_currency = Column(String(3), nullable=False)\n    rate = Column(Numeric(18, 8), nullable=False)\n    source = Column(String(32), nullable=True)  # e.g. 'ecb', 'openexchangerates'\n    effective_at = Column(DateTime(timezone=True), nullable=False, index=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "gh_0031",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "Organization",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "name", "type": "string"},
+          {"name": "slug", "type": "string"},
+          {"name": "plan_id", "type": "integer", "foreign_key": "plans.id"}
+        ]
+      },
+      "output": "class Organization(Base):\n    __tablename__ = 'organizations'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(256), nullable=False)\n    slug = Column(String(128), unique=True, nullable=False, index=True)\n    plan_id = Column(Integer, ForeignKey('plans.id'), nullable=True)\n    stripe_customer_id = Column(String(128), unique=True, nullable=True)\n    logo_url = Column(String(512), nullable=True)\n    domain = Column(String(256), nullable=True, unique=True)  # custom domain\n    settings = Column(JSON, nullable=True, default=dict)\n    trial_ends_at = Column(DateTime(timezone=True), nullable=True)\n    is_active = Column(Boolean, default=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    plan = relationship('Plan')\n    members = relationship('Membership', back_populates='organization')"
+    },
+    {
+      "id": "gh_0032",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "Subscription",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "plan_id", "type": "integer", "foreign_key": "plans.id"},
+          {"name": "status", "type": "enum"},
+          {"name": "current_period_end", "type": "datetime"}
+        ]
+      },
+      "output": "class SubscriptionStatus(str, enum.Enum):\n    trialing = 'trialing'\n    active = 'active'\n    past_due = 'past_due'\n    cancelled = 'cancelled'\n    paused = 'paused'\n    unpaid = 'unpaid'\n\nclass Subscription(Base):\n    __tablename__ = 'subscriptions'\n    id = Column(Integer, primary_key=True, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, unique=True)\n    plan_id = Column(Integer, ForeignKey('plans.id'), nullable=False)\n    stripe_subscription_id = Column(String(128), unique=True, nullable=True)\n    status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.trialing, nullable=False, index=True)\n    current_period_start = Column(DateTime(timezone=True), nullable=True)\n    current_period_end = Column(DateTime(timezone=True), nullable=True, index=True)\n    cancel_at_period_end = Column(Boolean, default=False)\n    cancelled_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    organization = relationship('Organization')\n    plan = relationship('Plan')"
+    },
+    {
+      "id": "gh_0033",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "ApiKey",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "name", "type": "string"},
+          {"name": "key_hash", "type": "string"},
+          {"name": "last_used_at", "type": "datetime"}
+        ]
+      },
+      "output": "class ApiKey(Base):\n    __tablename__ = 'api_keys'\n    id = Column(Integer, primary_key=True, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, index=True)\n    created_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)\n    name = Column(String(128), nullable=False)\n    key_prefix = Column(String(8), nullable=False)  # first 8 chars shown to user\n    key_hash = Column(String(64), unique=True, nullable=False, index=True)  # SHA-256\n    scopes = Column(JSON, nullable=True)  # ['read:data', 'write:data']\n    last_used_at = Column(DateTime(timezone=True), nullable=True)\n    expires_at = Column(DateTime(timezone=True), nullable=True)\n    is_active = Column(Boolean, default=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    organization = relationship('Organization')"
+    },
+    {
+      "id": "gh_0034",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "AuditLog",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "action", "type": "string"},
+          {"name": "resource_type", "type": "string"},
+          {"name": "resource_id", "type": "integer"}
+        ]
+      },
+      "output": "class AuditLog(Base):\n    __tablename__ = 'audit_logs'\n    __table_args__ = (\n        Index('ix_audit_org_action_at', 'organization_id', 'action', 'created_at'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, index=True)\n    action = Column(String(128), nullable=False, index=True)\n    resource_type = Column(String(64), nullable=False)\n    resource_id = Column(Integer, nullable=True)\n    changes = Column(JSON, nullable=True)  # {field: [old, new]}\n    ip_address = Column(String(45), nullable=True)\n    user_agent = Column(String(512), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)"
+    },
+    {
+      "id": "gh_0035",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "Plan",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "name", "type": "string"},
+          {"name": "slug", "type": "string"},
+          {"name": "price_monthly", "type": "numeric"},
+          {"name": "max_users", "type": "integer"}
+        ]
+      },
+      "output": "class Plan(Base):\n    __tablename__ = 'plans'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(64), nullable=False)\n    slug = Column(String(64), unique=True, nullable=False)\n    stripe_price_id_monthly = Column(String(128), unique=True, nullable=True)\n    stripe_price_id_yearly = Column(String(128), unique=True, nullable=True)\n    price_monthly = Column(Numeric(10, 2), nullable=False)\n    price_yearly = Column(Numeric(10, 2), nullable=True)\n    max_users = Column(Integer, nullable=True)  # NULL = unlimited\n    max_projects = Column(Integer, nullable=True)\n    features = Column(JSON, nullable=True)  # {'sso': true, 'api_access': true}\n    is_public = Column(Boolean, default=True)\n    is_active = Column(Boolean, default=True)\n    sort_order = Column(Integer, default=0)"
+    },
+    {
+      "id": "gh_0036",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "Webhook",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "url", "type": "string"},
+          {"name": "events", "type": "json"},
+          {"name": "secret", "type": "string"}
+        ]
+      },
+      "output": "class Webhook(Base):\n    __tablename__ = 'webhooks'\n    id = Column(Integer, primary_key=True, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, index=True)\n    url = Column(String(512), nullable=False)\n    events = Column(JSON, nullable=False)  # ['user.created', 'invoice.paid']\n    secret = Column(String(64), nullable=False)  # HMAC signing secret, store hashed\n    is_active = Column(Boolean, default=True)\n    failure_count = Column(Integer, default=0)\n    last_triggered_at = Column(DateTime(timezone=True), nullable=True)\n    last_status_code = Column(Integer, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    organization = relationship('Organization')"
+    },
+    {
+      "id": "gh_0037",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "Membership",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "role", "type": "enum"}
+        ]
+      },
+      "output": "class MemberRole(str, enum.Enum):\n    owner = 'owner'\n    admin = 'admin'\n    member = 'member'\n    viewer = 'viewer'\n\nclass Membership(Base):\n    __tablename__ = 'memberships'\n    __table_args__ = (\n        UniqueConstraint('user_id', 'organization_id', name='uq_user_org_membership'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, index=True)\n    role = Column(Enum(MemberRole), default=MemberRole.member, nullable=False)\n    invited_by_id = Column(Integer, ForeignKey('users.id'), nullable=True)\n    joined_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User', foreign_keys=[user_id])\n    organization = relationship('Organization', back_populates='members')"
+    },
+    {
+      "id": "gh_0038",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "FeatureFlag",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "key", "type": "string"},
+          {"name": "is_enabled", "type": "boolean"},
+          {"name": "rollout_percentage", "type": "numeric"},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"}
+        ]
+      },
+      "output": "class FeatureFlag(Base):\n    __tablename__ = 'feature_flags'\n    __table_args__ = (\n        UniqueConstraint('key', 'organization_id', name='uq_flag_key_org'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    key = Column(String(128), nullable=False, index=True)\n    is_enabled = Column(Boolean, default=False, nullable=False)\n    rollout_percentage = Column(Numeric(5, 2), default=0)  # 0-100\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=True)\n    conditions = Column(JSON, nullable=True)  # targeting rules\n    description = Column(Text, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    organization = relationship('Organization')"
+    },
+    {
+      "id": "gh_0039",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "UsageRecord",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "metric", "type": "string"},
+          {"name": "quantity", "type": "integer"},
+          {"name": "period_start", "type": "datetime"}
+        ]
+      },
+      "output": "class UsageRecord(Base):\n    __tablename__ = 'usage_records'\n    __table_args__ = (\n        Index('ix_usage_org_metric_period', 'organization_id', 'metric', 'period_start'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False)\n    metric = Column(String(64), nullable=False)  # 'api_calls', 'storage_gb', 'users'\n    quantity = Column(BigInteger, default=0, nullable=False)\n    period_start = Column(DateTime(timezone=True), nullable=False)\n    period_end = Column(DateTime(timezone=True), nullable=False)\n    stripe_usage_record_id = Column(String(128), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    organization = relationship('Organization')"
+    },
+    {
+      "id": "gh_0040",
+      "type": "entity_to_sqlalchemy",
+      "domain": "saas",
+      "tags": ["model", "sqlalchemy", "fastapi", "saas"],
+      "input": {
+        "name": "Invitation",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "organization_id", "type": "integer", "foreign_key": "organizations.id"},
+          {"name": "email", "type": "string"},
+          {"name": "token", "type": "string"},
+          {"name": "role", "type": "enum"},
+          {"name": "expires_at", "type": "datetime"}
+        ]
+      },
+      "output": "class Invitation(Base):\n    __tablename__ = 'invitations'\n    id = Column(Integer, primary_key=True, index=True)\n    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, index=True)\n    invited_by_id = Column(Integer, ForeignKey('users.id'), nullable=False)\n    email = Column(String(256), nullable=False, index=True)\n    token = Column(String(64), unique=True, nullable=False, index=True)\n    role = Column(Enum(MemberRole), default=MemberRole.member, nullable=False)\n    is_accepted = Column(Boolean, default=False)\n    accepted_at = Column(DateTime(timezone=True), nullable=True)\n    expires_at = Column(DateTime(timezone=True), nullable=False)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    organization = relationship('Organization')"
+    },
+    {
+      "id": "gh_0041",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "user-profile"],
+      "input": {
+        "name": "User",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "email", "type": "string"},
+          {"name": "password_hash", "type": "string"},
+          {"name": "is_active", "type": "boolean"},
+          {"name": "is_superuser", "type": "boolean"}
+        ]
+      },
+      "output": "class User(Base):\n    __tablename__ = 'users'\n    id = Column(Integer, primary_key=True, index=True)\n    email = Column(String(256), unique=True, nullable=False, index=True)\n    password_hash = Column(String(128), nullable=True)  # nullable for OAuth-only users\n    full_name = Column(String(256), nullable=True)\n    is_active = Column(Boolean, default=True, nullable=False)\n    is_superuser = Column(Boolean, default=False, nullable=False)\n    email_verified = Column(Boolean, default=False)\n    email_verified_at = Column(DateTime(timezone=True), nullable=True)\n    last_login_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    updated_at = Column(DateTime(timezone=True), onupdate=func.now())\n    profile = relationship('Profile', back_populates='user', uselist=False)"
+    },
+    {
+      "id": "gh_0042",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "user-profile"],
+      "input": {
+        "name": "Profile",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "bio", "type": "text"},
+          {"name": "avatar_url", "type": "string"},
+          {"name": "timezone", "type": "string"}
+        ]
+      },
+      "output": "class Profile(Base):\n    __tablename__ = 'profiles'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)\n    bio = Column(Text, nullable=True)\n    avatar_url = Column(String(512), nullable=True)\n    timezone = Column(String(64), default='UTC', nullable=False)\n    locale = Column(String(8), default='en', nullable=False)\n    date_format = Column(String(16), default='YYYY-MM-DD')\n    theme = Column(String(16), default='light')\n    github_url = Column(String(256), nullable=True)\n    linkedin_url = Column(String(256), nullable=True)\n    website_url = Column(String(256), nullable=True)\n    updated_at = Column(DateTime(timezone=True), onupdate=func.now())\n    user = relationship('User', back_populates='profile')"
+    },
+    {
+      "id": "gh_0043",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "notifications"],
+      "input": {
+        "name": "Notification",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "notification_type", "type": "string"},
+          {"name": "title", "type": "string"},
+          {"name": "body", "type": "text"},
+          {"name": "is_read", "type": "boolean"}
+        ]
+      },
+      "output": "class Notification(Base):\n    __tablename__ = 'notifications'\n    __table_args__ = (\n        Index('ix_notifications_user_unread', 'user_id', 'is_read', 'created_at'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    notification_type = Column(String(64), nullable=False, index=True)\n    title = Column(String(256), nullable=False)\n    body = Column(Text, nullable=False)\n    action_url = Column(String(512), nullable=True)\n    is_read = Column(Boolean, default=False, nullable=False, index=True)\n    read_at = Column(DateTime(timezone=True), nullable=True)\n    metadata_ = Column('metadata', JSON, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0044",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "settings"],
+      "input": {
+        "name": "UserSettings",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "email_notifications", "type": "boolean"},
+          {"name": "push_notifications", "type": "boolean"},
+          {"name": "privacy_level", "type": "enum"}
+        ]
+      },
+      "output": "class PrivacyLevel(str, enum.Enum):\n    public = 'public'\n    friends = 'friends'\n    private = 'private'\n\nclass UserSettings(Base):\n    __tablename__ = 'user_settings'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), unique=True, nullable=False)\n    email_notifications = Column(Boolean, default=True)\n    push_notifications = Column(Boolean, default=True)\n    marketing_emails = Column(Boolean, default=False)\n    two_factor_enabled = Column(Boolean, default=False)\n    two_factor_secret = Column(String(32), nullable=True)\n    privacy_level = Column(Enum(PrivacyLevel), default=PrivacyLevel.public)\n    language = Column(String(8), default='en')\n    updated_at = Column(DateTime(timezone=True), onupdate=func.now())\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0045",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "tagging"],
+      "input": {
+        "name": "Tag",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "name", "type": "string"},
+          {"name": "slug", "type": "string"},
+          {"name": "color", "type": "string"}
+        ]
+      },
+      "output": "class Tag(Base):\n    __tablename__ = 'tags'\n    id = Column(Integer, primary_key=True, index=True)\n    name = Column(String(64), unique=True, nullable=False)\n    slug = Column(String(64), unique=True, nullable=False, index=True)\n    color = Column(String(7), default='#6366f1')  # hex color\n    description = Column(String(256), nullable=True)\n    usage_count = Column(Integer, default=0)\n    is_system = Column(Boolean, default=False)  # system tags cannot be deleted\n    created_at = Column(DateTime(timezone=True), server_default=func.now())"
+    },
+    {
+      "id": "gh_0046",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "search"],
+      "input": {
+        "name": "SearchHistory",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "query", "type": "string"},
+          {"name": "results_count", "type": "integer"},
+          {"name": "searched_at", "type": "datetime"}
+        ]
+      },
+      "output": "class SearchHistory(Base):\n    __tablename__ = 'search_history'\n    __table_args__ = (\n        Index('ix_search_history_user_date', 'user_id', 'searched_at'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)\n    query = Column(String(512), nullable=False)\n    filters = Column(JSON, nullable=True)\n    results_count = Column(Integer, default=0)\n    searched_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0047",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "file-storage"],
+      "input": {
+        "name": "FileUpload",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "filename", "type": "string"},
+          {"name": "file_path", "type": "string"},
+          {"name": "mime_type", "type": "string"},
+          {"name": "size_bytes", "type": "integer"}
+        ]
+      },
+      "output": "class FileUpload(Base):\n    __tablename__ = 'file_uploads'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)\n    filename = Column(String(256), nullable=False)\n    file_path = Column(String(512), unique=True, nullable=False)\n    mime_type = Column(String(128), nullable=False)\n    size_bytes = Column(BigInteger, nullable=False)\n    s3_bucket = Column(String(128), nullable=True)\n    s3_key = Column(String(512), unique=True, nullable=True)\n    is_public = Column(Boolean, default=False)\n    checksum_md5 = Column(String(32), nullable=True)\n    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())\n    expires_at = Column(DateTime(timezone=True), nullable=True)\n    user = relationship('User')"
+    },
+    {
+      "id": "gh_0048",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "comments"],
+      "input": {
+        "name": "Comment",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "body", "type": "text"},
+          {"name": "parent_id", "type": "integer", "foreign_key": "comments.id"},
+          {"name": "is_deleted", "type": "boolean"}
+        ]
+      },
+      "output": "class Comment(Base):\n    __tablename__ = 'comments'\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)\n    body = Column(Text, nullable=False)\n    parent_id = Column(Integer, ForeignKey('comments.id', ondelete='CASCADE'), nullable=True, index=True)\n    # Polymorphic: attach to any entity\n    resource_type = Column(String(64), nullable=True, index=True)\n    resource_id = Column(Integer, nullable=True, index=True)\n    is_deleted = Column(Boolean, default=False)\n    deleted_at = Column(DateTime(timezone=True), nullable=True)\n    edited_at = Column(DateTime(timezone=True), nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User')\n    parent = relationship('Comment', remote_side='Comment.id', back_populates='replies')\n    replies = relationship('Comment', back_populates='parent')"
+    },
+    {
+      "id": "gh_0049",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "oauth"],
+      "input": {
+        "name": "OAuthAccount",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "provider", "type": "string"},
+          {"name": "provider_user_id", "type": "string"},
+          {"name": "access_token", "type": "string"}
+        ]
+      },
+      "output": "class OAuthAccount(Base):\n    __tablename__ = 'oauth_accounts'\n    __table_args__ = (\n        UniqueConstraint('provider', 'provider_user_id', name='uq_oauth_provider_user'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)\n    provider = Column(String(32), nullable=False, index=True)  # 'google', 'github', 'okta'\n    provider_user_id = Column(String(256), nullable=False)\n    access_token = Column(Text, nullable=True)  # encrypted at rest\n    refresh_token = Column(Text, nullable=True)  # encrypted at rest\n    token_expires_at = Column(DateTime(timezone=True), nullable=True)\n    scope = Column(String(512), nullable=True)\n    raw_data = Column(JSON, nullable=True)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())\n    user = relationship('User', back_populates='oauth_accounts')"
+    },
+    {
+      "id": "gh_0050",
+      "type": "entity_to_sqlalchemy",
+      "domain": "mixed",
+      "tags": ["model", "sqlalchemy", "fastapi", "rate-limiting"],
+      "input": {
+        "name": "RateLimitEvent",
+        "fields": [
+          {"name": "id", "type": "integer", "primary_key": true},
+          {"name": "user_id", "type": "integer", "foreign_key": "users.id"},
+          {"name": "endpoint", "type": "string"},
+          {"name": "request_count", "type": "integer"},
+          {"name": "window_start", "type": "datetime"}
+        ]
+      },
+      "output": "class RateLimitEvent(Base):\n    __tablename__ = 'rate_limit_events'\n    __table_args__ = (\n        Index('ix_ratelimit_user_endpoint_window', 'user_id', 'endpoint', 'window_start'),\n        UniqueConstraint('user_id', 'endpoint', 'window_start', name='uq_ratelimit_window'),\n    )\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)\n    ip_address = Column(String(45), nullable=True, index=True)\n    endpoint = Column(String(256), nullable=False)\n    request_count = Column(Integer, default=1, nullable=False)\n    window_start = Column(DateTime(timezone=True), nullable=False)\n    window_end = Column(DateTime(timezone=True), nullable=False)\n    was_blocked = Column(Boolean, default=False)\n    created_at = Column(DateTime(timezone=True), server_default=func.now())"
+    }
+  ]
+}
