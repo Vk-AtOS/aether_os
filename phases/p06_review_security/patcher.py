@@ -3,6 +3,7 @@ AST-based security patcher for AetherOS.
 Provides structured, semantically-safe code modification.
 """
 import ast
+import re
 import astor
 import logging
 
@@ -54,3 +55,23 @@ class ASTSecurityPatcher(ast.NodeTransformer):
                     self.patches_applied.append("secret_key_hardening")
                     logger.info("AST: patched hardcoded SECRET_KEY")
         return self.generic_visit(node)
+
+
+def insert_after_imports(source: str, block: str) -> str:
+    """Insert *block* immediately after the last top-level import statement."""
+    lines = source.splitlines()
+    last_import = 0
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("import ") or stripped.startswith("from "):
+            last_import = i
+    lines.insert(last_import + 1, block)
+    return "\n".join(lines)
+
+
+def insert_before_routes(source: str, block: str) -> str:
+    """Insert *block* just before the first @app.{verb} decorator."""
+    m = re.search(r'^@app\.(get|post|put|delete|patch)', source, re.MULTILINE)
+    if m:
+        return source[: m.start()] + block + "\n" + source[m.start():]
+    return source + "\n" + block

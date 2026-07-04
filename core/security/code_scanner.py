@@ -10,6 +10,66 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Domain-specific rules: (rule_id, regex_pattern, message, severity)
+_DOMAIN_RULES: dict[str, list[tuple[str, str, str, str]]] = {
+    "fintech": [
+        ("FINTECH_UNENCRYPTED_CARD", r"credit_card(?!.*encrypt)", "Potential unencrypted credit card data", "HIGH"),
+        ("FINTECH_PLAINTEXT_PAN", r"card_number\s*=\s*[\"'][0-9]{13,19}[\"']", "Hardcoded PAN detected", "CRITICAL"),
+        ("FINTECH_WEAK_JWT", r"algorithm\s*=\s*[\"']HS256[\"']", "HS256 JWT — prefer RS256 for production", "MEDIUM"),
+        ("FINTECH_SQL_PARAM", r"SELECT.*WHERE.*%s|SELECT.*WHERE.*\.format\(", "Potential SQL injection pattern", "HIGH"),
+    ],
+    "healthcare": [
+        ("HIPAA_PHI_LOG", r"logger\.(info|debug|warning)\(.*patient|logger\.(info|debug|warning)\(.*dob", "PHI may be logged — HIPAA violation risk", "HIGH"),
+        ("HIPAA_UNENCRYPTED_SSN", r"ssn\s*=|social_security", "SSN field without visible encryption", "HIGH"),
+        ("HIPAA_OPEN_CORS", r'allow_origins=\["\*"\]|allow_origins=\["http', "Overly permissive CORS on healthcare API", "MEDIUM"),
+        ("HIPAA_NO_AUDIT", r"def (create|update|delete).*:\n(?!.*audit|.*log_action)", "CRUD mutation without audit log", "MEDIUM"),
+    ],
+    "ecommerce": [
+        ("PCI_PLAINTEXT_CVV", r"cvv|cvc|card_verification", "CVV/CVC field — must not store per PCI-DSS", "CRITICAL"),
+        ("PCI_UNMASKED_PAN", r"card_number.*=.*str\(|print.*card_number", "PAN may be exposed in logs or response", "HIGH"),
+        ("ECOM_OPEN_IDOR", r"\.get\(item_id\)|\.filter\(id=item_id\)(?!.*user_id|.*org_id)", "IDOR risk: resource not scoped to user/org", "MEDIUM"),
+    ],
+    "saas": [
+        ("SAAS_NO_ORG_FILTER", r"select\(.*Model\)(?!.*org_id)|\.all\(\)(?!.*org_id)", "Query without org_id filter — potential tenant data leak", "HIGH"),
+        ("SAAS_WEAK_SECRET", r'SECRET_KEY\s*=\s*["\']change.me|SECRET_KEY\s*=\s*["\']secret', "Weak default SECRET_KEY", "CRITICAL"),
+    ],
+    "marketplace": [
+        ("MKT_PRICE_INJECTION", r"price\s*=.*request|amount\s*=.*body\.get", "Price/amount taken from request without validation", "MEDIUM"),
+        ("MKT_SELF_BID", r"def.*bid.*:(?!.*seller_id.*buyer_id|.*user.*listing\.seller)", "Bid endpoint may not prevent self-bidding", "MEDIUM"),
+    ],
+}
+
+
+def _run_pip_audit(project_dir: str) -> list["Finding"]:
+    """Run pip-audit against requirements.txt; return findings for known CVEs."""
+    findings: list[Finding] = []
+    req_file = Path(project_dir) / "requirements.txt"
+    if not req_file.exists():
+        return findings
+    try:
+        res = subprocess.run(
+            ["pip-audit", "-r", str(req_file), "-f", "json", "--progress-spinner", "off"],
+            capture_output=True, text=True, timeout=120,
+        )
+        if res.stdout:
+            data = json.loads(res.stdout)
+            for dep in data.get("dependencies", []):
+                for vuln in dep.get("vulns", []):
+                    findings.append(Finding(
+                        severity="HIGH",
+                        rule_id=f"PIP_AUDIT_{vuln.get('id', 'UNKNOWN')}",
+                        file_path=str(req_file),
+                        line_number=0,
+                        message=f"{dep.get('name','?')} {dep.get('version','?')}: {vuln.get('description','CVE')[:120]}",
+                        fix_suggestion=f"Upgrade to {vuln.get('fix_versions', ['latest'])}",
+                    ))
+    except FileNotFoundError:
+        logger.debug("pip-audit not installed — skipping dependency vulnerability scan")
+    except Exception as exc:
+        logger.warning("pip-audit scan failed (non-fatal): %s", exc)
+    return findings
+
+
 @dataclass
 class Finding:
     severity: str
@@ -80,20 +140,28 @@ class CodeScanner:
                                 ))
 
         # Domain-specific checks
-        if domain == "fintech":
-            for root, _, files in os.walk(project_dir):
-                for file in files:
-                    if file.endswith(".py"):
-                        path = Path(root) / file
-                        content = path.read_text()
-                        if "credit_card" in content and "encrypt" not in content:
-                            findings.append(Finding(
-                                severity="HIGH",
-                                rule_id="FINTECH_NO_ENCRYPTION",
-                                file_path=str(path),
-                                line_number=0,
-                                message="Potential unencrypted credit card data"
-                            ))
+        domain_rules = _DOMAIN_RULES.get(domain.lower(), [])
+        for root, _, files in os.walk(project_dir):
+            for file in files:
+                if not file.endswith(".py"):
+                    continue
+                path = Path(root) / file
+                try:
+                    content = path.read_text(errors="ignore")
+                except Exception:
+                    continue
+                for rule_id, pattern, message, severity in domain_rules:
+                    if re.search(pattern, content):
+                        findings.append(Finding(
+                            severity=severity,
+                            rule_id=rule_id,
+                            file_path=str(path),
+                            line_number=0,
+                            message=message,
+                        ))
+
+        # pip-audit: dependency vulnerability scan
+        findings.extend(_run_pip_audit(project_dir))
 
         critical = sum(1 for f in findings if f.severity == "CRITICAL")
         high = sum(1 for f in findings if f.severity == "HIGH")
