@@ -58,6 +58,11 @@ from aether_os.orchestrator.artifact_collector import (
 )
 from aether_os.orchestrator.phase_dag import get_execution_waves
 from aether_os.orchestrator.parallel_runner import run_phases_in_wave
+from aether_os.orchestrator.phase_selector import (
+    select_phases,
+    resolve_change_request_phase,
+    restore_from_checkpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -328,62 +333,15 @@ class FactoryPipeline:
             except Exception as _le:
                 logger.warning("Learning context unavailable — phases will run without personalisation (run=%s): %s", run_id, _le)
         
-        # 10-phase consolidated pipeline
-        ACTIVE_PHASES = PHASE_SEQUENCE  # All 10 consolidated phases
-
-        phases_to_run = ACTIVE_PHASES
-        if start_phase:
-            all_phases = PHASE_SEQUENCE
-            if start_phase in all_phases:
-                phases_to_run = all_phases[all_phases.index(start_phase):]
-
-        # ── Checkpoint restore — resume a failed run from the last completed phase ──
-        # If checkpoint_data exists on the Run record, we restore accumulated_context
-        # and skip phases that have already completed, so the pipeline continues from
-        # the next unfinished phase rather than restarting from p01.
-        try:
-            from aether_os.core.db import get_session_factory as _gsf_ckpt
-            from aether_os.core.models import Run as _Run_ckpt
-            _sf_ckpt = _gsf_ckpt()
-            async with _sf_ckpt() as _sess_ckpt:
-                _run_rec = await _sess_ckpt.get(_Run_ckpt, run_id)
-                _ckpt = _run_rec.checkpoint_data if _run_rec else None
-            # Schema validation: checkpoint must have both required keys or we ignore it
-            # to prevent silent resume-logic breakage on schema drift ([21]).
-            if _ckpt and not isinstance(_ckpt, dict):
-                logger.warning("[pipeline] Ignoring malformed checkpoint_data (not a dict) for run %s", run_id)
-                _ckpt = None
-            if _ckpt and not ("last_completed_phase" in _ckpt and "accumulated_context" in _ckpt):
-                logger.warning(
-                    "[pipeline] Ignoring checkpoint_data with unexpected schema for run %s "
-                    "(got keys: %s — expected last_completed_phase + accumulated_context)",
-                    run_id, list(_ckpt.keys()),
-                )
-                _ckpt = None
-            if _ckpt and _ckpt.get("last_completed_phase"):
-                _last_done = _ckpt["last_completed_phase"]
-                _saved_ctx = _ckpt.get("accumulated_context") or {}
-                if _last_done in PHASE_SEQUENCE and _saved_ctx:
-                    # Restore accumulated_context from checkpoint (overwrite the freshly-built one)
-                    accumulated_context.update(_saved_ctx)
-                    # Ensure mutable run-level keys stay current
-                    accumulated_context["run_id"] = run_id
-                    # Slice phases_to_run to start from the phase AFTER last_completed_phase
-                    _resume_idx = PHASE_SEQUENCE.index(_last_done) + 1
-                    phases_to_run = PHASE_SEQUENCE[_resume_idx:]
-                    logger.info(
-                        "[pipeline] Resuming run %s from checkpoint after phase %s (%d phases remaining)",
-                        run_id, _last_done, len(phases_to_run),
-                    )
-                    await emit(
-                        {"type": "pipeline_resumed", "resumed_after": _last_done,
-                         "phases_remaining": len(phases_to_run)},
-                        run_id=run_id,
-                    )
-                else:
-                    logger.debug("[pipeline] Checkpoint found but phase %r not in sequence — ignoring", _last_done)
-        except Exception as _ckpt_exc:
-            logger.warning("[pipeline] Checkpoint restore failed (non-fatal): %s", _ckpt_exc)
+        # Phase selection: honour start_phase override, then restore from checkpoint.
+        phases_to_run = select_phases(PHASE_SEQUENCE, start_phase)
+        phases_to_run, accumulated_context = await restore_from_checkpoint(
+            run_id=run_id,
+            phase_sequence=PHASE_SEQUENCE,
+            phases_to_run=phases_to_run,
+            accumulated_context=accumulated_context,
+            emit_fn=emit,
+        )
 
         # ExternalMonitorBridge — optional external telemetry hook (failure here never blocks pipeline)
         _bridge = None
@@ -1525,46 +1483,12 @@ class FactoryPipeline:
         receive prior phase outputs (architecture, scaffolding, etc.)
         and only the affected subset is re-executed.
         """
-        # Map affected area names → concrete phase names
-        _AREA_TO_PHASE: Dict[str, str] = {
-            "intake":          "p01_intake_requirements",
-            "requirements":    "p01_intake_requirements",
-            "architecture":    "p02_architecture",
-            "scaffolding":     "p03_scaffolding",
-            "backend":         "p04_backend",
-            "api":             "p04_backend",
-            "database":        "p04_backend",
-            "frontend":        "p05_frontend",
-            "ui":              "p05_frontend",
-            "ux":              "p05_frontend",
-            "security":        "p06_review_security",
-            "review":          "p06_review_security",
-            "testing":         "p07_testing",
-            "tests":           "p07_testing",
-            "healing":         "p07b_self_healing",
-            "cicd":            "p08_cicd_deployment",
-            "ci":              "p08_cicd_deployment",
-            "cd":              "p08_cicd_deployment",
-            "observability":   "p09_observability",
-            "monitoring":      "p09_observability",
-            "docs":            "p10_docs_delivery",
-            "documentation":   "p10_docs_delivery",
-            "deployment":      "p11_deployment",
-            "deploy":          "p11_deployment",
-        }
-
-        # Resolve areas → phase names; keep only phases in PHASE_SEQUENCE
-        candidate_phases = []
-        for area in (affected_areas or []):
-            mapped = _AREA_TO_PHASE.get(area.lower().strip())
-            if mapped and mapped in PHASE_SEQUENCE:
-                candidate_phases.append(PHASE_SEQUENCE.index(mapped))
-
-        if candidate_phases:
-            first_phase = PHASE_SEQUENCE[min(candidate_phases)]
-        else:
-            # Default: re-run from backend if no areas specified
-            first_phase = "p04_backend"
+        # Resolve affected area names to the earliest phase that must re-run.
+        first_phase = resolve_change_request_phase(
+            affected_areas=affected_areas,
+            phase_sequence=PHASE_SEQUENCE,
+            default_phase="p04_backend",
+        )
 
         # Load original run's context so downstream phases have prior outputs
         original_context: Dict[str, Any] = {}
