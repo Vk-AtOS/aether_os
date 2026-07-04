@@ -495,3 +495,38 @@ def entity_emoji(entity_name: str) -> str:
         if key in lower:
             return emoji
     return "📁"
+
+
+def resolve_entity_p67_fallback(data: dict, entities: List[dict]) -> List[dict]:
+    """P67 fallback: replace generic 'items' entity with entities from pipeline data.
+
+    When entity resolution only produced the generic 'items' placeholder, attempt
+    to read entities from data['entities'] or data['architecture']['entities'].
+    Returns the original list unchanged if the fallback isn't needed or fails.
+    """
+    import re as _re
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    if not (len(entities) == 1 and entities[0]["table"] == "items"):
+        return entities
+    _data_entities = data.get("entities", []) or data.get("architecture", {}).get("entities", [])
+    if not _data_entities:
+        return entities
+    result: List[dict] = []
+    for _e in _data_entities:
+        _ename = _e.get("name", _e.get("table", "")) if isinstance(_e, dict) else str(_e)
+        if not _ename or _ename.lower() in ("user", "users"):
+            continue
+        _etable = _re.sub(r'([A-Z])', lambda m: '_' + m.group(1).lower(), _ename).lstrip('_').lower()
+        _ecols: List[str] = []
+        if isinstance(_e, dict):
+            for _f in _e.get("fields", _e.get("columns", _e.get("attributes", []))):
+                if isinstance(_f, dict):
+                    _ecols.append(_f.get("name", _f.get("column", "")))
+                elif isinstance(_f, str):
+                    _ecols.append(_f)
+        result.append({"table": _etable, "name": _ename, "columns": [c for c in _ecols if c] or ["id", "name", "status", "created_at"]})
+    if result:
+        _logger.info("p05 [P67]: replaced 'items' with %d entities from pipeline data: %s", len(result), [e["table"] for e in result])
+        return result
+    return entities

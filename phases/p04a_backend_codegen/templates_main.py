@@ -413,3 +413,62 @@ def write_alembic_scaffold(output_dir: Path) -> None:
         "Apply migrations:    alembic upgrade head\n"
         "Rollback one step:   alembic downgrade -1\n"
     )
+
+
+def patch_main_py(
+    main_py: str,
+    inject_pipeline: bool = False,
+    inject_realtime: bool = False,
+    inject_websocket: bool = False,
+    inject_stripe: bool = False,
+) -> str:
+    """Apply all optional router injections to the generated main.py string."""
+    main_py = main_py.replace(
+        "app.include_router(auth_router, prefix=\"/api\")",
+        (
+            "try:\n"
+            "    from services.audit_service import AuditContextMiddleware\n"
+            "    app.add_middleware(AuditContextMiddleware)\n"
+            "except Exception:\n"
+            "    pass\n\n"
+            "try:\n"
+            "    from services.cache import RedisCacheMiddleware\n"
+            "    app.add_middleware(RedisCacheMiddleware)\n"
+            "except Exception:\n"
+            "    pass\n\n"
+            "app.include_router(auth_router, prefix=\"/api\")"
+        ),
+    )
+    _HEALTH_ANCHOR = "@app.get(\"/health\""
+    if inject_pipeline:
+        main_py = main_py.replace(_HEALTH_ANCHOR, (
+            "\ntry:\n"
+            "    from routers.pipeline_events import router as _pipeline_events_router\n"
+            "    app.include_router(_pipeline_events_router, prefix=\"/api\")\n"
+            "except Exception:\n    pass\n"
+        ) + _HEALTH_ANCHOR, 1)
+    if inject_realtime:
+        main_py = main_py.replace(_HEALTH_ANCHOR, (
+            "\ntry:\n"
+            "    from routers.realtime_router import realtime_router as _realtime_router\n"
+            "    app.include_router(_realtime_router, prefix=\"/api\")\n"
+            "except Exception as _rt_exc:\n"
+            "    import logging as _l; _l.getLogger(__name__).warning('SSE router unavailable: %s', _rt_exc)\n"
+        ) + _HEALTH_ANCHOR, 1)
+    if inject_websocket:
+        main_py = main_py.replace(_HEALTH_ANCHOR, (
+            "\ntry:\n"
+            "    from websocket_router import router as _ws_router\n"
+            "    app.include_router(_ws_router, prefix=\"/api\")\n"
+            "except Exception as _ws_exc:\n"
+            "    import logging as _l; _l.getLogger(__name__).warning('WS router unavailable: %s', _ws_exc)\n"
+        ) + _HEALTH_ANCHOR, 1)
+    if inject_stripe:
+        main_py = main_py.replace(_HEALTH_ANCHOR, (
+            "\ntry:\n"
+            "    from billing_router import router as _billing_router\n"
+            "    app.include_router(_billing_router, prefix=\"/api\")\n"
+            "except Exception as _bill_exc:\n"
+            "    import logging as _l; _l.getLogger(__name__).warning('billing router unavailable: %s', _bill_exc)\n"
+        ) + _HEALTH_ANCHOR, 1)
+    return main_py

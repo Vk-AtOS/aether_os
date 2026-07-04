@@ -22,6 +22,7 @@ from aether_os.phases.p05_frontend.scaffold import (
     normalise_entities,
     to_pascal_case,
     pluralise,
+    resolve_entity_p67_fallback,
 )
 from aether_os.phases.p05_frontend.npm_runner import (
     get_npm_semaphore,
@@ -71,6 +72,7 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_docker_compose,
     is_product_entity,
     generate_lib_utils, generate_domain_dashboard, generate_mobile_first_layout,
+    generate_use_websocket_hook,
 )
 from aether_os.phases.p05_frontend.preview import (
     take_preview_screenshot,
@@ -187,35 +189,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 )
                 entities = _models_entities
 
-        # Problem 67: 3rd fallback — try data["entities"] (direct pipeline propagation)
-        # and data["architecture"]["entities"] if still stuck on generic "items" fallback.
-        if len(entities) == 1 and entities[0]["table"] == "items":
-            _data_entities = data.get("entities", [])
-            if not _data_entities:
-                _data_entities = data.get("architecture", {}).get("entities", [])
-            if _data_entities:
-                _p67_ents: List[dict] = []
-                for _e in _data_entities:
-                    _ename = _e.get("name", _e.get("table", "")) if isinstance(_e, dict) else str(_e)
-                    if not _ename or _ename.lower() in ("user", "users"):
-                        continue
-                    _etable = re.sub(r'([A-Z])', lambda m: '_' + m.group(1).lower(), _ename).lstrip('_').lower()
-                    _ecols = []
-                    if isinstance(_e, dict):
-                        for _f in _e.get("fields", _e.get("columns", _e.get("attributes", []))):
-                            if isinstance(_f, dict):
-                                _ecols.append(_f.get("name", _f.get("column", "")))
-                            elif isinstance(_f, str):
-                                _ecols.append(_f)
-                    if not _ecols:
-                        _ecols = ["id", "name", "status", "created_at"]
-                    _p67_ents.append({"table": _etable, "name": _ename, "columns": [c for c in _ecols if c]})
-                if _p67_ents:
-                    logger.info(
-                        "p05 [P67]: replaced 'items' fallback with %d entities from pipeline data: %s",
-                        len(_p67_ents), [e["table"] for e in _p67_ents],
-                    )
-                    entities = _p67_ents
+        entities = resolve_entity_p67_fallback(data, entities)
 
     # Robust autonomous mode detection
     is_autonomous = (
@@ -270,6 +244,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     app_brand: Dict[str, Any] = data.get("app_brand") or {}
     app_tagline: str = data.get("app_tagline", "")
     realtime_features: List[Any] = data.get("realtime_features") or []
+    build_types: List[str] = data.get("build_types") or []
+    _has_websocket = (
+        "websocket" in build_types
+        or "realtime" in build_types
+        or any(x in (data.get("raw_input") or "").lower() for x in ["websocket", "real-time", "realtime", "live chat", "collaboration"])
+    )
 
     # Detect layout mode
     _layout_from_spec = (_design.get("layout") or "")
@@ -388,6 +368,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
         _sse_code = _generate_sse_hook(realtime_features, project_name)
         _write_with_guard(src_dir / "hooks" / "useRealtimeStream.ts", _sse_code)
+
+    # ── Phase 4d: WebSocket hook (when websocket pattern active) ──
+    if _has_websocket:
+        logger.info("p05: websocket pattern active — generating useWebSocket.ts")
+        (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
+        _write_with_guard(src_dir / "hooks" / "useWebSocket.ts", generate_use_websocket_hook())
 
     # ── Phase 5: Static Layout Components ──
     if layout_mode == "dual":

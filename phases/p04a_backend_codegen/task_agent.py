@@ -44,6 +44,7 @@ from aether_os.phases.p04a_backend_codegen.templates import (
     _generate_makefile,
     _generate_backend_readme,
     write_alembic_scaffold,
+    patch_main_py,
 )
 from aether_os.phases.p04a_backend_codegen.schema_builder import (
     _fallback_models,
@@ -390,6 +391,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Step 4a: Pattern library injection ───────────────────────────────────
     _active_patterns = detect_active_patterns(data, raw_input)
+    _inject_websocket_router = "websocket" in _active_patterns
+    _inject_stripe_router = "stripe" in _active_patterns
     inject_patterns(_active_patterns, src_dir, output_dir)
 
     # ── Step 4b: Audit infrastructure ────────────────────────────────────────
@@ -415,55 +418,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Step 5: Generate main.py from template ────────────────────────────────
     main_py = _build_main_py(project_name, routers_have_all_routers=True)
-    # Inject AuditContextMiddleware and RedisCacheMiddleware into main.py
-    main_py = main_py.replace(
-        "app.include_router(auth_router, prefix=\"/api\")",
-        (
-            "try:\n"
-            "    from services.audit_service import AuditContextMiddleware\n"
-            "    app.add_middleware(AuditContextMiddleware)\n"
-            "except Exception:\n"
-            "    pass\n\n"
-            "try:\n"
-            "    from services.cache import RedisCacheMiddleware\n"
-            "    app.add_middleware(RedisCacheMiddleware)\n"
-            "except Exception:\n"
-            "    pass\n\n"
-            "app.include_router(auth_router, prefix=\"/api\")"
-        ),
+    main_py = patch_main_py(
+        main_py,
+        inject_pipeline=_inject_pipeline_router,
+        inject_realtime=_inject_realtime_router,
+        inject_websocket=_inject_websocket_router,
+        inject_stripe=_inject_stripe_router,
     )
-    # Inject pipeline_events router only when the file was actually written (non-blocking)
-    if _inject_pipeline_router:
-        _pipeline_router_snippet = (
-            "\n# Pipeline event triggers (generated from domain BusinessProcessPipeline)\n"
-            "try:\n"
-            "    from routers.pipeline_events import router as _pipeline_events_router\n"
-            "    app.include_router(_pipeline_events_router, prefix=\"/api\")\n"
-            "except Exception:\n"
-            "    pass\n"
-        )
-        # Insert before the /health endpoint so the order is logical
-        main_py = main_py.replace(
-            "@app.get(\"/health\"",
-            _pipeline_router_snippet + "@app.get(\"/health\"",
-        )
-
-    # Inject SSE realtime router when generated from realtime_features in the spec
-    if _inject_realtime_router:
-        _realtime_router_snippet = (
-            "\n# SSE realtime router (generated from spec realtime_features)\n"
-            "try:\n"
-            "    from routers.realtime_router import realtime_router as _realtime_router\n"
-            "    app.include_router(_realtime_router, prefix=\"/api\")\n"
-            "except Exception as _rt_exc:\n"
-            "    import logging as _logging\n"
-            "    _logging.getLogger(__name__).warning('realtime router unavailable: %s', _rt_exc)\n"
-        )
-        main_py = main_py.replace(
-            "@app.get(\"/health\"",
-            _realtime_router_snippet + "@app.get(\"/health\"",
-        )
-
     (src_dir / "main.py").write_text(main_py)
 
     # ── Step 6: Supporting files ──────────────────────────────────────────────
