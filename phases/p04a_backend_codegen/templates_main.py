@@ -48,6 +48,14 @@ from database import engine, Base
 from routers.auth import router as auth_router
 {ROUTER_IMPORTS}
 
+try:
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    from rate_limiter import limiter as _limiter
+    _slowapi_available = True
+except Exception:
+    _slowapi_available = False
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -80,6 +88,10 @@ app = FastAPI(
     redoc_url="/redoc",
     root_path=os.environ.get("ROOT_PATH", ""),
 )
+
+if _slowapi_available:
+    app.state.limiter = _limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(

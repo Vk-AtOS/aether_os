@@ -247,7 +247,7 @@ def get_settings() -> Settings:
 _AUTH_ROUTER_PY = '''\
 """Auth endpoints — login, register, refresh token, current user."""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -261,6 +261,14 @@ from auth import (
     SECRET_KEY,
     ALGORITHM,
 )
+
+try:
+    from rate_limiter import limiter as _limiter
+    _limit = _limiter.limit
+except Exception:
+    def _limit(s):  # no-op when slowapi not available
+        def _d(f): return f
+        return _d
 
 try:
     from models import User
@@ -294,7 +302,8 @@ class RefreshRequest(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+@_limit("10/minute")
+async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
     result = await db.execute(select(User).where(User.email == data.email))
@@ -311,7 +320,8 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+@_limit("5/minute")
+async def register(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
     existing = await db.execute(select(User).where(User.email == data.email))
@@ -358,5 +368,13 @@ async def refresh_token(data: RefreshRequest, db: AsyncSession = Depends(get_db)
 @router.get("/me")
 async def me(current_user: dict = Depends(get_current_user)):
     return current_user
+'''
+
+_RATE_LIMITER_PY = '''\
+"""Shared SlowAPI rate limiter — imported by main.py and any router that needs limits."""
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 '''
 
