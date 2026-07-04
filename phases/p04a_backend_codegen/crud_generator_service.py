@@ -1,6 +1,11 @@
 """Fallback service layer generator — split from crud_generator.py to keep it under 600 lines.
 
-Provides _fallback_service_layer for generating bare service stubs when LLM is unavailable.
+Provides _fallback_service_layer for generating bare service stubs when the IR fast-path
+is unavailable.
+
+Note on generated imports: each method stubs uses `from models import <Name>` inside a
+try block.  This is intentional — the generated service files are placed in src/ alongside
+models.py, so the import resolves correctly at runtime in the generated project.
 """
 from __future__ import annotations
 

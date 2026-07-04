@@ -148,7 +148,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (routers_dir / "__init__.py").write_text(_ROUTERS_INIT_PY)
     (routers_dir / "auth.py").write_text(_AUTH_ROUTER_PY)
 
-    generated_via = "templates+llm"
+    generated_via = "deterministic"
     models_code = ""
     schemas_code = ""
     crud_code = ""
@@ -251,7 +251,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     )
 
         except Exception as _ir_exc:
-            logger.warning("[p04a] IR fast-path failed (%s) — falling through to LLM", _ir_exc)
+            logger.warning("[p04a] IR fast-path failed (%s) — falling through to deterministic fallback", _ir_exc)
             models_code = ""
             schemas_code = ""
             crud_code = ""
@@ -285,7 +285,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             try:
                 compile(_code, _fname, "exec")
             except SyntaxError as _syn:
-                logger.warning("[p04a] SyntaxError in LLM-generated %s: %s — using fallback", _fname, _syn)
+                logger.warning("[p04a] SyntaxError in generated %s: %s — using fallback", _fname, _syn)
                 if _fname == "models.py":
                     models_code = _fallback_fn(*_fallback_args)
                 else:
@@ -316,14 +316,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except SyntaxError as _syn:
         logger.warning("[p04a] SyntaxError in crud.py: %s — using fallback", _syn)
         crud_code = _fallback_crud_routers(entities, multi_tenancy=multi_tenancy)
-    # Ensure all_routers is always present — LLM sometimes omits it
+    # Ensure all_routers is always present — may be missing from IR-generated code
     if "all_routers" not in crud_code:
         _router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', crud_code, re.MULTILINE)
         if _router_vars:
             crud_code = crud_code.rstrip() + f"\n\nall_routers = [{', '.join(_router_vars)}]\n"
             logger.info("[p04a] Auto-injected all_routers into crud.py: %s", _router_vars)
     # Fix any relative imports before writing to disk (deterministic generator should
-    # never produce them, but IR generators or future LLM fallbacks might)
+    # never produce them, but IR generators or other code paths might)
     crud_code = fix_relative_imports(crud_code)
     (routers_dir / "crud.py").write_text(crud_code)
     logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
