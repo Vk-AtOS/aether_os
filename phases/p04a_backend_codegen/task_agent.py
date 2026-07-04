@@ -39,12 +39,10 @@ from aether_os.phases.p04a_backend_codegen.templates import (
     _ROUTERS_INIT_PY,
     _REQUIREMENTS_TXT,
     _DOCKERFILE,
-    _ALEMBIC_INI,
-    _ALEMBIC_ENV_PY,
-    _ALEMBIC_SCRIPT_PY_MAKO,
     _build_main_py,
     _generate_makefile,
     _generate_backend_readme,
+    write_alembic_scaffold,
 )
 from aether_os.phases.p04a_backend_codegen.schema_builder import (
     _fallback_models,
@@ -60,6 +58,7 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
     _generate_sse_router,
     _smoke_test,
 )
+from aether_os.phases.p04a_backend_codegen.helpers_cache import _generate_cache_service
 from aether_os.phases.p04a_backend_codegen.validator import validate_generated_backend
 from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports
 from aether_os.phases.p04a_backend_codegen.pattern_injector import detect_active_patterns, inject_patterns
@@ -397,6 +396,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as _audit_exc:
         logger.warning("[p04a] audit infrastructure generation failed (non-fatal): %s", _audit_exc)
 
+    try:  # Step 4b2: Redis cache service
+        _generate_cache_service(src_dir)
+    except Exception as _cache_exc:
+        logger.warning("[p04a] cache service generation failed (non-fatal): %s", _cache_exc)
+
     # ── Step 4c: Permissions service (from p02c permission model) ─────────────
     try:
         _permission_model = data.get("permission_model", {})
@@ -409,13 +413,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Step 5: Generate main.py from template ────────────────────────────────
     main_py = _build_main_py(project_name, routers_have_all_routers=True)
-    # Inject AuditContextMiddleware into main.py
+    # Inject AuditContextMiddleware and RedisCacheMiddleware into main.py
     main_py = main_py.replace(
         "app.include_router(auth_router, prefix=\"/api\")",
         (
             "try:\n"
             "    from services.audit_service import AuditContextMiddleware\n"
             "    app.add_middleware(AuditContextMiddleware)\n"
+            "except Exception:\n"
+            "    pass\n\n"
+            "try:\n"
+            "    from services.cache import RedisCacheMiddleware\n"
+            "    app.add_middleware(RedisCacheMiddleware)\n"
             "except Exception:\n"
             "    pass\n\n"
             "app.include_router(auth_router, prefix=\"/api\")"
@@ -467,26 +476,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         f"ENVIRONMENT=development\n"
         f"DEBUG=false\n"
         f"ADMIN_PASSWORD=Admin1234!\n"
+        f"# REDIS_URL=redis://localhost:6379  # Uncomment to enable response caching\n"
+        f"# CACHE_TTL=30                      # Cache time-to-live in seconds\n"
     )
     # Write both .env (used by the running app) and .env.example (for documentation)
     (output_dir / ".env").write_text(_env_content)
     (output_dir / ".env.example").write_text(_env_content)
-    # ── Makefile ──────────────────────────────────────────────────────────────
     (output_dir / "Makefile").write_text(_generate_makefile(project_name))
     (output_dir / "README.md").write_text(_generate_backend_readme(project_name, entities))
-
-    # ── Step 6b: Alembic scaffold ─────────────────────────────────────────────
-    alembic_dir = output_dir / "alembic"
-    alembic_versions = alembic_dir / "versions"
-    alembic_versions.mkdir(parents=True, exist_ok=True)
-    (output_dir / "alembic.ini").write_text(_ALEMBIC_INI)
-    (alembic_dir / "env.py").write_text(_ALEMBIC_ENV_PY)
-    (alembic_dir / "script.py.mako").write_text(_ALEMBIC_SCRIPT_PY_MAKO)
-    (alembic_dir / "README").write_text(
-        "Generate a migration: alembic revision --autogenerate -m 'description'\n"
-        "Apply migrations:    alembic upgrade head\n"
-        "Rollback one step:   alembic downgrade -1\n"
-    )
+    write_alembic_scaffold(output_dir)
 
     # ── Step 6c: Post-generation deterministic validation ─────────────────────
     # Collect all generated source files into a flat dict for the validator.

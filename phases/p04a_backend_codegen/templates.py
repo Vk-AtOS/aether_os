@@ -22,6 +22,7 @@ from phases.p04a_backend_codegen.templates_main import (  # noqa: F401
     _build_main_py,
     _generate_makefile,
     _generate_backend_readme,
+    write_alembic_scaffold,
 )
 
 # ── Fixed production templates ─────────────────────────────────────────────────
