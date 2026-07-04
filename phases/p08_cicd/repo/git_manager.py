@@ -1,5 +1,5 @@
 """
-Git repository manager for DCSP.
+Git repository manager for the AetherOS CI/CD phase.
 Handles cloning and pulling repositories to provide source context.
 """
 
@@ -19,7 +19,7 @@ class RepoError(Exception):
 class RepoManager:
     """Manages local cache of git repositories."""
 
-    def __init__(self, cache_dir: str = "/tmp/dcsp_repos") -> None:
+    def __init__(self, cache_dir: str = "/tmp/aether_repos") -> None:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 

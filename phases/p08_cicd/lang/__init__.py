@@ -1,5 +1,5 @@
 """
-Language adapter plugin system for AetherOS DCSP phase.
+Language adapter plugin system for the AetherOS CI/CD phase.
 """
 
 from __future__ import annotations

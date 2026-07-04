@@ -40,7 +40,7 @@ class CICDAgent:
             return await self._run_scan(code_dir, phase_input)
 
     async def _run_repair(self, ci_failure: str, project_dir: Path, phase_input: Any) -> dict:
-        """Run DCSP repair loop."""
+        """Run CI/CD repair loop."""
         from aether_os.phases.p08_cicd.pipeline import run_repair
         
         # Find canonical src dir (priority: project_dir/src, then phase output locations)

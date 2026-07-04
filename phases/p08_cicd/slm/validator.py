@@ -1,5 +1,5 @@
 """
-SLM response validation and extraction for DCSP.
+SLM response validation and extraction for the AetherOS CI/CD phase.
 """
 
 from __future__ import annotations

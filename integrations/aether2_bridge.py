@@ -1,8 +1,8 @@
 """
-AetherOS → DCSP bridge client.
+AetherOS — External monitor bridge client.
 
-Sends pipeline telemetry to a DCSP instance (if DCSP_URL is set) so that
-DCSP can provide predictive monitoring and automated repair.
+Sends pipeline telemetry to an external monitoring endpoint (if MONITOR_URL is set)
+to provide predictive monitoring and automated repair callbacks.
 
 All network calls are dispatched on a daemon thread so they never block
 the async pipeline loop.  Every public method catches and logs all exceptions.
@@ -17,16 +17,16 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-class Aether2Bridge:
-    """Lightweight HTTP client that reports AetherOS pipeline events to DCSP."""
+class ExternalMonitorBridge:
+    """Lightweight HTTP client that reports AetherOS pipeline events to an external monitor."""
 
     def __init__(self) -> None:
         self.api_url: Optional[str] = None
         self.api_key: Optional[str] = None
         self._stage_starts: Dict[str, float] = {}
 
-    def connect(self, dcsp_api_url: str, api_key: str) -> None:
-        self.api_url = dcsp_api_url.rstrip("/")
+    def connect(self, monitor_api_url: str, api_key: str) -> None:
+        self.api_url = monitor_api_url.rstrip("/")
         self.api_key = api_key
 
     def register_pipeline(self, pipeline_id: str, stages: List[str]) -> None:

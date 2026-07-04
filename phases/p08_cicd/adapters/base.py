@@ -1,6 +1,6 @@
 """
 Base classes for CI adapters.
-Migrated from DCSP src/adapters/base.py.
+Base classes for CI adapters in the AetherOS CI/CD phase.
 """
 
 from __future__ import annotations

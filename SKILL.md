@@ -2,7 +2,7 @@
 Last updated: 2026-04-29
 
 ## What this project is
-AetherOS — Unified Multi-Agent Software Development System. Takes a software requirement and executes a full 10-phase development pipeline (Requirements → Architecture → Scaffold → Codegen → Review → Security → Testing → CI/CD → Docs → Package). Consolidates Aether-one, aether2, and DCSP into one system.
+AetherOS — Unified Multi-Agent Software Development System. Takes a software requirement and executes a full 10-phase development pipeline (Requirements → Architecture → Scaffold → Codegen → Review → Security → Testing → CI/CD → Docs → Package).
 
 ## Tech stack
 - FastAPI (port 8080), Uvicorn/Gunicorn

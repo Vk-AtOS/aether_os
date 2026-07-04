@@ -1,5 +1,5 @@
 """
-SLM Prompt Templates for DCSP.
+SLM Prompt Templates for the AetherOS CI/CD phase.
 Provides specialized system and user prompts based on error types.
 """
 

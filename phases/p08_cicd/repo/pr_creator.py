@@ -1,5 +1,5 @@
 """
-Standardized PR/MR creator for DCSP.
+Standardized PR/MR creator for the AetherOS CI/CD phase.
 Handles API interactions with GitHub and GitLab to propose repair patches.
 """
 

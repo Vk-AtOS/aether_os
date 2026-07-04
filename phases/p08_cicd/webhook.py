@@ -1,6 +1,6 @@
 """
 AetherOS — CI Webhook Handler (Phase 08)
-Migrated from DCSP/src/api/webhook.py.
+CI Webhook handler for the AetherOS p08 CI/CD phase.
 
 BUG 5 FIX: _CALL_GRAPH is no longer None. On startup, the call graph is built
 from the repo root. It is rebuilt on each webhook receipt for the target repo.

@@ -385,18 +385,18 @@ class FactoryPipeline:
         except Exception as _ckpt_exc:
             logger.warning("[pipeline] Checkpoint restore failed (non-fatal): %s", _ckpt_exc)
 
-        # Aether2Bridge — optional DCSP integration (failure here never blocks pipeline)
+        # ExternalMonitorBridge — optional external telemetry hook (failure here never blocks pipeline)
         _bridge = None
-        _dcsp_url = os.environ.get("DCSP_URL", "")
-        if _dcsp_url:
+        _monitor_url = os.environ.get("MONITOR_URL", "")
+        if _monitor_url:
             try:
-                from aether_os.integrations.aether2_bridge import Aether2Bridge
-                _bridge = Aether2Bridge()
-                _bridge.connect(_dcsp_url, os.environ.get("DCSP_API_KEY", ""))
+                from aether_os.integrations.aether2_bridge import ExternalMonitorBridge
+                _bridge = ExternalMonitorBridge()
+                _bridge.connect(_monitor_url, os.environ.get("MONITOR_API_KEY", ""))
                 _bridge.register_pipeline(run_id, list(phases_to_run))
-                logger.info("Aether2Bridge connected to %s, monitoring %d phases", _dcsp_url, len(phases_to_run))
+                logger.info("ExternalMonitorBridge connected to %s, monitoring %d phases", _monitor_url, len(phases_to_run))
             except Exception as _br_exc:
-                logger.warning("Aether2Bridge init failed — DCSP callbacks will be dropped for run %s: %s", run_id, _br_exc)
+                logger.warning("ExternalMonitorBridge init failed — telemetry callbacks will be dropped for run %s: %s", run_id, _br_exc)
                 _bridge = None
 
         results = {}
