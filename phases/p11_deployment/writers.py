@@ -186,6 +186,10 @@ def write_k8s_manifests(project_dir: Path, app_name: str) -> None:
               labels:
                 app: {slug}
             spec:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                fsGroup: 1000
               containers:
               - name: {slug}
                 image: {slug}:latest
@@ -194,6 +198,8 @@ def write_k8s_manifests(project_dir: Path, app_name: str) -> None:
                 envFrom:
                 - secretRef:
                     name: {slug}-secrets
+                securityContext:
+                  allowPrivilegeEscalation: false
                 resources:
                   requests:
                     cpu: "500m"
