@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
-from aether_os.phases.p12a_feature_flags.templates import (
+from aether_os.phases.p12a_feature_flags.templates import FEATURE_FLAGS_PY
+from aether_os.phases.p12a_feature_flags.templates_extras import (
     ADD_FEATURE_FLAGS_SQL,
-    FEATURE_FLAGS_PY,
     FLAG_ADMIN_ROUTER_PY,
     INITIAL_FLAGS_JSON,
     TEST_FEATURE_FLAGS_PY,
