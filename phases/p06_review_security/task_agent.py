@@ -257,6 +257,27 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as e:
         logger.warning("bandit scan failed (non-critical): %s", e)
 
+    # Sub-task 2b: Domain rules + secret detection + pip-audit (CodeScanner)
+    try:
+        from aether_os.core.security.code_scanner import CodeScanner
+        _scanner = CodeScanner()
+        _sec_data = phase_input.input_data
+        _sec_project_dir = _sec_data.get("project_dir", "")
+        _sec_domain = _sec_data.get("domain", "general")
+        if _sec_project_dir and Path(_sec_project_dir).exists():
+            _scan_res = await _scanner.scan_project(_sec_project_dir, _sec_domain)
+            _extra_findings = [
+                {"rule_id": f.rule_id, "severity": f.severity, "message": f.message, "file": f.file_path}
+                for f in _scan_res.findings
+            ]
+            (output_dir / "security").mkdir(parents=True, exist_ok=True)
+            (output_dir / "security" / "extended_scan.json").write_text(
+                json.dumps({"domain": _sec_domain, "findings": _extra_findings, "passed": _scan_res.passed}, indent=2)
+            )
+            logger.info("[p06] CodeScanner: %d domain/secret/pip-audit findings", len(_extra_findings))
+    except Exception as _cs_exc:
+        logger.warning("[p06] CodeScanner extended scan failed (non-fatal): %s", _cs_exc)
+
     # Sub-task 3: Compliance scan (G12 — real code scanner, not LLM report)
     try:
         from aether_os.core.compliance.code_scanner import scan_file
@@ -564,26 +585,4 @@ def _inject_compliance(main_py: Path, scan_result: Any, domain: str) -> None:
             logger.warning("G12: Failed to write compliance boilerplate: %s", e)
 
 
-def _insert_after_imports(source: str, block: str) -> str:
-    """Insert *block* immediately after the last top-level import statement."""
-    lines = source.splitlines()
-    last_import = 0
-    for i, line in enumerate(lines):
-        stripped = line.lstrip()
-        if stripped.startswith("import ") or stripped.startswith("from "):
-            last_import = i
-    lines.insert(last_import + 1, block)
-    return "\n".join(lines)
-
-
-def _insert_before_routes(source: str, block: str) -> str:
-    """Insert *block* just before the first @app.{verb} decorator."""
-    m = re.search(
-        r'^@app\.(get|post|put|delete|patch)',
-        source,
-        re.MULTILINE,
-    )
-    if m:
-        return source[: m.start()] + block + "\n" + source[m.start():]
-    # No routes found — append at end
-    return source + "\n" + block
+from aether_os.phases.p06_review_security.patcher import insert_after_imports as _insert_after_imports, insert_before_routes as _insert_before_routes
