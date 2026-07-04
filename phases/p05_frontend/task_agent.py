@@ -88,6 +88,7 @@ from aether_os.phases.p05_frontend.helpers import (
     _generate_sse_hook,
     write_ui_components,
 )
+from aether_os.phases.p05_frontend.domain_pages import write_domain_pages
 from aether_os.phases.p05_frontend.governor_integration import run_frontend_governor
 
 logger = logging.getLogger(__name__)
@@ -443,6 +444,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             await asyncio.sleep(0.01)
 
     run_frontend_governor(data, [e.get("name", e["table"]) + "Page" for e in entities], output_dir)
+    write_domain_pages(src_dir, domain, build_types)
     # ── Phase 7: Optional LLM Component (DomainWidget) ──
     domain_widget_generated = False
     if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
