@@ -231,4 +231,107 @@ async def cancel_subscription(body: dict) -> dict:
         raise
     except Exception as exc:
         raise HTTPException(502, f"Stripe error: {exc}")
+
+
+@router.get("/invoices")
+async def list_invoices(customer_id: str, limit: int = 10) -> dict:
+    """List recent invoices for a Stripe customer."""
+    stripe = _get_stripe()
+    try:
+        invoices = stripe.Invoice.list(customer=customer_id, limit=min(limit, 100))
+        return {
+            "invoices": [
+                {
+                    "id": inv.id,
+                    "number": inv.number,
+                    "amount_due": inv.amount_due,
+                    "amount_paid": inv.amount_paid,
+                    "currency": inv.currency,
+                    "status": inv.status,
+                    "created": inv.created,
+                    "hosted_invoice_url": inv.hosted_invoice_url,
+                    "invoice_pdf": inv.invoice_pdf,
+                }
+                for inv in invoices.data
+            ]
+        }
+    except Exception as exc:
+        raise HTTPException(502, f"Stripe error: {exc}")
+
+
+@router.get("/invoices/{invoice_id}")
+async def get_invoice(invoice_id: str) -> dict:
+    """Get details for a specific invoice including PDF download URL."""
+    stripe = _get_stripe()
+    try:
+        inv = stripe.Invoice.retrieve(invoice_id)
+        return {
+            "id": inv.id,
+            "number": inv.number,
+            "amount_due": inv.amount_due,
+            "amount_paid": inv.amount_paid,
+            "currency": inv.currency,
+            "status": inv.status,
+            "created": inv.created,
+            "lines": [{"description": line.description, "amount": line.amount} for line in inv.lines.data],
+            "hosted_invoice_url": inv.hosted_invoice_url,
+            "invoice_pdf": inv.invoice_pdf,
+        }
+    except Exception as exc:
+        raise HTTPException(502, f"Stripe error: {exc}")
+
+
+@router.post("/usage")
+async def report_usage(body: dict) -> dict:
+    """Report metered usage for a subscription item (Stripe Usage Records API).
+
+    Body: {subscription_item_id: str, quantity: int, timestamp?: int, action?: "increment"|"set"}
+    """
+    stripe = _get_stripe()
+    subscription_item_id = body.get("subscription_item_id")
+    quantity = body.get("quantity")
+    if not subscription_item_id or quantity is None:
+        raise HTTPException(422, "subscription_item_id and quantity are required")
+    try:
+        record = stripe.SubscriptionItem.create_usage_record(
+            subscription_item_id,
+            quantity=int(quantity),
+            timestamp=body.get("timestamp", "now"),
+            action=body.get("action", "increment"),
+        )
+        return {"usage_record_id": record.id, "quantity": record.quantity, "timestamp": record.timestamp}
+    except Exception as exc:
+        raise HTTPException(502, f"Stripe error: {exc}")
+
+
+@router.post("/refund")
+async def create_refund(body: dict) -> dict:
+    """Create a refund for a payment intent.
+
+    Body: {payment_intent_id: str, amount?: int (cents, omit to refund full amount), reason?: str}
+    """
+    stripe = _get_stripe()
+    payment_intent_id = body.get("payment_intent_id")
+    if not payment_intent_id:
+        raise HTTPException(422, "payment_intent_id required")
+    valid_reasons = {"duplicate", "fraudulent", "requested_by_customer"}
+    reason = body.get("reason", "requested_by_customer")
+    if reason not in valid_reasons:
+        raise HTTPException(422, f"reason must be one of: {valid_reasons}")
+    try:
+        params: dict = {"payment_intent": payment_intent_id, "reason": reason}
+        if body.get("amount"):
+            params["amount"] = int(body["amount"])
+        refund = stripe.Refund.create(**params)
+        return {
+            "refund_id": refund.id,
+            "amount": refund.amount,
+            "currency": refund.currency,
+            "status": refund.status,
+            "reason": refund.reason,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Stripe error: {exc}")
 '''
