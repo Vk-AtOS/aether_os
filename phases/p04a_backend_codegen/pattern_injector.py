@@ -44,6 +44,12 @@ def detect_active_patterns(data: Dict[str, Any], raw_input: str) -> List[str]:
     ):
         active.append("stripe")
 
+    if (
+        any(x in raw_lower for x in ["marketplace", "escrow", "bidding", "auction", "buy and sell", "p2p", "peer-to-peer", "listings"])
+        or "marketplace" in build_types
+    ):
+        active.append("marketplace")
+
     return active
 
 
@@ -104,6 +110,14 @@ def inject_patterns(
                 )
                 (src_dir / "billing_router.py").write_text(STRIPE_CODE)
                 _append_requirements(STRIPE_REQUIREMENTS)
+
+            elif pattern_name == "marketplace":
+                from aether_os.phases.patterns.marketplace import (  # noqa: PLC0415
+                    MARKETPLACE_CODE,
+                    MARKETPLACE_REQUIREMENTS,
+                )
+                (src_dir / "marketplace_router.py").write_text(MARKETPLACE_CODE)
+                _append_requirements(MARKETPLACE_REQUIREMENTS)
 
             else:
                 logger.warning("[p04a] unknown pattern '%s' — skipped", pattern_name)
