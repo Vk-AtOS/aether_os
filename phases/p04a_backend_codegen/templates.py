@@ -72,8 +72,8 @@ else:
         DATABASE_URL,
         echo=False,
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=int(os.environ.get("DB_POOL_SIZE", str(max(4, (os.cpu_count() or 1) * 2)))),
+        max_overflow=int(os.environ.get("DB_MAX_OVERFLOW", "20")),
         pool_recycle=300,
     )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -106,6 +106,9 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ENVIRONMENT=development
 DEBUG=false
 ADMIN_PASSWORD=Admin1234!
+# Connection pool tuning — defaults to cpu_count*2 (min 4). Increase for high traffic.
+# DB_POOL_SIZE=20
+# DB_MAX_OVERFLOW=40
 """
 
 # Docker-compose template — adds a postgres:15-alpine service alongside the app.

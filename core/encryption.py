@@ -29,6 +29,12 @@ def _get_fernet() -> Fernet:
         if raw:
             _fernet = Fernet(raw.encode())
         else:
+            _is_production = os.environ.get("ENVIRONMENT", "development") == "production"
+            if _is_production:
+                raise RuntimeError(
+                    "AETHER_FIELD_KEY must be set in production. "
+                    "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                )
             logger.warning(
                 "AETHER_FIELD_KEY not set — using ephemeral encryption key. "
                 "Encrypted fields will not survive process restarts. "
