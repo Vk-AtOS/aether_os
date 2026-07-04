@@ -1,0 +1,908 @@
+{
+  "domain": "cross_domain",
+  "version": "1.0",
+  "generated_at": "2026-07-04",
+  "source": "synthetic_so_style_examples",
+  "examples": [
+    {
+      "id": "so_0001",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import with no known parent package",
+        "file": "routers/users.py",
+        "bad_code": "from .models import User\nfrom .database import get_db"
+      },
+      "output": {
+        "fix": "from src.models import User\nfrom src.database import get_db",
+        "explanation": "Uvicorn loads main.py as a top-level script, so relative imports fail. Use absolute imports rooted at src/ which is on PYTHONPATH.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": ["fastapi", "python", "importerror", "relative-import"]
+    },
+    {
+      "id": "so_0002",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import beyond top-level package",
+        "file": "services/auth.py",
+        "bad_code": "from ..models import User\nfrom ..schemas import UserCreate"
+      },
+      "output": {
+        "fix": "from src.models import User\nfrom src.schemas import UserCreate",
+        "explanation": "Double-dot relative imports only work inside a proper package hierarchy. With PYTHONPATH=/app/src, always use absolute imports.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": ["fastapi", "python", "importerror", "relative-import"]
+    },
+    {
+      "id": "so_0003",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ModuleNotFoundError: No module named '__main__.models'",
+        "file": "main.py",
+        "bad_code": "from .models import Base\nfrom .routers import users"
+      },
+      "output": {
+        "fix": "from models import Base\nfrom routers import users",
+        "explanation": "main.py is the entry point and has no parent package. Remove the leading dot for all imports in main.py.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": ["fastapi", "python", "importerror", "relative-import"]
+    },
+    {
+      "id": "so_0004",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import with no known parent package",
+        "file": "crud.py",
+        "bad_code": "from .models import Product, Order\nfrom .schemas import ProductOut"
+      },
+      "output": {
+        "fix": "from src.models import Product, Order\nfrom src.schemas import ProductOut",
+        "explanation": "Generated CRUD files must use absolute imports. The src/ directory is added to PYTHONPATH in the Dockerfile.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": ["fastapi", "sqlalchemy", "importerror", "relative-import"]
+    },
+    {
+      "id": "so_0005",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ImportError: attempted relative import with no known parent package",
+        "file": "database.py",
+        "bad_code": "from .config import settings"
+      },
+      "output": {
+        "fix": "from src.config import settings",
+        "explanation": "database.py is sometimes imported directly. Always use the absolute src.config path to avoid context-dependent failures.",
+        "bug_class": "RELATIVE_IMPORT"
+      },
+      "tags": ["fastapi", "python", "importerror", "relative-import"]
+    },
+    {
+      "id": "so_0006",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here",
+        "file": "routers/items.py",
+        "bad_code": "def get_items(db: Session = Depends(get_db)):\n    return db.query(Item).all()"
+      },
+      "output": {
+        "fix": "async def get_items(db: AsyncSession = Depends(get_db)):\n    result = await db.execute(select(Item))\n    return result.scalars().all()",
+        "explanation": "Using synchronous session.query() inside an async FastAPI route causes a greenlet context error. Use AsyncSession with await db.execute(select(...)).",
+        "bug_class": "ASYNC_SQLALCHEMY"
+      },
+      "tags": ["fastapi", "sqlalchemy", "async", "asyncio"]
+    },
+    {
+      "id": "so_0007",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called",
+        "file": "services/order_service.py",
+        "bad_code": "async def create_order(db: AsyncSession, data: OrderCreate):\n    order = db.query(Order).filter(Order.id == data.id).first()"
+      },
+      "output": {
+        "fix": "async def create_order(db: AsyncSession, data: OrderCreate):\n    result = await db.execute(select(Order).where(Order.id == data.id))\n    order = result.scalar_one_or_none()",
+        "explanation": "db.query() is the synchronous ORM API. With AsyncSession you must use the core-style select() + await db.execute().",
+        "bug_class": "ASYNC_SQLALCHEMY"
+      },
+      "tags": ["fastapi", "sqlalchemy", "async", "asyncio"]
+    },
+    {
+      "id": "so_0008",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "AttributeError: 'coroutine' object has no attribute 'scalars'",
+        "file": "crud.py",
+        "bad_code": "result = db.execute(select(User))\nusers = result.scalars().all()"
+      },
+      "output": {
+        "fix": "result = await db.execute(select(User))\nusers = result.scalars().all()",
+        "explanation": "AsyncSession.execute() is a coroutine and must be awaited before calling .scalars() on the result.",
+        "bug_class": "ASYNC_SQLALCHEMY"
+      },
+      "tags": ["fastapi", "sqlalchemy", "async", "await"]
+    },
+    {
+      "id": "so_0009",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.InvalidRequestError: This Session's transaction has been rolled back due to a previous exception during flush",
+        "file": "crud.py",
+        "bad_code": "async def update_user(db: AsyncSession, user_id: int, data: dict):\n    user = db.query(User).get(user_id)\n    for k, v in data.items():\n        setattr(user, k, v)\n    await db.commit()"
+      },
+      "output": {
+        "fix": "async def update_user(db: AsyncSession, user_id: int, data: dict):\n    result = await db.execute(select(User).where(User.id == user_id))\n    user = result.scalar_one()\n    for k, v in data.items():\n        setattr(user, k, v)\n    await db.commit()\n    await db.refresh(user)\n    return user",
+        "explanation": "session.query() is synchronous and causes a transaction error in async context. Always use select() + await execute() + scalar_one().",
+        "bug_class": "ASYNC_SQLALCHEMY"
+      },
+      "tags": ["fastapi", "sqlalchemy", "async", "update"]
+    },
+    {
+      "id": "so_0010",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: AsyncSession.execute() got an unexpected keyword argument 'synchronize_session'",
+        "file": "crud.py",
+        "bad_code": "await db.execute(\n    update(User).where(User.id == uid).values(**data),\n    synchronize_session='fetch'\n)"
+      },
+      "output": {
+        "fix": "await db.execute(\n    update(User).where(User.id == uid).values(**data).execution_options(synchronize_session='fetch')\n)",
+        "explanation": "synchronize_session is passed via execution_options() when using the async session bulk update API.",
+        "bug_class": "ASYNC_SQLALCHEMY"
+      },
+      "tags": ["fastapi", "sqlalchemy", "async", "update"]
+    },
+    {
+      "id": "so_0011",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "PydanticUserError: `model_config` is not a valid attribute name for model configuration",
+        "file": "schemas.py",
+        "bad_code": "class UserOut(BaseModel):\n    id: int\n    email: str\n\n    class Config:\n        orm_mode = True"
+      },
+      "output": {
+        "fix": "from pydantic import ConfigDict\n\nclass UserOut(BaseModel):\n    id: int\n    email: str\n\n    model_config = ConfigDict(from_attributes=True)",
+        "explanation": "Pydantic v2 replaced the inner Config class with model_config = ConfigDict(...). orm_mode was renamed to from_attributes.",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": ["pydantic", "fastapi", "pydantic-v2", "orm-mode"]
+    },
+    {
+      "id": "so_0012",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "PydanticUserError: To define root types, use `RootModel`",
+        "file": "schemas.py",
+        "bad_code": "class ItemList(BaseModel):\n    __root__: list[Item]"
+      },
+      "output": {
+        "fix": "from pydantic import RootModel\n\nclass ItemList(RootModel[list[Item]]):\n    pass",
+        "explanation": "Pydantic v2 removed __root__. Use RootModel[T] instead for root types.",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": ["pydantic", "pydantic-v2", "root-model"]
+    },
+    {
+      "id": "so_0013",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ValidationError: value is not a valid dict",
+        "file": "schemas.py",
+        "bad_code": "class OrderOut(BaseModel):\n    id: int\n    user: UserOut\n\n    class Config:\n        orm_mode = True\n        schema_extra = {'example': {'id': 1}}"
+      },
+      "output": {
+        "fix": "class OrderOut(BaseModel):\n    id: int\n    user: UserOut\n\n    model_config = ConfigDict(\n        from_attributes=True,\n        json_schema_extra={'example': {'id': 1}}\n    )",
+        "explanation": "Pydantic v2: schema_extra renamed to json_schema_extra and must be inside ConfigDict, not the nested Config class.",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": ["pydantic", "pydantic-v2", "schema-extra"]
+    },
+    {
+      "id": "so_0014",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "AttributeError: type object 'MyModel' has no attribute 'parse_obj'",
+        "file": "services.py",
+        "bad_code": "user = UserOut.parse_obj(db_user.__dict__)"
+      },
+      "output": {
+        "fix": "user = UserOut.model_validate(db_user)",
+        "explanation": "Pydantic v2 renamed parse_obj() to model_validate(). With from_attributes=True it can validate directly from ORM objects.",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": ["pydantic", "pydantic-v2", "parse-obj"]
+    },
+    {
+      "id": "so_0015",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "AttributeError: 'UserCreate' object has no attribute 'dict'",
+        "file": "crud.py",
+        "bad_code": "def create_user(db, data: UserCreate):\n    db_user = User(**data.dict())\n    db.add(db_user)"
+      },
+      "output": {
+        "fix": "def create_user(db, data: UserCreate):\n    db_user = User(**data.model_dump())\n    db.add(db_user)",
+        "explanation": "Pydantic v2 renamed .dict() to .model_dump(). The old method is removed in v2, not deprecated.",
+        "bug_class": "PYDANTIC_V2"
+      },
+      "tags": ["pydantic", "pydantic-v2", "model-dump"]
+    },
+    {
+      "id": "so_0016",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS policy: No 'Access-Control-Allow-Origin' header is present",
+        "file": "main.py",
+        "bad_code": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins=['*'],\n    allow_credentials=True,\n    allow_methods=['*'],\n    allow_headers=['*'],\n)"
+      },
+      "output": {
+        "fix": "ALLOWED_ORIGINS = os.environ.get('CORS_ORIGINS', 'https://app.example.com').split(',')\n\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=ALLOWED_ORIGINS,\n    allow_credentials=True,\n    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],\n    allow_headers=['Authorization', 'Content-Type'],\n)",
+        "explanation": "allow_origins=['*'] and allow_credentials=True is rejected by browsers (CORS spec forbids this combination). List explicit origins from env instead.",
+        "bug_class": "CORS_MISCONFIGURATION"
+      },
+      "tags": ["fastapi", "cors", "security", "middleware"]
+    },
+    {
+      "id": "so_0017",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS blocked: credentials flag is true but Access-Control-Allow-Origin is wildcard",
+        "file": "main.py",
+        "bad_code": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins='*',\n    allow_credentials=True\n)"
+      },
+      "output": {
+        "fix": "origins = ['https://frontend.example.com', 'https://admin.example.com']\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=origins,\n    allow_credentials=True,\n    allow_methods=['*'],\n    allow_headers=['*'],\n)",
+        "explanation": "The Fetch spec forbids allow_credentials=True with a wildcard origin. You must enumerate exact allowed origins.",
+        "bug_class": "CORS_MISCONFIGURATION"
+      },
+      "tags": ["fastapi", "cors", "security"]
+    },
+    {
+      "id": "so_0018",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS preflight returns 400 Bad Request for DELETE method",
+        "file": "main.py",
+        "bad_code": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins=['https://app.example.com'],\n    allow_methods=['GET', 'POST']\n)"
+      },
+      "output": {
+        "fix": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins=['https://app.example.com'],\n    allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],\n    allow_headers=['Authorization', 'Content-Type'],\n)",
+        "explanation": "DELETE/PUT/PATCH preflight requests fail if those methods are not in allow_methods. Always include all HTTP verbs used by the frontend.",
+        "bug_class": "CORS_MISCONFIGURATION"
+      },
+      "tags": ["fastapi", "cors", "preflight"]
+    },
+    {
+      "id": "so_0019",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS error: Authorization header not in Access-Control-Allow-Headers",
+        "file": "main.py",
+        "bad_code": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins=['https://app.example.com'],\n    allow_headers=[]\n)"
+      },
+      "output": {
+        "fix": "app.add_middleware(\n    CORSMiddleware,\n    allow_origins=['https://app.example.com'],\n    allow_headers=['Authorization', 'Content-Type', 'Accept', 'X-Request-ID'],\n)",
+        "explanation": "Empty allow_headers blocks Authorization. Always list the headers your frontend sends, especially Authorization for JWT auth.",
+        "bug_class": "CORS_MISCONFIGURATION"
+      },
+      "tags": ["fastapi", "cors", "headers", "jwt"]
+    },
+    {
+      "id": "so_0020",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "CORS: OPTIONS request to /api/v1/ returns 307 redirect, browser aborts",
+        "file": "main.py",
+        "bad_code": "app = FastAPI()\napp.add_middleware(CORSMiddleware, allow_origins=['*'])\napp.include_router(api_router, prefix='/api/v1')"
+      },
+      "output": {
+        "fix": "app = FastAPI(redirect_slashes=False)\napp.add_middleware(CORSMiddleware, allow_origins=['https://app.example.com'])\napp.include_router(api_router, prefix='/api/v1')",
+        "explanation": "FastAPI's default redirect_slashes=True turns OPTIONS /api/v1/ into a 307 redirect which browsers won't follow for CORS preflight. Set redirect_slashes=False.",
+        "bug_class": "CORS_MISCONFIGURATION"
+      },
+      "tags": ["fastapi", "cors", "redirect", "options"]
+    },
+    {
+      "id": "so_0021",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "jose.exceptions.JWTError: Signature verification failed",
+        "file": "auth/jwt.py",
+        "bad_code": "payload = jwt.decode(token, SECRET_KEY)"
+      },
+      "output": {
+        "fix": "payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])",
+        "explanation": "python-jose requires the algorithms parameter explicitly. Without it the library may attempt RS256 verification against an HS256 token.",
+        "bug_class": "JWT_ERROR"
+      },
+      "tags": ["fastapi", "jwt", "authentication", "jose"]
+    },
+    {
+      "id": "so_0022",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "jose.exceptions.ExpiredSignatureError even though token was just issued",
+        "file": "auth/jwt.py",
+        "bad_code": "payload = {'sub': str(user.id), 'exp': datetime.utcnow() + timedelta(minutes=30)}\ntoken = jwt.encode(payload, SECRET_KEY, algorithm='HS256')"
+      },
+      "output": {
+        "fix": "from datetime import datetime, timezone, timedelta\npayload = {\n    'sub': str(user.id),\n    'exp': datetime.now(timezone.utc) + timedelta(minutes=30)\n}\ntoken = jwt.encode(payload, SECRET_KEY, algorithm='HS256')",
+        "explanation": "datetime.utcnow() returns a naive datetime. python-jose compares it against a timezone-aware now() and may get confused. Use datetime.now(timezone.utc).",
+        "bug_class": "JWT_ERROR"
+      },
+      "tags": ["fastapi", "jwt", "datetime", "timezone"]
+    },
+    {
+      "id": "so_0023",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "jose.exceptions.JWTClaimsError: Invalid audience",
+        "file": "auth/jwt.py",
+        "bad_code": "payload = jwt.decode(token, PUBLIC_KEY, algorithms=['RS256'])"
+      },
+      "output": {
+        "fix": "payload = jwt.decode(\n    token,\n    PUBLIC_KEY,\n    algorithms=['RS256'],\n    audience='https://api.example.com',\n    options={'verify_exp': True}\n)",
+        "explanation": "If the JWT was issued with an aud claim, decoding must pass the matching audience string. Omitting it raises JWTClaimsError.",
+        "bug_class": "JWT_ERROR"
+      },
+      "tags": ["fastapi", "jwt", "rs256", "audience"]
+    },
+    {
+      "id": "so_0024",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ValueError: Could not deserialize key data — key format is PKCS1 not PKCS8",
+        "file": "auth/jwt.py",
+        "bad_code": "# Using RSA private key in PKCS#1 format (-----BEGIN RSA PRIVATE KEY-----)\ntoken = jwt.encode(payload, PRIVATE_KEY, algorithm='RS256')"
+      },
+      "output": {
+        "fix": "# Convert key to PKCS#8 first:\n# openssl pkcs8 -topk8 -nocrypt -in private.pem -out private_pkcs8.pem\n# OR use the cryptography library:\nfrom cryptography.hazmat.primitives.serialization import load_pem_private_key\nprivate_key = load_pem_private_key(PRIVATE_KEY.encode(), password=None)\ntoken = jwt.encode(payload, private_key, algorithm='RS256')",
+        "explanation": "python-jose expects PKCS#8 format for RS256 private keys. Either convert the key or use the cryptography library to load PKCS#1 keys.",
+        "bug_class": "JWT_ERROR"
+      },
+      "tags": ["fastapi", "jwt", "rsa", "pkcs8"]
+    },
+    {
+      "id": "so_0025",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "HTTPException 401 on every request despite valid token — HS256 secret mismatch",
+        "file": "auth/dependencies.py",
+        "bad_code": "SECRET_KEY = os.getenv('JWT_SECRET', 'default-secret')\n# Token was encoded with a different SECRET_KEY in production"
+      },
+      "output": {
+        "fix": "SECRET_KEY = os.environ['JWT_SECRET']  # raises KeyError if missing\n# Never use a fallback default — force the env var to be set",
+        "explanation": "Using a default secret means dev and prod can diverge silently. Remove the fallback so startup fails fast if JWT_SECRET is not set.",
+        "bug_class": "JWT_ERROR"
+      },
+      "tags": ["fastapi", "jwt", "configuration", "security"]
+    },
+    {
+      "id": "so_0026",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "N+1 query: 100 users loaded then 100 individual SELECT for each user.orders",
+        "file": "routers/users.py",
+        "bad_code": "users = db.query(User).all()\nfor user in users:\n    orders = user.orders  # triggers separate SELECT per user"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import selectinload\n\nresult = await db.execute(\n    select(User).options(selectinload(User.orders))\n)\nusers = result.scalars().all()\n# user.orders is now pre-loaded, no extra queries",
+        "explanation": "Accessing a lazy relationship in a loop causes N+1 queries. Use selectinload() to batch-load the relationship in a single IN query.",
+        "bug_class": "N_PLUS_ONE_QUERY"
+      },
+      "tags": ["sqlalchemy", "n+1", "performance", "selectinload"]
+    },
+    {
+      "id": "so_0027",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Performance: API endpoint takes 8s for 500 orders because of lazy-loaded User relationship",
+        "file": "routers/orders.py",
+        "bad_code": "orders = db.query(Order).filter(Order.status == 'pending').all()\nreturn [{'id': o.id, 'user_email': o.user.email} for o in orders]"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import joinedload\n\nresult = await db.execute(\n    select(Order)\n    .options(joinedload(Order.user))\n    .where(Order.status == 'pending')\n)\norders = result.unique().scalars().all()\nreturn [{'id': o.id, 'user_email': o.user.email} for o in orders]",
+        "explanation": "joinedload() uses a LEFT OUTER JOIN so both Order and User are fetched in one query. Use result.unique() to deduplicate joined rows.",
+        "bug_class": "N_PLUS_ONE_QUERY"
+      },
+      "tags": ["sqlalchemy", "n+1", "joinedload", "performance"]
+    },
+    {
+      "id": "so_0028",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "1001 SQL queries for a single API call — products with their categories",
+        "file": "services/catalog.py",
+        "bad_code": "products = session.query(Product).limit(1000).all()\nfor p in products:\n    print(p.category.name)"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import contains_eager\n\nresult = await db.execute(\n    select(Product)\n    .join(Product.category)\n    .options(contains_eager(Product.category))\n    .limit(1000)\n)\nproducts = result.unique().scalars().all()\nfor p in products:\n    print(p.category.name)  # no extra query",
+        "explanation": "contains_eager() tells SQLAlchemy that the relationship is already loaded via the join — no extra SELECT per product.",
+        "bug_class": "N_PLUS_ONE_QUERY"
+      },
+      "tags": ["sqlalchemy", "n+1", "contains-eager", "join"]
+    },
+    {
+      "id": "so_0029",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Slow list endpoint — 200 products but 200 tag relationship queries",
+        "file": "routers/products.py",
+        "bad_code": "async def list_products(db: AsyncSession):\n    result = await db.execute(select(Product))\n    products = result.scalars().all()\n    return [{'id': p.id, 'tags': [t.name for t in p.tags]} for p in products]"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import selectinload\n\nasync def list_products(db: AsyncSession):\n    result = await db.execute(\n        select(Product).options(selectinload(Product.tags))\n    )\n    products = result.scalars().all()\n    return [{'id': p.id, 'tags': [t.name for t in p.tags]} for p in products]",
+        "explanation": "Many-to-many relationships accessed in a list comprehension cause N+1 queries. selectinload() batches them into a single IN query.",
+        "bug_class": "N_PLUS_ONE_QUERY"
+      },
+      "tags": ["sqlalchemy", "n+1", "many-to-many", "selectinload"]
+    },
+    {
+      "id": "so_0030",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Recursive N+1: comment.author.profile accessed in a loop",
+        "file": "routers/posts.py",
+        "bad_code": "post = await db.get(Post, post_id)\nfor comment in post.comments:\n    user = comment.author\n    profile = user.profile"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import selectinload\n\nresult = await db.execute(\n    select(Post)\n    .where(Post.id == post_id)\n    .options(\n        selectinload(Post.comments)\n        .selectinload(Comment.author)\n        .selectinload(User.profile)\n    )\n)\npost = result.scalar_one()",
+        "explanation": "Nested lazy relationships require chained selectinload() calls to pre-load the full object graph in the fewest queries.",
+        "bug_class": "N_PLUS_ONE_QUERY"
+      },
+      "tags": ["sqlalchemy", "n+1", "nested", "selectinload"]
+    },
+    {
+      "id": "so_0031",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "alembic.util.exc.CommandError: Multiple head revisions are present",
+        "file": "alembic/versions/",
+        "bad_code": "# Two migration files both have down_revision = 'abc123'\n# Running alembic upgrade head fails with 'Multiple heads'"
+      },
+      "output": {
+        "fix": "# 1. Identify the two heads:\nalembic heads\n\n# 2. Merge them:\nalembic merge heads -m 'merge_parallel_branches'\n\n# 3. Apply the merge:\nalembic upgrade head",
+        "explanation": "Two developers created migrations from the same base revision. alembic merge heads generates a new migration that has both as its down_revision, resolving the conflict.",
+        "bug_class": "ALEMBIC_CONFLICT"
+      },
+      "tags": ["alembic", "migration", "conflict", "heads"]
+    },
+    {
+      "id": "so_0032",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "alembic.util.exc.CommandError: Can't locate revision identified by 'f3a8c2d1'",
+        "file": "alembic/env.py",
+        "bad_code": "# Migration was deleted from versions/ but the DB still points to it"
+      },
+      "output": {
+        "fix": "# Option 1: Stamp the DB at the actual latest known revision:\nalembic stamp head\n\n# Option 2: Stamp at a specific revision to skip the missing one:\nalembic stamp <next_known_revision_id>\n\n# Then re-run upgrade:\nalembic upgrade head",
+        "explanation": "alembic stamp updates the alembic_version table without running migrations — useful when the history diverges from the DB state.",
+        "bug_class": "ALEMBIC_CONFLICT"
+      },
+      "tags": ["alembic", "migration", "stamp", "version"]
+    },
+    {
+      "id": "so_0033",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "alembic upgrade head applies same migration twice on CI",
+        "file": "alembic/versions/0001_initial.py",
+        "bad_code": "# Two migration files with identical revision IDs generated on different branches"
+      },
+      "output": {
+        "fix": "# Never manually set revision IDs. Let alembic generate them:\nalembic revision --autogenerate -m 'add_user_table'\n# alembic generates a unique 12-hex-char revision ID automatically\n\n# If collision already happened, delete one and regenerate:\nalembic revision --autogenerate -m 'add_user_table_fixed'",
+        "explanation": "Duplicate revision IDs cause idempotency failures. Always let alembic auto-generate the revision ID — never copy-paste migration files.",
+        "bug_class": "ALEMBIC_CONFLICT"
+      },
+      "tags": ["alembic", "migration", "revision", "ci"]
+    },
+    {
+      "id": "so_0034",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.ProgrammingError: column 'created_at' of relation already exists",
+        "file": "alembic/versions/0003_add_timestamps.py",
+        "bad_code": "def upgrade():\n    op.add_column('users', sa.Column('created_at', sa.DateTime))\n    op.add_column('users', sa.Column('updated_at', sa.DateTime))"
+      },
+      "output": {
+        "fix": "def upgrade():\n    conn = op.get_bind()\n    inspector = sa.inspect(conn)\n    existing = [c['name'] for c in inspector.get_columns('users')]\n    if 'created_at' not in existing:\n        op.add_column('users', sa.Column('created_at', sa.DateTime))\n    if 'updated_at' not in existing:\n        op.add_column('users', sa.Column('updated_at', sa.DateTime))",
+        "explanation": "Migrations must be idempotent in CI. Check for column existence before adding to avoid errors on re-runs or replayed migrations.",
+        "bug_class": "ALEMBIC_CONFLICT"
+      },
+      "tags": ["alembic", "migration", "idempotent", "column"]
+    },
+    {
+      "id": "so_0035",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "alembic.util.exc.CommandError: Target database is not up to date — has 3 unapplied migrations",
+        "file": "alembic/env.py",
+        "bad_code": "# Dockerfile runs: alembic upgrade head\n# But migrations/ is not copied into the image"
+      },
+      "output": {
+        "fix": "# In Dockerfile, copy migrations before running upgrade:\nCOPY alembic.ini .\nCOPY alembic/ alembic/\nRUN alembic upgrade head\n\n# Or run upgrade at container start in entrypoint.sh:\nalembic upgrade head && uvicorn main:app",
+        "explanation": "alembic upgrade head must run after migrations are available in the container. Copy them in the Dockerfile and run upgrade before starting the app.",
+        "bug_class": "ALEMBIC_CONFLICT"
+      },
+      "tags": ["alembic", "docker", "migration", "deploy"]
+    },
+    {
+      "id": "so_0036",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "FastAPI Depends() call outside of a route function raises RuntimeError",
+        "file": "services/auth.py",
+        "bad_code": "# Trying to use Depends at module level\ncurrent_user = Depends(get_current_user)"
+      },
+      "output": {
+        "fix": "# Depends() only resolves inside route functions or other dependency functions.\n# Pass it as a parameter default:\n\n@router.get('/me')\nasync def get_me(current_user: User = Depends(get_current_user)):\n    return current_user\n\n# Or use a sub-dependency:\nasync def get_admin_user(user: User = Depends(get_current_user)) -> User:\n    if not user.is_admin:\n        raise HTTPException(status_code=403)\n    return user",
+        "explanation": "Depends() is a sentinel that FastAPI's dependency injection resolves at request time. It cannot be evaluated at import time or outside routes.",
+        "bug_class": "FASTAPI_DEPENDS"
+      },
+      "tags": ["fastapi", "dependency-injection", "depends"]
+    },
+    {
+      "id": "so_0037",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "TypeError: get_db() got an unexpected keyword argument — Depends not resolved in background task",
+        "file": "tasks/email_sender.py",
+        "bad_code": "background_tasks.add_task(send_confirmation, db=Depends(get_db), user_id=user.id)"
+      },
+      "output": {
+        "fix": "# Background tasks do NOT resolve Depends. Pass the session directly.\nasync def send_confirmation(user_id: int, db_session: AsyncSession):\n    async with AsyncSession(engine) as db:\n        user = await db.get(User, user_id)\n        # send email ...\n\nbackground_tasks.add_task(send_confirmation, user_id=user.id)",
+        "explanation": "BackgroundTasks.add_task() is a plain function call — Depends is never resolved there. Create a new session inside the background task.",
+        "bug_class": "FASTAPI_DEPENDS"
+      },
+      "tags": ["fastapi", "depends", "background-tasks"]
+    },
+    {
+      "id": "so_0038",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Circular dependency: auth depends on users service which depends on auth",
+        "file": "dependencies.py",
+        "bad_code": "# auth.py imports from users.py\n# users.py imports from auth.py — circular"
+      },
+      "output": {
+        "fix": "# Extract the shared piece to a third module:\n# core/security.py  — token verification only, no ORM imports\n# auth.py  — imports core/security and users service\n# users.py — imports core/security only\n\n# core/security.py\ndef verify_token(token: str) -> dict:\n    return jwt.decode(token, SECRET_KEY, algorithms=['HS256'])",
+        "explanation": "Circular dependency injection usually means auth and users share a lower-level concern. Extract it to a core/security.py module that neither service imports back.",
+        "bug_class": "FASTAPI_DEPENDS"
+      },
+      "tags": ["fastapi", "dependency-injection", "circular-import"]
+    },
+    {
+      "id": "so_0039",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "422 Unprocessable Entity: field required — dependency parameter not injected",
+        "file": "routers/items.py",
+        "bad_code": "@router.post('/items')\nasync def create_item(data: ItemCreate, db: AsyncSession):\n    # db is not resolved — missing Depends(get_db)"
+      },
+      "output": {
+        "fix": "from fastapi import Depends\nfrom src.database import get_db\n\n@router.post('/items')\nasync def create_item(data: ItemCreate, db: AsyncSession = Depends(get_db)):\n    item = Item(**data.model_dump())\n    db.add(item)\n    await db.commit()\n    return item",
+        "explanation": "FastAPI treats unannotated function parameters as request body fields. db must have Depends(get_db) as its default to be injected.",
+        "bug_class": "FASTAPI_DEPENDS"
+      },
+      "tags": ["fastapi", "depends", "422", "dependency-injection"]
+    },
+    {
+      "id": "so_0040",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "yield-based dependency: generator didn't stop after throw — session rollback not called",
+        "file": "database.py",
+        "bad_code": "async def get_db():\n    db = AsyncSession(engine)\n    yield db\n    await db.close()"
+      },
+      "output": {
+        "fix": "from contextlib import asynccontextmanager\n\nasync def get_db():\n    async with AsyncSession(engine) as db:\n        try:\n            yield db\n            await db.commit()\n        except Exception:\n            await db.rollback()\n            raise",
+        "explanation": "Without try/except around the yield, exceptions in the route leave the session in a dirty state. Always rollback on exception and commit on success.",
+        "bug_class": "FASTAPI_DEPENDS"
+      },
+      "tags": ["fastapi", "depends", "session", "rollback"]
+    },
+    {
+      "id": "so_0041",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.IntegrityError: UNIQUE constraint failed: users.email",
+        "file": "seed.py",
+        "bad_code": "for i in range(20):\n    db.add(User(email='admin@example.com', name=f'User {i}'))"
+      },
+      "output": {
+        "fix": "for i in range(20):\n    db.add(User(email=f'user{i:03d}@example.com', name=f'User {i}'))\n    # or check existence first:\n    exists = db.execute(select(User).where(User.email == email)).scalar()\n    if not exists:\n        db.add(User(email=email, name=name))",
+        "explanation": "Every unique field (email, slug, username) must be distinct across all seed rows. Never use a constant value in a loop.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": ["sqlalchemy", "seed", "unique-constraint", "integrity-error"]
+    },
+    {
+      "id": "so_0042",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError: UNIQUE constraint failed: products.slug on second seed run",
+        "file": "seed.py",
+        "bad_code": "products = [{'name': 'Widget', 'slug': 'widget'}, ...]\nfor p in products:\n    db.add(Product(**p))"
+      },
+      "output": {
+        "fix": "from sqlalchemy.dialects.postgresql import insert as pg_insert\n\nfor p in products:\n    stmt = pg_insert(Product).values(**p).on_conflict_do_nothing(index_elements=['slug'])\n    await db.execute(stmt)",
+        "explanation": "Use ON CONFLICT DO NOTHING (PostgreSQL) to make seed scripts idempotent. Re-running the seeder won't fail if records already exist.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": ["sqlalchemy", "seed", "postgresql", "on-conflict"]
+    },
+    {
+      "id": "so_0043",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError: duplicate key value violates unique constraint 'ix_users_email'",
+        "file": "seed.py",
+        "bad_code": "USERS = [{'email': 'alice@test.com'}, {'email': 'alice@test.com'}]"
+      },
+      "output": {
+        "fix": "# Deduplicate in the seed data itself:\nUSERS = [\n    {'email': 'alice@test.com'},\n    {'email': 'bob@test.com'},\n    {'email': 'carol@test.com'},\n]\n# AND use UPSERT:\nstmt = pg_insert(User).values(**user_data).on_conflict_do_update(\n    index_elements=['email'],\n    set_={'updated_at': func.now()}\n)\nawait db.execute(stmt)",
+        "explanation": "Seed data must have no duplicate unique values. Pair with UPSERT to handle replays safely.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": ["sqlalchemy", "seed", "unique", "upsert"]
+    },
+    {
+      "id": "so_0044",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError on file_path UNIQUE violation when seeding documents",
+        "file": "seed.py",
+        "bad_code": "for i in range(20):\n    db.add(Document(file_path='/uploads/doc.pdf', user_id=i))"
+      },
+      "output": {
+        "fix": "import uuid\nfor i in range(20):\n    db.add(Document(\n        file_path=f'/uploads/{uuid.uuid4()}.pdf',\n        user_id=i\n    ))",
+        "explanation": "file_path has a UNIQUE constraint. Generate a unique path per record using uuid4() to avoid collisions.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": ["sqlalchemy", "seed", "unique", "file-path"]
+    },
+    {
+      "id": "so_0045",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "IntegrityError: UNIQUE constraint failed: orders.order_number — seed runs fine locally but fails in CI",
+        "file": "seed.py",
+        "bad_code": "import random\nfor i in range(100):\n    db.add(Order(order_number=f'ORD-{random.randint(1000,9999)}'))"
+      },
+      "output": {
+        "fix": "for i in range(100):\n    db.add(Order(order_number=f'ORD-{i+1:05d}'))\n# Use a deterministic sequence, not random, to guarantee uniqueness",
+        "explanation": "random.randint(1000,9999) can collide (only 9000 possible values for 100 rows with birthday paradox). Use a sequential counter instead.",
+        "bug_class": "SEED_UNIQUENESS"
+      },
+      "tags": ["sqlalchemy", "seed", "unique", "random"]
+    },
+    {
+      "id": "so_0046",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.orm.exc.DetachedInstanceError: Instance <User> is not bound to a Session",
+        "file": "routers/users.py",
+        "bad_code": "def get_user(user_id: int, db: Session):\n    user = db.query(User).get(user_id)\n    return user\n\n# caller accesses user.orders AFTER session is closed"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import selectinload\n\nasync def get_user(user_id: int, db: AsyncSession):\n    result = await db.execute(\n        select(User)\n        .where(User.id == user_id)\n        .options(selectinload(User.orders))\n    )\n    return result.scalar_one_or_none()",
+        "explanation": "Accessing a lazy-loaded relationship after the session is closed raises DetachedInstanceError. Eagerly load the relationship while the session is open.",
+        "bug_class": "DETACHED_INSTANCE"
+      },
+      "tags": ["sqlalchemy", "detached-instance", "lazy-loading", "session"]
+    },
+    {
+      "id": "so_0047",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "DetachedInstanceError when serializing SQLAlchemy object to Pydantic model",
+        "file": "services/user_service.py",
+        "bad_code": "with db_session() as db:\n    user = db.query(User).get(user_id)\n# Session is now closed\nreturn UserOut.from_orm(user)  # triggers lazy load of user.profile"
+      },
+      "output": {
+        "fix": "async with AsyncSession(engine) as db:\n    result = await db.execute(\n        select(User)\n        .where(User.id == user_id)\n        .options(selectinload(User.profile))\n    )\n    user = result.scalar_one()\n    return UserOut.model_validate(user)  # profile already loaded",
+        "explanation": "model_validate (formerly from_orm) may trigger lazy loads if relationships are not pre-loaded. Call it inside the session scope or use selectinload.",
+        "bug_class": "DETACHED_INSTANCE"
+      },
+      "tags": ["sqlalchemy", "detached-instance", "pydantic", "session"]
+    },
+    {
+      "id": "so_0048",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "DetachedInstanceError in background task: user.permissions accessed after request session closed",
+        "file": "tasks/audit_logger.py",
+        "bad_code": "async def log_action(user: User, action: str):\n    # user was fetched in the request scope, session is now closed\n    perms = user.permissions"
+      },
+      "output": {
+        "fix": "async def log_action(user_id: int, action: str):\n    # Re-fetch the user inside the background task with its own session\n    async with AsyncSession(engine) as db:\n        result = await db.execute(\n            select(User).where(User.id == user_id).options(selectinload(User.permissions))\n        )\n        user = result.scalar_one()\n        perms = user.permissions",
+        "explanation": "Never pass ORM objects to background tasks — the session they belong to is already closed. Pass only IDs and re-fetch inside a new session.",
+        "bug_class": "DETACHED_INSTANCE"
+      },
+      "tags": ["sqlalchemy", "detached-instance", "background-tasks"]
+    },
+    {
+      "id": "so_0049",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "DetachedInstanceError: trying to access 'address' on User after session.expunge()",
+        "file": "crud.py",
+        "bad_code": "user = db.query(User).get(user_id)\ndb.expunge(user)\nreturn user  # caller accesses user.address"
+      },
+      "output": {
+        "fix": "from sqlalchemy.orm import make_transient\nfrom sqlalchemy.orm import selectinload\n\nresult = await db.execute(\n    select(User).where(User.id == user_id).options(selectinload(User.address))\n)\nuser = result.scalar_one()\n# Access all needed attributes inside the session, then return the dict:\nreturn {'id': user.id, 'address': user.address.city}",
+        "explanation": "After expunge() or session close, lazy attributes raise DetachedInstanceError. Fully load all needed data while the session is open.",
+        "bug_class": "DETACHED_INSTANCE"
+      },
+      "tags": ["sqlalchemy", "detached-instance", "expunge"]
+    },
+    {
+      "id": "so_0050",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "DetachedInstanceError on __repr__ — SQLAlchemy model has lazy column in __repr__",
+        "file": "models.py",
+        "bad_code": "class User(Base):\n    __tablename__ = 'users'\n    id = Column(Integer, primary_key=True)\n    email = Column(String)\n    profile = relationship('Profile')  # lazy by default\n\n    def __repr__(self):\n        return f'<User {self.email} profile={self.profile}>'  # triggers lazy load"
+      },
+      "output": {
+        "fix": "class User(Base):\n    __tablename__ = 'users'\n    id = Column(Integer, primary_key=True)\n    email = Column(String)\n    profile = relationship('Profile', lazy='select')  # explicit\n\n    def __repr__(self):\n        # Only reference columns, never relationships, in __repr__\n        return f'<User id={self.id} email={self.email}>'",
+        "explanation": "__repr__ is called during logging and debugging, often outside a session. Never access relationships in __repr__ — only use column attributes.",
+        "bug_class": "DETACHED_INSTANCE"
+      },
+      "tags": ["sqlalchemy", "detached-instance", "repr", "lazy"]
+    },
+    {
+      "id": "so_0051",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.InvalidRequestError: Object already attached to session — using request db session in background task",
+        "file": "routers/reports.py",
+        "bad_code": "@router.post('/reports')\nasync def generate_report(\n    bg: BackgroundTasks,\n    db: AsyncSession = Depends(get_db)\n):\n    bg.add_task(build_report, db=db)  # request-scoped session passed to background task"
+      },
+      "output": {
+        "fix": "@router.post('/reports')\nasync def generate_report(bg: BackgroundTasks):\n    bg.add_task(build_report)  # no db passed\n\nasync def build_report():\n    async with AsyncSession(engine) as db:\n        # do work with a fresh session\n        result = await db.execute(select(Report).where(Report.status == 'pending'))\n        ...",
+        "explanation": "Request-scoped sessions are closed when the request finishes, but background tasks run after. Always create a new session inside the background task.",
+        "bug_class": "BACKGROUND_TASK_SESSION"
+      },
+      "tags": ["fastapi", "sqlalchemy", "background-tasks", "session"]
+    },
+    {
+      "id": "so_0052",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "sqlalchemy.exc.TimeoutError in background task: connection pool exhausted",
+        "file": "tasks/email_worker.py",
+        "bad_code": "async def send_bulk_email(user_ids: list[int], db: AsyncSession):\n    for uid in user_ids:\n        user = await db.get(User, uid)\n        await send_email(user.email)\n    # db session is never closed — leaks connection"
+      },
+      "output": {
+        "fix": "async def send_bulk_email(user_ids: list[int]):\n    async with AsyncSession(engine) as db:\n        result = await db.execute(select(User).where(User.id.in_(user_ids)))\n        users = result.scalars().all()\n        for user in users:\n            await send_email(user.email)\n    # session auto-closed on exit — connection returned to pool",
+        "explanation": "Background tasks must manage their own session lifecycle with async with. Leaked sessions exhaust the connection pool under load.",
+        "bug_class": "BACKGROUND_TASK_SESSION"
+      },
+      "tags": ["fastapi", "sqlalchemy", "background-tasks", "connection-pool"]
+    },
+    {
+      "id": "so_0053",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Task exception: RuntimeError: No running event loop in background task",
+        "file": "tasks/cleanup.py",
+        "bad_code": "import asyncio\n\ndef cleanup_expired_tokens():\n    loop = asyncio.get_event_loop()\n    loop.run_until_complete(_cleanup())"
+      },
+      "output": {
+        "fix": "async def cleanup_expired_tokens():\n    async with AsyncSession(engine) as db:\n        await db.execute(\n            delete(Token).where(Token.expires_at < datetime.now(timezone.utc))\n        )\n        await db.commit()\n\n# Register as an async background task:\nbackground_tasks.add_task(cleanup_expired_tokens)",
+        "explanation": "FastAPI background tasks run inside the event loop. Make the function async and use AsyncSession directly — never use loop.run_until_complete inside an async context.",
+        "bug_class": "BACKGROUND_TASK_SESSION"
+      },
+      "tags": ["fastapi", "asyncio", "background-tasks", "event-loop"]
+    },
+    {
+      "id": "so_0054",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Background task writes stale data — reads committed by the request not visible",
+        "file": "tasks/invoice_generator.py",
+        "bad_code": "async def generate_invoice(order_id: int, db: AsyncSession):\n    # same session as the request — sees pre-commit snapshot\n    order = await db.get(Order, order_id)"
+      },
+      "output": {
+        "fix": "async def generate_invoice(order_id: int):\n    async with AsyncSession(engine, expire_on_commit=False) as db:\n        result = await db.execute(select(Order).where(Order.id == order_id))\n        order = result.scalar_one()\n        # order now reflects committed state",
+        "explanation": "A session passed from the request may have a stale transaction snapshot. A fresh session in the background task sees all committed data.",
+        "bug_class": "BACKGROUND_TASK_SESSION"
+      },
+      "tags": ["fastapi", "sqlalchemy", "background-tasks", "transaction"]
+    },
+    {
+      "id": "so_0055",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "Background task crashes with 'Session is already closed' when processing large batch",
+        "file": "tasks/batch_processor.py",
+        "bad_code": "async def process_batch(items: list[int], db: AsyncSession):\n    for item_id in items:\n        obj = await db.get(Item, item_id)\n        await process_item(obj)  # this raises an exception, session stays dirty"
+      },
+      "output": {
+        "fix": "async def process_batch(item_ids: list[int]):\n    for item_id in item_ids:\n        # New session per item — failures are isolated\n        async with AsyncSession(engine) as db:\n            try:\n                obj = await db.get(Item, item_id)\n                await process_item(obj, db)\n                await db.commit()\n            except Exception as exc:\n                await db.rollback()\n                logger.warning('Failed to process item %d: %s', item_id, exc)",
+        "explanation": "A single session shared across a batch becomes unusable after the first exception. Use per-item sessions so one failure doesn't block the rest.",
+        "bug_class": "BACKGROUND_TASK_SESSION"
+      },
+      "tags": ["fastapi", "sqlalchemy", "background-tasks", "error-handling"]
+    },
+    {
+      "id": "so_0056",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ValidationError: field required — nullable FK field should be Optional",
+        "file": "schemas.py",
+        "bad_code": "class CommentCreate(BaseModel):\n    post_id: int\n    parent_comment_id: int  # nullable in DB but not Optional in schema"
+      },
+      "output": {
+        "fix": "from typing import Optional\n\nclass CommentCreate(BaseModel):\n    post_id: int\n    parent_comment_id: Optional[int] = None  # matches nullable=True in the model",
+        "explanation": "If the DB column is nullable=True, the Pydantic schema field must be Optional[T] = None. Otherwise the API rejects requests that don't send that field.",
+        "bug_class": "PYDANTIC_OPTIONAL"
+      },
+      "tags": ["pydantic", "fastapi", "optional", "nullable"]
+    },
+    {
+      "id": "so_0057",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "422 Unprocessable Entity: value is not a valid integer for field 'manager_id'",
+        "file": "schemas.py",
+        "bad_code": "class EmployeeCreate(BaseModel):\n    name: str\n    manager_id: int  # top-level employees have no manager"
+      },
+      "output": {
+        "fix": "from typing import Optional\n\nclass EmployeeCreate(BaseModel):\n    name: str\n    manager_id: Optional[int] = None",
+        "explanation": "Root employees have no manager. Optional[int] = None allows the field to be absent or null in the JSON payload.",
+        "bug_class": "PYDANTIC_OPTIONAL"
+      },
+      "tags": ["pydantic", "fastapi", "optional", "422"]
+    },
+    {
+      "id": "so_0058",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ValidationError: none is not an allowed value for 'description'",
+        "file": "schemas.py",
+        "bad_code": "class ProductCreate(BaseModel):\n    name: str\n    description: str  # Some products have no description in the DB"
+      },
+      "output": {
+        "fix": "from typing import Optional\n\nclass ProductCreate(BaseModel):\n    name: str\n    description: Optional[str] = None",
+        "explanation": "Pydantic v2 does not allow None for non-Optional fields. Align the Pydantic type with the SQLAlchemy nullable=True column definition.",
+        "bug_class": "PYDANTIC_OPTIONAL"
+      },
+      "tags": ["pydantic", "fastapi", "optional", "nullable"]
+    },
+    {
+      "id": "so_0059",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "422: value is not a valid list for field 'tags' — tags column is JSON nullable",
+        "file": "schemas.py",
+        "bad_code": "class ArticleCreate(BaseModel):\n    title: str\n    tags: list[str]  # JSON column, nullable in DB"
+      },
+      "output": {
+        "fix": "from typing import Optional\n\nclass ArticleCreate(BaseModel):\n    title: str\n    tags: Optional[list[str]] = None\n    # or default to empty list:\n    tags: list[str] = []",
+        "explanation": "Nullable JSON columns need Optional or a default value. Choose Optional[list[str]] = None if null and [] are semantically different.",
+        "bug_class": "PYDANTIC_OPTIONAL"
+      },
+      "tags": ["pydantic", "fastapi", "optional", "json-column"]
+    },
+    {
+      "id": "so_0060",
+      "type": "bug_to_fix",
+      "input": {
+        "error": "ValidationError: field 'completed_at' — datetime not allowed to be None",
+        "file": "schemas.py",
+        "bad_code": "class TaskOut(BaseModel):\n    id: int\n    title: str\n    completed_at: datetime  # NULL until the task is done"
+      },
+      "output": {
+        "fix": "from typing import Optional\nfrom datetime import datetime\n\nclass TaskOut(BaseModel):\n    id: int\n    title: str\n    completed_at: Optional[datetime] = None\n\n    model_config = ConfigDict(from_attributes=True)",
+        "explanation": "Timestamp fields set only on completion must be Optional[datetime] = None to allow the null state to pass Pydantic validation when serializing from the ORM.",
+        "bug_class": "PYDANTIC_OPTIONAL"
+      },
+      "tags": ["pydantic", "fastapi", "optional", "datetime"]
+    }
+  ]
+}
