@@ -393,6 +393,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _active_patterns = detect_active_patterns(data, raw_input)
     _inject_websocket_router = "websocket" in _active_patterns
     _inject_stripe_router = "stripe" in _active_patterns
+    _inject_marketplace_router = "marketplace" in _active_patterns
     inject_patterns(_active_patterns, src_dir, output_dir)
 
     # ── Step 4b: Audit infrastructure ────────────────────────────────────────
@@ -424,6 +425,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         inject_realtime=_inject_realtime_router,
         inject_websocket=_inject_websocket_router,
         inject_stripe=_inject_stripe_router,
+        inject_marketplace=_inject_marketplace_router,
     )
     (src_dir / "main.py").write_text(main_py)
 

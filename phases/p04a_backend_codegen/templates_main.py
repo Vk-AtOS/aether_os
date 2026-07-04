@@ -421,6 +421,7 @@ def patch_main_py(
     inject_realtime: bool = False,
     inject_websocket: bool = False,
     inject_stripe: bool = False,
+    inject_marketplace: bool = False,
 ) -> str:
     """Apply all optional router injections to the generated main.py string."""
     main_py = main_py.replace(
@@ -470,5 +471,13 @@ def patch_main_py(
             "    app.include_router(_billing_router, prefix=\"/api\")\n"
             "except Exception as _bill_exc:\n"
             "    import logging as _l; _l.getLogger(__name__).warning('billing router unavailable: %s', _bill_exc)\n"
+        ) + _HEALTH_ANCHOR, 1)
+    if inject_marketplace:
+        main_py = main_py.replace(_HEALTH_ANCHOR, (
+            "\ntry:\n"
+            "    from marketplace_router import router as _marketplace_router\n"
+            "    app.include_router(_marketplace_router, prefix=\"/api\")\n"
+            "except Exception as _mkt_exc:\n"
+            "    import logging as _l; _l.getLogger(__name__).warning('marketplace router unavailable: %s', _mkt_exc)\n"
         ) + _HEALTH_ANCHOR, 1)
     return main_py
