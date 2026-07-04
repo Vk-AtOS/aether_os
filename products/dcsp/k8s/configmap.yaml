@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dcsp-config
-  namespace: dcsp
-data:
-  SANDBOX_ENABLED: "false"
-  VAULT_MOUNT: "secret"
