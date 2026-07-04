@@ -49,7 +49,7 @@ class Pipeline:
     Runs a 10-phase pipeline from NL requirement to packaged output.
     Integrates:
     - PipelineStateMachine (state tracking + audit)
-    - DCSP stall monitor (via orchestrator/monitor.py)
+    - Stall monitor (via orchestrator/monitor.py)
     - Phase gates (pass/fail with retry)
     - Persistent memory (MemoryStore)
     - Unified LLM client (Anthropic + Ollama fallback)
@@ -112,9 +112,9 @@ class Pipeline:
 
         # Start stall monitor
         try:
-            from aether_os.orchestrator.monitor import get_dcsp_bridge
+            from aether_os.orchestrator.monitor import get_pipeline_monitor
             thresholds = cfg.get("pipeline.stage_timeout_seconds", {})
-            get_dcsp_bridge().start_monitoring(ctx.run_id, thresholds)
+            get_pipeline_monitor().start_monitoring(ctx.run_id, thresholds)
         except Exception as exc:
             logger.warning("Could not start stall monitor: %s", exc)
 
@@ -282,10 +282,10 @@ class Pipeline:
 
         finally:
             try:
-                from aether_os.orchestrator.monitor import get_dcsp_bridge
-                get_dcsp_bridge().stop_monitoring()
+                from aether_os.orchestrator.monitor import get_pipeline_monitor
+                get_pipeline_monitor().stop_monitoring()
             except Exception as exc:
-                logger.debug("DCSP bridge stop_monitoring failed (non-fatal): %s", exc)
+                logger.debug("Pipeline monitor stop_monitoring failed (non-fatal): %s", exc)
 
 
 _pipeline_instance: Optional[Pipeline] = None

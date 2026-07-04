@@ -1,5 +1,5 @@
 """
-Knowledge graph layer for DCSP using NetworkX.
+Knowledge graph layer using NetworkX.
 """
 
 from __future__ import annotations

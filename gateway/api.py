@@ -1,6 +1,5 @@
 """
 AetherOS — Unified FastAPI Gateway
-Merges best of Aether-one api.py + DCSP api/main.py.
 
 Bug 3 fix: CORS reads from CORS_ORIGINS env var, never ["*"].
 Bug 4 fix: JWT SECRET_KEY raises RuntimeError if not set.

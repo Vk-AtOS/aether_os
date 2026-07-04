@@ -54,7 +54,7 @@ First stable release. All enterprise features complete, load-tested, and Playwri
 - **GrowthBook feature flags**: Wired into p12a phase with flag definitions and gradual-rollout config
 - **Bedrock cross-region inference profile support**: Heavy tasks via Sonnet, light tasks via Haiku
 - **Air-gapped deployment mode**: `OFFLINE_MODE=true` + Ollama for fully local operation
-- **DCSP bridge**: Optional integration with DCSP predictive monitoring module
+- **External monitor bridge**: Optional integration with external predictive monitoring
 
 ### Fixed
 - p07b self-healing gate now correctly sets `passed=False` on error (quality gate restored)

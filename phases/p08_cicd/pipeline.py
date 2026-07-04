@@ -1,5 +1,5 @@
 """
-End-to-end repair orchestrator for DCSP.
+End-to-end repair orchestrator for the AetherOS CI/CD phase.
 
 Connects log parsing, localization, fingerprinting, matching,
 and stability verification into a single repair pipeline.

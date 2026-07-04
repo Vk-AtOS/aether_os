@@ -1,7 +1,6 @@
 """
-Repair memory for AetherOS DCSP phase.
+Repair memory for the AetherOS CI/CD phase.
 Persists successful fixes associated with error fingerprints to JSON.
-Migrated from DCSP src/feedback/repair_memory.py — no external src.* deps.
 """
 
 from __future__ import annotations

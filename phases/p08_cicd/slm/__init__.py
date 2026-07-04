@@ -1,5 +1,5 @@
 """
-SLM wiring layer for AetherOS DCSP phase.
+SLM wiring layer for the AetherOS CI/CD phase.
 OllamaClient is replaced by the unified LLM client (Anthropic primary + Ollama fallback).
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class OllamaClient:
     """
     Shim that routes through the unified LLM client (Anthropic primary + Ollama fallback).
-    Drop-in replacement for the original DCSP OllamaClient interface.
+    Drop-in replacement for the original OllamaClient interface.
     """
 
     def __init__(self) -> None:

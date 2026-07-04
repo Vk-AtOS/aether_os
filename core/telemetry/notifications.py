@@ -1,5 +1,5 @@
 """
-Notification router for DCSP.
+Notification router for AetherOS.
 Orchestrates multiple notification providers.
 """
 
@@ -25,7 +25,7 @@ class NotificationRouter:
         if os.environ.get("SLACK_WEBHOOK_URL"):
             self.add_notifier(SlackNotifier())
         
-        if os.environ.get("DCSP_SMTP_HOST"):
+        if os.environ.get("AETHER_SMTP_HOST"):
             self.add_notifier(EmailNotifier())
 
     def add_notifier(self, notifier: BaseNotifier) -> None:

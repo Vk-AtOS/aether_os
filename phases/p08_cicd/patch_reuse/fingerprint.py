@@ -1,7 +1,7 @@
 """
 Failure fingerprinting for patch reuse.
 Builds deterministic fingerprints from root cause candidates and parsed CI logs.
-Migrated from DCSP src/patch_reuse/fingerprint.py — imports updated.
+Builds deterministic fingerprints from root cause candidates and parsed CI logs.
 """
 
 from __future__ import annotations

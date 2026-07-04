@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 from aether_os.core.audit.ledger import get_ledger
 
 
-class DCSPBridge:
-    _instance: Optional[DCSPBridge] = None
+class PipelineMonitor:
+    _instance: Optional[PipelineMonitor] = None
 
     def __init__(self):
         self.ledger = get_ledger()
@@ -77,25 +77,25 @@ class DCSPBridge:
 
                 if elapsed > limit * 2:
                     # Critical
-                    self.ledger.log_event(run_id, "DCSP", "stall_critical",
+                    self.ledger.log_event(run_id, "monitor", "stall_critical",
                                           {"stage": stage, "elapsed": elapsed, "limit": limit})
                     logger.critical(
-                        "[DCSP] Pipeline stalled at %s for %.1fs (Limit: %ds)",
+                        "[Monitor] Pipeline stalled at %s for %.1fs (Limit: %ds)",
                         stage, elapsed, limit,
                     )
                 elif elapsed > limit:
                     # Warning
-                    self.ledger.log_event(run_id, "DCSP", "stall_warning",
+                    self.ledger.log_event(run_id, "monitor", "stall_warning",
                                           {"stage": stage, "elapsed": elapsed, "limit": limit})
                     logger.warning(
-                        "[DCSP] %s is taking longer than expected (%.1fs > %ds)",
+                        "[Monitor] %s is taking longer than expected (%.1fs > %ds)",
                         stage, elapsed, limit,
                     )
 
             time.sleep(5)
 
 
-def get_dcsp_bridge() -> DCSPBridge:
-    if DCSPBridge._instance is None:
-        DCSPBridge._instance = DCSPBridge()
-    return DCSPBridge._instance
+def get_pipeline_monitor() -> PipelineMonitor:
+    if PipelineMonitor._instance is None:
+        PipelineMonitor._instance = PipelineMonitor()
+    return PipelineMonitor._instance

@@ -1,5 +1,5 @@
 """
-Local git patch applier for DCSP.
+Local git patch applier for the AetherOS CI/CD phase.
 Applies generated patches to local repository clones and manages branches.
 """
 

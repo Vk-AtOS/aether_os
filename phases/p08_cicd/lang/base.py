@@ -1,6 +1,6 @@
 """
 Base classes for language adapters.
-Migrated from DCSP src/lang/base.py.
+Base classes for language adapters in the AetherOS CI/CD phase.
 """
 
 from __future__ import annotations

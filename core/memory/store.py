@@ -1,6 +1,6 @@
 """
 AetherOS — Continuous Learning Memory Store
-NEW module — replaces DCSP repair_memory (JSON file) + aether2 MemoryAgent (in-memory dict).
+NEW module — replaces the old JSON-file repair_memory and the in-memory MemoryAgent dict.
 
 Storage: SQLite with FTS5 for fast similarity search.
 
