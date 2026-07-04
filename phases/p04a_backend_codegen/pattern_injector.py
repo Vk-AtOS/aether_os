@@ -50,6 +50,13 @@ def detect_active_patterns(data: Dict[str, Any], raw_input: str) -> List[str]:
     ):
         active.append("marketplace")
 
+    if (
+        any(x in raw_lower for x in ["erp", "procurement", "purchase order", "approval workflow", "multi-level approval", "requisition"])
+        or "erp" in build_types
+        or "procurement" in build_types
+    ):
+        active.append("erp_approval")
+
     return active
 
 
@@ -118,6 +125,14 @@ def inject_patterns(
                 )
                 (src_dir / "marketplace_router.py").write_text(MARKETPLACE_CODE)
                 _append_requirements(MARKETPLACE_REQUIREMENTS)
+
+            elif pattern_name == "erp_approval":
+                from aether_os.phases.patterns.erp_approval import (  # noqa: PLC0415
+                    ERP_APPROVAL_CODE,
+                    ERP_APPROVAL_REQUIREMENTS,
+                )
+                (src_dir / "approval_router.py").write_text(ERP_APPROVAL_CODE)
+                _append_requirements(ERP_APPROVAL_REQUIREMENTS)
 
             else:
                 logger.warning("[p04a] unknown pattern '%s' — skipped", pattern_name)
