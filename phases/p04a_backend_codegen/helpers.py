@@ -444,6 +444,7 @@ def _fallback_auth_flow_code() -> str:
                 user.password_hash = new_password  # fallback only — prod must have passlib
             del _reset_tokens[token]
             await db.flush()
+            await _log_action(db, str(user_id), 'PASSWORD_RESET', 'User', str(user_id))
             logger.info("[auth] password reset completed for user_id=%s", user_id)
             return {"message": "Password reset successful"}
 

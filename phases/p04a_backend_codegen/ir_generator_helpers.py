@@ -137,6 +137,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    obj = models.{n}(**data.model_dump(exclude_unset=True))",
         f"    db.add(obj)",
         f"    await db.flush()",
+        f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'CREATE', '{n}', str(getattr(obj, 'id', '')))",
         f"    await db.refresh(obj)",
         f"    return obj",
         "",
@@ -169,6 +170,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    for k, v in data.model_dump(exclude_unset=True).items():",
         f"        setattr(obj, k, v)",
         f"    await db.flush()",
+        f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'UPDATE', '{n}', str(item_id))",
         f"    await db.refresh(obj)",
         f"    return obj",
         "",
@@ -187,6 +189,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
+        f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'DELETE', '{n}', str(item_id))",
         f"    await db.delete(obj)",
         "",
     ]
@@ -221,6 +224,10 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None) -> 
         "from auth import get_current_user",
         "import models",
         schema_import_line,
+        "try:",
+        "    from services.audit_service import log_action as _log_action",
+        "except ImportError:",
+        "    async def _log_action(*a, **kw): pass",
         "",
     ]
 
