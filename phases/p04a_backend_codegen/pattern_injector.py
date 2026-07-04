@@ -57,6 +57,20 @@ def detect_active_patterns(data: Dict[str, Any], raw_input: str) -> List[str]:
     ):
         active.append("erp_approval")
 
+    if (
+        any(x in raw_lower for x in ["social", "social network", "social media", "feed", "follow", "followers", "activity feed", "posts", "likes", "hashtag"])
+        or "social" in build_types
+        or "social_platform" in build_types
+    ):
+        active.append("social_graph")
+
+    if (
+        any(x in raw_lower for x in ["iot", "internet of things", "sensor", "device management", "telemetry", "mqtt", "time-series", "timeseries", "smart home", "industrial", "scada", "edge computing"])
+        or "iot" in build_types
+        or "iot_dashboard" in build_types
+    ):
+        active.append("iot_timeseries")
+
     return active
 
 
@@ -133,6 +147,22 @@ def inject_patterns(
                 )
                 (src_dir / "approval_router.py").write_text(ERP_APPROVAL_CODE)
                 _append_requirements(ERP_APPROVAL_REQUIREMENTS)
+
+            elif pattern_name == "social_graph":
+                from aether_os.phases.patterns.social_graph import (  # noqa: PLC0415
+                    SOCIAL_GRAPH_CODE,
+                    SOCIAL_GRAPH_REQUIREMENTS,
+                )
+                (src_dir / "social_router.py").write_text(SOCIAL_GRAPH_CODE)
+                _append_requirements(SOCIAL_GRAPH_REQUIREMENTS)
+
+            elif pattern_name == "iot_timeseries":
+                from aether_os.phases.patterns.iot_timeseries import (  # noqa: PLC0415
+                    IOT_TIMESERIES_CODE,
+                    IOT_TIMESERIES_REQUIREMENTS,
+                )
+                (src_dir / "iot_router.py").write_text(IOT_TIMESERIES_CODE)
+                _append_requirements(IOT_TIMESERIES_REQUIREMENTS)
 
             else:
                 logger.warning("[p04a] unknown pattern '%s' — skipped", pattern_name)

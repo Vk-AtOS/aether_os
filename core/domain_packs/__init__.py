@@ -132,6 +132,26 @@ _DOMAIN_ALIASES: dict[str, str] = {
     "public_sector": "government",
     "civic": "government",
     "municipality": "government",
+    # social
+    "social": "social",
+    "social_platform": "social",
+    "social-platform": "social",
+    "social_network": "social",
+    "social network": "social",
+    "social media": "social",
+    "community": "social",
+    "forum": "social",
+    "blog": "social",
+    # iot
+    "iot": "iot",
+    "iot_dashboard": "iot",
+    "iot-dashboard": "iot",
+    "internet_of_things": "iot",
+    "internet of things": "iot",
+    "sensor": "iot",
+    "telemetry": "iot",
+    "scada": "iot",
+    "smart_home": "iot",
 }
 
 
@@ -165,6 +185,12 @@ def _load_pack(canonical: str) -> Optional[DomainPack]:
         if canonical == "government":
             from aether_os.core.domain_packs.government_pack import GOVERNMENT_PACK
             return GOVERNMENT_PACK
+        if canonical == "social":
+            from aether_os.core.domain_packs.social_pack import SOCIAL_PACK
+            return SOCIAL_PACK
+        if canonical == "iot":
+            from aether_os.core.domain_packs.iot_pack import IOT_PACK
+            return IOT_PACK
     except Exception as e:
         logger.warning("Failed to load domain pack for '%s': %s", canonical, e)
     return None
