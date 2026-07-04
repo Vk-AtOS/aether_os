@@ -87,10 +87,14 @@ def write_docker_compose(project_dir: Path, app_dir: Path) -> Path:
             environment:
               DATABASE_URL: ${{DATABASE_URL:-sqlite:///./data/app.db}}
               SECRET_KEY: ${{SECRET_KEY:-changeme-in-production-set-64-char-hex}}
+              REDIS_URL: ${{REDIS_URL:-redis://redis:6379}}
             ports:
               - "8000:8000"
             volumes:
               - app_data:/app/data
+            depends_on:
+              redis:
+                condition: service_healthy
             healthcheck:
               test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
               interval: 10s
@@ -104,6 +108,19 @@ def write_docker_compose(project_dir: Path, app_dir: Path) -> Path:
                   memory: 512M
                 reservations:
                   cpus: '0.25'
+                  memory: 128M
+
+          redis:
+            image: redis:7-alpine
+            restart: unless-stopped
+            healthcheck:
+              test: ["CMD", "redis-cli", "ping"]
+              interval: 10s
+              timeout: 3s
+              retries: 3
+            deploy:
+              resources:
+                limits:
                   memory: 128M
 
         volumes:

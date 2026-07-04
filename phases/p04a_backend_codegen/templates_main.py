@@ -5,6 +5,7 @@ Dockerfile, and their builder functions.
 No LLM involvement — pure deterministic output.
 """
 from __future__ import annotations
+from pathlib import Path
 
 # ── Application entry-point template ──────────────────────────────────────────
 
@@ -164,6 +165,7 @@ httpx>=0.27.0
 python-dotenv>=1.0.0
 slowapi>=0.1.9
 email-validator>=2.1.0
+redis>=5.0.0
 """
 
 _DOCKERFILE = """\
@@ -384,3 +386,18 @@ make migrate          # Apply all pending
 make migration        # Create a new migration
 ```
 """
+
+
+def write_alembic_scaffold(output_dir: Path) -> None:
+    """Write alembic.ini, env.py, script.py.mako and versions/ into *output_dir*."""
+    alembic_dir = output_dir / "alembic"
+    alembic_versions = alembic_dir / "versions"
+    alembic_versions.mkdir(parents=True, exist_ok=True)
+    (output_dir / "alembic.ini").write_text(_ALEMBIC_INI)
+    (alembic_dir / "env.py").write_text(_ALEMBIC_ENV_PY)
+    (alembic_dir / "script.py.mako").write_text(_ALEMBIC_SCRIPT_PY_MAKO)
+    (alembic_dir / "README").write_text(
+        "Generate a migration: alembic revision --autogenerate -m 'description'\n"
+        "Apply migrations:    alembic upgrade head\n"
+        "Rollback one step:   alembic downgrade -1\n"
+    )
