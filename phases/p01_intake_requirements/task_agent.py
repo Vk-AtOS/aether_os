@@ -399,6 +399,69 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _confidence = 0.55
         _confidence_reason = f"Sparse spec: only {_entity_count} entities detected; downstream phases may produce minimal output"
 
+    # ── Entity Approval Gate (low-confidence or ambiguous) ───────────────────────
+    # If confidence is below 0.65 or the intent is ambiguous, pause the pipeline
+    # and ask the user to confirm or correct the extracted entities before proceeding.
+    # Skipped in autonomous mode — pipeline uses its best guess and continues.
+    _is_autonomous = (
+        data.get("autonomous_mode") is True
+        or data.get("decision_mode") == "autonomous"
+    )
+    _needs_gate = (not _is_autonomous) and (_confidence < 0.65 or data.get("intent_ambiguity"))
+    if _needs_gate:
+        try:
+            from aether_os.core.pipeline_state import publish_event
+            from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+            from aether_os.orchestrator.events import ACTIVE_RUN_ID
+            run_id = ACTIVE_RUN_ID.get()
+            if run_id:
+                logger.info("p01: low confidence (%.2f) — requesting entity approval gate", _confidence)
+                _entity_preview = ", ".join(
+                    e.get("name", e.get("table", "?")) for e in _entities_extracted[:6]
+                ) or "(none detected)"
+                engine = get_decision_engine()
+                decision = Decision(
+                    run_id=run_id,
+                    org_id=data.get("org_id", ""),
+                    decision_type="entity_approval",
+                    title="Entity Approval Gate: Low-Confidence Extraction",
+                    what=(
+                        f"Confidence: {_confidence:.0%} — {_confidence_reason}.\n"
+                        f"Detected entities: {_entity_preview}.\n"
+                        "Confirm these are correct, or provide a comma-separated list of corrections."
+                    ),
+                    why="Pipeline detected ambiguity in the app description and needs human confirmation before generating code.",
+                    phase="p01_intake_requirements",
+                )
+                await engine.request_approval(decision)
+                await publish_event(run_id, {
+                    "type": "PhaseApprovalRequired",
+                    "phase": "p01_intake_requirements",
+                    "gate": "entity_approval",
+                    "decision_id": decision.id,
+                    "data": {
+                        "confidence": _confidence,
+                        "confidence_reason": _confidence_reason,
+                        "entities": [e.get("name", "") for e in _entities_extracted],
+                    },
+                    "allow_overrides": True,
+                })
+                resolved = await engine.await_decision(decision.id)
+                if resolved.status == "approved" and resolved.human_choice:
+                    _corrected = [n.strip() for n in resolved.human_choice.split(",") if n.strip()]
+                    if _corrected:
+                        _entities_extracted = [{"name": n, "table": n.lower().replace(" ", "_")} for n in _corrected]
+                        requirements_doc["entities"] = _entities_extracted
+                        summary["entities"] = _entities_extracted
+                        _confidence = 0.80
+                        _confidence_reason = f"Human-corrected entities: {', '.join(_corrected)}"
+                        logger.info("p01: entity gate approved — user provided %d entities", len(_corrected))
+                elif resolved.status == "rejected":
+                    from aether_os.core.errors import PipelineBlockedError
+                    raise PipelineBlockedError("User rejected entity extraction — pipeline halted at p01")
+        except (ImportError, AttributeError) as _gate_exc:
+            logger.warning("p01: entity approval gate unavailable (non-fatal): %s", _gate_exc)
+
     return TaskResult(
         output_path=str(summary_path),
         confidence=_confidence,
