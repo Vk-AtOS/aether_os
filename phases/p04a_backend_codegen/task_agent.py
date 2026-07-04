@@ -36,6 +36,7 @@ from aether_os.phases.p04a_backend_codegen.templates import (
     _AUTH_PY,
     _CONFIG_PY,
     _AUTH_ROUTER_PY,
+    _RATE_LIMITER_PY,
     _ROUTERS_INIT_PY,
     _REQUIREMENTS_TXT,
     _DOCKERFILE,
@@ -142,6 +143,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "database.py").write_text(_DATABASE_PY)
     (src_dir / "auth.py").write_text(_AUTH_PY)
     (src_dir / "config.py").write_text(_CONFIG_PY)
+    (src_dir / "rate_limiter.py").write_text(_RATE_LIMITER_PY)
     (routers_dir / "__init__.py").write_text(_ROUTERS_INIT_PY)
     (routers_dir / "auth.py").write_text(_AUTH_ROUTER_PY)
 
