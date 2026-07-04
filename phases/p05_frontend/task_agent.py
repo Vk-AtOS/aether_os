@@ -42,6 +42,7 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_nginx_conf,
     generate_dockerfile,
     generate_env_example,
+    generate_headers_file,
     generate_index_css,
     generate_main_tsx,
     generate_auth_ts,
@@ -329,6 +330,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _write_with_guard(frontend_dir / "nginx.conf", generate_nginx_conf(data))
     _write_with_guard(frontend_dir / "Dockerfile", generate_dockerfile())
     _write_with_guard(frontend_dir / ".env.example", generate_env_example())
+    _write_with_guard(frontend_dir / "public" / "_headers", generate_headers_file())
     _write_with_guard(frontend_dir / ".eslintrc.cjs", generate_eslint_config())
     _write_with_guard(frontend_dir / "README.md", generate_frontend_readme(project_name))
     _write_with_guard(src_dir / "index.css", generate_index_css(
