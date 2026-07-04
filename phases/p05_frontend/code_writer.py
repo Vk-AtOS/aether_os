@@ -543,6 +543,11 @@ server {{
   gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
   gzip_min_length 1024;
 
+  # Security headers
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
   # Proxy /api/* to the backend (strips /api prefix)
   # Backend service is named '{container_name}' in docker-compose.yml
   location /api/ {{
@@ -554,10 +559,18 @@ server {{
     proxy_connect_timeout 10s;
   }}
 
-  # Static assets — long cache
+  # Fingerprinted static assets — immutable long cache (safe because filenames include content hash)
   location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {{
     expires 1y;
     add_header Cache-Control "public, immutable";
+    try_files $uri =404;
+  }}
+
+  # index.html — must never be cached so users always get the latest app version
+  location = /index.html {{
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    add_header Pragma "no-cache";
+    add_header Expires "0";
     try_files $uri =404;
   }}
 
@@ -595,11 +608,44 @@ HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD wget -qO- http://localho
 def _generate_env_example() -> str:
     return (
         "# Frontend environment variables — copy to .env\n\n"
-        "# API base URL. Must be accessible from the user's browser.\n"
-        "# Dev: http://localhost:8000  (default, direct to backend)\n"
-        "# Docker remote server: http://your-server-ip:8000\n"
-        "VITE_API_URL=http://localhost:8000\n"
+        "# VITE_API_URL — backend API base URL.\n"
+        "#\n"
+        "# Leave this UNSET (commented out) in most cases:\n"
+        "#   - Local dev (npm run dev): Vite proxy rewrites /api/* → http://localhost:8000\n"
+        "#   - Docker Compose: nginx rewrites /api/* → backend container automatically\n"
+        "#\n"
+        "# Set this ONLY when deploying the frontend separately from the backend\n"
+        "# (e.g. Vercel/Netlify frontend + separate backend server):\n"
+        "# VITE_API_URL=https://api.yourdomain.com\n"
     )
+
+
+def _generate_headers_file() -> str:
+    """Generate public/_headers for Cloudflare Pages / Netlify CDN deployments.
+
+    Controls caching and security headers at the CDN edge — no server config needed.
+    index.html is never cached so users always get the latest app version.
+    Fingerprinted /assets/* are immutably cached for 1 year.
+    """
+    return """\
+# CDN edge headers — Cloudflare Pages / Netlify compatible
+# Vite builds fingerprinted asset filenames (e.g. index-BxK3p9aZ.js) so
+# /assets/* can be cached indefinitely without risk of stale bundles.
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+"""
 
 
 THEME_CSS: dict = {
@@ -5071,6 +5117,7 @@ generate_index_html = _generate_index_html
 generate_nginx_conf = _generate_nginx_conf
 generate_dockerfile = _generate_dockerfile
 generate_env_example = _generate_env_example
+generate_headers_file = _generate_headers_file
 generate_index_css = _generate_index_css
 generate_main_tsx = _generate_main_tsx
 generate_auth_ts = _generate_auth_ts
