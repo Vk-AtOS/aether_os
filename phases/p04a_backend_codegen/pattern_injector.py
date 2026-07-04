@@ -30,6 +30,20 @@ def detect_active_patterns(data: Dict[str, Any], raw_input: str) -> List[str]:
     ):
         active.append("agentic_ai")
 
+    if (
+        any(x in raw_lower for x in ["websocket", "real-time", "realtime", "live update", "collaboration", "live chat", "broadcast"])
+        or "websocket" in build_types
+        or "realtime" in build_types
+    ):
+        active.append("websocket")
+
+    if (
+        any(x in raw_lower for x in ["stripe", "billing", "subscription", "payment processing", "checkout"])
+        or "stripe" in build_types
+        or "billing" in build_types
+    ):
+        active.append("stripe")
+
     return active
 
 
@@ -74,6 +88,22 @@ def inject_patterns(
                 )
                 (src_dir / "agent.py").write_text(AGENTIC_AI_CODE)
                 _append_requirements(AGENTIC_AI_REQUIREMENTS)
+
+            elif pattern_name == "websocket":
+                from aether_os.phases.patterns.websocket import (  # noqa: PLC0415
+                    WEBSOCKET_CODE,
+                    WEBSOCKET_REQUIREMENTS,
+                )
+                (src_dir / "websocket_router.py").write_text(WEBSOCKET_CODE)
+                _append_requirements(WEBSOCKET_REQUIREMENTS)
+
+            elif pattern_name == "stripe":
+                from aether_os.phases.patterns.stripe import (  # noqa: PLC0415
+                    STRIPE_CODE,
+                    STRIPE_REQUIREMENTS,
+                )
+                (src_dir / "billing_router.py").write_text(STRIPE_CODE)
+                _append_requirements(STRIPE_REQUIREMENTS)
 
             else:
                 logger.warning("[p04a] unknown pattern '%s' — skipped", pattern_name)
