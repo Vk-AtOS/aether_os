@@ -161,6 +161,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         json.dumps(business_dashboard, indent=2)
     )
 
+    # ── Domain-specific Grafana dashboard ─────────────────────────────────────
+    try:
+        from aether_os.phases.p11a_monitoring.grafana_domain_dashboards import get_domain_dashboard
+        _domain_dash = get_domain_dashboard(domain, project_name)
+        if _domain_dash:
+            _fname = f"domain_{domain.lower().replace('-','_').replace(' ','_')}.json"
+            (monitoring_dir / "grafana" / "dashboards" / _fname).write_text(
+                json.dumps(_domain_dash, indent=2)
+            )
+    except Exception as _dd_exc:
+        issues.append(f"domain dashboard skipped: {_dd_exc}")
+
     # ── Grafana provisioning ──────────────────────────────────────────────────
     datasource_config = textwrap.dedent("""\
         apiVersion: 1
