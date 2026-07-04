@@ -5,14 +5,20 @@ Encodes four security invariants as Z3 constraints and checks whether they
 can be violated (SAT = violation found; UNSAT = invariant holds).
 
 Invariants checked:
-  INV-001  Auth gate      — every route with Depends(get_current_user) cannot
-                            be reached without a valid JWT
-  INV-002  Input safety   — every route uses Pydantic models or typed params,
-                            no raw request.body() calls
-  INV-003  State machine  — routes with ALLOWED_TRANSITIONS have no code path
-                            that bypasses the transition guard
-  INV-004  SQL safety     — no string interpolation (f-string) in SQLAlchemy
-                            queries (parameterised queries only)
+  INV-001  Auth gate          — every route with Depends(get_current_user) cannot
+                                be reached without a valid JWT
+  INV-002  Input safety       — every route uses Pydantic models or typed params,
+                                no raw request.body() calls
+  INV-003  State machine      — routes with ALLOWED_TRANSITIONS have no code path
+                                that bypasses the transition guard
+  INV-004  SQL safety         — no string interpolation (f-string) in SQLAlchemy
+                                queries (parameterised queries only)
+  INV-005  Tenant isolation   — multi-tenant routes filter by org_id/tenant_id
+                                (checkers in z3_invariants.py)
+  INV-006  Resource ownership — DELETE/PUT/PATCH routes verify user ownership
+                                before mutation (checkers in z3_invariants.py)
+  INV-007  Tx boundary        — routes with multiple DB writes commit only once
+                                at the end (checkers in z3_invariants.py)
 
 Graceful degradation:
   - try/except blocks, async generators, dynamic attribute access: marked
@@ -24,6 +30,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -48,6 +55,11 @@ class RouteInfo:
     is_unverifiable: bool = False        # complex pattern Z3 cannot model
     unverifiable_reason: str = ""
     source_lines: List[int] = field(default_factory=list)
+    # INV-005/006/007 fields (populated by extended extract_routes scan)
+    has_org_id_filter: bool = False      # select has .where(org_id == ...)
+    has_ownership_check: bool = False    # DELETE/PATCH checks user ownership
+    multi_db_commits: int = 0            # number of await db.commit() calls
+    source_text: str = ""               # raw source text for regex-based checks
 
 
 @dataclass
@@ -299,157 +311,86 @@ def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
         except AttributeError:
             info.source_lines = [node.lineno]
 
+        # Extended fields for INV-005/006/007
+        info.source_text = _extract_source_text(node)
+        info.has_org_id_filter = _check_org_id_filter(node)
+        info.has_ownership_check = _check_ownership_pattern(node)
+        info.multi_db_commits = _count_db_commits(node)
+
         routes.append(info)
 
     return routes
 
 
 # ---------------------------------------------------------------------------
-# Z3 invariant checkers
+# Extended AST helpers for INV-005/006/007
 # ---------------------------------------------------------------------------
 
-def _z3_bool_invariant(
-    fact: bool,
-    inv_id: str,
-    inv_name: str,
-    route_name: str,
-    violation_detail: str,
-    verified_method: str,
-    violated_method: str,
-    confidence_violated: float = 0.9,
-) -> InvariantResult:
+_TENANT_FILTER_RE = re.compile(
+    r"\.(?:where|filter)\s*\([^)]*(?:org_id|tenant_id|organization_id|workspace_id)[^)]*\)",
+    re.IGNORECASE,
+)
+_OWNERSHIP_SRC_RE = re.compile(
+    r"(?:user_id|created_by|owner_id)\s*==\s*current_user"
+    r"|current_user\.(?:id|user_id)\s*==\s*"
+    r"|raise\s+HTTPException.*403",
+    re.IGNORECASE,
+)
+_COMMIT_SRC_RE = re.compile(
+    r"await\s+(?:db|session|conn|async_session)\s*\.\s*(?:commit|flush)\s*\(\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _extract_source_text(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     """
-    Generic Z3 invariant check: encodes 'fact must be True' as UNSAT of NOT(fact).
-    Used by INV-002 and INV-004 which follow the same SAT/UNSAT pattern.
+    Convert AST node back to a best-effort source representation using ast.unparse.
+    Falls back to empty string if unavailable (Python < 3.9).
     """
-    import z3  # noqa: PLC0415
-
-    t0 = time.monotonic()
-    flag = z3.Bool("flag")
-    solver = z3.Solver()
-    solver.add(flag == fact)
-    solver.add(z3.Not(flag))          # violation: flag is False
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
-        return InvariantResult(
-            invariant_id=inv_id, invariant_name=inv_name,
-            route_name=route_name, status="VERIFIED",
-            proof_method=verified_method, solver_time_ms=elapsed_ms,
-        )
-    return InvariantResult(
-        invariant_id=inv_id, invariant_name=inv_name,
-        route_name=route_name, status="VIOLATED",
-        proof_method=violated_method, violation_detail=violation_detail,
-        solver_time_ms=elapsed_ms, confidence=confidence_violated,
-    )
+    try:
+        return ast.unparse(node)
+    except Exception:
+        return ""
 
 
-def _check_inv001_auth(route: RouteInfo) -> InvariantResult:
-    """
-    INV-001: Authentication invariant.
-
-    Encodes: if the route has Depends(get_current_user) auth is enforced.
-    We ask Z3 whether the route can be reached without auth (negation of invariant).
-    With has_auth_depends=True the negation is UNSAT — invariant holds.
-    """
-    import z3  # noqa: PLC0415
-
-    t0 = time.monotonic()
-    route_reachable = z3.Bool("route_reachable")
-    auth_enforced = z3.Bool("auth_enforced")
-    invariant = z3.Implies(route_reachable, auth_enforced)
-
-    solver = z3.Solver()
-    solver.add(route_reachable == True)  # noqa: E712 — z3 equality
-    solver.add(auth_enforced == route.has_auth_depends)
-    solver.add(z3.Not(invariant))
-
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
-        return InvariantResult(
-            invariant_id="INV-001",
-            invariant_name="No route reachable without valid JWT",
-            route_name=route.name, status="VERIFIED",
-            proof_method="Z3 UNSAT — negation of auth invariant is unsatisfiable",
-            solver_time_ms=elapsed_ms, confidence=1.0,
-        )
-    detail = (
-        f"Route '{route.name}' ({route.method} {route.path}) has no "
-        "Depends(get_current_user) — accessible without authentication"
-    )
-    return InvariantResult(
-        invariant_id="INV-001",
-        invariant_name="No route reachable without valid JWT",
-        route_name=route.name, status="VIOLATED",
-        proof_method="Z3 SAT — counter-example: route reachable without auth",
-        violation_detail=detail, solver_time_ms=elapsed_ms, confidence=0.9,
-    )
+def _check_org_id_filter(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Return True if a .where(org_id/tenant_id) pattern is found in the function."""
+    try:
+        src = ast.unparse(node)
+        return bool(_TENANT_FILTER_RE.search(src))
+    except Exception:
+        return False
 
 
-def _check_inv002_input(route: RouteInfo) -> InvariantResult:
-    """INV-002: Proves no route uses raw request.body() — Pydantic validation only."""
-    return _z3_bool_invariant(
-        fact=not route.has_raw_body,
-        inv_id="INV-002",
-        inv_name="All route inputs validated via Pydantic (no raw body reads)",
-        route_name=route.name,
-        violation_detail=(
-            f"Route '{route.name}' reads raw request body. "
-            "Use a Pydantic schema as a parameter instead."
-        ),
-        verified_method="Z3 UNSAT — raw body usage is unsatisfiable given Pydantic validation",
-        violated_method="Z3 SAT — route calls request.body()/request.json() directly",
-    )
+def _check_ownership_pattern(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Return True if a user ownership comparison pattern is found in the function."""
+    try:
+        src = ast.unparse(node)
+        return bool(_OWNERSHIP_SRC_RE.search(src))
+    except Exception:
+        return False
 
 
-def _check_inv003_state_machine(route: RouteInfo) -> Optional[InvariantResult]:
-    """
-    INV-003: State machine transition invariant.
-
-    Only applicable to routes that reference ALLOWED_TRANSITIONS. Returns None
-    for routes that are not state-transition routes (caller records N/A).
-    Encodes: guard presence is True when ALLOWED_TRANSITIONS is referenced;
-    the negation (guard_bypassed) must be UNSAT.
-    """
-    if not route.has_transition_guard:
-        return None
-
-    result = _z3_bool_invariant(
-        fact=True,   # guard IS present — we found ALLOWED_TRANSITIONS reference
-        inv_id="INV-003",
-        inv_name="State machine transitions always guarded by ALLOWED_TRANSITIONS",
-        route_name=route.name,
-        violation_detail=(
-            f"Route '{route.name}' references ALLOWED_TRANSITIONS but "
-            "Z3 found a satisfying model where the guard is bypassed."
-        ),
-        verified_method="Z3 UNSAT — guard bypass unsatisfiable: ALLOWED_TRANSITIONS present",
-        violated_method="Z3 SAT — transition guard bypass is satisfiable",
-        confidence_violated=0.8,
-    )
-    return result
+def _count_db_commits(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """Count the number of await db.commit() / await db.flush() calls in the function."""
+    try:
+        src = ast.unparse(node)
+        return len(_COMMIT_SRC_RE.findall(src))
+    except Exception:
+        return 0
 
 
-def _check_inv004_sql(route: RouteInfo) -> InvariantResult:
-    """INV-004: Proves no f-string interpolation inside SQLAlchemy execute()/query() calls."""
-    return _z3_bool_invariant(
-        fact=not route.has_f_string_sql,
-        inv_id="INV-004",
-        inv_name="No f-string interpolation in SQLAlchemy queries (parameterised queries only)",
-        route_name=route.name,
-        violation_detail=(
-            f"Route '{route.name}' uses f-string interpolation inside a "
-            "SQLAlchemy .execute() call. Use bindparams() or text() with "
-            "named parameters instead."
-        ),
-        verified_method="Z3 UNSAT — f-string SQL unsatisfiable given parameterised patterns",
-        violated_method="Z3 SAT — f-string inside SQL execute() found",
-        confidence_violated=0.95,
-    )
+# ---------------------------------------------------------------------------
+# Z3 invariant checkers (INV-001 to INV-004) — imported from z3_checkers.py
+# Extended invariants (INV-005 to INV-007) are in z3_invariants.py
+# ---------------------------------------------------------------------------
+
+from aether_os.phases.p06b_formal_verification.z3_checkers import (  # noqa: E402
+    _check_inv001_auth,
+    _check_inv002_input,
+    _check_inv003_state_machine,
+    _check_inv004_sql,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -476,20 +417,33 @@ class Z3Encoder:
 
     def verify_all(self) -> List[InvariantResult]:
         """
-        Run all four invariants across all detected routes.
-        Unverifiable routes are included with status=UNVERIFIABLE.
+        Run all seven invariants across all detected routes.
+        INV-001 to INV-004: base invariants (auth, input, state machine, SQL).
+        INV-005 to INV-007: extended invariants (tenant isolation, ownership, tx boundary).
+        Unverifiable routes are included with status=UNVERIFIABLE for all invariants.
         """
+        from aether_os.phases.p06b_formal_verification.z3_invariants import (  # noqa: PLC0415
+            _check_inv005_tenant_isolation,
+            _check_inv006_resource_ownership,
+            _check_inv007_transaction_boundary,
+        )
+
         results: List[InvariantResult] = []
         routes = self._get_routes()
 
+        _unverifiable_inv_list = [
+            ("INV-001", "No route reachable without valid JWT"),
+            ("INV-002", "All route inputs validated via Pydantic"),
+            ("INV-003", "State machine transitions always guarded"),
+            ("INV-004", "No f-string interpolation in SQL queries"),
+            ("INV-005", "Multi-tenant isolation: DB queries filter by org_id/tenant_id"),
+            ("INV-006", "Resource ownership verified before mutation"),
+            ("INV-007", "Single transaction boundary per route (no mid-route commits)"),
+        ]
+
         for route in routes:
             if route.is_unverifiable:
-                for inv_id, inv_name in [
-                    ("INV-001", "No route reachable without valid JWT"),
-                    ("INV-002", "All route inputs validated via Pydantic"),
-                    ("INV-003", "State machine transitions always guarded"),
-                    ("INV-004", "No f-string interpolation in SQL queries"),
-                ]:
+                for inv_id, inv_name in _unverifiable_inv_list:
                     results.append(InvariantResult(
                         invariant_id=inv_id,
                         invariant_name=inv_name,
@@ -556,6 +510,45 @@ class Z3Encoder:
                 results.append(InvariantResult(
                     invariant_id="INV-004",
                     invariant_name="No f-string interpolation in SQL queries",
+                    route_name=route.name,
+                    status="UNVERIFIABLE",
+                    proof_method=f"Z3 encoding error: {exc}",
+                    confidence=0.0,
+                ))
+
+            try:
+                results.append(_check_inv005_tenant_isolation(route))
+            except Exception as exc:
+                logger.warning("[z3_encoder] INV-005 failed for %s: %s", route.name, exc)
+                results.append(InvariantResult(
+                    invariant_id="INV-005",
+                    invariant_name="Multi-tenant isolation: DB queries filter by org_id/tenant_id",
+                    route_name=route.name,
+                    status="UNVERIFIABLE",
+                    proof_method=f"Z3 encoding error: {exc}",
+                    confidence=0.0,
+                ))
+
+            try:
+                results.append(_check_inv006_resource_ownership(route))
+            except Exception as exc:
+                logger.warning("[z3_encoder] INV-006 failed for %s: %s", route.name, exc)
+                results.append(InvariantResult(
+                    invariant_id="INV-006",
+                    invariant_name="Resource ownership verified before mutation",
+                    route_name=route.name,
+                    status="UNVERIFIABLE",
+                    proof_method=f"Z3 encoding error: {exc}",
+                    confidence=0.0,
+                ))
+
+            try:
+                results.append(_check_inv007_transaction_boundary(route))
+            except Exception as exc:
+                logger.warning("[z3_encoder] INV-007 failed for %s: %s", route.name, exc)
+                results.append(InvariantResult(
+                    invariant_id="INV-007",
+                    invariant_name="Single transaction boundary per route (no mid-route commits)",
                     route_name=route.name,
                     status="UNVERIFIABLE",
                     proof_method=f"Z3 encoding error: {exc}",
