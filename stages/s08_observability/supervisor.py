@@ -224,6 +224,58 @@ class ObservabilityStageSupervisor(PhaseBase):
         if p11d_result.issues:
             issues.extend(p11d_result.issues)
 
+        # ── Mimir high-scale config (optional, non-blocking) ─────────────────
+        # When estimated_users > 10000, scale_tier is enterprise/high_traffic,
+        # or K8s with high expected_load, generate Grafana Mimir distributed
+        # config alongside the standard Prometheus stack.
+        outputs: Dict[str, Any] = {}
+        estimated_users = data.get("estimated_users", 0) or 0
+        scale_tier = data.get("scale_tier", "standard")
+        is_k8s = data.get("deployment_target", "") == "kubernetes"
+        use_mimir = (
+            estimated_users > 10000
+            or scale_tier in ("enterprise", "high_traffic")
+            or (is_k8s and data.get("expected_load", "") in ("high", "very_high"))
+        )
+        backend_output_path = data.get("backend_output_path", "") or data.get("project_dir", "")
+        project_name = data.get("project_name", "App")
+        if use_mimir:
+            try:
+                from aether_os.phases.p11a_monitoring.mimir_config import (
+                    gen_mimir_helm_values,
+                    gen_mimir_docker_compose,
+                    gen_mimir_config_yaml,
+                    gen_cortex_migration_guide,
+                )
+                from pathlib import Path as _Path
+                monitoring_dir = _Path(backend_output_path).parent / "monitoring"
+                monitoring_dir.mkdir(parents=True, exist_ok=True)
+                (monitoring_dir / "mimir-values.yaml").write_text(
+                    gen_mimir_helm_values(project_name)
+                )
+                (monitoring_dir / "docker-compose.mimir.yml").write_text(
+                    gen_mimir_docker_compose(project_name)
+                )
+                (monitoring_dir / "mimir.yaml").write_text(
+                    gen_mimir_config_yaml(project_name)
+                )
+                (monitoring_dir / "MIMIR_MIGRATION.md").write_text(
+                    gen_cortex_migration_guide(project_name)
+                )
+                logger.info(
+                    "[s08] Mimir distributed config generated (estimated_users=%d)",
+                    estimated_users,
+                )
+                outputs["mimir_configured"] = True
+                outputs["metrics_backend"] = "mimir"
+            except Exception as _mimir_exc:
+                logger.warning(
+                    "[s08] Mimir config generation failed (non-fatal): %s", _mimir_exc
+                )
+                outputs["metrics_backend"] = "prometheus"
+        else:
+            outputs["metrics_backend"] = "prometheus"
+
         # ── Collect outputs ───────────────────────────────────────────────────
         # Use p11a's output_path as the canonical monitoring_path (it writes
         # the full monitoring/ directory with docker-compose + Grafana).
@@ -250,7 +302,6 @@ class ObservabilityStageSupervisor(PhaseBase):
         sentry_ok = _sentry_configured(base_output)
         analytics_ev = _analytics_events(base_output)
 
-        project_name = data.get("project_name", "App")
         logger.info(
             "[s08] complete: monitoring_path=%s grafana_dashboards=%d "
             "alert_rules=%d sentry=%s analytics_events=%d",
@@ -272,6 +323,8 @@ class ObservabilityStageSupervisor(PhaseBase):
                 "analytics_events": analytics_ev,
                 "alert_rules_count": alert_rules_count,
                 "project_name": project_name,
+                "metrics_backend": outputs.get("metrics_backend", "prometheus"),
+                "mimir_configured": outputs.get("mimir_configured", False),
                 "sub_steps": {
                     "p09_observability": p09_result.success,
                     "p11a_monitoring": p11a_result.success,
