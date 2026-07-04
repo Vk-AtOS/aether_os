@@ -224,7 +224,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                             _workflow_transitions[_ir_wf.entity] = _trans
 
                 # Generate CRUD with transition guards embedded in PATCH handlers
-                crud_code = _gen_crud(_ir, workflow_transitions=_workflow_transitions or None)
+                crud_code = _gen_crud(_ir, workflow_transitions=_workflow_transitions or None, multi_tenancy=multi_tenancy)
 
                 # Write workflow_transitions.json into the generated project scripts/
                 if _workflow_transitions:

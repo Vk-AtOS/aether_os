@@ -180,13 +180,12 @@ def get_password_hash(password: str) -> str:
     return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
 
 
-def create_access_token(user_id: int | str, email: str, role: str) -> str:
+def create_access_token(user_id: int | str, email: str, role: str, org_id: str | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    return jwt.encode(
-        {"sub": str(user_id), "email": email, "role": role, "exp": expire, "type": "access"},
-        SECRET_KEY,
-        algorithm=ALGORITHM,
-    )
+    payload: dict = {"sub": str(user_id), "email": email, "role": role, "exp": expire, "type": "access"}
+    if org_id:
+        payload["org_id"] = str(org_id)
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def create_refresh_token(user_id: int | str) -> str:
@@ -211,7 +210,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         sub = payload.get("sub")
         if not sub:
             raise exc
-        return {"id": sub, "email": payload.get("email", ""), "role": payload.get("role", "user")}
+        return {"id": sub, "email": payload.get("email", ""), "role": payload.get("role", "user"), "org_id": payload.get("org_id")}
     except JWTError:
         raise exc
 
@@ -314,7 +313,7 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
             detail="Invalid email or password",
         )
     return TokenResponse(
-        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user")),
+        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
         refresh_token=create_refresh_token(user.id),
     )
 

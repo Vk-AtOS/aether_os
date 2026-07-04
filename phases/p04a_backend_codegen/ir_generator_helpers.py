@@ -81,17 +81,23 @@ def _workflow_guard_lines(entity_name: str, transitions: dict) -> list:
     return {"module": module_lines, "handler": handler_lines}
 
 
-def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict | None = None) -> list:
+def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict | None = None, multi_tenancy: bool = False) -> list:
     """Generate CRUD router function definitions for one entity, with optional role guards.
 
     When `transitions` is provided and the entity has a `status` field, the PATCH
     handler validates status changes against the transition graph and raises HTTP 422
-    for disallowed transitions.
+    for disallowed transitions.  When `multi_tenancy` is True, every query is scoped
+    to the current user's org_id (which must be present in the JWT as set by auth.py).
     """
     n = entity.name
     t = entity.table
     var = n.lower()
     router_var = f"{t}_router"
+
+    # org_id filter fragments injected when multi_tenancy is enabled.
+    _mt = f", models.{n}.org_id == current_user.get('org_id')" if multi_tenancy else ""
+    _mt_list = f".where(models.{n}.org_id == current_user.get('org_id'))" if multi_tenancy else ""
+    _mt_create = f", org_id=current_user.get('org_id')" if multi_tenancy else ""
 
     read_guard   = _role_guard(role_map.get("read", []))
     create_guard = _role_guard(role_map.get("create", []))
@@ -121,9 +127,9 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"):",
         *read_guard,
         f"    offset = (page - 1) * limit",
-        f"    total_q = await db.execute(select(func.count()).select_from(models.{n}))",
+        f"    total_q = await db.execute(select(func.count()).select_from(models.{n}){_mt_list})",
         f"    total = total_q.scalar_one()",
-        f"    result = await db.execute(select(models.{n}).offset(offset).limit(limit))",
+        f"    result = await db.execute(select(models.{n}){_mt_list}.offset(offset).limit(limit))",
         f"    items = result.scalars().all()",
         f"    return {{'items': items, 'total': total, 'page': page, 'limit': limit}}",
         "",
@@ -134,7 +140,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *create_guard,
-        f"    obj = models.{n}(**data.model_dump(exclude_unset=True))",
+        f"    obj = models.{n}(**data.model_dump(exclude_unset=True){_mt_create})",
         f"    db.add(obj)",
         f"    await db.flush()",
         f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'CREATE', '{n}', str(getattr(obj, 'id', '')))",
@@ -148,7 +154,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *read_guard,
-        f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
+        f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id{_mt}))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
@@ -162,7 +168,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *update_guard,
-        f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
+        f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id{_mt}))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
@@ -185,7 +191,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    current_user: dict = Depends(get_current_user),",
         f"):",
         *delete_guard,
-        f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id))",
+        f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id{_mt}))",
         f"    obj = result.scalar_one_or_none()",
         f"    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
@@ -197,7 +203,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
     return lines
 
 
-def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None) -> str:
+def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None, multi_tenancy: bool = False) -> str:
     """Generate complete routers/crud.py from DomainIR.
 
     Args:
@@ -206,6 +212,7 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None) -> 
             graph (dict[str, list[str]]).  When provided, PATCH handlers for entities
             that have a ``status`` field will validate the requested status change
             against the allowed transitions and raise HTTP 422 on invalid moves.
+        multi_tenancy: When True, every query is scoped to current_user['org_id'].
     """
     # Build schema imports list
     schema_imports = []
@@ -234,7 +241,7 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None) -> 
     for entity in ir.entities:
         role_map = _role_sets(ir, entity.name)
         entity_transitions = (workflow_transitions or {}).get(entity.name)
-        lines.extend(_entity_router_with_rbac(entity, role_map, transitions=entity_transitions))
+        lines.extend(_entity_router_with_rbac(entity, role_map, transitions=entity_transitions, multi_tenancy=multi_tenancy))
 
     # all_routers list — every entity gets included
     router_vars = [f"{e.table}_router" for e in ir.entities]

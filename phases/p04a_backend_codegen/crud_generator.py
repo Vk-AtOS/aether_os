@@ -440,7 +440,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             "",
             f"@{var}.delete('/{{item_id}}', status_code=status.HTTP_204_NO_CONTENT)",
             f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_admin)):",
-            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id))",
+            f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
             f"    obj = result.scalar_one_or_none()",
             f"    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
