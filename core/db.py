@@ -89,6 +89,8 @@ def get_engine() -> AsyncEngine:
                 "pool_timeout": 30,
                 "pool_recycle": 300,    # recycle every 5 min — cloud DBs drop idle conns
                 "pool_pre_ping": True,  # test conn before use; prevents "closed conn" 500s
+                # Hard cap per-query so a runaway query can't starve the pool (30 s)
+                "connect_args": {"options": "-c statement_timeout=30000"},
             })
 
         _engine = create_async_engine(url, **engine_kwargs)
