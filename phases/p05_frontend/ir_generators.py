@@ -348,7 +348,7 @@ def generate_ir_entity_page(entity: IREntity) -> str:
         if any(fname.endswith(s) for s in _URL_SUFFIXES):
             return (
                 f"              <td className='px-4 py-2'>"
-                f"{{row.{fname} ? <img src={{String(row.{fname})}} alt='' className='w-10 h-10 object-cover rounded shadow-sm' onError={{(e)=>{{(e.target as HTMLImageElement).style.display='none'}}}} /> : <span className='text-gray-300 text-xs'>—</span>}}</td>"
+                f"{{row.{fname} ? <img src={{String(row.{fname})}} alt='' loading='lazy' className='w-10 h-10 object-cover rounded shadow-sm' onError={{(e)=>{{(e.target as HTMLImageElement).style.display='none'}}}} /> : <span className='text-gray-300 text-xs'>—</span>}}</td>"
             )
         return f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{fname} ?? '')}}</td>"
 
