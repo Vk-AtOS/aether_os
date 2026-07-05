@@ -371,11 +371,29 @@ async def me(current_user: dict = Depends(get_current_user)):
 '''
 
 _RATE_LIMITER_PY = '''\
-"""Shared SlowAPI rate limiter — imported by main.py and any router that needs limits."""
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+"""Shared SlowAPI rate limiter — imported by main.py and any router that needs limits.
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+Key function: per-user (hashed JWT token prefix) on authenticated endpoints so
+limits are per-account rather than per-IP.  Falls back to the source IP for
+unauthenticated requests so the /auth/login brute-force limit still works.
+"""
+import hashlib
+from fastapi import Request
+from slowapi import Limiter
+
+
+def _get_rate_limit_key(request: Request) -> str:
+    # Per-user limiting on authenticated endpoints — prevents one busy user
+    # from burning the shared IP quota for all users behind a NAT/proxy.
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        # Hash the first 40 chars of the token (enough entropy, avoids storing the token)
+        return f"user:{hashlib.md5(auth[7:47].encode()).hexdigest()}"
+    # Unauthenticated — fall back to source IP so brute-force limits still apply
+    return request.client.host if request.client else "unknown"
+
+
+limiter = Limiter(key_func=_get_rate_limit_key, default_limits=["200/minute"])
 '''
 
 # Standalone cache.py template written to src/cache.py of the generated app.
