@@ -7,7 +7,7 @@ import re
 import os
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p05_frontend.prompts import (
@@ -90,6 +90,11 @@ from aether_os.phases.p05_frontend.helpers import (
 )
 from aether_os.phases.p05_frontend.domain_pages import write_domain_pages
 from aether_os.phases.p05_frontend.governor_integration import run_frontend_governor
+from aether_os.phases.p05_frontend.domain_assembler import (
+    detect_layout_mode, assemble_domain_pages,
+    run_gate3_approval, run_gate2_preview,
+    write_scaffold_and_components, generate_domain_widget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +102,16 @@ logger = logging.getLogger(__name__)
 _read_architecture = read_architecture
 _generate_nginx_conf = generate_nginx_conf
 _generate_storefront_home = generate_storefront_home
+
+# Domain → UI theme mapping (module-level constant, shared by prompts.py)
+_DOMAIN_THEME_MAP = {
+    "healthcare": "healthcare", "fintech": "fintech", "ecommerce": "ecommerce",
+    "marketplace": "marketplace", "education": "education", "fitness": "fitness",
+    "gym_fitness": "gym_fitness", "real_estate": "real_estate",
+    "hospitality": "hospitality", "restaurant": "restaurant", "food": "food",
+    "logistics": "logistics", "iot": "iot", "hrm": "hrm", "crm": "crm",
+    "analytics": "analytics", "saas": "saas",
+}
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
@@ -211,83 +226,45 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Extract designer spec settings
     designer_spec = data.get("designer_spec") or {}
     _design = designer_spec.get("design") or {}
-    ui_theme: str = _design.get("ui_theme", "") or ""
-    page_transition: str = _design.get("page_transition", "fade") or "fade"
-    animation_speed: str = _design.get("animation_speed", "normal") or "normal"
-    micro_interactions: bool = bool(_design.get("micro_interactions", True))
-    scroll_reveal: bool = bool(_design.get("scroll_reveal", True))
-    loading_style: str = _design.get("loading_style", "shimmer") or "shimmer"
-    hover_lift: bool = bool(_design.get("hover_lift", True))
-    primary_hex: str = _design.get("primary_hex", "") or ""
-    secondary_hex: str = _design.get("secondary_hex", "") or ""
-    background_hex: str = _design.get("background_hex", "") or ""
-    surface_hex: str = _design.get("surface_hex", "") or ""
-    font_pairing: str = _design.get("font_pairing", "") or ""
-    border_radius: str = _design.get("border_radius", "") or ""
-    density: str = _design.get("density", "") or ""
-
-    _domain_theme_map = {
-        "healthcare": "healthcare", "fintech": "fintech", "ecommerce": "ecommerce",
-        "marketplace": "marketplace", "education": "education", "fitness": "fitness",
-        "gym_fitness": "gym_fitness", "real_estate": "real_estate",
-        "hospitality": "hospitality", "restaurant": "restaurant", "food": "food",
-        "logistics": "logistics", "iot": "iot", "hrm": "hrm", "crm": "crm",
-        "analytics": "analytics", "saas": "saas",
-    }
+    _dg = _design.get  # shorthand
+    ui_theme: str      = _dg("ui_theme", "") or ""
+    page_transition    = _dg("page_transition", "fade") or "fade"
+    animation_speed    = _dg("animation_speed", "normal") or "normal"
+    micro_interactions = bool(_dg("micro_interactions", True))
+    scroll_reveal      = bool(_dg("scroll_reveal", True))
+    loading_style      = _dg("loading_style", "shimmer") or "shimmer"
+    hover_lift         = bool(_dg("hover_lift", True))
+    primary_hex        = _dg("primary_hex", "") or ""
+    secondary_hex      = _dg("secondary_hex", "") or ""
+    background_hex     = _dg("background_hex", "") or ""
+    surface_hex        = _dg("surface_hex", "") or ""
+    font_pairing       = _dg("font_pairing", "") or ""
+    border_radius      = _dg("border_radius", "") or ""
+    density            = _dg("density", "") or ""
     if not ui_theme or ui_theme == "default":
-        _detected_domain = data.get("domain", "") or domain or ""
-        ui_theme = _domain_theme_map.get(_detected_domain.lower(), "default")
+        ui_theme = _DOMAIN_THEME_MAP.get((data.get("domain", "") or domain or "").lower(), "default")
 
     # ── Wire new accumulated_context fields ──────────────────────────────────
     user_personas: List[dict] = data.get("user_personas") or []
-    has_customer_portal = data.get("has_customer_portal")   # True / False / None (auto)
+    has_customer_portal = data.get("has_customer_portal")
     has_landing_page: bool = bool(data.get("has_landing_page", False))
     app_brand: Dict[str, Any] = data.get("app_brand") or {}
     app_tagline: str = data.get("app_tagline", "")
     realtime_features: List[Any] = data.get("realtime_features") or []
     build_types: List[str] = data.get("build_types") or []
-    _has_websocket = (
-        "websocket" in build_types
-        or "realtime" in build_types
-        or any(x in (data.get("raw_input") or "").lower() for x in ["websocket", "real-time", "realtime", "live chat", "collaboration"])
+    _raw_lower = (data.get("raw_input") or "").lower()
+    _has_websocket = "websocket" in build_types or "realtime" in build_types or any(
+        x in _raw_lower for x in ["websocket", "real-time", "realtime", "live chat", "collaboration"]
     )
 
-    # Detect layout mode
-    _layout_from_spec = (_design.get("layout") or "")
-    _raw = data.get("raw_input", "").lower()
-    _domain_val = domain
-
-    _dual_portal_domains = ("ecommerce", "marketplace", "library", "healthcare",
-                             "hospitality", "education", "events", "real_estate",
-                             "fitness", "food", "saas", "gym_fitness", "sports",
-                             "restaurant")
-    _internal_only_domains = ("crm", "hrm", "analytics", "fintech", "iot",
-                               "security", "logistics")
-
-    if "layout_mode" in (designer_spec or {}):
-        layout_mode = designer_spec["layout_mode"]
-    elif _layout_from_spec:
-        layout_mode = _layout_from_spec
-    elif has_customer_portal is True:
-        # Explicit flag is authoritative — always dual when set to True
-        layout_mode = "dual"
-    elif has_customer_portal is False:
-        # Explicit flag is authoritative — admin-only when set to False
-        layout_mode = "admin"
-    else:
-        # Legacy auto-detect: domain bucket + keyword scan (fallback when flag is not set)
-        if "dual portal" in _raw or "customer portal" in _raw or "member portal" in _raw:
-            layout_mode = "dual"
-        elif _domain_val in _dual_portal_domains:
-            layout_mode = "dual"
-        elif _domain_val in _internal_only_domains:
-            layout_mode = "admin"
-        elif "storefront" in _raw or "customer-facing" in _raw or "landing page" in _raw:
-            layout_mode = "storefront"
-        elif "admin panel" in _raw or "internal tool" in _raw or "back office" in _raw or "back-office" in _raw:
-            layout_mode = "admin"
-        else:
-            layout_mode = "dual"
+    # Detect layout mode — delegated to domain_assembler to reduce line count
+    layout_mode = detect_layout_mode(
+        designer_spec=designer_spec,
+        design=_design,
+        domain=domain,
+        raw_input=data.get("raw_input", ""),
+        has_customer_portal=has_customer_portal,
+    )
     logger.info("p05_frontend: layout_mode=%s (has_customer_portal=%s)", layout_mode, has_customer_portal)
 
     # 3. Build frontend/ directory structure
@@ -300,180 +277,93 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "pages").mkdir(parents=True, exist_ok=True)
     (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
 
-    # ── Phase 1: Scaffolding (Static Files) ──
-    logger.info("p05: Writing static scaffold files...")
-    _write_with_guard(frontend_dir / "package.json", generate_package_json(project_slug))
-    _write_with_guard(frontend_dir / "vite.config.ts", generate_vite_config())
-    _write_with_guard(frontend_dir / "tsconfig.json", generate_tsconfig())
-    _write_with_guard(frontend_dir / "tailwind.config.js", generate_tailwind_config(ui_theme))
-    _write_with_guard(frontend_dir / "postcss.config.js", generate_postcss_config())
-    _write_with_guard(frontend_dir / "index.html", generate_index_html(project_name, domain=domain))
-    _write_with_guard(frontend_dir / "nginx.conf", generate_nginx_conf(data))
-    _write_with_guard(frontend_dir / "Dockerfile", generate_dockerfile())
-    _write_with_guard(frontend_dir / ".env.example", generate_env_example())
-    _write_with_guard(frontend_dir / "public" / "_headers", generate_headers_file())
-    _write_with_guard(frontend_dir / ".eslintrc.cjs", generate_eslint_config())
-    _write_with_guard(frontend_dir / "README.md", generate_frontend_readme(project_name))
-    _write_with_guard(src_dir / "index.css", generate_index_css(
-        ui_theme=ui_theme,
-        page_transition=page_transition,
-        animation_speed=animation_speed,
-        micro_interactions=micro_interactions,
-        scroll_reveal=scroll_reveal,
-        loading_style=loading_style,
-        hover_lift=hover_lift,
-    ))
-    _write_with_guard(src_dir / "main.tsx", generate_main_tsx())
-
-    # ── Phase 2: Core Logic (Library & Types) ──
-    _write_with_guard(src_dir / "lib" / "auth.ts", generate_auth_ts())
-    _write_with_guard(src_dir / "lib" / "api.ts", generate_api(entities, route_map))
-    _write_with_guard(src_dir / "lib" / "utils.ts", generate_lib_utils())
-    _write_with_guard(src_dir / "types" / "index.ts", generate_types(entities))
-
-    # ── Phase 2b: shadcn/ui-compatible component library ──
-    write_ui_components(src_dir)
-
-    # ── Phase 3: Critical Skeleton (App.tsx) ──
-    logger.info("p05: Writing App.tsx skeleton...")
-    _write_with_guard(src_dir / "App.tsx", generate_app(entities, dual_portal=(layout_mode == "dual")))
-
-    # ── Phase 4: Core Pages ──
-    _write_with_guard(src_dir / "pages" / "LoginPage.tsx", generate_login_page(project_name, layout_mode=layout_mode))
-    _write_with_guard(src_dir / "pages" / "NotFoundPage.tsx", generate_not_found_page())
-    if layout_mode == "dual":
-        _write_with_guard(
-            src_dir / "pages" / "CustomerHome.tsx",
-            generate_customer_home(
-                entities, route_map, project_name, domain,
-                app_brand=app_brand, app_tagline=app_tagline,
-            ),
-        )
-
-    # ── Phase 4b: Landing Page (when has_landing_page=True) ──
-    if has_landing_page:
-        logger.info("p05: has_landing_page=True — generating LandingPage.tsx")
-        (src_dir / "pages").mkdir(parents=True, exist_ok=True)
-        _landing_code = _generate_landing_page(
-            project_name=project_name,
-            tagline=app_brand.get("tagline") or app_tagline or f"The smarter way to manage {domain.replace('_', ' ')}",
-            entities=entities,
-            domain=domain,
-            app_brand=app_brand,
-        )
-        _write_with_guard(src_dir / "pages" / "LandingPage.tsx", _landing_code)
-
-    # ── Phase 4c: SSE realtime hook (when realtime_features exist) ──
-    if realtime_features:
-        logger.info("p05: realtime_features=%s — generating useRealtimeStream.ts", realtime_features)
-        (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
-        _sse_code = _generate_sse_hook(realtime_features, project_name)
-        _write_with_guard(src_dir / "hooks" / "useRealtimeStream.ts", _sse_code)
-
-    # ── Phase 4d: WebSocket hook (when websocket pattern active) ──
-    if _has_websocket:
-        logger.info("p05: websocket pattern active — generating useWebSocket.ts")
-        (src_dir / "hooks").mkdir(parents=True, exist_ok=True)
-        _write_with_guard(src_dir / "hooks" / "useWebSocket.ts", generate_use_websocket_hook())
-
-    # ── Phase 5: Static Layout Components ──
-    if layout_mode == "dual":
-        _write_with_guard(src_dir / "components" / "CustomerLayout.tsx", generate_customer_layout(entities, project_name))
-        _write_with_guard(src_dir / "components" / "AdminLayout.tsx", generate_admin_layout(entities, project_name))
-        _write_with_guard(src_dir / "components" / "Layout.tsx", "export { AdminLayout as Layout } from './AdminLayout'\n")
-    else:
-        # Use mobile-first layout (bottom tab bar on <768px) for admin/storefront modes
-        _layout_code = generate_mobile_first_layout(entities, project_name)
-        _write_with_guard(src_dir / "components" / "Layout.tsx", _layout_code)
-
-    _write_with_guard(src_dir / "components" / "DataTable.tsx", generate_data_table())
-    _write_with_guard(src_dir / "components" / "CrudModal.tsx", generate_crud_modal())
-    _write_with_guard(src_dir / "components" / "Toaster.tsx", generate_toaster())
-    _write_with_guard(src_dir / "components" / "ErrorBoundary.tsx", generate_error_boundary())
+    # ── Phases 1–5: Scaffold, core logic, and layout components ──────────────
+    # Delegated to domain_assembler.write_scaffold_and_components to keep
+    # task_agent.py under 450 lines.
+    write_scaffold_and_components(
+        frontend_dir=frontend_dir, src_dir=src_dir,
+        project_name=project_name, project_slug=project_slug,
+        domain=domain, layout_mode=layout_mode, entities=entities,
+        route_map=route_map, app_brand=app_brand, app_tagline=app_tagline,
+        has_landing_page=has_landing_page, realtime_features=realtime_features,
+        has_websocket=_has_websocket, ui_theme=ui_theme,
+        page_transition=page_transition, animation_speed=animation_speed,
+        micro_interactions=micro_interactions, scroll_reveal=scroll_reveal,
+        loading_style=loading_style, hover_lift=hover_lift, data=data,
+        generate_package_json_fn=generate_package_json,
+        generate_eslint_config_fn=generate_eslint_config,
+        generate_vite_config_fn=generate_vite_config,
+        generate_tsconfig_fn=generate_tsconfig,
+        generate_tailwind_config_fn=generate_tailwind_config,
+        generate_postcss_config_fn=generate_postcss_config,
+        generate_index_html_fn=generate_index_html,
+        generate_nginx_conf_fn=generate_nginx_conf,
+        generate_dockerfile_fn=generate_dockerfile,
+        generate_env_example_fn=generate_env_example,
+        generate_headers_file_fn=generate_headers_file,
+        generate_index_css_fn=generate_index_css,
+        generate_main_tsx_fn=generate_main_tsx,
+        generate_auth_ts_fn=generate_auth_ts,
+        generate_api_fn=generate_api,
+        generate_lib_utils_fn=generate_lib_utils,
+        generate_types_fn=generate_types,
+        generate_app_fn=generate_app,
+        generate_login_page_fn=generate_login_page,
+        generate_not_found_page_fn=generate_not_found_page,
+        generate_customer_home_fn=generate_customer_home,
+        generate_landing_page_fn=_generate_landing_page,
+        generate_sse_hook_fn=_generate_sse_hook,
+        generate_use_websocket_hook_fn=generate_use_websocket_hook,
+        generate_customer_layout_fn=generate_customer_layout,
+        generate_admin_layout_fn=generate_admin_layout,
+        generate_mobile_first_layout_fn=generate_mobile_first_layout,
+        generate_data_table_fn=generate_data_table,
+        generate_crud_modal_fn=generate_crud_modal,
+        generate_toaster_fn=generate_toaster,
+        generate_error_boundary_fn=generate_error_boundary,
+        generate_frontend_readme_fn=generate_frontend_readme,
+        write_ui_components_fn=write_ui_components,
+        write_with_guard_fn=_write_with_guard,
+    )
 
     # ── Phase 6: Entity CRUD Pages ──
-    logger.info("p05: Generating entity CRUD pages...")
-    if _domain_ir and _domain_ir.entities:
-        from aether_os.phases.p05_frontend.ir_generators import (
-            generate_ir_dashboard_tsx as _gen_dash,
-            generate_ir_entity_page as _gen_ent_page,
-            generate_ir_types_ts as _gen_types,
-        )
-        (src_dir / "pages" / "Dashboard.tsx").write_text(_gen_dash(_domain_ir, entities, project_name, domain=domain))
-        for ir_entity in _domain_ir.entities:
-            pascal_name = ir_entity.name
-            if layout_mode == "storefront" and is_product_entity(ir_entity.table):
-                _ir_ent_dict = {
-                    "table": ir_entity.table,
-                    "name": ir_entity.name,
-                    "columns": [f.name for f in ir_entity.fields],
-                }
-                _write_with_guard(src_dir / "pages" / f"{pascal_name}Page.tsx", generate_product_grid_page(_ir_ent_dict, route_map))
-            else:
-                _write_with_guard(src_dir / "pages" / f"{pascal_name}Page.tsx", _gen_ent_page(ir_entity))
-        (src_dir / "types" / "index.ts").write_text(_gen_types(_domain_ir))
-    else:
-        # Use premium domain dashboard (Recharts + Framer Motion) for all non-IR paths
-        _dash_code = generate_domain_dashboard(domain, entities)
-        (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_code)
-        _global_fk_refs: Dict[str, Dict[str, str]] = {}
-        if _domain_ir:
-            try:
-                from aether_os.core.domain_ir import AetherType as _AT
-                for ir_ent in (_domain_ir.entities or []):
-                    for ir_field in ir_ent.fields:
-                        if ir_field.type == _AT.FK and ir_field.ref_entity:
-                            ref_lower = ir_field.ref_entity.lower()
-                            _global_fk_refs[ir_field.name] = {
-                                "endpoint": f"/api/{pluralise(ref_lower)}",
-                                "label_key": getattr(ir_field, "display_field", None) or "name",
-                            }
-            except Exception as _fk_exc:
-                logger.warning("p05: FK refs extraction failed: %s", _fk_exc)
-
-        for ent in entities:
-            if asyncio.get_event_loop().time() - _phase_start > _PHASE_TIMEOUT:
-                logger.warning("p05: phase watchdog triggered (25m) — skipping remaining entity pages, proceeding to build")
-                break
-            pascal = ent.get("name") or to_pascal_case(ent["table"])
-            if layout_mode == "storefront" and is_product_entity(ent["table"]):
-                code = generate_product_grid_page(ent, route_map)
-            else:
-                code = generate_entity_page(ent, route_map, fk_refs=_global_fk_refs or None)
-            _write_with_guard(src_dir / "pages" / f"{pascal}Page.tsx", code)
-            await asyncio.sleep(0.01)
-
-    run_frontend_governor(data, [e.get("name", e["table"]) + "Page" for e in entities], output_dir)
-    write_domain_pages(src_dir, domain, build_types)
+    # Delegated to domain_assembler.assemble_domain_pages to keep task_agent
+    # under 450 lines.
+    await assemble_domain_pages(
+        src_dir=src_dir,
+        domain=domain,
+        domain_ir=_domain_ir,
+        entities=entities,
+        build_types=build_types,
+        layout_mode=layout_mode,
+        route_map=route_map,
+        project_name=project_name,
+        data=data,
+        output_dir=output_dir,
+        phase_start=_phase_start,
+        phase_timeout=_PHASE_TIMEOUT,
+        write_with_guard_fn=_write_with_guard,
+        generate_product_grid_fn=generate_product_grid_page,
+        generate_entity_page_fn=generate_entity_page,
+        generate_domain_dashboard_fn=generate_domain_dashboard,
+        is_product_entity_fn=is_product_entity,
+        to_pascal_case_fn=to_pascal_case,
+        pluralise_fn=pluralise,
+        run_frontend_governor_fn=run_frontend_governor,
+        write_domain_pages_fn=write_domain_pages,
+    )
     # ── Phase 7: Optional LLM Component (DomainWidget) ──
-    domain_widget_generated = False
-    if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
-      try:
-        domain_component = await _generate_domain_component(
-            domain, entities, project_name, mem,
-            primary_hex=primary_hex, secondary_hex=secondary_hex,
-            background_hex=background_hex, surface_hex=surface_hex,
-            font_pairing=font_pairing, border_radius=border_radius,
-            density=density,
-        )
-        if domain_component:
-            _write_with_guard(src_dir / "components" / "DomainWidget.jsx", domain_component)
-            dashboard_file = src_dir / "pages" / "Dashboard.tsx"
-            if dashboard_file.exists():
-                content = dashboard_file.read_text()
-                if "DomainWidget" not in content:
-                    content = content.replace("import { useQuery }", "import DomainWidget from '../components/DomainWidget'\nimport { useQuery }", 1)
-                    content = content.replace("{/* DOMAIN_WIDGET_SLOT */}", '<div className="mt-8"><DomainWidget /></div>', 1)
-                    dashboard_file.write_text(content)
-            domain_widget_generated = True
-      except Exception as _de:
-        logger.debug("p05_frontend: domain component failed: %s", _de)
-        try:
-            dashboard_file = src_dir / "pages" / "Dashboard.tsx"
-            if dashboard_file.exists():
-                dashboard_file.write_text(dashboard_file.read_text().replace("      {/* DOMAIN_WIDGET_SLOT */}\n", ""))
-        except Exception as _clean_exc:
-            logger.warning("p05: dashboard cleanup failed: %s", _clean_exc)
+    # Delegated to domain_assembler.generate_domain_widget to reduce task_agent lines.
+    domain_widget_generated = await generate_domain_widget(
+        src_dir=src_dir, domain=domain, entities=entities,
+        project_name=project_name, mem=mem,
+        primary_hex=primary_hex, secondary_hex=secondary_hex,
+        background_hex=background_hex, surface_hex=surface_hex,
+        font_pairing=font_pairing, border_radius=border_radius,
+        density=density, phase_start=_phase_start, phase_timeout=_PHASE_TIMEOUT,
+        generate_domain_component_fn=_generate_domain_component,
+        write_with_guard_fn=_write_with_guard,
+    )
 
     # ── Phase 8: Customer Portal (Home, About) ──
     if asyncio.get_event_loop().time() - _phase_start < _PHASE_TIMEOUT:
@@ -496,40 +386,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _write_with_guard(tests_dir / "Dashboard.test.tsx", generate_dashboard_test())
     _write_with_guard(frontend_dir / "vitest.config.ts", generate_vitest_config())
 
-    # ── Gate 3: Admin Requirements (Approval if NOT autonomous) ──
-    customer_flows = [wf.trigger for wf in _domain_ir.workflows] if _domain_ir else []
-    admin_features = _derive_admin_features(customer_flows)
+    # Obtain run_id once for both Gate 3 and Gate 2
+    run_id: Optional[str] = None
     try:
-        from aether_os.core.pipeline_state import publish_event
-        from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
-        from aether_os.orchestrator.events import ACTIVE_RUN_ID
-        run_id = ACTIVE_RUN_ID.get()
+        from aether_os.orchestrator.events import ACTIVE_RUN_ID as _ARID
+        run_id = _ARID.get()
+    except Exception:
+        pass
 
-        if run_id and not is_autonomous:
-            logger.info("p05: Waiting for Gate 3 (Admin Requirements) approval...")
-            engine = get_decision_engine()
-            decision = Decision(
-                run_id=run_id, org_id=data.get("org_id", ""),
-                decision_type="admin_spec_approval", title="Gate 3: Admin Portal Requirements",
-                what=f"Admin panel features: {', '.join(admin_features)}",
-                why="Confirm admin features before generation.", phase="p05_frontend",
-            )
-            await engine.request_approval(decision)
-            await publish_event(run_id, {
-                "type": "PhaseApprovalRequired", "phase": "p05_frontend", "gate": "gate_3",
-                "decision_id": decision.id, "data": {"admin_features": admin_features}, "allow_overrides": True
-            })
-            resolved = await engine.await_decision(decision.id)
-            if resolved.status == "approved" and resolved.human_choice:
-                try:
-                    if resolved.human_choice.strip().startswith("["): admin_features = json.loads(resolved.human_choice)
-                    else: admin_features = [f.strip() for f in resolved.human_choice.split(",") if f.strip()]
-                except Exception as _parse_exc:
-                    logger.warning("p05: Gate 3 choice parse failed: %s", _parse_exc)
-        else:
-            logger.info("p05: Autonomous mode — bypassing Gate 3 approval.")
-    except Exception as e:
-        logger.warning("p05: Gate 3 skipped: %s", e)
+    # ── Gate 3: Admin Requirements Approval ──
+    # Delegated to domain_assembler.run_gate3_approval to reduce task_agent lines.
+    admin_features = await run_gate3_approval(
+        domain_ir=_domain_ir,
+        data=data,
+        is_autonomous=is_autonomous,
+        derive_admin_features_fn=_derive_admin_features,
+    )
 
     # 4. Finalise project structure
     project_dir = output_dir.parent
@@ -553,33 +425,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
 
     # ── Gate 2: Preview ──
-    screenshot_path = ""
-    preview_path = output_dir / "customer_portal_preview.png"
-    if not is_autonomous and await take_preview_screenshot(frontend_dir, preview_path):
-        screenshot_path = str(preview_path)
-
-    try:
-        if run_id and not is_autonomous:
-            engine = get_decision_engine()
-            decision = Decision(
-                run_id=run_id, org_id=data.get("org_id", ""),
-                decision_type="portal_preview_approval", title="Gate 2: Customer Portal Preview",
-                what=f"Preview available at {screenshot_path}" if screenshot_path else "Preview unavailable.",
-                why="Human confirmation of visual design.", phase="p05_frontend",
-            )
-            await engine.request_approval(decision)
-            await publish_event(run_id, {
-                "type": "PhaseApprovalRequired", "phase": "p05_frontend", "gate": "gate_2",
-                "decision_id": decision.id,
-                "screenshot_url": f"/api/artifacts/{{run_id}}/p05_frontend/customer_portal_preview.png" if screenshot_path else None,
-            })
-            resolved = await engine.await_decision(decision.id)
-            if resolved.status == "approved" and resolved.human_choice:
-                await apply_gate2_revisions(resolved.human_choice.strip(), frontend_dir, domain, project_name)
-        elif run_id:
-            logger.info("p05: Autonomous mode — bypassing Gate 2 approval.")
-    except Exception as _gate2_exc:
-        logger.warning("p05: Gate 2 skipped: %s", _gate2_exc)
+    # Delegated to domain_assembler.run_gate2_preview to reduce task_agent lines.
+    await run_gate2_preview(
+        run_id=run_id,
+        frontend_dir=frontend_dir,
+        output_dir=output_dir,
+        domain=domain,
+        project_name=project_name,
+        data=data,
+        is_autonomous=is_autonomous,
+        take_screenshot_fn=take_preview_screenshot,
+        apply_revisions_fn=apply_gate2_revisions,
+    )
 
     # ── Step 6: Final Build ──
     import subprocess
