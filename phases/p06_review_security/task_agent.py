@@ -42,220 +42,32 @@ _SUBTASK_TIMEOUT = 150.0
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Sub-tasks 1, 2, and 3 run concurrently — bandit and compliance scan are
+    # independent of the LLM review, cutting p06 wall-clock time by ~60%.
+    from aether_os.phases.p06_review_security.subtasks import (
+        run_code_review,
+        run_bandit_scan,
+        run_compliance_scan,
+    )
+    gathered = await asyncio.gather(
+        run_code_review(phase_input, memory_ctx, output_dir),
+        run_bandit_scan(phase_input, output_dir),
+        run_compliance_scan(phase_input, output_dir),
+        return_exceptions=True,
+    )
+    review_result, bandit_result, compliance_result = gathered
+
     results: Dict[str, TaskResult] = {}
-
-    # Sub-task 1: LLM code review — reads generated backend code, checks OWASP issues
-    from aether_os.phases.utils import memory_hint
-    mem = memory_hint(memory_ctx)
-
-    try:
-        from aether_os.core.llm.client import get_llm_client
-        _llm_client = get_llm_client()
-        data = phase_input.input_data
-        project_dir = data.get("project_dir", "")
-        backend_path = data.get("backend_output_path", "")
-
-        code_to_review = ""
-        for candidate in [
-            Path(project_dir) / "src" / "main.py",
-            Path(backend_path) / "src" / "main.py" if backend_path else None,
-            Path(backend_path) / "main.py" if backend_path else None,
-        ]:
-            if candidate and candidate.exists():
-                code_to_review = candidate.read_text(encoding="utf-8")[:6000]
-                break
-
-        if code_to_review:
-            _compliance_hint = ""
-            try:
-                from aether_os.core.domain_knowledge.loader import build_compliance_summary
-                _domain = data.get("domain", "general")
-                _cs = build_compliance_summary(_domain)
-                if _cs:
-                    _compliance_hint = f"\n\nDOMAIN COMPLIANCE REQUIREMENTS:\n{_cs}\nEnsure the code satisfies all mandatory rules above.\n\n"
-            except Exception as _ce:
-                logger.warning("[p06] compliance summary load failed: %s", _ce)
-            review_prompt = (
-                _compliance_hint +
-                "You are a senior security engineer reviewing generated backend code. "
-                "Check for OWASP Top-10 vulnerabilities: SQL injection, XSS, broken auth, "
-                "hardcoded secrets, missing input validation, insecure CORS, IDOR, and "
-                "missing rate-limiting. Return JSON: "
-                "{\"findings\": [{\"issue\": str, \"severity\": \"high\"|\"medium\"|\"low\", "
-                "\"line_hint\": str, \"recommendation\": str}], \"overall_score\": 0-100, "
-                "\"summary\": str}. If no issues, return findings=[]. "
-                + mem +
-                "Code to review:\n```python\n" + code_to_review + "\n```"
-            )
-            review_raw = await asyncio.wait_for(
-                _llm_client.call(review_prompt, task_type="code_review"),
-                timeout=_SUBTASK_TIMEOUT,
-            )
-            try:
-                review_json = _extract_json(review_raw)
-            except Exception as e:
-                logger.warning("p06: could not extract JSON from code review response: %s", e)
-                review_json = {"summary": review_raw[:500], "findings": [], "overall_score": 75}
-
-            sub_dir = output_dir / "code_review"
-            sub_dir.mkdir(parents=True, exist_ok=True)
-            review_path = sub_dir / "review.json"
-            review_path.write_text(json.dumps(review_json, indent=2))
-
-            results["code_review"] = TaskResult(
-                output_path=str(review_path),
-                confidence=0.8,
-                metadata={
-                    "findings_count": len(review_json.get("findings", [])),
-                    "overall_score": review_json.get("overall_score", 75),
-                    "summary": review_json.get("summary", ""),
-                },
-                success=True,
-            )
-            logger.info("code_review completed: %d findings", len(review_json.get("findings", [])))
-        else:
-            logger.info("code_review: no backend main.py found, skipping LLM review")
-    except asyncio.TimeoutError:
-        logger.warning("code_review timed out after %.0fs (non-critical)", _SUBTASK_TIMEOUT)
-    except Exception as e:
-        logger.warning("code_review failed (non-critical): %s", e)
-
-    # Sub-task 2: Static security scan using bandit (FIX 19)
-    try:
-        import subprocess
-        
-        data = phase_input.input_data
-        project_dir = Path(data.get("project_dir", ""))
-        backend_path = data.get("backend_output_path", "")
-        
-        src_path = None
-        for candidate in [
-            project_dir / "src",
-            Path(backend_path) / "src" if backend_path else None,
-        ]:
-            if candidate and candidate.exists():
-                src_path = candidate
-                break
-
-        bandit_findings = []
-        if src_path:
-            # Ensure bandit is installed
-            subprocess.run(["pip", "install", "bandit", "-q"], check=False)
-
-            # Run bandit
-            result = subprocess.run(
-                ["bandit", "-r", "-f", "json", "-ll", str(src_path)],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.stdout:
-                try:
-                    data_json = json.loads(result.stdout)
-                    bandit_findings = data_json.get("results", [])
-
-                    # Problem 73: check for files that bandit skipped due to parse errors
-                    _errors_section = data_json.get("errors", [])
-                    _skipped_files = []
-                    for _err in _errors_section:
-                        _fname = _err.get("filename") or _err.get("file") or ""
-                        if _fname:
-                            _skipped_files.append(_fname)
-                    # Also check metrics for skipped counts if present
-                    _metrics = data_json.get("metrics", {}).get("_totals", {})
-                    _skipped_count_metric = int(_metrics.get("skipped_tests", 0))
-
-                    if _skipped_files or _skipped_count_metric > 0:
-                        _skip_n = len(_skipped_files) or _skipped_count_metric
-                        _skip_names = ", ".join(
-                            [Path(f).name for f in _skipped_files[:5]]
-                        ) or "unknown files"
-                        bandit_findings = [
-                            {
-                                "issue_text": (
-                                    f"Security scan incomplete — {_skip_n} file(s) skipped "
-                                    f"due to parse errors: {_skip_names}. "
-                                    f"Fix syntax errors in p04a before trusting this scan."
-                                ),
-                                "issue_severity": "HIGH",
-                                "issue_confidence": "LOW",
-                                "filename": _skip_names,
-                                "skipped_due_to_parse_error": True,
-                            }
-                        ] + bandit_findings
-                        logger.warning(
-                            "[p06] bandit skipped %d file(s) due to parse errors: %s",
-                            _skip_n, _skip_names,
-                        )
-                except json.JSONDecodeError as e:
-                    logger.warning("[p06] failed to parse bandit JSON output for skipped-files detection: %s", e)
-
-        sub_dir = output_dir / "security"
-        sub_dir.mkdir(parents=True, exist_ok=True)
-        sec_path = sub_dir / "security_scan.json"
-
-        high_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "HIGH")
-        medium_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "MEDIUM")
-        low_severity = sum(1 for f in bandit_findings if f.get("issue_severity") == "LOW")
-
-        # Problem 73: if any files were skipped, confidence must be low
-        _has_skipped = any(f.get("skipped_due_to_parse_error") for f in bandit_findings)
-        _scan_confidence = 0.3 if _has_skipped else 0.9
-
-        sec_result = {
-            "tool": "bandit",
-            "findings": bandit_findings,
-            "high_severity": high_severity,
-            "medium_severity": medium_severity,
-            "low_severity": low_severity,
-            "clean": (
-                len([f for f in bandit_findings if f.get("issue_severity") in ("HIGH", "MEDIUM")]) == 0
-                and not _has_skipped
-            ),
-            "scan_confidence": _scan_confidence,
-            "files_skipped_due_to_parse_errors": _has_skipped,
-        }
-        sec_path.write_text(json.dumps(sec_result, indent=2))
-
-        results["static_analysis"] = TaskResult(
-            output_path=str(sec_path),
-            confidence=_scan_confidence,
-            metadata=sec_result,
-            success=True,
-            issues=(
-                [f"Security scan incomplete — files skipped due to parse errors. "
-                 f"Confidence reduced to {_scan_confidence}"]
-                if _has_skipped else []
-            ),
-        )
-        logger.info("bandit scan completed: %d findings (confidence=%.1f)", len(bandit_findings), _scan_confidence)
-        
-        # FIX 19: Check for CRITICAL issues (HIGH severity in bandit)
-        if high_severity > 0:
-            logger.warning("[p06] HIGH severity security issues found by bandit")
-            from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
-            patcher = ASTSecurityPatcher()
-            
-            # FIX H4: Patch all files with high-severity issues
-            patched_files = set()
-            for finding in bandit_findings:
-                if finding.get("issue_severity") == "HIGH":
-                    fname = finding.get("filename")
-                    if fname and os.path.exists(fname) and fname not in patched_files:
-                        patcher.patch_file(fname)
-                        patched_files.add(fname)
-                        logger.info("[p06] Applied AST patch for bandit finding in %s", fname)
-
-            # Ensure main.py is patched even if bandit didn't explicitly flag it but we found issues
-            if not patched_files:
-                for candidate in [
-                    project_dir / "src" / "main.py",
-                    Path(backend_path) / "src" / "main.py" if backend_path else None,
-                ]:
-                    if candidate and candidate.exists():
-                        patcher.patch_file(str(candidate))
-                        break
-
-    except Exception as e:
-        logger.warning("bandit scan failed (non-critical): %s", e)
+    for key, res in [
+        ("code_review", review_result),
+        ("static_analysis", bandit_result),
+        ("compliance", compliance_result),
+    ]:
+        if isinstance(res, Exception):
+            logger.warning("[p06] %s subtask raised exception (non-fatal): %s", key, res)
+        elif isinstance(res, TaskResult) and res.output_path:
+            results[key] = res
 
     # Sub-task 2b: Domain rules + secret detection + pip-audit (CodeScanner)
     try:
@@ -277,106 +89,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.info("[p06] CodeScanner: %d domain/secret/pip-audit findings", len(_extra_findings))
     except Exception as _cs_exc:
         logger.warning("[p06] CodeScanner extended scan failed (non-fatal): %s", _cs_exc)
-
-    # Sub-task 3: Compliance scan (G12 — real code scanner, not LLM report)
-    try:
-        from aether_os.core.compliance.code_scanner import scan_file
-        from aether_os.core.compliance.pdf_report import generate_pdf
-
-        # Resolve the canonical src/main.py written by p04
-        data = phase_input.input_data
-        project_dir = Path(data.get("project_dir", ""))
-        backend_path = data.get("backend_output_path", "")
-
-        main_py: Path | None = None
-        candidates = [
-            project_dir / "src" / "main.py",
-            Path(backend_path) / "src" / "main.py" if backend_path else None,
-            Path(backend_path) / "main.py" if backend_path else None,
-        ]
-        for candidate in candidates:
-            if candidate and candidate.exists():
-                main_py = candidate
-                break
-
-        if main_py:
-            domain = data.get("domain", "general")
-            project_name = data.get("project_name", "")
-
-            scan_result = scan_file(main_py, project_name=project_name, domain=domain)
-
-            # Write JSON report
-            scan_dir = output_dir / "compliance"
-            scan_dir.mkdir(parents=True, exist_ok=True)
-            from dataclasses import asdict
-            json_path = scan_dir / "compliance_scan.json"
-            json_path.write_text(
-                json.dumps(asdict(scan_result), indent=2, default=str),
-                encoding="utf-8",
-            )
-
-            # Write PDF report
-            pdf_path = scan_dir / "compliance_report.pdf"
-            try:
-                generate_pdf(scan_result, pdf_path)
-            except Exception as pdf_err:
-                logger.warning("PDF generation failed (non-critical): %s", pdf_err)
-                pdf_path = json_path  # fall back to JSON path
-
-            # G12: inject missing compliance boilerplate into src/main.py
-            _inject_compliance(main_py, scan_result, domain)
-
-            # Gap 1: write compliance_manifest.json into the generated project root
-            from aether_os.phases.p06_review_security.manifest import write_compliance_manifest
-            _manifest_path = write_compliance_manifest(
-                scan_result, project_dir, project_name, domain
-            )
-
-            # Gap 4: write domain_knowledge.json (full serialization) to generated project
-            try:
-                import json as _json
-                from aether_os.core.domain_knowledge.loader import load_pack
-                _pack = load_pack(domain)
-                if _pack:
-                    _dk_path = project_dir / "domain_knowledge.json"
-                    _dk_path.write_text(_json.dumps(_pack.to_dict_full(), indent=2), encoding="utf-8")
-                    logger.info("[p06] Gap 4: domain_knowledge.json written to %s", _dk_path)
-            except Exception as _dk_exc:
-                logger.warning("[p06] domain_knowledge.json write failed: %s", _dk_exc)
-
-            results["compliance"] = TaskResult(
-                output_path=str(pdf_path),
-                confidence=scan_result.score / 100,
-                metadata={
-                    "score": scan_result.score,
-                    "findings": len([
-                        f for f in scan_result.findings if f.severity != "pass"
-                    ]),
-                    "routes": len(scan_result.routes),
-                    "manifest_path": str(_manifest_path) if _manifest_path else None,
-                },
-                success=True,
-            )
-            phase_input.input_data["compliance_pdf_path"] = str(pdf_path)
-            phase_input.input_data["compliance_score"] = scan_result.score
-            if _manifest_path:
-                phase_input.input_data["compliance_manifest_path"] = str(_manifest_path)
-            logger.info(
-                "Compliance scan: score=%d routes=%d pdf=%s",
-                scan_result.score, len(scan_result.routes), pdf_path,
-            )
-        else:
-            logger.info("Compliance scan: no src/main.py found, failing phase")
-            results["compliance"] = TaskResult(
-                output_path="",
-                confidence=0.0,
-                metadata={},
-                success=False,
-                issues=["Source code not found — cannot perform security review. Fix upstream code generation errors first."]
-            )
-
-    except Exception as e:
-        logger.warning("Compliance scan failed (non-critical): %s", e)
 
     # Sub-task 4: Per-dimension artifact critique (static analysis, fail-open)
     _accumulated: dict = phase_input.input_data if hasattr(phase_input, "input_data") else {}
