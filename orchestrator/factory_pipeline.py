@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.orchestrator.bus import get_bus, release_bus
+from aether_os.orchestrator.context_schema import assert_context
 from aether_os.orchestrator.messages import PhaseInput, PhaseMessage, PhaseResult
 from aether_os.orchestrator.state_machine import (
     PipelineStateMachine, PipelineState, PHASE_TO_STATE,
@@ -597,6 +598,9 @@ class FactoryPipeline:
                 # Add phase output to context for next phase to use
                 accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
                 accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
+
+                # Advisory schema check — logs warnings if expected keys are absent
+                assert_context(accumulated_context, phase_name)
 
                 # Confidence propagation: record every phase's confidence in a central trail
                 _phase_conf = phase_result.get("confidence", 1.0)
