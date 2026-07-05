@@ -107,29 +107,67 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         results["error_rate_pct"],
     )
 
-    # ── Write locust file for reference ───────────────────────────────────────
+    # ── Build entity-aware Locust tasks ──────────────────────────────────────
+    entities = data.get("entities") or []
+    entity_tasks: list[str] = []
+    for entity in entities[:20]:  # cap at 20 to keep file readable
+        name = entity.get("name") if isinstance(entity, dict) else str(entity)
+        if not name:
+            continue
+        slug = name.lower().replace(" ", "_")
+        fn_name = f"list_{slug}"
+        endpoint = f"/api/{slug}s"
+        entity_tasks.append(
+            f"    @task(1)\n    def {fn_name}(self):\n        self.client.get(\"{endpoint}\")\n"
+        )
+
+    if not entity_tasks:
+        # Fallback: generic list endpoint when no entity info is available
+        entity_tasks = [
+            "    @task(1)\n    def list_resources(self):\n        self.client.get(\"/api/items\")\n"
+        ]
+
+    entity_task_block = "\n".join(entity_tasks)
+    class_name = project_name.replace(" ", "").replace("-", "") + "User"
     locust_file = textwrap.dedent(f"""\
         from locust import HttpUser, task, between
 
-        class {project_name.replace(' ', '')}User(HttpUser):
+
+        class {class_name}(HttpUser):
             wait_time = between(0.5, 2)
 
             @task(3)
             def health(self):
                 self.client.get("/health")
 
-            @task(1)
-            def list_resources(self):
-                self.client.get("/api/items")
-    """)
-    (output_dir / "locustfile.py").write_text(locust_file)
+    """) + entity_task_block + "\n"
+
+    locust_path = output_dir / "locustfile.py"
+    locust_path.write_text(locust_file)
+    logger.info("[p07b] locustfile written: %d entity task(s) at %s", len(entity_tasks), locust_path)
 
     (output_dir / "perf_results.json").write_text(json.dumps(results, indent=2))
+
+    load_test_summary = {
+        "p50_ms": results.get("p50_ms"),
+        "p95_ms": results.get("p95_ms"),
+        "p99_ms": results.get("p99_ms"),
+        "error_rate": results.get("error_rate_pct"),
+        "requests_tested": results.get("total_requests"),
+    }
 
     return TaskResult(
         output_path=str(output_dir / "perf_results.json"),
         confidence=0.80,
-        metadata=results,
+        metadata={
+            **results,
+            "locustfile_path": str(locust_path),
+            "load_test_summary": load_test_summary,
+        },
+        artifacts={
+            "locustfile_path": str(locust_path),
+            "load_test_summary": load_test_summary,
+        },
         success=True,
         issues=[f"error rate {results['error_rate_pct']}%"] if results["error_rate_pct"] > 5 else [],
     )
