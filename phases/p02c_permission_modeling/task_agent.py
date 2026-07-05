@@ -58,6 +58,18 @@ def _build_default_model(entities: List[str]) -> dict:
     return model
 
 
+def _validate_permission_model(model: dict) -> list[str]:
+    errors = []
+    if not isinstance(model.get("roles"), list) or len(model.get("roles", [])) == 0:
+        errors.append("permission_model.roles must be a non-empty list")
+    for role in model.get("roles", []):
+        if not isinstance(role, dict) or "name" not in role:
+            errors.append(f"each role must have a 'name' field, got: {role}")
+    if not isinstance(model.get("permissions"), list):
+        errors.append("permission_model.permissions must be a list")
+    return errors
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """Generate ABAC permission model via one LLM call."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -149,9 +161,16 @@ Rules:
             parsed = json.loads(result)
             # Validate structure
             if isinstance(parsed, dict) and "roles" in parsed and "permissions" in parsed:
-                permission_model = parsed
-                logger.info("p02c: LLM permission model generated — %d roles, %d resources",
-                            len(parsed.get("roles", [])), len(parsed.get("resources", [])))
+                # Validate structure; fall back to default on validation errors
+                val_errors = _validate_permission_model(parsed)
+                if val_errors:
+                    for ve in val_errors:
+                        logger.warning("p02c: permission model validation error: %s", ve)
+                    logger.warning("p02c: validation failed — using default model")
+                else:
+                    permission_model = parsed
+                    logger.info("p02c: LLM permission model generated — %d roles, %d resources",
+                                len(parsed.get("roles", [])), len(parsed.get("resources", [])))
             else:
                 logger.warning("p02c: LLM response missing required keys — using default model")
     except Exception as exc:
