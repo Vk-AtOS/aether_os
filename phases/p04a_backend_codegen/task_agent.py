@@ -23,7 +23,6 @@ import ast
 import json
 import logging
 import re
-import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,10 +60,8 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
     _smoke_test,
 )
 from aether_os.phases.p04a_backend_codegen.helpers_cache import _generate_cache_service
-from aether_os.phases.p04a_backend_codegen.validator import validate_generated_backend
 from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports
 from aether_os.phases.p04a_backend_codegen.pattern_injector import detect_active_patterns, inject_patterns
-from aether_os.core.error_registry import ErrorCategory, get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -155,107 +152,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     seed_code = ""
 
     # ── Step 2 (IR fast-path): deterministic generation from Domain IR ────────
-    # If p02b produced a domain_ir.json, skip the LLM for structural files.
-    # Seed data still uses LLM (it needs invention, not structure).
+    # Delegated to codegen_orchestrator.run_ir_fastpath to keep task_agent.py
+    # under 400 lines. Falls through to deterministic fallback on any error.
     _ir_path_str = data.get("domain_ir_path", "")
     if _ir_path_str and Path(_ir_path_str).exists():
-        try:
-            from aether_os.core.domain_ir import DomainIR as _DomainIR
-            from aether_os.phases.p04a_backend_codegen.ir_generators import (
-                ir_to_models as _ir_to_models,
-                ir_to_schemas as _ir_to_schemas,
-                generate_stats_router as _gen_stats,
-                generate_seed_py as _gen_seed,
-                generate_crud_py as _gen_crud,
-            )
-            _ir = _DomainIR.load(Path(_ir_path_str))
-            if _ir.entities:
-                models_code = _ir_to_models(_ir)
-                schemas_code = _ir_to_schemas(_ir)
-                stats_code = _gen_stats(_ir)
-                seed_code = _gen_seed(_ir, seed_vocabulary=seed_vocabulary, domain=domain, project_name=project_name)
-                (src_dir / "models.py").write_text(models_code)
-                (src_dir / "schemas.py").write_text(schemas_code)
-                (routers_dir / "stats.py").write_text(stats_code)
-                (src_dir / "seed.py").write_text(seed_code)
-                import secrets as _sec_ir
-                env_content = textwrap.dedent(f"""\
-                    DATABASE_URL=sqlite+aiosqlite:///./app.db
-                    SECRET_KEY={_sec_ir.token_hex(32)}
-                    ACCESS_TOKEN_EXPIRE_MINUTES=60
-                    CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-                """)
-                (src_dir / ".env").write_text(env_content)
-                (src_dir / ".env.example").write_text(env_content.replace(_sec_ir.token_hex(32), "your-secret-key"))
-                # Ensure .gitignore ignores .env
-                gitignore = src_dir.parent / ".gitignore"
-                if gitignore.exists() and ".env" not in gitignore.read_text():
-                    with open(gitignore, "a") as f:
-                        f.write("\n.env\n")
-                # Update entities list from IR so LLM CRUD is accurate
-                entities = [{"name": e.name, "table": e.table,
-                             "fields": [{"name": f.name, "type": f.type} for f in e.fields]}
-                            for e in _ir.entities]
-
-                # ── Build workflow transition map for PATCH guard injection ───
-                # Priority: domain knowledge pack (explicit state machine) →
-                #           IR workflow steps (linear chain derived from step order).
-                _workflow_transitions: dict = {}
-                try:
-                    # Circular import guard: loader is always safe to import here
-                    from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
-                    _pack = _load_pack(domain)
-                    if _pack:
-                        for _wf in _pack.workflows:
-                            if _wf.transitions:
-                                _workflow_transitions[_wf.entity] = _wf.transitions
-                except Exception as _wf_exc:
-                    logger.warning("[p04a] could not load domain pack workflows: %s", _wf_exc)
-
-                # Derive linear chains from IR workflow steps for entities not
-                # already covered by the domain pack (step[i] → [step[i+1]]).
-                for _ir_wf in _ir.workflows:
-                    if _ir_wf.entity and _ir_wf.entity not in _workflow_transitions:
-                        _steps = [s.name for s in _ir_wf.steps]
-                        if len(_steps) >= 2:
-                            _trans: dict = {}
-                            for _i, _step in enumerate(_steps[:-1]):
-                                _trans[_step] = [_steps[_i + 1]]
-                            _trans[_steps[-1]] = []  # terminal state
-                            _workflow_transitions[_ir_wf.entity] = _trans
-
-                # Generate CRUD with transition guards embedded in PATCH handlers
-                crud_code = _gen_crud(_ir, workflow_transitions=_workflow_transitions or None, multi_tenancy=multi_tenancy)
-
-                # Write workflow_transitions.json into the generated project scripts/
-                if _workflow_transitions:
-                    import datetime as _dt
-                    _scripts_dir = output_dir / "scripts"
-                    _scripts_dir.mkdir(parents=True, exist_ok=True)
-                    _wf_json: dict = {
-                        "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-                        "entities": {},
-                    }
-                    for _ent_name, _trans_map in _workflow_transitions.items():
-                        _terminal = [s for s, nxt in _trans_map.items() if not nxt]
-                        _wf_json["entities"][_ent_name] = {
-                            "transitions": _trans_map,
-                            "terminal_states": _terminal,
-                        }
-                    (_scripts_dir / "workflow_transitions.json").write_text(
-                        json.dumps(_wf_json, indent=2)
-                    )
-                    logger.info(
-                        "[p04a] wrote workflow_transitions.json for %d entities",
-                        len(_workflow_transitions),
-                    )
-
-        except Exception as _ir_exc:
-            logger.warning("[p04a] IR fast-path failed (%s) — falling through to deterministic fallback", _ir_exc)
-            models_code = ""
-            schemas_code = ""
-            crud_code = ""
-            seed_code = ""
+        from aether_os.phases.p04a_backend_codegen.codegen_orchestrator import run_ir_fastpath
+        models_code, schemas_code, crud_code, seed_code, entities = run_ir_fastpath(
+            ir_path_str=_ir_path_str,
+            src_dir=src_dir,
+            routers_dir=routers_dir,
+            output_dir=output_dir,
+            seed_vocabulary=seed_vocabulary,
+            domain=domain,
+            project_name=project_name,
+            multi_tenancy=multi_tenancy,
+            entities=entities,
+        )
 
     # ── Step 2: Deterministic generation (zero LLM calls in p04a) ────────────
     # Primary path: IR fast-path (domain_ir.json) → _fallback_* generators.
@@ -328,95 +240,39 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (routers_dir / "crud.py").write_text(crud_code)
     logger.info("[p04a] routers/crud.py %d chars", len(crud_code))
 
-    # ── Step 3a: SSE realtime router (generated when spec declares realtime_features) ──
-    _inject_realtime_router = False
-    if realtime_features:
-        try:
-            sse_router_code = _generate_sse_router(realtime_features, project_name)
-            (routers_dir / "realtime_router.py").write_text(sse_router_code)
-            _inject_realtime_router = True
-            logger.info("[p04a] SSE realtime_router.py written for features: %s", realtime_features)
-        except Exception as _sse_exc:
-            logger.warning("[p04a] SSE router generation failed (non-fatal): %s", _sse_exc)
-
-    # ── Step 3b: Business process pipeline orchestrators ─────────────────────
-    _pipeline_files_written: list = []
-    try:
-        from aether_os.core.domain_knowledge.loader import load_pack as _load_pack
-        from aether_os.phases.p04a_backend_codegen.pipeline_generator import generate_pipeline_code
-        _pack = _load_pack(domain)
-        if _pack and _pack.pipelines:
-            _pipeline_files_written = generate_pipeline_code(_pack.pipelines, src_dir, domain)
-            logger.info(
-                "[p04a] generated %d pipeline files for domain=%s: %s",
-                len(_pipeline_files_written), domain, _pipeline_files_written,
-            )
-    except Exception as exc:
-        logger.warning("[p04a] pipeline generation failed (non-blocking): %s", exc)
-
-    # Inject pipeline_events router into main.py when the router was generated
-    _pipeline_events_path = routers_dir / "pipeline_events.py"
-    if _pipeline_events_path.exists():
-        # main.py hasn't been written yet at this step — flag for later injection
-        _inject_pipeline_router = True
-    else:
-        _inject_pipeline_router = False
-
-    # ── Step 4: Seed data — Template, IR-generated, or LLM ──────────────────
-    if seed_code:
-        # IR fast-path already wrote seed.py; just log it
-        logger.info("[p04a] IR fast-path: seed.py already generated (%d chars)", len(seed_code))
-    else:
-        # Try domain-specific template first
-        template_path = Path(__file__).parent / "seed_templates" / f"{domain}.py"
-        if template_path.exists():
-            logger.info("[p04a] using domain seed template: %s", domain)
-            seed_code = template_path.read_text()
-            # Wrap template into a full seed.py with imports and seed_database wrapper
-            # (assuming templates provide the seed_{domain} function)
-            if f"async def seed_{domain}" in seed_code:
-                seed_code += f"\n\nasync def seed_database():\n    from database import AsyncSessionLocal\n    async with AsyncSessionLocal() as db:\n        await seed_{domain}(db)\n"
-
-        if not seed_code:
-            # Deterministic fallback — no LLM call (single-call-per-phase rule)
-            seed_code = _fallback_seed(project_name, entities, seed_vocabulary=seed_vocabulary, domain=domain)
-            try:
-                ast.parse(seed_code)
-            except SyntaxError as _syn:
-                logger.warning("[p04a] SyntaxError in fallback seed.py: %s — emitting empty seed", _syn)
-                seed_code = "async def seed_database():\n    return None\n"
-            seed_code = fix_relative_imports(seed_code)
-            (src_dir / "seed.py").write_text(seed_code)
-            logger.info("[p04a] seed.py %d chars (deterministic)", len(seed_code))
-
-    # ── Step 4a: Pattern library injection ───────────────────────────────────
-    _active_patterns = detect_active_patterns(data, raw_input)
-    _inject_websocket_router = "websocket" in _active_patterns
-    _inject_stripe_router = "stripe" in _active_patterns
-    _inject_marketplace_router = "marketplace" in _active_patterns
-    _inject_erp_approval_router = "erp_approval" in _active_patterns
-    inject_patterns(_active_patterns, src_dir, output_dir)
-
-    # ── Step 4b: Audit infrastructure ────────────────────────────────────────
-    try:
-        _generate_audit_infrastructure(src_dir)
-    except Exception as _audit_exc:
-        logger.warning("[p04a] audit infrastructure generation failed (non-fatal): %s", _audit_exc)
-
-    try:  # Step 4b2: Redis cache service
-        _generate_cache_service(src_dir)
-    except Exception as _cache_exc:
-        logger.warning("[p04a] cache service generation failed (non-fatal): %s", _cache_exc)
-
-    # ── Step 4c: Permissions service (from p02c permission model) ─────────────
-    try:
-        _permission_model = data.get("permission_model", {})
-        if _permission_model:
-            _generate_permissions_service(src_dir, _permission_model)
-        else:
-            logger.debug("[p04a] no permission_model in context — skipping permissions service")
-    except Exception as _perm_exc:
-        logger.warning("[p04a] permissions service generation failed (non-fatal): %s", _perm_exc)
+    # ── Steps 3a–4c: SSE router, pipeline generators, seed, patterns, infra ──────
+    # Delegated to codegen_orchestrator.run_pipeline_and_seed_steps to keep
+    # task_agent.py under 400 lines.
+    from aether_os.phases.p04a_backend_codegen.codegen_orchestrator import run_pipeline_and_seed_steps
+    _step_results = run_pipeline_and_seed_steps(
+        src_dir=src_dir,
+        routers_dir=routers_dir,
+        output_dir=output_dir,
+        domain=domain,
+        project_name=project_name,
+        entities=entities,
+        seed_code=seed_code,
+        seed_vocabulary=seed_vocabulary,
+        realtime_features=realtime_features,
+        data=data,
+        raw_input=raw_input,
+        multi_tenancy=multi_tenancy,
+        fix_relative_imports_fn=fix_relative_imports,
+        generate_sse_router_fn=_generate_sse_router,
+        generate_audit_fn=_generate_audit_infrastructure,
+        generate_cache_fn=_generate_cache_service,
+        generate_permissions_fn=_generate_permissions_service,
+        fallback_seed_fn=_fallback_seed,
+        detect_patterns_fn=detect_active_patterns,
+        inject_patterns_fn=inject_patterns,
+    )
+    _pipeline_files_written = _step_results["_pipeline_files_written"]
+    _inject_pipeline_router = _step_results["_inject_pipeline_router"]
+    _inject_realtime_router = _step_results["_inject_realtime_router"]
+    _inject_websocket_router = _step_results["_inject_websocket_router"]
+    _inject_stripe_router = _step_results["_inject_stripe_router"]
+    _inject_marketplace_router = _step_results["_inject_marketplace_router"]
+    _inject_erp_approval_router = _step_results["_inject_erp_approval_router"]
 
     # ── Step 5: Generate main.py from template ────────────────────────────────
     main_py = _build_main_py(project_name, routers_have_all_routers=True)
@@ -454,47 +310,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     write_alembic_scaffold(output_dir)
 
     # ── Step 6c: Post-generation deterministic validation ─────────────────────
-    # Collect all generated source files into a flat dict for the validator.
-    # Keys are relative paths within src/ (e.g. "models.py", "routers/crud.py").
-    _validation_files: Dict[str, str] = {}
-    for _vfile in src_dir.rglob("*.py"):
-        try:
-            _rel = str(_vfile.relative_to(src_dir))
-            _validation_files[_rel] = _vfile.read_text(encoding="utf-8")
-        except Exception as _vread_exc:
-            logger.warning("[p04a] validator: could not read %s: %s", _vfile, _vread_exc)
-
-    _validation_report = validate_generated_backend(_validation_files)
-    _error_registry = get_registry()
-
-    # Record every category seen in this run into the error registry
-    _cat_str_to_enum = {e.value: e for e in ErrorCategory}
-    for _cat_str in _validation_report.categories:
-        _cat_enum = _cat_str_to_enum.get(_cat_str, ErrorCategory.UNKNOWN)
-        # Grab first matching detail message for the registry entry
-        _detail_msgs = (
-            [m for m in _validation_report.errors if _cat_str in m]
-            or [m for m in _validation_report.warnings if _cat_str in m]
-        )
-        _detail = _detail_msgs[0] if _detail_msgs else _cat_str
-        _error_registry.record(_cat_enum, "p04a", _detail[:300])
-
-    if not _validation_report.passed:
-        # Hard errors (AST parse failure or missing all_routers) — log and record
-        # in accumulated_context so downstream phases and the UI can surface them.
-        _gen_warnings: List[str] = _validation_report.errors + _validation_report.warnings
-        logger.warning(
-            "[p04a] validation FAILED: %d error(s): %s",
-            len(_validation_report.errors), _validation_report.errors,
-        )
-        # Store into phase_input so downstream phases see the warnings
-        if hasattr(phase_input, "input_data") and isinstance(phase_input.input_data, dict):
-            phase_input.input_data.setdefault("generation_warnings", []).extend(_gen_warnings)
-    elif _validation_report.warnings:
-        logger.info(
-            "[p04a] validation passed with %d warning(s): %s",
-            len(_validation_report.warnings), _validation_report.warnings[:3],
-        )
+    # Delegated to codegen_orchestrator.run_validation_pass to keep task_agent
+    # under 400 lines.
+    from aether_os.phases.p04a_backend_codegen.codegen_orchestrator import run_validation_pass
+    _validation_report = run_validation_pass(src_dir=src_dir, phase_input=phase_input)
 
     # ── Step 7: Smoke test ────────────────────────────────────────────────────
     smoke = {"passed": True, "errors": [], "skipped": False}
