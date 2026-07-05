@@ -44,16 +44,41 @@ _W_CTX_WARNING    = 0.50   # Architecture warnings from the current run
 _GOLDEN_EXAMPLES_DIR = Path(__file__).parent.parent / "knowledge_graph" / "golden_examples"
 
 
-def _get_error_registry_knowledge(phase_name: str, domain: str) -> list[RankedKnowledge]:
+def _get_error_registry_knowledge(
+    phase_name: str,
+    domain: str,
+    run_id: str = "",
+) -> list[RankedKnowledge]:
     """Load recent error categories from the registry and convert to RankedKnowledge items.
 
-    Errors that occurred in the same phase score higher phase_relevance.
+    If run_id is provided, high-priority recent errors for that run are surfaced
+    first; global summary is always appended as a fallback so the full history
+    remains visible.  Errors that occurred in the same phase score higher
+    phase_relevance.
     """
     items: list[RankedKnowledge] = []
     try:
         from aether_os.core.error_registry import get_registry
 
-        summary = get_registry().get_summary()
+        registry = get_registry()
+
+        # Prefer per-run errors when a run_id is available (most recent context)
+        if run_id:
+            run_entries = registry.get_for_run(run_id)
+            if run_entries:
+                run_cats: dict[str, int] = {}
+                for entry in run_entries:
+                    cat = entry.get("category", "unknown")
+                    run_cats[cat] = run_cats.get(cat, 0) + 1
+                for cat, count in run_cats.items():
+                    items.append(RankedKnowledge(
+                        source="error_registry_run",
+                        content=f"[this run × {count}] category={cat}",
+                        weight=_W_ERROR_REGISTRY,
+                        phase_relevance=1.0,
+                    ))
+
+        summary = registry.get_summary()
         by_cat = summary.get("by_category", {})
         if not by_cat:
             return items
@@ -345,7 +370,8 @@ def retrieve_for_phase(
     """
     all_items: list[RankedKnowledge] = []
 
-    all_items.extend(_get_error_registry_knowledge(phase_name, domain))
+    run_id = ctx.get("run_id", "")
+    all_items.extend(_get_error_registry_knowledge(phase_name, domain, run_id=run_id))
     all_items.extend(_get_domain_pack_knowledge(domain))
     all_items.extend(_get_knowledge_graph_knowledge(domain))
     all_items.extend(_get_golden_examples_knowledge(domain, phase_name))
