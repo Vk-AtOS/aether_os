@@ -155,7 +155,7 @@ def write_k8s_manifests(project_dir: Path, app_name: str) -> None:
     k8s_dir.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^a-z0-9-]", "-", app_name.lower()).strip("-") or "app"
 
-    # HPA
+    # HPA — targets cpu 70% / memory 80%; min 2 replicas so zero-downtime deploys work
     (k8s_dir / "hpa.yaml").write_text(textwrap.dedent(f"""\
         apiVersion: autoscaling/v2
         kind: HorizontalPodAutoscaler
@@ -167,8 +167,8 @@ def write_k8s_manifests(project_dir: Path, app_name: str) -> None:
             apiVersion: apps/v1
             kind: Deployment
             name: {slug}
-          minReplicas: 3
-          maxReplicas: 20
+          minReplicas: 2
+          maxReplicas: 10
           metrics:
           - type: Resource
             resource:
@@ -194,7 +194,7 @@ def write_k8s_manifests(project_dir: Path, app_name: str) -> None:
           labels:
             app: {slug}
         spec:
-          replicas: 3
+          replicas: 2
           selector:
             matchLabels:
               app: {slug}
@@ -219,11 +219,11 @@ def write_k8s_manifests(project_dir: Path, app_name: str) -> None:
                   allowPrivilegeEscalation: false
                 resources:
                   requests:
-                    cpu: "500m"
-                    memory: "512Mi"
+                    cpu: "250m"
+                    memory: "256Mi"
                   limits:
-                    cpu: "2000m"
-                    memory: "2Gi"
+                    cpu: "1000m"
+                    memory: "1Gi"
                 livenessProbe:
                   httpGet:
                     path: /health
