@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -78,9 +79,6 @@ from aether_os.gateway.dependencies import security_scheme, get_current_user  # 
 # NOTE: _get_cors_origins, Pydantic models, and middleware classes all live in
 # api_helpers.py / api_utils.py — imported above. Duplicate definitions removed
 # to keep this file under 600 lines.
-
-# get_current_user is now defined in gateway/dependencies.py and re-exported above.
-
 
 # ── Generated-app process state — delegated to core.app_state (Redis-backed) ──
 # These module-level names are kept for backwards compatibility with any code that
@@ -434,7 +432,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["Content-Type", "Authorization", "X-Org-ID", "Accept"],
     )
-
+    # GZip registered after CORS so it wraps the outer response (Starlette reverse order)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
         from aether_os.core.prometheus_patch import apply as _apply_prom_patch

@@ -20,7 +20,7 @@ import os
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.services.settings_service import (
     get_org_plan,
@@ -41,11 +41,15 @@ def _current_user():
 # ── Request models ────────────────────────────────────────────────────────────
 
 class ApiKeyRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     provider: str
     key: str
 
 
 class TestProviderRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     provider: str
 
 

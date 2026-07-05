@@ -14,7 +14,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,8 @@ class FactoryStartRequest(BaseModel):
     All new fields are Optional with safe defaults so existing callers that
     only send raw_input + domain continue to work without modification.
     """
+    model_config = ConfigDict(extra="ignore")
+
     # Core fields (pre-existing)
     raw_input: Optional[str] = None
     requirement: Optional[str] = None  # legacy alias for raw_input
