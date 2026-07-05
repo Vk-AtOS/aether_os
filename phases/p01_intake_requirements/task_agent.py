@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
-from aether_os.core.context_helpers import record_decision
 
 logger = logging.getLogger(__name__)
 
@@ -202,54 +201,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     phase_input.input_data["tenant_isolation_model"] = tenant_isolation
 
     # ── Record architectural decisions for downstream phases ──────────────────
-    # Reason text is deterministic so LLM phases receive consistent context.
-    _multi_tenancy_val = contract["commercial_defaults"]["multi_tenancy"]
-    _mt_reason_parts = []
-    if _b2b_domain:
-        _mt_reason_parts.append(f"domain '{_effective_domain}' is B2B/SaaS")
-    if _has_customer_persona:
-        _mt_reason_parts.append("spec has a customer-type persona")
-    if _b2b_in_raw:
-        _mt_reason_parts.append("B2B keywords found in raw input")
-    _mt_reason = "; ".join(_mt_reason_parts) if _mt_reason_parts else "no B2B signals detected"
-    record_decision(
-        phase_input.input_data,
-        key="multi_tenancy",
-        value=str(_multi_tenancy_val),
-        reason=_mt_reason,
-        phase="p01",
+    # Delegated to gate_engine to keep task_agent.py under 350 lines.
+    from aether_os.phases.p01_intake_requirements.gate_engine import record_architectural_decisions
+    record_architectural_decisions(
+        phase_input=phase_input,
+        contract=contract,
+        domain=domain,
+        _b2b_domain=_b2b_domain,
+        _has_customer_persona=_has_customer_persona,
+        _b2b_in_raw=_b2b_in_raw,
+        _effective_domain=_effective_domain,
+        tenant_isolation=tenant_isolation,
     )
-    record_decision(
-        phase_input.input_data,
-        key="tenant_isolation",
-        value=tenant_isolation,
-        reason=(
-            f"derived from multi_tenancy={_multi_tenancy_val}; "
-            "org_id_filter is the safe default for multi-tenant apps, "
-            "'none' for single-tenant"
-        ),
-        phase="p01",
-    )
-    _domain_decision = contract.get("domain") or domain
-    record_decision(
-        phase_input.input_data,
-        key="domain",
-        value=_domain_decision,
-        reason="LLM-classified from intake text; affects entity defaults and security requirements",
-        phase="p01",
-    )
-    _data_sens = contract["scalability"].get("data_sensitivity", "internal")
-    if _data_sens == "regulated" or contract["scalability"].get("handles_money"):
-        record_decision(
-            phase_input.input_data,
-            key="audit_log",
-            value="True",
-            reason=(
-                f"data_sensitivity={_data_sens} or handles_money=True — "
-                "regulated/financial data requires immutable audit trail"
-            ),
-            phase="p01",
-        )
 
     phase_input.input_data["project_contract"] = contract
     logger.info(
@@ -322,65 +285,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (output_dir / "requirements.md").write_text("\n".join(md_lines))
 
     # ── Intent verification pass ──────────────────────────────────────────────
-    # Second pass: validate the interpretation makes sense for the given input.
-    # If the original prompt is very short (<30 words) or the entity count is 0,
-    # flag ambiguity in the result rather than silently proceeding.
-    _raw_input = data.get("raw_input", "")
-    _word_count = len(_raw_input.split())
-    _entity_count_iv = len(requirements_doc.get("entities", []))
-
-    if _word_count < 30 or _entity_count_iv == 0:
-        logger.warning(
-            "p01 intent_verification: prompt is %s — "
-            "short input (%d words) or no entities (%d). "
-            "Flagging ambiguity in accumulated_context.",
-            "ambiguous" if _word_count < 30 else "entity-empty",
-            _word_count, _entity_count_iv,
-        )
-        record_decision(
-            phase_input.input_data,
-            "intent_ambiguity_flag",
-            {
-                "word_count": _word_count,
-                "entity_count": _entity_count_iv,
-                "flag": "ambiguous" if _word_count < 30 else "no_entities_found",
-                "recommendation": "Consider providing more detail about the app's core features",
-            },
-            reason="p01 detected low-detail prompt — downstream phases should use conservative defaults",
-            phase="p01_intake_requirements",
-        )
-        phase_input.input_data["intent_ambiguity"] = True
-    else:
-        phase_input.input_data["intent_ambiguity"] = False
-
-    # Second LLM pass: verify the top 3 entities make sense together
-    try:
-        _entity_names = [e.get("name", "") for e in requirements_doc.get("entities", [])[:3]]
-        if _entity_names:
-            from aether_os.core.llm.client import get_llm_client as _get_llm
-            _llm_iv = _get_llm()
-            _verify_prompt = (
-                f"Given the user's app description: '{_raw_input[:300]}'\n"
-                f"I interpreted the core entities as: {', '.join(_entity_names)}.\n"
-                f"In one sentence, does this interpretation make sense? "
-                f"Reply with 'YES: <reason>' or 'NO: <correct interpretation>'."
-            )
-            _verify_resp = await _llm_iv.complete(_verify_prompt, max_tokens=100)
-            _verify_text = getattr(_verify_resp, "content", str(_verify_resp))
-            phase_input.input_data["intent_verification"] = _verify_text[:200]
-            if str(_verify_text).upper().startswith("NO"):
-                logger.warning(
-                    "p01 intent_verification: LLM flagged misinterpretation: %s",
-                    _verify_text[:100],
-                )
-                record_decision(
-                    phase_input.input_data, "intent_mismatch",
-                    {"verification_response": _verify_text[:200]},
-                    reason="Second-pass LLM disagrees with first-pass interpretation",
-                    phase="p01_intake_requirements",
-                )
-    except Exception as _iv_exc:
-        logger.warning("p01 intent_verification failed (non-fatal): %s", _iv_exc)
+    # Delegated to gate_engine to keep task_agent.py under 350 lines.
+    from aether_os.phases.p01_intake_requirements.gate_engine import run_intent_verification
+    await run_intent_verification(
+        data=data,
+        requirements_doc=requirements_doc,
+        phase_input=phase_input,
+    )
 
     # Confidence: based on richness of extracted spec
     _entities_extracted = requirements_doc.get("entities", [])
@@ -400,67 +311,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _confidence_reason = f"Sparse spec: only {_entity_count} entities detected; downstream phases may produce minimal output"
 
     # ── Entity Approval Gate (low-confidence or ambiguous) ───────────────────────
-    # If confidence is below 0.65 or the intent is ambiguous, pause the pipeline
-    # and ask the user to confirm or correct the extracted entities before proceeding.
-    # Skipped in autonomous mode — pipeline uses its best guess and continues.
-    _is_autonomous = (
-        data.get("autonomous_mode") is True
-        or data.get("decision_mode") == "autonomous"
+    # Delegated to gate_engine.run_entity_approval_gate to keep task_agent.py
+    # under 350 lines. Gate pauses pipeline until human confirms entities.
+    from aether_os.phases.p01_intake_requirements.gate_engine import run_entity_approval_gate
+    _confidence, _confidence_reason, _entities_extracted = await run_entity_approval_gate(
+        data=data,
+        confidence=_confidence,
+        confidence_reason=_confidence_reason,
+        entities_extracted=_entities_extracted,
+        requirements_doc=requirements_doc,
+        summary=summary,
     )
-    _needs_gate = (not _is_autonomous) and (_confidence < 0.65 or data.get("intent_ambiguity"))
-    if _needs_gate:
-        try:
-            from aether_os.core.pipeline_state import publish_event
-            from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
-            from aether_os.orchestrator.events import ACTIVE_RUN_ID
-            run_id = ACTIVE_RUN_ID.get()
-            if run_id:
-                logger.info("p01: low confidence (%.2f) — requesting entity approval gate", _confidence)
-                _entity_preview = ", ".join(
-                    e.get("name", e.get("table", "?")) for e in _entities_extracted[:6]
-                ) or "(none detected)"
-                engine = get_decision_engine()
-                decision = Decision(
-                    run_id=run_id,
-                    org_id=data.get("org_id", ""),
-                    decision_type="entity_approval",
-                    title="Entity Approval Gate: Low-Confidence Extraction",
-                    what=(
-                        f"Confidence: {_confidence:.0%} — {_confidence_reason}.\n"
-                        f"Detected entities: {_entity_preview}.\n"
-                        "Confirm these are correct, or provide a comma-separated list of corrections."
-                    ),
-                    why="Pipeline detected ambiguity in the app description and needs human confirmation before generating code.",
-                    phase="p01_intake_requirements",
-                )
-                await engine.request_approval(decision)
-                await publish_event(run_id, {
-                    "type": "PhaseApprovalRequired",
-                    "phase": "p01_intake_requirements",
-                    "gate": "entity_approval",
-                    "decision_id": decision.id,
-                    "data": {
-                        "confidence": _confidence,
-                        "confidence_reason": _confidence_reason,
-                        "entities": [e.get("name", "") for e in _entities_extracted],
-                    },
-                    "allow_overrides": True,
-                })
-                resolved = await engine.await_decision(decision.id)
-                if resolved.status == "approved" and resolved.human_choice:
-                    _corrected = [n.strip() for n in resolved.human_choice.split(",") if n.strip()]
-                    if _corrected:
-                        _entities_extracted = [{"name": n, "table": n.lower().replace(" ", "_")} for n in _corrected]
-                        requirements_doc["entities"] = _entities_extracted
-                        summary["entities"] = _entities_extracted
-                        _confidence = 0.80
-                        _confidence_reason = f"Human-corrected entities: {', '.join(_corrected)}"
-                        logger.info("p01: entity gate approved — user provided %d entities", len(_corrected))
-                elif resolved.status == "rejected":
-                    from aether_os.core.errors import PipelineBlockedError
-                    raise PipelineBlockedError("User rejected entity extraction — pipeline halted at p01")
-        except (ImportError, AttributeError) as _gate_exc:
-            logger.warning("p01: entity approval gate unavailable (non-fatal): %s", _gate_exc)
 
     return TaskResult(
         output_path=str(summary_path),
