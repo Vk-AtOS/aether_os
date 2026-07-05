@@ -24,6 +24,19 @@ from aether_os.phases.p04b_business_logic.helpers import (
 logger = logging.getLogger(__name__)
 
 
+def _validate_python_output(code: str, filename: str) -> list[str]:
+    errors = []
+    try:
+        ast.parse(code)
+    except SyntaxError as e:
+        errors.append(f"{filename}: SyntaxError at line {e.lineno}: {e.msg}")
+        return errors
+    # Check for relative imports
+    if "from ." in code:
+        errors.append(f"{filename}: contains relative imports — must use absolute imports")
+    return errors
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
     Generate business logic: StateMachines, EmailTriggers, PaymentScaffold.
@@ -241,7 +254,13 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
     except Exception as exc:
         logger.warning("p04b: LLM Call A (workflow engine) failed: %s — using fallback", exc)
 
-    (src_dir / "workflow_engine.py").write_text(workflow_engine_code)
+    _wf_errs = _validate_python_output(workflow_engine_code, "workflow_engine.py")
+    if _wf_errs:
+        for _e in _wf_errs:
+            logger.warning("p04b: workflow_engine.py validation error: %s", _e)
+        logger.warning("p04b: skipping workflow_engine.py write due to validation errors")
+    else:
+        (src_dir / "workflow_engine.py").write_text(workflow_engine_code)
 
     # ── LLM Call B — Business Rules + Calculations ────────────────────────────
     business_rules_code = _FALLBACK_BUSINESS_RULES.format(
@@ -287,7 +306,13 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
     except Exception as exc:
         logger.warning("p04b: LLM Call B (business rules) failed: %s — using fallback", exc)
 
-    (src_dir / "business_rules.py").write_text(business_rules_code)
+    _br_errs = _validate_python_output(business_rules_code, "business_rules.py")
+    if _br_errs:
+        for _e in _br_errs:
+            logger.warning("p04b: business_rules.py validation error: %s", _e)
+        logger.warning("p04b: skipping business_rules.py write due to validation errors")
+    else:
+        (src_dir / "business_rules.py").write_text(business_rules_code)
 
     # 5. Patch main.py to import business logic services (only if main.py exists).
     #    Current generators export classes (EmailService, StripeService, S3Service),
