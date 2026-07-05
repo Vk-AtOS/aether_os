@@ -96,13 +96,15 @@ REQUIRED for every model (no exceptions):
 SCHEMAS.PY requirements (file: src/schemas.py):
 1. Import: `from pydantic import BaseModel, EmailStr, Field, ConfigDict`
 2. For each entity create ALL of:
-   - `{{Entity}}Base` — shared editable fields with Field() validators
+   - `{{Entity}}Base` — shared editable fields with Field() validators;
+     must have `model_config = ConfigDict(extra='ignore')`
    - `{{Entity}}Create(EntityBase)` — for POST; mark required fields
-   - `{{Entity}}Update(BaseModel)` — all Optional, for PUT/PATCH
+   - `{{Entity}}Update(BaseModel)` — all Optional, for PUT/PATCH;
+     must have `model_config = ConfigDict(extra='ignore')`
    - `{{Entity}}Response(EntityBase)` — adds id, created_at, updated_at;
-     must have `model_config = ConfigDict(from_attributes=True)`
+     must have `model_config = ConfigDict(from_attributes=True, extra='ignore')`
 3. EmailStr for email fields, use Field(min_length=..., max_length=...) for strings
-4. Include `UserCreate`, `UserResponse` schemas
+4. Include `UserCreate`, `UserResponse` schemas with the same model_config rules
 
 Return VALID JSON only (no markdown):
 {{"models_py": "<complete models.py content>", "schemas_py": "<complete schemas.py content>"}}"""

@@ -222,7 +222,7 @@ _PYDANTIC_IMPORTS = """\
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 """
 
 _VALIDATOR_OP_MAP = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "!=": "!=", "=": "=="}
@@ -320,6 +320,7 @@ def generate_schemas_py(ir: DomainIR) -> str:
 
         # Base
         lines.append(f"class {name}Base(BaseModel):")
+        lines.append("    model_config = ConfigDict(extra='ignore')")
         if fields_block_base:
             lines.extend(fields_block_base)
         else:
@@ -336,6 +337,7 @@ def generate_schemas_py(ir: DomainIR) -> str:
 
         # Update
         lines.append(f"class {name}Update(BaseModel):")
+        lines.append("    model_config = ConfigDict(extra='ignore')")
         if fields_block_update:
             lines.extend(fields_block_update)
         else:
@@ -347,7 +349,7 @@ def generate_schemas_py(ir: DomainIR) -> str:
         lines.append("    id: int")
         lines.append("    created_at: datetime")
         lines.append("    updated_at: datetime")
-        lines.append("    model_config = {'from_attributes': True}")
+        lines.append("    model_config = ConfigDict(from_attributes=True, extra='ignore')")
         lines.append("")
 
     return "\n".join(lines)

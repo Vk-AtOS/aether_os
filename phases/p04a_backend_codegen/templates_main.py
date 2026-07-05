@@ -43,7 +43,10 @@ except ImportError:
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
 from database import engine, Base
 from routers.auth import router as auth_router
 {ROUTER_IMPORTS}
@@ -109,6 +112,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
 
 
 @app.middleware("http")

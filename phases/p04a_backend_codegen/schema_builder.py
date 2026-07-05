@@ -103,11 +103,12 @@ def _fallback_schemas(entities: list) -> str:
     blocks = ["from __future__ import annotations", "from pydantic import BaseModel, ConfigDict, Field", "from typing import Optional", "from datetime import datetime", ""]
     blocks += [
         "class UserCreate(BaseModel):",
+        "    model_config = ConfigDict(extra='ignore')",
         "    email: str",
         "    password: str",
         "",
         "class UserResponse(BaseModel):",
-        "    model_config = ConfigDict(from_attributes=True)",
+        "    model_config = ConfigDict(from_attributes=True, extra='ignore')",
         "    id: int",
         "    email: str",
         "    role: str",
@@ -135,16 +136,18 @@ def _fallback_schemas(entities: list) -> str:
         update_fields = [f"    {ln.strip().split(':')[0]}: Optional[str] = None" for ln in all_field_lines] if all_field_lines else ["    name: Optional[str] = None"]
         blocks += [
             f"class {name}Base(BaseModel):",
+            "    model_config = ConfigDict(extra='ignore')",
         ] + base_fields + [
             "",
             f"class {name}Create({name}Base):",
             "    pass",
             "",
             f"class {name}Update(BaseModel):",
+            "    model_config = ConfigDict(extra='ignore')",
         ] + update_fields + [
             "",
             f"class {name}Response({name}Base):",
-            "    model_config = ConfigDict(from_attributes=True)",
+            "    model_config = ConfigDict(from_attributes=True, extra='ignore')",
             "    id: int",
             "    created_at: Optional[datetime] = None",
             "",
