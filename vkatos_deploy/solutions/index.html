@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Solutions — VKatOS | Enterprise HR, Recruitment & Education</title>
+<meta name="description" content="VKatOS autonomous pipelines for Enterprise HR, Recruitment Automation, and Study Abroad. Zero-PII, offline-first, production-ready."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --navy: #080F1E;
+  --navy2: #0D1829;
+  --blue: #1B4FD8;
+  --accent: #00C2D4;
+  --accent2: #00E5F5;
+  --green: #00D68F;
+  --white: #F0F4FF;
+  --muted: #4A5878;
+  --border: rgba(255,255,255,0.07);
+  --card: rgba(255,255,255,0.03);
+  --card-hover: rgba(255,255,255,0.06);
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--navy);
+  color: var(--white);
+  font-family: var(--font-body);
+  font-weight: 300;
+  line-height: 1.7;
+  overflow-x: hidden;
+  cursor: none;
+}
+
+/* ── CUSTOM CURSOR ── */
+.cursor {
+  width: 10px; height: 10px;
+  background: var(--accent);
+  border-radius: 50%;
+  position: fixed; top: 0; left: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: transform 0.15s ease;
+  mix-blend-mode: screen;
+}
+.cursor-ring {
+  width: 36px; height: 36px;
+  border: 1px solid rgba(0,194,212,0.4);
+  border-radius: 50%;
+  position: fixed; top: 0; left: 0;
+  pointer-events: none;
+  z-index: 9998;
+  transition: transform 0.08s ease, width 0.2s, height 0.2s, opacity 0.2s;
+}
+a, button { cursor: none; }
+
+/* ── NAV ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 100;
+  padding: 1.25rem 4rem;
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(8,15,30,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-logo {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--white);
+  text-decoration: none;
+}
+.nav-logo span { color: var(--accent); }
+.nav-links { display: flex; gap: 2rem; list-style: none; align-items: center; }
+.nav-links a {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: rgba(240,244,255,0.55);
+  text-decoration: none;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--white); }
+
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  z-index: 101;
+}
+.hamburger span {
+  display: block;
+  width: 25px;
+  height: 2px;
+  background: var(--white);
+  transition: 0.3s;
+}
+
+.nav-right { display: flex; align-items: center; gap: 1.5rem; }
+.btn-login {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: rgba(240,244,255,0.55);
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.btn-login:hover { color: var(--white); }
+.btn-demo {
+  background: var(--accent);
+  color: var(--navy);
+  padding: 0.5rem 1.25rem;
+  border-radius: 2px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.btn-demo:hover { background: var(--accent2); }
+
+/* ── HERO ── */
+.solutions-hero {
+  padding: 10rem 4rem 5rem;
+  text-align: center;
+  position: relative;
+}
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+  display: block;
+}
+.solutions-hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+  letter-spacing: -0.02em;
+}
+.solutions-hero p {
+  color: var(--muted);
+  font-size: 1.15rem;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+
+/* ── SOLUTION CARDS ── */
+.solutions-grid-section {
+  padding: 5rem 4rem 8rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.solutions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+.solution-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3rem;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.3s, transform 0.3s;
+}
+.solution-card:hover {
+  border-color: rgba(0,194,212,0.35);
+  transform: translateY(-4px);
+}
+.card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1.5rem;
+  display: block;
+}
+.card-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+.solution-card h2 {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  line-height: 1.2;
+}
+.solution-card p {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 2rem;
+  flex-grow: 1;
+  line-height: 1.7;
+}
+.card-features {
+  list-style: none;
+  margin-bottom: 2.5rem;
+}
+.card-features li {
+  font-size: 0.85rem;
+  color: rgba(240,244,255,0.6);
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.card-features li::before {
+  content: '→';
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.card-link {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: gap 0.2s;
+}
+.solution-card:hover .card-link { gap: 0.9rem; }
+
+/* ── CTA STRIP ── */
+.cta-strip {
+  background: var(--navy2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6rem 4rem;
+  text-align: center;
+}
+.cta-strip h2 {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+.cta-strip p {
+  color: var(--muted);
+  margin-bottom: 3rem;
+  font-size: 1.05rem;
+}
+
+/* ── FOOTER ── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 5rem 4rem 2rem;
+  background: var(--navy);
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4rem;
+  margin-bottom: 4rem;
+}
+.footer-logo {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--white);
+  text-decoration: none;
+  margin-bottom: 1rem;
+  display: block;
+}
+.footer-logo span { color: var(--accent); }
+.footer-col h4 {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--white);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+}
+.footer-col ul { list-style: none; }
+.footer-col ul li { margin-bottom: 0.75rem; }
+.footer-col ul li a {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-col ul li a:hover { color: var(--accent); }
+.footer-bottom {
+  border-top: 1px solid var(--border);
+  padding-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-copy { font-size: 0.78rem; color: var(--muted); }
+
+/* ── ANIMATIONS ── */
+.reveal {
+  opacity: 0; transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+@media (max-width: 1024px) {
+  .solutions-grid { grid-template-columns: 1fr; }
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 768px) {
+  nav { padding: 1rem 20px; }
+  .hamburger { display: flex; }
+  .nav-links {
+    position: fixed;
+    top: 0; right: -100%;
+    width: 100%; height: 100vh;
+    background: var(--navy);
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    transition: 0.4s;
+    z-index: 100;
+    gap: 2rem;
+  }
+  .nav-links.active { right: 0; }
+  .nav-right { display: none; }
+
+  .solutions-hero, .solutions-grid-section, .cta-strip, footer { padding: 4rem 20px; }
+  .solutions-hero h1 { font-size: 2.5rem; }
+  .footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .footer-bottom { flex-direction: column; gap: 1rem; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">⚡ VK<span>at</span>OS</a>
+  <div class="hamburger" id="hamburger">
+    <span></span><span></span><span></span>
+  </div>
+  <ul class="nav-links">
+    <li><a href="/#products">Products</a></li>
+    <li><a href="/solutions">Solutions</a></li>
+    <li><a href="/pricing">Pricing</a></li>
+    <li><a href="/about">About</a></li>
+    <li><a href="/blog">Blog</a></li>
+    <li><a href="/contact">Contact</a></li>
+  </ul>
+  <div class="nav-right">
+    <a href="/login" class="btn-login">Client Login</a>
+    <a href="/contact" class="btn-demo">Request Demo</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="solutions-hero reveal">
+  <span class="section-label">// solutions</span>
+  <h1>Built for your vertical.</h1>
+  <p>VKatOS autonomous pipelines adapt to the workflows, compliance rules, and entity types that matter most in your industry. Choose a vertical to go deeper.</p>
+</section>
+
+<!-- CARDS -->
+<div class="solutions-grid-section">
+  <div class="solutions-grid">
+
+    <!-- Enterprise HR -->
+    <a href="/solutions/hr" class="solution-card reveal">
+      <span class="card-icon">🏢</span>
+      <span class="card-tag">Enterprise HR</span>
+      <h2>Enterprise HR</h2>
+      <p>End-to-end HR pipeline automation — from resume intake through onboarding. Stall detection, document generation, SLA enforcement, and compliance built in.</p>
+      <ul class="card-features">
+        <li>Autonomous candidate pipeline management</li>
+        <li>DCSP stall detection &amp; watchdog alerts</li>
+        <li>Offer letter &amp; document auto-generation</li>
+        <li>GDPR / DPDP Act compliant — zero PII egress</li>
+        <li>Real-time Velaris dashboard</li>
+      </ul>
+      <span class="card-link">Explore Enterprise HR →</span>
+    </a>
+
+    <!-- Recruitment Automation -->
+    <a href="/solutions/recruitment" class="solution-card reveal">
+      <span class="card-icon">🎯</span>
+      <span class="card-tag">Recruitment Automation</span>
+      <h2>Recruitment Automation</h2>
+      <p>Pipeline velocity for agencies and in-house teams. Automate follow-ups, flag at-risk candidates, and close placements before competitors do.</p>
+      <ul class="card-features">
+        <li>Multi-stage pipeline with predictive stall alerts</li>
+        <li>Automated candidate follow-up sequences</li>
+        <li>Offer approval &amp; placement tracking</li>
+        <li>Recruitment cycle analytics &amp; reporting</li>
+        <li>ATS webhook integration</li>
+      </ul>
+      <span class="card-link">Explore Recruitment →</span>
+    </a>
+
+    <!-- Study Abroad -->
+    <a href="/solutions/education" class="solution-card reveal">
+      <span class="card-icon">🌍</span>
+      <span class="card-tag">Study Abroad</span>
+      <h2>Study Abroad</h2>
+      <p>Manage international student applications across universities, visa stages, and document requirements — all without a single spreadsheet.</p>
+      <ul class="card-features">
+        <li>Multi-university application tracking</li>
+        <li>Visa stage management &amp; deadline alerts</li>
+        <li>Document checklist automation</li>
+        <li>Student portal with real-time status</li>
+        <li>Counsellor workload balancing</li>
+      </ul>
+      <span class="card-link">Explore Study Abroad →</span>
+    </a>
+
+  </div>
+</div>
+
+<!-- CTA -->
+<section class="cta-strip reveal">
+  <h2>Need a custom vertical?</h2>
+  <p>We build bespoke autonomous pipelines for any process-heavy domain. Talk to us about your specific workflow.</p>
+  <a href="/contact" class="btn-demo" style="display: inline-block; padding: 1rem 3rem;">Request a custom solution →</a>
+</section>
+
+<footer>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <a href="/" class="footer-logo">⚡ VK<span>at</span>OS</a>
+      <p style="font-size: 0.85rem; color: var(--muted); margin-top: 1rem;">Autonomous operating systems for the enterprise. Zero-PII, offline-first, production-ready.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Products</h4>
+      <ul>
+        <li><a href="/products/dcsp">DCSP</a></li>
+        <li><a href="/products/aether2">Aether2</a></li>
+        <li><a href="/products/velaris">Velaris</a></li>
+        <li><a href="/#products">VKatOS Platform</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Solutions</h4>
+      <ul>
+        <li><a href="/solutions/hr">Enterprise HR</a></li>
+        <li><a href="/solutions/recruitment">Recruitment</a></li>
+        <li><a href="/solutions/education">Study Abroad</a></li>
+        <li><a href="/solutions/custom">Custom</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="/about">About</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/careers">Careers</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Connect</h4>
+      <ul>
+        <li><a href="https://github.com/Vk-AtOS">GitHub</a></li>
+        <li><a href="mailto:velan@vkatos.com">Email</a></li>
+        <li><a href="tel:+918056238628">+91 80562 38628</a></li>
+        <li><a href="#">Chennai, Tamil Nadu</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms" style="color:var(--muted); text-decoration:none;">Terms</a></div>
+  </div>
+</footer>
+
+<script src="/nav.js"></script>
+<script>
+// Custom cursor
+const cursor = document.getElementById('cursor');
+const ring = document.getElementById('cursorRing');
+let mx = 0, my = 0, rx = 0, ry = 0;
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cursor.style.transform = `translate(${mx-5}px, ${my-5}px)`;
+});
+function animateRing() {
+  rx += (mx - rx) * 0.12;
+  ry += (my - ry) * 0.12;
+  ring.style.transform = `translate(${rx-18}px, ${ry-18}px)`;
+  requestAnimationFrame(animateRing);
+}
+animateRing();
+document.querySelectorAll('a, button').forEach(el => {
+  el.addEventListener('mouseenter', () => {
+    cursor.style.transform += ' scale(1.8)';
+    ring.style.width = '50px'; ring.style.height = '50px';
+    ring.style.borderColor = 'rgba(0,194,212,0.6)';
+  });
+  el.addEventListener('mouseleave', () => {
+    ring.style.width = '36px'; ring.style.height = '36px';
+    ring.style.borderColor = 'rgba(0,194,212,0.4)';
+  });
+});
+
+// Scroll reveal
+const reveals = document.querySelectorAll('.reveal');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      setTimeout(() => entry.target.classList.add('visible'), i * 80);
+    }
+  });
+}, { threshold: 0.1 });
+reveals.forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

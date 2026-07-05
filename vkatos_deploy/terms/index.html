@@ -4,190 +4,456 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Terms of Service — VKatOS</title>
-<meta name="description" content="Terms of Service for VKatOS — AI-native developer infrastructure."/>
+<meta name="description" content="Terms of Service for VKatOS — governing use of AetherOS and DCSP. Governing law: India, Chennai jurisdiction."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
 :root {
-  --bg: #07070F;
-  --bg2: #0D0D1A;
-  --purple: #7C3AED;
-  --purple2: #9B6FFA;
-  --cyan: #00C4D4;
-  --white: #F0F0FF;
-  --muted: #5A5A7A;
-  --muted2: #8080A0;
-  --border: rgba(124,58,237,0.18);
-  --border2: rgba(255,255,255,0.07);
-  --card: rgba(255,255,255,0.035);
-  --font-d: 'Syne', sans-serif;
-  --font-b: 'DM Sans', sans-serif;
-  --font-m: 'DM Mono', monospace;
+  --navy: #080F1E;
+  --navy2: #0D1829;
+  --blue: #1B4FD8;
+  --accent: #00C2D4;
+  --accent2: #00E5F5;
+  --green: #00D68F;
+  --white: #F0F4FF;
+  --muted: #4A5878;
+  --border: rgba(255,255,255,0.07);
+  --card: rgba(255,255,255,0.03);
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
-body { background: var(--bg); color: var(--white); font-family: var(--font-b); overflow-x: hidden; }
+body {
+  background: var(--navy);
+  color: var(--white);
+  font-family: var(--font-body);
+  font-weight: 300;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
 a { text-decoration: none; color: inherit; }
 
-/* NAV */
-.nav {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+/* ── NAV ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 100;
+  padding: 1.25rem 4rem;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 48px; height: 64px;
-  background: rgba(7,7,15,0.85); backdrop-filter: blur(20px) saturate(160%);
-  border-bottom: 1px solid var(--border2);
+  background: rgba(8,15,30,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
 }
-.logo {
-  font-family: var(--font-d); font-weight: 800; font-size: 19px; letter-spacing: -0.02em;
-  background: linear-gradient(135deg, var(--white) 30%, var(--purple2));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+.nav-logo {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--white);
+  text-decoration: none;
 }
-.nav-links { display: flex; gap: 34px; align-items: center; }
-.nav-links a { font-size: 14px; font-weight: 500; color: var(--muted2); letter-spacing: 0.01em; transition: color 0.2s; }
+.nav-logo span { color: var(--accent); }
+.nav-links { display: flex; gap: 2rem; list-style: none; align-items: center; }
+.nav-links a {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: rgba(240,244,255,0.55);
+  text-decoration: none;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
 .nav-links a:hover { color: var(--white); }
-.nav-acts { display: flex; gap: 10px; align-items: center; }
-.btn-gs {
-  font-family: var(--font-d); font-size: 13px; font-weight: 600;
-  color: var(--muted2); padding: 8px 18px; border-radius: 8px;
-  border: 1px solid var(--border2); transition: all 0.2s;
+.nav-right { display: flex; align-items: center; gap: 1.5rem; }
+.btn-login {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: rgba(240,244,255,0.55);
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
-.btn-gs:hover { color: var(--white); border-color: rgba(255,255,255,0.2); }
-.btn-gp {
-  font-family: var(--font-d); font-size: 13px; font-weight: 700;
-  color: #fff; padding: 9px 22px; border-radius: 8px;
-  background: var(--purple); border: 1px solid rgba(155,111,250,0.4);
-  transition: all 0.2s; box-shadow: 0 0 20px rgba(124,58,237,0.3);
+.btn-login:hover { color: var(--white); }
+.btn-demo {
+  background: var(--accent);
+  color: var(--navy);
+  padding: 0.5rem 1.25rem;
+  border-radius: 2px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  transition: background 0.2s;
 }
-.btn-gp:hover { background: var(--purple2); box-shadow: 0 0 30px rgba(124,58,237,0.5); transform: translateY(-1px); }
+.btn-demo:hover { background: var(--accent2); }
 
-/* CONTENT */
+/* ── CONTENT ── */
 .content-wrap {
-  max-width: 800px;
+  max-width: 820px;
   margin: 0 auto;
-  padding: 120px 24px 100px;
+  padding: 9rem 2rem 7rem;
 }
 .page-label {
-  font-family: var(--font-m); font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
-  color: var(--cyan); margin-bottom: 20px; display: flex; align-items: center; gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
-.page-label::before { content: ''; width: 32px; height: 1px; background: var(--cyan); }
+.page-label::before {
+  content: '';
+  width: 2rem;
+  height: 1px;
+  background: var(--accent);
+}
 h1 {
-  font-family: var(--font-d); font-size: clamp(32px, 5vw, 52px);
-  font-weight: 800; letter-spacing: -0.025em; line-height: 1.1;
-  color: var(--white); margin-bottom: 16px;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: 1rem;
 }
 .updated {
-  font-family: var(--font-m); font-size: 12px; color: var(--muted); letter-spacing: 0.05em;
-  margin-bottom: 64px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 3.5rem;
+  padding-bottom: 3.5rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.notice-box {
-  background: rgba(124,58,237,0.06);
-  border: 1px solid rgba(124,58,237,0.2);
-  border-radius: 16px;
-  padding: 48px 56px;
-  text-align: center;
+/* ── SECTIONS ── */
+.policy-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
 }
-.notice-box h2 {
-  font-family: var(--font-d); font-size: 24px; font-weight: 700;
-  margin-bottom: 16px; color: var(--white);
+.policy-section {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2.5rem;
 }
-.notice-box p {
-  font-size: 16px; line-height: 1.7; color: var(--muted2); margin-bottom: 12px; font-weight: 300;
+.policy-section:last-child {
+  border-bottom: none;
 }
-.notice-box a { color: var(--cyan); }
-.notice-box a:hover { text-decoration: underline; }
+.policy-section h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 0.85rem;
+  color: var(--white);
+  letter-spacing: -0.01em;
+}
+.policy-section p {
+  font-size: 0.92rem;
+  color: rgba(240,244,255,0.65);
+  line-height: 1.8;
+  margin-bottom: 0.75rem;
+}
+.policy-section p:last-child { margin-bottom: 0; }
+.policy-section ul {
+  list-style: none;
+  margin: 0.5rem 0 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.policy-section ul li {
+  font-size: 0.92rem;
+  color: rgba(240,244,255,0.65);
+  line-height: 1.7;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.policy-section ul li::before {
+  content: '—';
+  color: var(--accent);
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  margin-top: 0.22rem;
+}
+.policy-section a {
+  color: var(--accent);
+  transition: color 0.2s;
+}
+.policy-section a:hover { color: var(--accent2); }
 
-.sections { margin-top: 56px; display: flex; flex-direction: column; gap: 40px; }
-.section h3 {
-  font-family: var(--font-d); font-size: 18px; font-weight: 700;
-  color: var(--white); margin-bottom: 12px; letter-spacing: -0.01em;
+.highlight-box {
+  background: rgba(0,194,212,0.05);
+  border: 1px solid rgba(0,194,212,0.18);
+  border-radius: 4px;
+  padding: 1.5rem 2rem;
+  margin-bottom: 3rem;
 }
-.section p { font-size: 15px; color: var(--muted2); line-height: 1.75; font-weight: 300; }
-.section a { color: var(--cyan); }
+.highlight-box p {
+  font-size: 0.9rem;
+  color: rgba(240,244,255,0.7);
+  line-height: 1.75;
+}
+.highlight-box strong {
+  color: var(--accent);
+  font-weight: 500;
+}
 
-/* FOOTER */
+/* ── FOOTER ── */
 footer {
-  border-top: 1px solid var(--border2); padding: 40px 48px;
-  display: flex; justify-content: space-between; align-items: center;
-  max-width: 1400px; margin: 0 auto;
+  border-top: 1px solid var(--border);
+  padding: 5rem 4rem 2rem;
+  background: var(--navy);
 }
-.fcopy { font-family: var(--font-m); font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
-.flinks { display: flex; gap: 24px; }
-.flinks a { font-size: 13px; color: var(--muted); transition: color 0.2s; }
-.flinks a:hover { color: var(--white); }
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4rem;
+  margin-bottom: 4rem;
+}
+.footer-logo {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--white);
+  text-decoration: none;
+  margin-bottom: 1rem;
+  display: block;
+}
+.footer-logo span { color: var(--accent); }
+.footer-col h4 {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--white);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+}
+.footer-col ul { list-style: none; }
+.footer-col ul li { margin-bottom: 0.75rem; }
+.footer-col ul li a {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-col ul li a:hover { color: var(--accent); }
+.footer-bottom {
+  border-top: 1px solid var(--border);
+  padding-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-copy { font-size: 0.78rem; color: var(--muted); }
 
+@media (max-width: 1024px) {
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 768px) {
-  .nav { padding: 0 20px; }
+  nav { padding: 1rem 20px; }
   .nav-links { display: none; }
-  .content-wrap { padding: 100px 20px 80px; }
-  .notice-box { padding: 32px 24px; }
-  footer { flex-direction: column; gap: 20px; text-align: center; padding: 32px 20px; }
+  .nav-right { display: none; }
+  .content-wrap { padding: 7rem 1.25rem 5rem; }
+  footer { padding: 4rem 20px 2rem; }
+  .footer-grid { grid-template-columns: 1fr; gap: 2rem; }
+  .footer-bottom { flex-direction: column; gap: 1rem; text-align: center; }
 }
 </style>
 </head>
 <body>
 
-<nav class="nav">
-  <a href="/" class="logo">VKatOS</a>
-  <div class="nav-links">
-    <a href="/#products">Products</a>
-    <a href="/pricing/">Pricing</a>
-    <a href="/about/">About</a>
-    <a href="/blog/">Blog</a>
-  </div>
-  <div class="nav-acts">
-    <a href="/login/" class="btn-gs">Login</a>
-    <a href="/book-demo/" class="btn-gp">Get started</a>
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">VKatOS</a>
+  <ul class="nav-links">
+    <li><a href="/#products">Products</a></li>
+    <li><a href="/pricing/">Pricing</a></li>
+    <li><a href="/about/">About</a></li>
+    <li><a href="/blog/">Blog</a></li>
+  </ul>
+  <div class="nav-right">
+    <a href="/login/" class="btn-login">Login</a>
+    <a href="/book-demo/" class="btn-demo">Get started</a>
   </div>
 </nav>
 
 <div class="content-wrap">
   <div class="page-label">Legal</div>
   <h1>Terms of Service</h1>
-  <div class="updated">Company: VKatOS &nbsp;·&nbsp; Last updated: June 2026</div>
+  <div class="updated">VKatOS &nbsp;·&nbsp; Last updated: July 2026 &nbsp;·&nbsp; Effective: July 1, 2026</div>
 
-  <div class="notice-box">
-    <h2>Full policy document coming soon</h2>
-    <p>We are finalising our comprehensive Terms of Service document.</p>
-    <p>Contact <a href="mailto:contact@vkatos.com">contact@vkatos.com</a> for details on current terms or any contractual questions.</p>
+  <div class="highlight-box">
+    <p><strong>Plain English summary:</strong> Use our platform lawfully, don't reverse-engineer it, your data stays yours. Free tier has no SLA. Paid tiers get a 99.5% uptime SLA. Disputes are governed by Indian law in Chennai courts. Questions: <a href="mailto:velan@vkatos.com" style="color:var(--accent)">velan@vkatos.com</a>.</p>
   </div>
 
-  <div class="sections">
-    <div class="section">
-      <h3>Acceptance of terms</h3>
-      <p>By accessing or using VKatOS products (including AetherOS and DCSP), you agree to be bound by these Terms of Service. If you do not agree, you may not use our services.</p>
+  <div class="policy-sections">
+
+    <div class="policy-section">
+      <h2>1. Agreement to terms</h2>
+      <p>By accessing or using any VKatOS service — including AetherOS, DCSP, and any associated APIs, websites, or tools (collectively, "Services") — you agree to be bound by these Terms of Service ("Terms"). If you do not agree, you must not use the Services.</p>
+      <p>If you are accepting these Terms on behalf of an organisation, you represent and warrant that you have authority to bind that organisation to these Terms. In that case, "you" refers to the organisation.</p>
     </div>
-    <div class="section">
-      <h3>Use of services</h3>
-      <p>VKatOS grants you a limited, non-exclusive, non-transferable licence to use our software products for your internal business purposes. You may not resell, sublicense, or redistribute our services without written permission.</p>
+
+    <div class="policy-section">
+      <h2>2. Use of services</h2>
+      <p>VKatOS grants you a limited, non-exclusive, non-transferable, revocable licence to access and use the Services for your internal business purposes, subject to these Terms.</p>
+      <p>You agree to use the Services only for lawful purposes. You must not:</p>
+      <ul>
+        <li>Use the Services to create applications that violate applicable laws or the rights of third parties.</li>
+        <li>Attempt to gain unauthorised access to any VKatOS system, account, or network.</li>
+        <li>Reverse-engineer, decompile, disassemble, or attempt to derive the source code of any VKatOS platform component.</li>
+        <li>Resell, sublicense, or redistribute the Services, or access them to build a competing product, without VKatOS's prior written consent.</li>
+        <li>Use the Services to generate, distribute, or deploy malicious code, spam, or deceptive content.</li>
+        <li>Circumvent rate limits, access controls, or authentication mechanisms.</li>
+        <li>Use the Services in a manner that disrupts, degrades, or overloads the infrastructure.</li>
+      </ul>
     </div>
-    <div class="section">
-      <h3>Intellectual property</h3>
-      <p>All software, designs, and content produced by VKatOS remain the intellectual property of VKatOS. Applications generated by AetherOS on your behalf are owned by you, subject to the underlying licence of open-source components used.</p>
+
+    <div class="policy-section">
+      <h2>3. Account registration</h2>
+      <p>To access most Services you must register for an account. You agree to provide accurate, current, and complete information and to keep it updated. You are responsible for maintaining the confidentiality of your account credentials and for all activity that occurs under your account.</p>
+      <p>VKatOS reserves the right to suspend or terminate accounts found to be in violation of these Terms, or where account activity indicates fraud, abuse, or a security risk — with or without prior notice at our discretion.</p>
     </div>
-    <div class="section">
-      <h3>Limitation of liability</h3>
-      <p>VKatOS provides services on an "as-is" basis. We are not liable for indirect, incidental, or consequential damages arising from your use of our products. Our total liability is limited to the fees paid by you in the preceding three months.</p>
+
+    <div class="policy-section">
+      <h2>4. Data ownership</h2>
+      <p>You retain all ownership rights to the data, specifications, and content you submit to the Services ("Customer Data"). VKatOS does not claim any intellectual property rights over your Customer Data.</p>
+      <p>Applications and code generated by AetherOS on your behalf, using your specifications, are owned by you — subject to the licences of any open-source libraries incorporated during generation (which are standard permissive licences such as MIT and Apache 2.0).</p>
+      <p>By submitting Customer Data, you grant VKatOS a limited, non-exclusive licence to process and store that data solely to provide and improve the Services for your account.</p>
     </div>
-    <div class="section">
-      <h3>Governing law</h3>
-      <p>These terms are governed by the laws of India. Any disputes shall be subject to the exclusive jurisdiction of courts in Chennai, Tamil Nadu.</p>
+
+    <div class="policy-section">
+      <h2>5. Intellectual property</h2>
+      <p>All VKatOS software, platform code, brand assets, documentation, and proprietary models remain the exclusive intellectual property of VKatOS. Nothing in these Terms grants you any rights in VKatOS IP except the limited usage licence described in Section 2.</p>
+      <p>If you provide feedback, suggestions, or ideas about the Services, you grant VKatOS a perpetual, irrevocable, royalty-free licence to use that feedback for any purpose without obligation to you.</p>
     </div>
-    <div class="section">
-      <h3>Contact</h3>
-      <p>VKatOS &nbsp;·&nbsp; Chennai, Tamil Nadu, India &nbsp;·&nbsp; <a href="mailto:contact@vkatos.com">contact@vkatos.com</a></p>
+
+    <div class="policy-section">
+      <h2>6. Service levels and availability</h2>
+      <p><strong style="color:var(--white)">Free tier:</strong> The Services are provided on a best-effort basis. VKatOS makes no uptime guarantee for free-tier accounts. Scheduled maintenance, temporary outages, and feature limitations may apply without notice.</p>
+      <p><strong style="color:var(--white)">Paid tiers:</strong> VKatOS targets 99.5% monthly uptime availability for paid subscribers, measured excluding scheduled maintenance windows communicated at least 24 hours in advance. If monthly uptime falls below 99.5%, affected paid customers may request a service credit equal to one additional day of access per full percentage point below the target, capped at 10 days per month. Service credits are the sole and exclusive remedy for downtime.</p>
+      <p>VKatOS reserves the right to modify, suspend, or discontinue any feature or service with reasonable notice to users.</p>
     </div>
+
+    <div class="policy-section">
+      <h2>7. Payment and billing</h2>
+      <p>Paid subscriptions are billed in advance on a monthly or annual cycle. All fees are non-refundable except as expressly stated in these Terms or required by applicable law. Prices may be changed with 30 days' written notice.</p>
+      <p>If payment fails, VKatOS will attempt to retry the payment. If payment is not received within 14 days, your account may be downgraded to the free tier or suspended. You remain responsible for all outstanding amounts.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>8. Prohibited content and uses</h2>
+      <p>You must not use the Services to build, deploy, or operate applications that:</p>
+      <ul>
+        <li>Facilitate illegal activity, including but not limited to fraud, money laundering, or the production and distribution of CSAM.</li>
+        <li>Violate the intellectual property rights of third parties.</li>
+        <li>Discriminate against individuals on the basis of protected characteristics.</li>
+        <li>Operate in regulated industries (financial services, healthcare, defence) without appropriate licences and compliance controls in place.</li>
+      </ul>
+      <p>VKatOS reserves the right to remove or disable access to any generated application or account we determine, in our sole discretion, to be in violation of these Terms.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>9. Disclaimer of warranties</h2>
+      <p>The Services are provided "as is" and "as available" without any warranties of any kind, express or implied, including but not limited to implied warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
+      <p>VKatOS does not warrant that the Services will be uninterrupted, error-free, or that generated code will be free from defects. You are responsible for testing, validating, and securing any applications built using the Services before deploying them to production environments.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>10. Limitation of liability</h2>
+      <p>To the maximum extent permitted by applicable law, VKatOS shall not be liable for any indirect, incidental, special, consequential, or punitive damages — including loss of profits, data, goodwill, or business interruption — arising from your use of or inability to use the Services.</p>
+      <p>VKatOS's total cumulative liability to you for any and all claims arising under or relating to these Terms shall not exceed the total fees paid by you to VKatOS in the three calendar months immediately preceding the event giving rise to the claim.</p>
+      <p>Nothing in these Terms limits liability that cannot be excluded under applicable law, including liability for death or personal injury caused by negligence.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>11. Indemnification</h2>
+      <p>You agree to indemnify, defend, and hold harmless VKatOS and its officers, directors, employees, and agents from and against any claims, liabilities, damages, losses, and expenses (including reasonable legal fees) arising out of or in any way connected with: (a) your use of the Services in violation of these Terms; (b) your Customer Data; or (c) your violation of any applicable law or the rights of a third party.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>12. Termination</h2>
+      <p>Either party may terminate the agreement at any time. You may close your account from within the platform settings. VKatOS may terminate or suspend your account with or without cause, with or without notice, if you breach these Terms or engage in activity that poses a risk to the platform or other users.</p>
+      <p>Upon termination, your right to access the Services ceases immediately. We will retain your data for up to 30 days after termination (to allow export) before purging it, subject to our legal obligations.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>13. Governing law and jurisdiction</h2>
+      <p>These Terms and any disputes arising from or relating to them shall be governed by and construed in accordance with the laws of India, without regard to its conflict of law provisions.</p>
+      <p>Any legal action or proceeding arising under these Terms shall be brought exclusively in the courts located in Chennai, Tamil Nadu, India. Both parties irrevocably consent to the personal jurisdiction of such courts.</p>
+      <p>For any dispute below ₹10,00,000 (Indian rupees ten lakhs), the parties agree to attempt good-faith resolution through email negotiation for 30 days before initiating formal legal proceedings.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>14. Changes to these terms</h2>
+      <p>VKatOS may update these Terms from time to time. When we make material changes, we will notify you by email and by posting a notice on the platform at least 14 days before the changes take effect. Your continued use of the Services after the effective date constitutes your acceptance of the updated Terms.</p>
+      <p>If you do not agree to the updated Terms, you must stop using the Services and close your account before the effective date.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>15. General</h2>
+      <p>These Terms constitute the entire agreement between you and VKatOS with respect to the Services and supersede all prior agreements and understandings. If any provision of these Terms is found to be unenforceable, the remaining provisions will continue in full force and effect.</p>
+      <p>VKatOS's failure to enforce any right or provision of these Terms shall not constitute a waiver of that right or provision. These Terms may not be assigned by you without VKatOS's prior written consent.</p>
+    </div>
+
+    <div class="policy-section">
+      <h2>16. Contact</h2>
+      <p>For questions about these Terms, billing disputes, or legal notices, contact:</p>
+      <p>
+        <strong style="color:var(--white)">VKatOS</strong><br>
+        Chennai, Tamil Nadu, India<br>
+        Email: <a href="mailto:velan@vkatos.com">velan@vkatos.com</a><br>
+        Phone: <a href="tel:+918056238628">+91 80562 38628</a>
+      </p>
+    </div>
+
   </div>
 </div>
 
 <footer>
-  <div class="fcopy">© 2026 VKatOS Inc. All rights reserved.</div>
-  <div class="flinks">
-    <a href="/privacy/">Privacy Policy</a>
-    <a href="/terms/">Terms of Service</a>
-    <a href="/contact/">Contact</a>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <a href="/" class="footer-logo">VKatOS</a>
+      <p style="font-size: 0.85rem; color: var(--muted); margin-top: 1rem;">Autonomous operating systems for the enterprise. Zero-PII, offline-first, production-ready.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Products</h4>
+      <ul>
+        <li><a href="/products/aetheros">AetherOS</a></li>
+        <li><a href="/products/dcsp">DCSP</a></li>
+        <li><a href="/products/aether2">Aether2</a></li>
+        <li><a href="/products/velaris">Velaris</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="/about">About</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/careers">Careers</a></li>
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Legal</h4>
+      <ul>
+        <li><a href="/privacy">Privacy Policy</a></li>
+        <li><a href="/terms">Terms of Service</a></li>
+        <li><a href="mailto:velan@vkatos.com">velan@vkatos.com</a></li>
+        <li><a href="#">Chennai, Tamil Nadu</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms" style="color:var(--muted); text-decoration:none;">Terms</a></div>
   </div>
 </footer>
 
