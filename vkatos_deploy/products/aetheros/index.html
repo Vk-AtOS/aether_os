@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>AetherOS — AI App Factory | VKatOS</title>
-<meta name="description" content="From spec to running full-stack application in 30 minutes. 21-phase AI pipeline. 581 tests passing. Live demo available."/>
+<meta name="description" content="From spec to running full-stack application in 30 minutes. 39-phase AI pipeline. 581 tests passing. Live demo available."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -151,7 +151,7 @@ h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 5vw, 4rem); font
 .hero-sub { font-size: 1.15rem; color: var(--muted); max-width: 600px; margin: 0 auto 3rem; }
 
 /* ── FEATURES ── */
-.features-section { padding: 6rem 4rem; }
+.features-section { padding: 6rem 4rem 3rem; }
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -169,7 +169,7 @@ h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 5vw, 4rem); font
 .feature-card p { font-size: 0.9rem; color: var(--muted); }
 
 /* ── HOW IT WORKS ── */
-.how-it-works { padding: 8rem 4rem; background: var(--navy2); }
+.how-it-works { padding: 5rem 4rem 8rem; background: var(--navy2); }
 .steps-container { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 4rem; }
 .step { display: flex; gap: 3rem; align-items: flex-start; }
 .step-num {
@@ -318,7 +318,7 @@ footer {
 <section class="product-hero reveal">
   <div class="hero-badge-row">
     <span class="badge green">581 TESTS PASSING</span>
-    <span class="badge">21-PHASE PIPELINE</span>
+    <span class="badge">39-PHASE PIPELINE</span>
     <span class="badge">LIVE DEMO</span>
     <span class="badge">FULL STACK</span>
     <span class="badge">PRODUCTION READY</span>
@@ -331,7 +331,7 @@ footer {
 <section class="features-section reveal">
   <div class="features-grid">
     <div class="feature-card">
-      <h3>21-Phase AI Pipeline</h3>
+      <h3>39-Phase AI Pipeline</h3>
       <p>Market research, architecture, schema design, backend CRUD, React frontend, testing, compliance, and deployment — every step fully automated by a chain of specialised AI agents.</p>
     </div>
     <div class="feature-card">
@@ -347,7 +347,7 @@ footer {
 
 <section class="how-it-works reveal">
   <div class="steps-container">
-    <span class="section-label" style="text-align: center; margin-bottom: 4rem; display: block; font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase;">// how it works</span>
+    <span class="section-label" style="text-align: center; margin-bottom: 2.5rem; display: block; font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase;">// how it works</span>
 
     <div class="step">
       <div class="step-num">01</div>
@@ -361,7 +361,7 @@ footer {
       <div class="step-num">02</div>
       <div class="step-content">
         <h4>Pipeline Runs Autonomously</h4>
-        <p>21 AI phases execute in sequence — market research, architecture, data modelling, backend codegen, frontend build, integration, testing, and deployment. You watch a live progress feed.</p>
+        <p>39 AI phases execute in sequence — market research, architecture, data modelling, backend codegen, frontend build, integration, testing, and deployment. You watch a live progress feed.</p>
       </div>
     </div>
 
@@ -389,7 +389,7 @@ footer {
       <h3 style="font-family: var(--font-display); font-size: 2rem; margin-bottom: 2rem;">Technical Specs</h3>
       <ul class="specs-list">
         <li><span class="spec-label">Tests Passing</span> <span class="spec-value">581 / 581</span></li>
-        <li><span class="spec-label">Pipeline Phases</span> <span class="spec-value">21 autonomous agents</span></li>
+        <li><span class="spec-label">Pipeline Phases</span> <span class="spec-value">39 autonomous agents</span></li>
         <li><span class="spec-label">Generation Time</span> <span class="spec-value">25 – 45 minutes</span></li>
         <li><span class="spec-label">Backend Stack</span> <span class="spec-value">FastAPI + PostgreSQL</span></li>
         <li><span class="spec-label">Frontend Stack</span> <span class="spec-value">React 18 + Vite + TanStack</span></li>
@@ -409,7 +409,7 @@ POST /v1/factory/runs
   "autonomous_mode": true
 }
 
-# Returns run_id — stream 21-phase
+# Returns run_id — stream 39-phase
 # progress via SSE, preview at
 # /app-preview/{run_id}/</code></pre>
       </div>
