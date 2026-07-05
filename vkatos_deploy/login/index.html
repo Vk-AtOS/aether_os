@@ -188,7 +188,7 @@ input::placeholder{color:var(--muted)}
     </form>
 
     <div class="terms">
-      By continuing, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.
+      By continuing, you agree to our <a href="/terms/">Terms of Service</a> and <a href="/privacy/">Privacy Policy</a>.
     </div>
   </div>
 </main>
@@ -252,36 +252,50 @@ function showMsg(text,type){
 }
 function hideMsg(){document.getElementById('msg').className='msg'}
 
-/* OAUTH SIMULATION */
+/* OAUTH */
 function oauthLogin(provider){
-  showMsg(`Connecting to ${provider==='google'?'Google':'GitHub'}...`,'success');
-  /* In production: redirect to OAuth endpoint e.g. /api/auth/${provider} */
-  setTimeout(()=>{
-    localStorage.setItem('vk_user',JSON.stringify({
-      name:'Demo User',email:'demo@vkatos.com',
-      avatar:provider==='google'?'G':'GH',provider,
-      plan:'free',joined:new Date().toISOString()
-    }));
-    window.location.href='/dashboard/';
-  },1200);
+  showMsg(`Redirecting to ${provider === 'google' ? 'Google' : 'GitHub'}...`, 'success');
+  setTimeout(() => {
+    window.location.href = provider === 'google'
+      ? 'https://app.vkatos.com/api/auth/oauth/google'
+      : 'https://app.vkatos.com/api/auth/oauth/github';
+  }, 400);
 }
 
-/* EMAIL AUTH SIMULATION */
-function handleSubmit(e){
+/* EMAIL AUTH */
+async function handleSubmit(e){
   e.preventDefault();
-  const email=document.getElementById('email').value;
-  const pass=document.getElementById('password').value;
-  const name=document.getElementById('name').value||email.split('@')[0];
-  if(pass.length<8){showMsg('Password must be at least 8 characters.','error');return}
-  const btn=document.getElementById('submit-btn');
-  btn.textContent='Authenticating…';btn.disabled=true;
-  setTimeout(()=>{
-    localStorage.setItem('vk_user',JSON.stringify({
-      name,email,avatar:name[0].toUpperCase(),
-      provider:'email',plan:'free',joined:new Date().toISOString()
-    }));
-    window.location.href='/dashboard/';
-  },900);
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('password').value;
+  const name = document.getElementById('name').value || email.split('@')[0];
+  if(pass.length < 8){ showMsg('Password must be at least 8 characters.', 'error'); return; }
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Authenticating…'; btn.disabled = true;
+  hideMsg();
+  try {
+    const endpoint = mode === 'signin'
+      ? 'https://app.vkatos.com/api/auth/login'
+      : 'https://app.vkatos.com/api/auth/register';
+    const body = mode === 'signin'
+      ? { email, password: pass }
+      : { email, password: pass, name };
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok){
+      throw new Error(data.detail || 'Authentication failed. Please try again.');
+    }
+    if(data.access_token) localStorage.setItem('vk_token', data.access_token);
+    showMsg(mode === 'signin' ? 'Signed in! Redirecting…' : 'Account created! Redirecting…', 'success');
+    setTimeout(() => { window.location.href = 'https://app.vkatos.com'; }, 700);
+  } catch(err){
+    showMsg(err.message, 'error');
+    btn.textContent = mode === 'signin' ? 'Sign in to vkatos →' : 'Create account →';
+    btn.disabled = false;
+  }
 }
 </script>
 </body>
