@@ -35,9 +35,14 @@ class MaintenanceEngine:
             )
             result = await llm.call_json(prompt, task_type="documentation")
             return {**result, "engine": "maintenance_engine", "scanned_at": time.time()}
-        except Exception as exc:
-            logger.warning("MaintenanceEngine scan_dependencies failed: %s", exc)
-            return {"packages": [], "action_required": False, "engine": "maintenance_engine", "error": str(exc)}
+        except Exception as e:
+            logger.warning("maintenance_engine LLM unavailable, using static fallback: %s", e)
+            return {
+                "packages": [],
+                "action_required": False,
+                "engine": "static_fallback",
+                "note": "LLM unavailable — run manual dependency audit",
+            }
 
     async def tech_debt_analysis(self, code: str, language: str = "python") -> Dict[str, Any]:
         """Identify tech debt in the generated code."""
@@ -53,9 +58,14 @@ class MaintenanceEngine:
             )
             result = await llm.call_json(prompt, task_type="documentation")
             return {**result, "engine": "maintenance_engine"}
-        except Exception as exc:
-            logger.warning("MaintenanceEngine.tech_debt_analysis failed: %s", exc)
-            return {"debt_items": [], "total_debt_score": 0, "engine": "maintenance_engine", "error": str(exc)}
+        except Exception as e:
+            logger.warning("maintenance_engine LLM unavailable, using static fallback: %s", e)
+            return {
+                "debt_items": [],
+                "total_debt_score": 0,
+                "engine": "static_fallback",
+                "note": "LLM unavailable — run manual tech debt review",
+            }
 
     async def schedule_maintenance(
         self,

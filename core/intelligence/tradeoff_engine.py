@@ -47,15 +47,15 @@ class TradeoffEngine:
             )
             result = await llm.call_json(prompt, task_type="code_generation")
             return {**result, "engine": "tradeoff_engine"}
-        except Exception as exc:
-            logger.warning("TradeoffEngine analyze failed: %s", exc)
+        except Exception as e:
+            logger.warning("tradeoff_engine LLM unavailable, using static fallback: %s", e)
             return {
                 "option_a": {"name": option_a, "scores": {}, "pros": [], "cons": []},
                 "option_b": {"name": option_b, "scores": {}, "pros": [], "cons": []},
                 "recommendation": "neither",
-                "rationale": f"Analysis unavailable: {exc}",
-                "engine": "tradeoff_engine",
-                "error": str(exc),
+                "rationale": "LLM unavailable — static fallback cannot evaluate tradeoffs",
+                "engine": "static_fallback",
+                "note": "LLM unavailable — run manual tradeoff analysis",
             }
 
     async def evaluate_run_choices(self, run_id: str) -> Dict[str, Any]:
