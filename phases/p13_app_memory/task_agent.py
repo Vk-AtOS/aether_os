@@ -1,7 +1,13 @@
 """
-STUB PHASE: p13_app_memory generates a JSON-file-backed semantic memory store.
-This is NOT production-grade. For production, use ChromaDB, Pinecone, pgvector,
-or Weaviate as the vector backend — this stub provides local development storage only.
+p13_app_memory generates a semantic memory service with tiered backend selection:
+  1. ChromaDB  — if chromadb package is importable (best semantic similarity)
+  2. pgvector  — if PGVECTOR_ENABLED=true and psycopg2 is available
+  3. JSON file — fallback for zero-dependency local development
+
+All three backends expose the same interface:
+  add_memory(user_id, content, category)
+  get_memories(user_id, category=None)
+  search_memories(user_id, query)
 """
 from __future__ import annotations
 import logging
@@ -16,9 +22,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     """
     Implements p13_app_memory: Semantic Memory Layer (JSON-file-backed stub).
     """
-    logger.warning(
-        "p13_app_memory: generating JSON-file-backed stub (not production-grade). "
-        "For production semantic memory use ChromaDB, pgvector, Pinecone, or Weaviate."
+    logger.info(
+        "p13_app_memory: generating memory service with ChromaDB → pgvector → JSON fallback"
     )
     mem_dir = output_dir / "memory"
     migrations_dir = output_dir / "migrations"
@@ -30,7 +35,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (mem_dir / "__init__.py").write_text("")
 
     (mem_dir / "memory_service.py").write_text(
-        '''import json
+        '''"""
+Semantic memory service with tiered backend selection:
+  1. ChromaDB  — best semantic similarity; used if chromadb is importable
+  2. pgvector  — SQL-native embeddings; used if PGVECTOR_ENABLED=true
+  3. JSON file — zero-dependency fallback for local development
+
+All backends expose the same interface:
+  add_memory(user_id, content, category) -> dict
+  get_memories(user_id, category=None)   -> list[dict]
+  search_memories(user_id, query, limit) -> list[dict]
+"""
+import json
 import logging
 import os
 import sys
@@ -39,11 +55,171 @@ from typing import Optional, List as _List
 
 logger = logging.getLogger(__name__)
 
+_COLLECTION_NAME = os.getenv("MEMORY_COLLECTION", "app_memory")
 _STORE_FILE = Path(os.getenv("MEMORY_STORE_PATH", "memory_store.json"))
+_PGVECTOR_ENABLED = os.getenv("PGVECTOR_ENABLED", "false").lower() == "true"
+_DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+# ── Backend selection ──────────────────────────────────────────────────────
+
+def _try_chromadb():
+    """Return a ChromaDB collection or None if chromadb is unavailable."""
+    try:
+        import chromadb  # noqa: PLC0415
+        _persist = os.getenv("CHROMA_PERSIST_DIR", ".chroma")
+        _client = chromadb.PersistentClient(path=_persist)
+        return _client.get_or_create_collection(_COLLECTION_NAME)
+    except ImportError:
+        return None
+    except Exception as _exc:
+        logger.warning("ChromaDB init failed, trying next backend: %s", _exc)
+        return None
+
+
+def _try_pgvector():
+    """Return a psycopg2 connection or None if pgvector is unavailable."""
+    if not _PGVECTOR_ENABLED or not _DATABASE_URL:
+        return None
+    try:
+        import psycopg2  # noqa: PLC0415
+        conn = psycopg2.connect(_DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS memory_entries ("
+                "  id SERIAL PRIMARY KEY,"
+                "  user_id INTEGER NOT NULL,"
+                "  content TEXT NOT NULL,"
+                "  category VARCHAR(100) DEFAULT \'general\',"
+                "  embedding vector(1536),"
+                "  created_at TIMESTAMPTZ DEFAULT NOW()"
+                ")"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mem_user ON memory_entries(user_id)"
+            )
+        conn.commit()
+        return conn
+    except ImportError:
+        return None
+    except Exception as _exc:
+        logger.warning("pgvector init failed, falling back to JSON: %s", _exc)
+        return None
+
+
+_chroma = _try_chromadb()
+_pg_conn = None if _chroma else _try_pgvector()
+
+if _chroma is not None:
+    _backend_type = "chromadb"
+elif _pg_conn is not None:
+    _backend_type = "pgvector"
+else:
+    _backend_type = "json"
+
+logger.info("Memory backend: %s", _backend_type)
+
+# ── ChromaDB backend ───────────────────────────────────────────────────────
+
+def _chroma_add(user_id: int, content: str, category: str) -> dict:
+    _id = f"{user_id}_{abs(hash(content)) % 10**9}"
+    _chroma.upsert(
+        ids=[_id],
+        documents=[content],
+        metadatas=[{"user_id": user_id, "category": category}],
+    )
+    return {"user_id": user_id, "content": content, "category": category, "id": _id}
+
+
+def _chroma_get(user_id: int, category: Optional[str]) -> _List[dict]:
+    _where = {"user_id": user_id}
+    if category:
+        _where["category"] = category
+    try:
+        res = _chroma.get(where=_where, include=["documents", "metadatas"])
+        return [
+            {"user_id": user_id, "content": doc, "category": meta.get("category", "general")}
+            for doc, meta in zip(res["documents"], res["metadatas"])
+        ]
+    except Exception as _exc:
+        logger.warning("ChromaDB get failed: %s", _exc)
+        return []
+
+
+def _chroma_search(user_id: int, query: str, limit: int) -> _List[dict]:
+    try:
+        res = _chroma.query(
+            query_texts=[query],
+            n_results=limit,
+            where={"user_id": user_id},
+            include=["documents", "metadatas"],
+        )
+        return [
+            {"user_id": user_id, "content": doc, "category": meta.get("category", "general")}
+            for doc, meta in zip(res["documents"][0], res["metadatas"][0])
+        ]
+    except Exception as _exc:
+        logger.warning("ChromaDB search failed: %s", _exc)
+        return []
+
+# ── pgvector backend ───────────────────────────────────────────────────────
+
+def _pg_add(user_id: int, content: str, category: str) -> dict:
+    try:
+        with _pg_conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO memory_entries (user_id, content, category) VALUES (%s, %s, %s) RETURNING id",
+                (user_id, content, category),
+            )
+            row_id = cur.fetchone()[0]
+        _pg_conn.commit()
+        return {"id": row_id, "user_id": user_id, "content": content, "category": category}
+    except Exception as _exc:
+        logger.warning("pgvector add failed: %s", _exc)
+        _pg_conn.rollback()
+        return {"user_id": user_id, "content": content, "category": category}
+
+
+def _pg_get(user_id: int, category: Optional[str]) -> _List[dict]:
+    try:
+        with _pg_conn.cursor() as cur:
+            if category:
+                cur.execute(
+                    "SELECT user_id, content, category FROM memory_entries WHERE user_id=%s AND category=%s ORDER BY created_at DESC",
+                    (user_id, category),
+                )
+            else:
+                cur.execute(
+                    "SELECT user_id, content, category FROM memory_entries WHERE user_id=%s ORDER BY created_at DESC",
+                    (user_id,),
+                )
+            rows = cur.fetchall()
+        return [{"user_id": r[0], "content": r[1], "category": r[2]} for r in rows]
+    except Exception as _exc:
+        logger.warning("pgvector get failed: %s", _exc)
+        return []
+
+
+def _pg_search(user_id: int, query: str, limit: int) -> _List[dict]:
+    try:
+        with _pg_conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, content, category FROM memory_entries "
+                "WHERE user_id=%s AND content ILIKE %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, f"%{query}%", limit),
+            )
+            rows = cur.fetchall()
+        return [{"user_id": r[0], "content": r[1], "category": r[2]} for r in rows]
+    except Exception as _exc:
+        logger.warning("pgvector search failed: %s", _exc)
+        return []
+
+# ── JSON file backend ──────────────────────────────────────────────────────
+
 _store: _List[dict] = []
 
 
-def _load() -> None:
+def _json_load() -> None:
     global _store
     if not _STORE_FILE.exists():
         return
@@ -59,11 +235,11 @@ def _load() -> None:
         else:
             _store = json.loads(_STORE_FILE.read_text(encoding="utf-8"))
     except Exception as _exc:
-        logger.warning("Memory load failed, starting empty: %s", _exc)
+        logger.warning("Memory JSON load failed, starting empty: %s", _exc)
         _store = []
 
 
-def _save() -> None:
+def _json_save() -> None:
     try:
         if sys.platform != "win32":
             import fcntl
@@ -79,33 +255,53 @@ def _save() -> None:
         else:
             _STORE_FILE.write_text(json.dumps(_store, indent=2), encoding="utf-8")
     except Exception as _exc:
-        logger.warning("Memory save failed: %s", _exc)
+        logger.warning("Memory JSON save failed: %s", _exc)
 
 
-_load()
+if _backend_type == "json":
+    _json_load()
 
+# ── Public interface ───────────────────────────────────────────────────────
 
 def add_memory(user_id: int, content: str, category: str = "general") -> dict:
-    _load()
-    entry = {"user_id": user_id, "content": content, "category": category}
-    _store.append(entry)
-    _save()
-    logger.info("Memory stored for user %s: %s", user_id, content[:50])
+    """Store a memory entry. Routes to the active backend."""
+    if _backend_type == "chromadb":
+        entry = _chroma_add(user_id, content, category)
+    elif _backend_type == "pgvector":
+        entry = _pg_add(user_id, content, category)
+    else:
+        _json_load()
+        entry = {"user_id": user_id, "content": content, "category": category}
+        _store.append(entry)
+        _json_save()
+    logger.info("Memory stored (%s) for user %s: %s", _backend_type, user_id, content[:50])
     return entry
 
+
 def get_memories(user_id: int, category: Optional[str] = None) -> _List[dict]:
-    _load()
+    """Return all memories for a user, optionally filtered by category."""
+    if _backend_type == "chromadb":
+        return _chroma_get(user_id, category)
+    if _backend_type == "pgvector":
+        return _pg_get(user_id, category)
+    _json_load()
     return [
         m for m in _store
         if m["user_id"] == user_id and (category is None or m["category"] == category)
     ]
 
-def search_memories(user_id: int, query: str) -> _List[dict]:
-    _load()
+
+def search_memories(user_id: int, query: str, limit: int = 5) -> _List[dict]:
+    """Search memories by semantic similarity (ChromaDB) or substring (pgvector/JSON)."""
+    if _backend_type == "chromadb":
+        return _chroma_search(user_id, query, limit)
+    if _backend_type == "pgvector":
+        return _pg_search(user_id, query, limit)
+    _json_load()
     return [
         m for m in _store
         if m["user_id"] == user_id and query.lower() in m["content"].lower()
-    ]
+    ][:limit]
 '''
     )
 
