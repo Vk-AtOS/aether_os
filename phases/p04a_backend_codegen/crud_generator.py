@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import textwrap
 from typing import Dict, List, Tuple
 
 from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
@@ -357,6 +356,13 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
         "    from services.audit_service import log_action as _log_action",
         "except ImportError:",
         "    async def _log_action(*a, **kw): pass",
+        # Cache helpers — no-op when Redis is unavailable (REDIS_URL unset)
+        "try:",
+        "    from cache import cache_get as _cache_get, cache_set as _cache_set, cache_delete as _cache_delete",
+        "except ImportError:",
+        "    async def _cache_get(k): return None",
+        "    async def _cache_set(k, v, ttl=30): pass",
+        "    async def _cache_delete(k): pass",
         "",
         "logger = logging.getLogger(__name__)",
         "",
@@ -387,6 +393,13 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             if multi_tenancy else ""
         )
 
+        # Cache key helpers — list key includes org_id when multi-tenancy is on
+        list_cache_key = (
+            f"f\"{name}:list:{{current_user.get('org_id', '')}}:{{page}}:{{page_size}}\""
+            if multi_tenancy
+            else f"f\"{name}:list:{{page}}:{{page_size}}\""
+        )
+
         lines += [
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
@@ -397,20 +410,32 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    db: AsyncSession = Depends(get_db),",
             f"    current_user: dict = Depends(get_current_user),",
             f"):",
+            f"    _ck = {list_cache_key}",
+            f"    _cached = await _cache_get(_ck)",
+            f"    if _cached is not None:",
+            f"        return _cached",
             f"    offset = (page - 1) * page_size",
             f"    total_q = await db.execute(select(func.count()).select_from(models.{name}){mt_list_filter})",
             f"    total = total_q.scalar_one()",
             f"    result = await db.execute(select(models.{name}){mt_list_filter}.offset(offset).limit(page_size))",
             f"    items = result.scalars().all()",
-            f"    return {{'items': [{ser_dict} for i in items], 'total': total, 'page': page, 'page_size': page_size}}",
+            f"    _resp = {{'items': [{ser_dict} for i in items], 'total': total, 'page': page, 'page_size': page_size}}",
+            f"    await _cache_set(_ck, _resp)",
+            f"    return _resp",
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"    _ck = f\"{name}:{{item_id}}\"",
+            f"    _cached = await _cache_get(_ck)",
+            f"    if _cached is not None:",
+            f"        return _cached",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
             f"    obj = result.scalar_one_or_none()",
             f"    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
-            f"    return {ser_dict_obj}",
+            f"    _resp = {ser_dict_obj}",
+            f"    await _cache_set(_ck, _resp)",
+            f"    return _resp",
             "",
             f"@{var}.post('/', status_code=status.HTTP_201_CREATED, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
@@ -419,6 +444,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'CREATE', '{name}', str(getattr(obj, 'id', '')))",
             f"    await db.refresh(obj)",
+            f"    await _cache_delete(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
@@ -432,6 +458,8 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'UPDATE', '{name}', str(item_id))",
             f"    await db.refresh(obj)",
+            f"    await _cache_delete(f\"{name}:{{item_id}}\")",
+            f"    await _cache_delete(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
@@ -446,6 +474,8 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    await _log_action(db, str(current_user.get('id', '')), 'DELETE', '{name}', str(item_id))",
             f"    await db.delete(obj)",
+            f"    await _cache_delete(f\"{name}:{{item_id}}\")",
+            f"    await _cache_delete(f\"{name}:list:*\")",
             "",
         ]
     # Append auth flow endpoints (forgot-password / reset-password / verify-email)
@@ -456,138 +486,6 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
     return "\n".join(lines)
 
 
-def _fallback_seed(
-    project_name: str,
-    entities: list,
-    seed_vocabulary: Dict[str, List[str]] | None = None,
-    domain: str = "general",
-) -> str:
-    """Generate a minimal seed.py that creates an admin user.
-
-    When seed_vocabulary contains domain-specific terms and entities has records,
-    those terms are used to produce more realistic seed record names rather than the
-    generic 'Alpha/Beta/Gamma' fallbacks.
-
-    Uniqueness enforcement: any field marked unique=True in the entity definition
-    (or implicitly unique by name: email, username, slug, phone, file_path) is seeded
-    using an indexed pattern (e.g. "user_1@example.com", "user_2@example.com") so that
-    multiple seed records never collide on UNIQUE DB constraints.
-    """
-    vocab = seed_vocabulary or {}
-    prefix = project_name  # used to prefix seed record titles for traceability
-
-    # Fields that are implicitly unique even when not explicitly declared
-    _IMPLICIT_UNIQUE_FIELDS = frozenset({"email", "username", "slug", "phone", "file_path"})
-
-    def _is_unique_field(field_def: dict) -> bool:
-        """Return True if the field requires unique values in seed data."""
-        fname = (field_def.get("name") or "").lower()
-        if fname in _IMPLICIT_UNIQUE_FIELDS:
-            return True
-        return bool(
-            field_def.get("unique")
-            or "unique" in str(field_def.get("type", "")).lower()
-            or "unique" in str(field_def.get("constraints", "")).lower()
-        )
-
-    def _seed_value_for_field(field_def: dict, index: int, entity_name: str) -> str:
-        """Return a repr()-ready seed value for a field, ensuring uniqueness when needed."""
-        fname = (field_def.get("name") if isinstance(field_def, dict) else str(field_def)) or "value"
-        fname_lower = fname.lower()
-        if fname_lower == "email" or fname_lower.endswith("_email"):
-            slug = entity_name.lower().replace(" ", "_")
-            return repr(f"{slug}_{index + 1}@example.com")
-        if fname_lower in ("username", "login", "handle"):
-            slug = entity_name.lower().replace(" ", "_")
-            return repr(f"{slug}_{index + 1}")
-        if fname_lower == "slug":
-            slug = entity_name.lower().replace(" ", "-")
-            return repr(f"{slug}-{index + 1}")
-        if fname_lower == "phone" or fname_lower.endswith("_phone"):
-            return repr(f"+1555000{index + 1:04d}")
-        if fname_lower == "file_path":
-            return repr(f"/uploads/{entity_name.lower()}_{index + 1}.bin")
-        # Generic unique field: append index
-        return repr(f"{entity_name} {fname} {index + 1}")
-
-    # Build a small sample of domain-specific records for each entity when vocabulary exists
-    entity_blocks = []
-    safe_entities = entities[:8] if entities else []
-    for ent in safe_entities:
-        name = ent.get("name", "Item")
-        table = ent.get("table", name.lower() + "s")
-        fields = ent.get("fields", []) or []
-
-        # Identify unique fields so we can enforce uniqueness in seed rows
-        unique_field_names = {
-            (f.get("name") if isinstance(f, dict) else str(f))
-            for f in fields
-            if isinstance(f, dict) and _is_unique_field(f)
-        }
-
-        # Use vocab list for this entity if available, else generic names
-        vocab_list = vocab.get(name, vocab.get(name.lower(), vocab.get(domain, [])))
-        if vocab_list:
-            sample_names = [repr(f"{prefix} {v}") for v in vocab_list[:5]]
-        else:
-            sample_names = [repr(f"{prefix} {name} {i + 1}") for i in range(5)]
-
-        # Emit a simple name-field seed if entity has a 'name' field
-        has_name_field = any(
-            (f.get("name") if isinstance(f, dict) else f) == "name" for f in fields
-        )
-        if has_name_field and sample_names:
-            rows_parts = []
-            for i, n in enumerate(sample_names):
-                # Build keyword args: name=..., plus unique fields with indexed values
-                kwargs = [f"name={n}"]
-                for field_def in fields:
-                    if not isinstance(field_def, dict):
-                        continue
-                    fn = field_def.get("name", "")
-                    if fn in unique_field_names and fn != "name":
-                        kwargs.append(f"{fn}={_seed_value_for_field(field_def, i, name)}")
-                rows_parts.append(f"            {name}({', '.join(kwargs)}),")
-            rows = "\n".join(rows_parts)
-            entity_blocks.append(
-                f"        try:\n"
-                f"            from models import {name}\n"
-                f"            db.add_all([\n{rows}\n            ])\n"
-                f"        except Exception as _e:\n"
-                f"            _logger.warning('Seed {name} failed (non-fatal): %s', _e)\n"
-            )
-
-    entity_seed_code = "\n".join(entity_blocks) if entity_blocks else "        pass  # no entity seed data"
-
-    return textwrap.dedent(f"""\
-        from __future__ import annotations
-        import os, logging
-        from sqlalchemy import select, func
-        from database import AsyncSessionLocal
-        from auth import get_password_hash
-        from models import User
-
-        _logger = logging.getLogger(__name__)
-        _ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin1234!")
-
-        async def seed_database() -> None:
-            async with AsyncSessionLocal() as db:
-                count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
-                if count > 0:
-                    return
-                admin = User(
-                    email="admin@example.com",
-                    password_hash=get_password_hash(_ADMIN_PASSWORD),
-                    role="admin",
-                    is_active=True,
-                )
-                db.add(admin)
-                await db.flush()
-        {entity_seed_code}
-                await db.commit()
-                _logger.info("Seeded admin user: admin@example.com / %s", _ADMIN_PASSWORD)
-    """)
-
-
-# Re-export _fallback_service_layer from split module (file-size limit compliance)
+# Re-exports from split modules (file-size limit compliance)
 from phases.p04a_backend_codegen.crud_generator_service import _fallback_service_layer  # noqa: F401
+from phases.p04a_backend_codegen.crud_generator_seed import _fallback_seed  # noqa: F401

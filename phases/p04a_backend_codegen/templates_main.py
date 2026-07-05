@@ -177,7 +177,7 @@ httpx>=0.27.0
 python-dotenv>=1.0.0
 slowapi>=0.1.9
 email-validator>=2.1.0
-redis>=5.0.0
+redis[asyncio]>=5.0.0
 """
 
 _DOCKERFILE = """\
