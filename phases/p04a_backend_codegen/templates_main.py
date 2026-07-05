@@ -89,6 +89,14 @@ app = FastAPI(
     root_path=os.environ.get("ROOT_PATH", ""),
 )
 
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator as _Instrumentator
+    _Instrumentator(
+        excluded_handlers=["/health", "/ready", "/metrics"]
+    ).instrument(app).expose(app, endpoint="/metrics")
+except Exception:
+    pass  # prometheus-fastapi-instrumentator not installed; /metrics will not be available
+
 if _slowapi_available:
     app.state.limiter = _limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -178,6 +186,7 @@ python-dotenv>=1.0.0
 slowapi>=0.1.9
 email-validator>=2.1.0
 redis[asyncio]>=5.0.0
+prometheus-fastapi-instrumentator>=0.9.0
 """
 
 _DOCKERFILE = """\
