@@ -63,7 +63,7 @@ except Exception as exc:
 logger = logging.getLogger(__name__)
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
-from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402
+from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe, _seed_golden_examples_if_empty  # noqa: E402
 
 _init_sentry()
 
@@ -333,6 +333,12 @@ def create_app() -> FastAPI:
             await ensure_marketplace()
         except Exception as _exc:
             logger.warning("Marketplace seeding skipped: %s", _exc)
+
+        # Seed golden build examples from JSON files if the table is empty
+        try:
+            await _seed_golden_examples_if_empty()
+        except Exception as _ge_exc:
+            logger.warning("Golden example seeding failed (non-fatal): %s", _ge_exc)
 
         # ── SQS Pipeline Consumer ─────────────────────────────────────────────
         # Long-polls aetheros-pipeline-jobs queue and executes runs off the

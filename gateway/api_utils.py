@@ -62,6 +62,62 @@ def _get_cors_origins() -> list:
     ]
 
 
+# ── Golden example seeder ─────────────────────────────────────────────────────
+
+async def _seed_golden_examples_if_empty() -> None:
+    """Seed GoldenBuild table from JSON files on disk if the table is empty.
+
+    Reads core/knowledge_graph/golden_examples/*.json (written by
+    scripts/seed_golden_examples.py) and inserts one GoldenBuild row per
+    example.  Only runs when the table contains zero rows, so it is safe
+    to call on every startup.
+    """
+    import json as _json
+    import uuid as _uuid
+    from pathlib import Path as _Path
+    from sqlalchemy import select as _select, func as _func
+    from aether_os.core.db import get_session_factory as _gsf
+    from aether_os.core.models import GoldenBuild as _GB
+
+    _sf = _gsf()
+    async with _sf() as _sess:
+        count = await _sess.scalar(_select(_func.count()).select_from(_GB))
+        if count and count > 0:
+            return  # table already populated
+
+    logger.info("GoldenBuild table empty — seeding golden examples from JSON files")
+    _examples_dir = _Path(__file__).parent.parent / "core" / "knowledge_graph" / "golden_examples"
+    if not _examples_dir.exists():
+        logger.warning("golden examples dir not found at %s — skipping seed", _examples_dir)
+        return
+
+    _rows_added = 0
+    async with _sf() as _sess:
+        for _jf in sorted(_examples_dir.glob("*.json")):
+            try:
+                _data = _json.loads(_jf.read_text())
+                _domain = _data.get("domain", _jf.stem)
+                for _ex in _data.get("examples", []):
+                    _out = _ex.get("output", {})
+                    _gb = _GB(
+                        id=str(_uuid.uuid4()),
+                        run_id=f"seed-{_ex.get('id', _uuid.uuid4())}",
+                        org_id="system",
+                        domain=_out.get("domain") or _domain,
+                        project_name=_ex.get("id", "golden_example"),
+                        prompt_summary=(_ex.get("input") or "")[:500],
+                        quality_score=float(_ex.get("quality_score", 1.0)) * 100,
+                        domain_ir_summary=_out,
+                        is_active=True,
+                    )
+                    _sess.add(_gb)
+                    _rows_added += 1
+            except Exception as _exc:
+                logger.warning("golden seed: skipping %s: %s", _jf.name, _exc)
+        await _sess.commit()
+    logger.info("Golden examples seeded successfully: %d rows from %s", _rows_added, _examples_dir)
+
+
 # ── JSON serialisation helper ──────────────────────────────────────────────────
 
 def _json_safe(obj):
