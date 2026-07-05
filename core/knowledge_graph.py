@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -34,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 # Default storage path relative to this file's package root.
 _DEFAULT_KG_PATH = Path(__file__).parent / "knowledge_graph.json"
+
+# Persistent directory for domain-specific KG files — survives server restarts.
+_KG_DOMAIN_DIR = os.environ.get(
+    "AETHER_KG_DIR",
+    os.path.join(os.path.expanduser("~"), ".aether_os", "knowledge_graphs")
+)
+Path(_KG_DOMAIN_DIR).mkdir(parents=True, exist_ok=True)
 
 _SINGLETON: Optional["KnowledgeGraph"] = None
 
@@ -321,14 +329,16 @@ class KnowledgeGraph:
         return kg
 
     def save_for_domain(self, domain: str, run_id: str) -> None:
-        """Persist entity patterns and run edges to /tmp/aetheros_knowledge_graphs/{domain}.json.
+        """Persist entity patterns and run edges to _KG_DOMAIN_DIR/{domain}.json.
 
-        Appends this run's entity patterns and edges to the domain file so future
-        runs can retrieve similar structures via load_for_domain().  Edges are stored
-        as plain dicts so the file stays JSON-serialisable without importing KGEdge.
+        Uses the persistent directory set by AETHER_KG_DIR env var (default:
+        ~/.aether_os/knowledge_graphs/).  Appends this run's entity patterns and
+        edges to the domain file so future runs can retrieve similar structures
+        via load_for_domain().  Edges are stored as plain dicts so the file stays
+        JSON-serialisable without importing KGEdge.
         """
         try:
-            kg_dir = Path("/tmp/aetheros_knowledge_graphs")
+            kg_dir = Path(_KG_DOMAIN_DIR)
             kg_dir.mkdir(parents=True, exist_ok=True)
             safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
             kg_file = kg_dir / f"{safe_domain}.json"
@@ -400,7 +410,7 @@ class KnowledgeGraph:
         via the companion load_edges_for_domain() classmethod.
         """
         try:
-            kg_dir = Path("/tmp/aetheros_knowledge_graphs")
+            kg_dir = Path(_KG_DOMAIN_DIR)
             safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
             kg_file = kg_dir / f"{safe_domain}.json"
             if not kg_file.exists():
@@ -419,7 +429,7 @@ class KnowledgeGraph:
         Malformed edges are skipped with a warning.  Returns empty list on error.
         """
         try:
-            kg_dir = Path("/tmp/aetheros_knowledge_graphs")
+            kg_dir = Path(_KG_DOMAIN_DIR)
             safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
             kg_file = kg_dir / f"{safe_domain}.json"
             if not kg_file.exists():
@@ -435,135 +445,6 @@ class KnowledgeGraph:
         except Exception as e:
             logger.warning("[kg] load_edges_for_domain failed (non-fatal): %s", e)
             return []
-
-
-# ---------------------------------------------------------------------------
-# Pre-populated fix patterns
-# ---------------------------------------------------------------------------
-
-def _seed_fix_patterns(kg: KnowledgeGraph) -> None:
-    """Write known fix patterns into the graph.
-
-    These represent engineering lessons from previous sessions:
-    - relative_import_bug  → absolute_imports_constraint
-    - missing_all_routers  → all_routers_export_rule
-    - seed_unique_violation → unique_field_pattern_constraint
-    """
-    nodes = [
-        KGNode(
-            id="relative_import_bug",
-            type=NodeType.FIX,
-            label="Relative import inside phase agent causes ImportError at runtime",
-            properties={
-                "symptom": "ImportError: attempted relative import beyond top-level package",
-                "phase": "p04a, p04b, p05",
-                "first_seen": "Session-AY",
-            },
-        ),
-        KGNode(
-            id="absolute_imports_constraint",
-            type=NodeType.CONSTRAINT,
-            label="Always use absolute imports (aether_os.core.x) inside phase agents",
-            properties={
-                "rule": "from aether_os.X import Y — never from ..X import Y",
-                "reason": "Phase agents are loaded dynamically; relative imports fail",
-            },
-        ),
-        KGNode(
-            id="missing_all_routers",
-            type=NodeType.FIX,
-            label="Generated app has no routers/__init__.py — imports fail at startup",
-            properties={
-                "symptom": "ModuleNotFoundError: No module named 'src.routers'",
-                "phase": "p04a",
-                "first_seen": "Session-AN",
-            },
-        ),
-        KGNode(
-            id="all_routers_export_rule",
-            type=NodeType.CONSTRAINT,
-            label="Every generated routers/ directory must have __init__.py exporting all routers",
-            properties={
-                "rule": "p04a must write routers/__init__.py with from .X import router",
-                "reason": "FastAPI app.include_router requires importable router objects",
-            },
-        ),
-        KGNode(
-            id="seed_unique_violation",
-            type=NodeType.FIX,
-            label="Seed data hits UNIQUE constraint because email/username not unique per row",
-            properties={
-                "symptom": "sqlalchemy.exc.IntegrityError: UNIQUE constraint failed: users.email",
-                "phase": "p04a seed.py",
-                "first_seen": "Session-BF",
-            },
-        ),
-        KGNode(
-            id="unique_field_pattern_constraint",
-            type=NodeType.CONSTRAINT,
-            label="Seed generator must use unique values for email/username fields",
-            properties={
-                "rule": "For each entity row i, use email=f'user{i}@example.com'",
-                "reason": "Duplicate emails in seed data cause IntegrityError on first run",
-            },
-        ),
-        # Additional patterns from session history
-        KGNode(
-            id="circular_fk_deadlock",
-            type=NodeType.FIX,
-            label="Circular FK reference causes seed data deadlock",
-            properties={
-                "symptom": "Cannot insert row: FK constraint fails in both directions",
-                "phase": "p02b, p04a seed.py",
-                "first_seen": "Item 1 — domain IR validator",
-            },
-        ),
-        KGNode(
-            id="nullable_fk_break_cycle",
-            type=NodeType.CONSTRAINT,
-            label="Break circular FK cycles by making one side nullable",
-            properties={
-                "rule": "If A→B and B→A, make B.a_id nullable=True so A can be inserted first",
-                "reason": "Nullable FK allows deferred insertion order resolution",
-            },
-        ),
-        KGNode(
-            id="sqlalchemy_reserved_name",
-            type=NodeType.FIX,
-            label="Entity named Base/Session/Model conflicts with SQLAlchemy internals",
-            properties={
-                "symptom": "AttributeError or mysterious ORM behaviour at startup",
-                "phase": "p02b, p04a models.py",
-                "first_seen": "Item 1 — domain IR validator D4",
-            },
-        ),
-        KGNode(
-            id="rename_reserved_entity",
-            type=NodeType.CONSTRAINT,
-            label="Rename entities that conflict with SQLAlchemy reserved names",
-            properties={
-                "rule": "Never name an entity Base, Session, Model, Query, or metadata",
-                "reason": "SQLAlchemy imports these names into the ORM namespace",
-            },
-        ),
-    ]
-
-    edges = [
-        KGEdge("relative_import_bug", "absolute_imports_constraint", EdgeType.FIXES),
-        KGEdge("missing_all_routers", "all_routers_export_rule", EdgeType.FIXES),
-        KGEdge("seed_unique_violation", "unique_field_pattern_constraint", EdgeType.FIXES),
-        KGEdge("circular_fk_deadlock", "nullable_fk_break_cycle", EdgeType.FIXES),
-        KGEdge("sqlalchemy_reserved_name", "rename_reserved_entity", EdgeType.FIXES),
-        # Cross-links
-        KGEdge("seed_unique_violation", "circular_fk_deadlock", EdgeType.RELATED_TO),
-        KGEdge("circular_fk_deadlock", "seed_unique_violation", EdgeType.RELATED_TO),
-        KGEdge("absolute_imports_constraint", "all_routers_export_rule", EdgeType.RELATED_TO),
-    ]
-
-    for node in nodes:
-        kg.add_node(node)
-    for edge in edges:
-        kg.add_edge(edge)
 
 
 # ---------------------------------------------------------------------------
@@ -586,10 +467,13 @@ def get_singleton(path: Path = _DEFAULT_KG_PATH) -> KnowledgeGraph:
     file_existed = path.exists()
     kg.load(path)
 
-    # Pre-populate with known patterns if file was absent or empty
+    # Pre-populate with known patterns if file was absent or empty.
+    # Import is deferred here to avoid a circular import (knowledge_graph_seeds
+    # imports KGNode/KGEdge/etc. from this module).
     if not file_existed or not kg.all_nodes():
         logger.info("[kg] seeding fix patterns into knowledge graph at %s", path)
-        _seed_fix_patterns(kg)
+        from aether_os.core.knowledge_graph_seeds import seed_fix_patterns  # noqa: PLC0415
+        seed_fix_patterns(kg)
         try:
             kg.save(path)
         except Exception as e:
