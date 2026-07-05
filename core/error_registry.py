@@ -60,6 +60,7 @@ class ErrorRegistry:
         phase: str,
         detail: str,
         fix_applied: bool = False,
+        run_id: str = "",
     ) -> None:
         """Append a new error entry to the registry.
 
@@ -73,12 +74,16 @@ class ErrorRegistry:
             Human-readable detail string — typically the validator error message.
         fix_applied:
             Set to True when the pipeline automatically remediated the issue.
+        run_id:
+            Optional pipeline run identifier.  Existing entries without this
+            field have an implicit run_id of "" (backwards compatible).
         """
         entry = {
             "category": category.value,
             "phase": phase,
             "detail": detail,
             "fix_applied": fix_applied,
+            "run_id": run_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         try:
@@ -122,6 +127,21 @@ class ErrorRegistry:
                 by_category[cat]["fix_count"] += 1
 
         return {"by_category": by_category, "total": len(entries)}
+
+    def get_for_run(self, run_id: str) -> List[Dict]:
+        """Return all error entries for a specific run_id.
+
+        Entries recorded before this field existed (run_id absent or "") are
+        excluded.  Returns an empty list when run_id is blank or not found.
+        """
+        if not run_id:
+            return []
+        try:
+            entries = self._load()
+        except Exception as exc:
+            logger.warning("[error_registry] get_for_run() load failed: %s", exc)
+            return []
+        return [e for e in entries if e.get("run_id") == run_id]
 
     def mark_fixed(self, category: ErrorCategory, fix_description: str) -> None:
         """Append a fix-record entry for a previously seen category.
