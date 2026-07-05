@@ -137,6 +137,48 @@ def build_dag(phases: List[str]) -> Dict[str, List[str]]:
     return dag
 
 
+def _detect_cycle(deps: Dict[str, List[str]]) -> List[str] | None:
+    """Return a cycle path if one exists in *deps*, else None.
+
+    Uses iterative DFS with WHITE/GRAY/BLACK colouring to avoid Python
+    recursion limits on large dependency graphs.
+    """
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {n: WHITE for n in deps}
+    parent: Dict[str, str] = {}
+
+    for start_node in list(deps.keys()):
+        if color.get(start_node, WHITE) != WHITE:
+            continue
+        # Iterative DFS using an explicit stack.
+        # Stack items: (node, iterator_over_neighbors, already_colored_gray)
+        stack: list = [(start_node, iter(deps.get(start_node, [])), False)]
+        while stack:
+            node, neighbors_iter, entered = stack[-1]
+            if not entered:
+                color[node] = GRAY
+                stack[-1] = (node, neighbors_iter, True)
+            try:
+                neighbor = next(neighbors_iter)
+            except StopIteration:
+                color[node] = BLACK
+                stack.pop()
+                continue
+            nbr_color = color.get(neighbor, WHITE)
+            if nbr_color == GRAY:
+                # Back-edge found — reconstruct the cycle path
+                cycle = [neighbor, node]
+                cur = node
+                while parent.get(cur) and parent.get(cur) != neighbor:
+                    cur = parent[cur]
+                    cycle.append(cur)
+                return cycle
+            if nbr_color == WHITE:
+                parent[neighbor] = node
+                stack.append((neighbor, iter(deps.get(neighbor, [])), False))
+    return None
+
+
 def get_execution_waves(phases: List[str]) -> List[List[str]]:
     """Topological sort returning waves of phases that can run in parallel.
 
@@ -169,6 +211,12 @@ def get_execution_waves(phases: List[str]) -> List[List[str]]:
         return []
 
     dag = build_dag(phases)
+
+    # DFS cycle detection before Kahn's sort — prevents silent hangs on misconfiguration.
+    cycle = _detect_cycle(dag)
+    if cycle is not None:
+        logger.error("[phase_dag] Cycle detected in PHASE_DEPENDENCIES: %s", cycle)
+        raise ValueError(f"Cycle detected in PHASE_DEPENDENCIES: {cycle}")
 
     # In-degree: number of unresolved dependencies per phase.
     in_degree: Dict[str, int] = {p: len(dag[p]) for p in phases}
