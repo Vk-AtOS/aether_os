@@ -45,9 +45,14 @@ class ConflictResolver:
                 "conflict_free": result.get("conflict_free", True),
                 "engine": "conflict_resolver",
             }
-        except Exception as exc:
-            logger.warning("ConflictResolver detect failed: %s", exc)
-            return {"conflicts": [], "conflict_free": True, "engine": "conflict_resolver", "error": str(exc)}
+        except Exception as e:
+            logger.warning("conflict_resolver LLM unavailable, using static fallback: %s", e)
+            return {
+                "conflicts": [],
+                "conflict_free": True,
+                "engine": "static_fallback",
+                "note": "LLM unavailable — static fallback assumes no conflicts",
+            }
 
     async def resolve(self, conflict_id: str, resolution: str, run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
         """Record a human-provided resolution for a conflict."""

@@ -40,9 +40,14 @@ class TruthEngine:
                 "unaddressed": result.get("unaddressed", []),
                 "engine": "truth_engine",
             }
-        except Exception as exc:
-            logger.warning("TruthEngine validate failed: %s", exc)
-            return {"coverage": [], "coverage_percent": 80, "unaddressed": [], "engine": "truth_engine", "error": str(exc)}
+        except Exception as e:
+            logger.warning("truth_engine LLM unavailable, using static fallback: %s", e)
+            return {
+                "coverage": [],
+                "coverage_percent": 0,
+                "unaddressed": ["LLM unavailable — run manual review"],
+                "engine": "static_fallback",
+            }
 
     async def audit_run(self, run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
         """Load run data and validate requirements vs output."""

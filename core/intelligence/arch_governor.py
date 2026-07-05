@@ -43,9 +43,15 @@ class ArchGovernor:
                 "compliance_score": result.get("compliance_score", 80),
                 "engine": "arch_governor",
             }
-        except Exception as exc:
-            logger.warning("ArchGovernor review failed: %s", exc)
-            return {"violations": [], "compliant": True, "compliance_score": 80, "engine": "arch_governor", "error": str(exc)}
+        except Exception as e:
+            logger.warning("arch_governor LLM unavailable, using static fallback: %s", e)
+            return {
+                "violations": [],
+                "compliant": True,
+                "compliance_score": 0.5,
+                "engine": "static_fallback",
+                "note": "LLM unavailable — static fallback assumes compliance",
+            }
 
     async def enforce(
         self,
