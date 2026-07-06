@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Redirecting to VKatOS Portal…</title>
-<meta http-equiv="refresh" content="2;url=https://app.vkatos.com"/>
+<title>Redirecting to VKatOS Login…</title>
+<meta http-equiv="refresh" content="0;url=/login/"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400&family=DM+Mono:wght@400&display=swap" onload="this.onload=null;this.rel='stylesheet'">
@@ -130,17 +130,15 @@ p {
 
 <div class="card">
   <div class="spinner"></div>
-  <h1>Redirecting to your portal…</h1>
-  <p>You are being redirected to the VKatOS client portal. This will happen automatically in a moment.</p>
-  <a href="https://app.vkatos.com" class="direct-link">Go to portal now →</a>
-  <div class="note">app.vkatos.com</div>
+  <h1>Redirecting to login…</h1>
+  <p>You are being redirected to the VKatOS login page. This will happen automatically in a moment.</p>
+  <a href="/login/" class="direct-link">Go to login now →</a>
+  <div class="note">vkatos.com/login/</div>
 </div>
 
 <script>
   // Immediate JS redirect as fallback — meta refresh handles most cases
-  setTimeout(function() {
-    window.location.href = 'https://app.vkatos.com';
-  }, 1500);
+  window.location.replace('/login/');
 </script>
 </body>
 </html>
