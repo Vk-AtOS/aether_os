@@ -8,7 +8,9 @@ Token signing uses RS256 (asymmetric RSA-2048):
 Key loading priority:
   1. AETHER_JWT_PRIVATE_KEY_B64 / AETHER_JWT_PUBLIC_KEY_B64  (base64-encoded PEM in env var — recommended)
   2. AETHER_JWT_PRIVATE_KEY_PATH / AETHER_JWT_PUBLIC_KEY_PATH (path to PEM files on disk)
-  3. AETHER_SECRET_KEY fallback → HS256 (legacy; logs a deprecation warning on startup)
+
+HS256 fallback has been REMOVED. The server will refuse to start if RS256 keys are not
+configured. This prevents silent key downgrade attacks.
 
 Generate a new keypair:
   openssl genrsa -out jwt_private.pem 2048
@@ -35,33 +37,42 @@ logger = logging.getLogger(__name__)
 # ── Algorithm selection ────────────────────────────────────────────────────────
 
 _ALG_RS256 = "RS256"
-_ALG_HS256 = "HS256"  # legacy fallback only
+_ALG_HS256 = "HS256"  # kept for decode-only migration path (verify old tokens)
 
 
-def _load_rsa_keys() -> Tuple[Optional[Any], Optional[Any], str]:
+def _load_rsa_keys() -> Tuple[Any, Any, str]:
     """
-    Returns (private_key_or_secret, public_key_or_secret, algorithm).
-    Prefers RS256 with RSA keys; falls back to HS256 with AETHER_SECRET_KEY.
+    Returns (private_key, public_key, algorithm="RS256").
+
+    Tries two sources in order:
+      1. AETHER_JWT_PRIVATE_KEY_B64 / AETHER_JWT_PUBLIC_KEY_B64 (base64-encoded PEM in env)
+      2. AETHER_JWT_PRIVATE_KEY_PATH / AETHER_JWT_PUBLIC_KEY_PATH (PEM file paths)
+
+    Raises RuntimeError if neither source works — the server must not start without
+    valid RS256 keys. The HS256 fallback has been removed to prevent silent downgrade.
     """
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
+
     # Priority 1: base64-encoded PEM in env vars (production recommended)
     priv_b64 = os.environ.get("AETHER_JWT_PRIVATE_KEY_B64", "")
     pub_b64 = os.environ.get("AETHER_JWT_PUBLIC_KEY_B64", "")
     if priv_b64 and pub_b64:
         try:
-            from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
             private_key = load_pem_private_key(base64.b64decode(priv_b64), password=None)
             public_key = load_pem_public_key(base64.b64decode(pub_b64))
             logger.info("JWT: RS256 enabled (keys from AETHER_JWT_*_KEY_B64 env vars)")
             return private_key, public_key, _ALG_RS256
         except Exception as exc:
-            logger.error("JWT: Failed to load RS256 keys from B64 env vars: %s — falling back to HS256", exc)
+            raise RuntimeError(
+                f"JWT: AETHER_JWT_PRIVATE_KEY_B64 / AETHER_JWT_PUBLIC_KEY_B64 are set but "
+                f"could not be loaded: {exc}. Fix the key values or unset them to use file-path keys."
+            ) from exc
 
     # Priority 2: PEM files on disk
     priv_path = os.environ.get("AETHER_JWT_PRIVATE_KEY_PATH", "")
     pub_path = os.environ.get("AETHER_JWT_PUBLIC_KEY_PATH", "")
     if priv_path and pub_path:
         try:
-            from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
             with open(priv_path, "rb") as f:
                 private_key = load_pem_private_key(f.read(), password=None)
             with open(pub_path, "rb") as f:
@@ -69,22 +80,16 @@ def _load_rsa_keys() -> Tuple[Optional[Any], Optional[Any], str]:
             logger.info("JWT: RS256 enabled (keys from file paths)")
             return private_key, public_key, _ALG_RS256
         except Exception as exc:
-            logger.error("JWT: Failed to load RS256 keys from files: %s — falling back to HS256", exc)
-
-    # Priority 3: HS256 legacy fallback
-    hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
-    if hs_secret:
-        logger.warning(
-            "JWT: Using HS256 (AETHER_SECRET_KEY). "
-            "Upgrade to RS256 by setting AETHER_JWT_PRIVATE_KEY_B64 and AETHER_JWT_PUBLIC_KEY_B64. "
-            "HS256 is symmetric — the signing secret must never leave the server."
-        )
-        return hs_secret, hs_secret, _ALG_HS256
+            raise RuntimeError(
+                f"JWT: AETHER_JWT_PRIVATE_KEY_PATH / AETHER_JWT_PUBLIC_KEY_PATH are set but "
+                f"could not be loaded: {exc}. Check file permissions and PEM format."
+            ) from exc
 
     raise RuntimeError(
-        "JWT keys not configured. Set AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 "
-        "(RS256, recommended) or AETHER_SECRET_KEY (HS256, legacy). "
-        "See .env.example for instructions."
+        "JWT RS256 keys not configured. Set one of:\n"
+        "  AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 (base64-encoded PEM, recommended)\n"
+        "  AETHER_JWT_PRIVATE_KEY_PATH + AETHER_JWT_PUBLIC_KEY_PATH (path to PEM files)\n"
+        "See .env.example for instructions. HS256 fallback has been removed."
     )
 
 
@@ -185,30 +190,40 @@ def create_access_token(
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Decode and verify a JWT. Returns None if expired or invalid.
-    Accepts both RS256 (current) and HS256 (legacy) tokens during migration.
+
+    Only RS256 is accepted for new tokens. HS256 is tried as a last resort only
+    when AETHER_SECRET_KEY is present, to allow a seamless migration window for
+    tokens issued before the RS256 upgrade. Once all tokens have naturally expired
+    (default: 1 hour after upgrade) the HS256 path becomes dead code.
     """
-    alg = get_algorithm()
-    # When RS256 is active, also try HS256 for tokens issued before the migration.
-    algorithms = [alg, _ALG_HS256] if alg == _ALG_RS256 else [_ALG_HS256]
-
-    last_exc: Optional[Exception] = None
-    for algorithm in algorithms:
-        verify_key = _get_verify_key() if algorithm == _ALG_RS256 else os.environ.get("AETHER_SECRET_KEY", "")
-        try:
-            return _jwt.decode(token, verify_key, algorithms=[algorithm])
-        except _jwt.exceptions.ExpiredSignatureError:
-            logger.warning("JWT decode: token expired (alg=%s)", algorithm)
-            return None
-        except _jwt.exceptions.PyJWTError as exc:
-            last_exc = exc
-            continue
-        except Exception as exc:
-            logger.debug("JWT decode: unexpected error with alg %s: %s", algorithm, exc)
-            last_exc = exc
-            continue
-
-    logger.warning("JWT decode: all algorithms failed — %s", last_exc)
-    return None
+    verify_key = _get_verify_key()
+    try:
+        return _jwt.decode(token, verify_key, algorithms=[_ALG_RS256])
+    except _jwt.exceptions.ExpiredSignatureError:
+        logger.warning("JWT decode: token expired")
+        return None
+    except _jwt.exceptions.PyJWTError:
+        # Token may have been issued under the old HS256 key — try migration path
+        hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
+        if hs_secret:
+            try:
+                payload = _jwt.decode(token, hs_secret, algorithms=[_ALG_HS256])
+                logger.info("JWT decode: accepted legacy HS256 token (migration window)")
+                return payload
+            except _jwt.exceptions.ExpiredSignatureError:
+                logger.warning("JWT decode: legacy HS256 token expired")
+                return None
+            except _jwt.exceptions.PyJWTError as exc:
+                logger.warning("JWT decode: RS256 and HS256 both failed — %s", exc)
+                return None
+            except Exception as exc:
+                logger.warning("JWT decode: unexpected error on HS256 fallback — %s", exc)
+                return None
+        logger.warning("JWT decode: RS256 decode failed and no AETHER_SECRET_KEY for migration")
+        return None
+    except Exception as exc:
+        logger.warning("JWT decode: unexpected error — %s", exc)
+        return None
 
 
 def verify_token_dependency(token: str) -> Dict[str, Any]:
