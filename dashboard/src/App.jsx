@@ -39,6 +39,7 @@ const Deployments       = React.lazy(() => import('./pages/Deployments'));
 const SystemHealth      = React.lazy(() => import('./pages/SystemHealth'));
 const Guardian          = React.lazy(() => import('./pages/Guardian'));
 const Signup            = React.lazy(() => import('./pages/Signup'));
+const ForgotPassword    = React.lazy(() => import('./pages/ForgotPassword'));
 const Pricing           = React.lazy(() => import('./pages/Pricing'));
 const Agents            = React.lazy(() => import('./pages/Agents'));
 const GlobalPatternsTuning = React.lazy(() => import('./pages/GlobalPatternsTuning'));
@@ -86,6 +87,7 @@ function App() {
       <Route path="/signin"  element={<Navigate to="/login" replace />} />
       <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
       <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={null}><Signup /></Suspense></ErrorBoundary>} />
+      <Route path="/forgot-password" element={<ErrorBoundary><Suspense fallback={null}><ForgotPassword /></Suspense></ErrorBoundary>} />
       <Route path="/pricing" element={<ErrorBoundary><Suspense fallback={null}><Pricing /></Suspense></ErrorBoundary>} />
       <Route path="/legal"   element={<ErrorBoundary><Suspense fallback={null}><Legal /></Suspense></ErrorBoundary>} />
       <Route path="/auth/callback" element={<OAuthCallback />} />
