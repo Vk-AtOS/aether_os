@@ -18,12 +18,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aether_os.orchestrator.bus import get_bus, release_bus
 from aether_os.orchestrator.context_schema import assert_context
-from aether_os.orchestrator.messages import PhaseInput, PhaseMessage, PhaseResult
-from aether_os.orchestrator.state_machine import (
-    PipelineStateMachine, PipelineState, PHASE_TO_STATE,
-)
+from aether_os.orchestrator.messages import PhaseInput
 from aether_os.orchestrator.events import (
     ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID, emit,
 )
@@ -63,6 +59,12 @@ from aether_os.orchestrator.phase_selector import (
     select_phases,
     resolve_change_request_phase,
     restore_from_checkpoint,
+)
+from aether_os.orchestrator.phase_hooks import run_phase_hooks
+from aether_os.orchestrator import messages as _messages_module
+from aether_os.orchestrator.pipeline_completion import (
+    persist_finished_at,
+    schedule_completion_tasks,
 )
 
 logger = logging.getLogger(__name__)
@@ -640,441 +642,27 @@ class FactoryPipeline:
                 # Persist checkpoint after every phase so a crashed run can resume
                 await save_checkpoint(run_id, phase_name, accumulated_context)
 
-                # After p07_testing: Quality Gate (Fix 9)
-                if phase_name == "p07_testing":
-                    from aether_os.core.quality.metrics import score_project
-                    from aether_os.core.errors import PipelineBlockedError
-                    
-                    for attempt in range(1, 4):
-                        quality = score_project(project_dir)
-                        if quality.total >= 80:
-                            logger.info("[quality] Gate passed: %.1f%%", quality.total)
-                            await emit({"type": "quality_gate_passed", "score": quality.total}, run_id=run_id)
-                            break
-                        
-                        if attempt < 3:
-                            msg = f"Quality score {quality.total:.1f}% < 80% — running self-healing attempt {attempt}/3"
-                            logger.info("[quality] %s", msg)
-                            await emit({"type": "llm_chunk", "phase": "quality_gate", "text": msg}, run_id=run_id)
-                            # Re-run p07b_self_healing to try and improve quality
-                            await self._run_phase("p07b_self_healing", phase_input)
-                        else:
-                            logger.error("[quality] Gate failed after 3 attempts. Final score: %.1f%%", quality.total)
-                            # Fix 16: notify run owner — self_healing_exhausted
-                            if org_id:
-                                async def _notify_self_healing_exhausted(_rid=run_id, _oid=org_id, _pname=accumulated_context.get("project_name") or f"run-{run_id[:8]}"):
-                                    try:
-                                        from aether_os.core.db import get_session_factory as _gsf_she
-                                        from aether_os.core.models import Notification as _Notif_she
-                                        _notif_she = _Notif_she(
-                                            org_id=_oid,
-                                            type="self_healing_exhausted",
-                                            title=f"⚠ Self-healing exhausted for {_pname}",
-                                            message="All 3 self-healing attempts failed. Quality gate not met.",
-                                            link=f"/dashboard/runs/{_rid}",
-                                        )
-                                        async with _gsf_she()() as _s_she:
-                                            _s_she.add(_notif_she)
-                                            await _s_she.commit()
-                                    except Exception as _ne_she:
-                                        logger.debug("[pipeline] self_healing_exhausted notification failed: %s", _ne_she)
-                                _she_t = asyncio.create_task(_notify_self_healing_exhausted())
-                                self._background_tasks.add(_she_t)
-                                _she_t.add_done_callback(self._background_tasks.discard)
-                            raise PipelineBlockedError(
-                                f"Quality gate failed after 3 improvement attempts. Final score: {quality.total:.1f}%"
-                            )
-
-                # If p11_deployment produced a live_url, persist it to the runs table
-                if phase_name == "p11_deployment":
-                    _live_url = phase_result.get("metadata", {}).get("live_url")
-                    if _live_url:
-                        try:
-                            from aether_os.core.db import get_session_factory as _gsf_fp
-                            from aether_os.core.models import Run as _Run_fp
-                            from sqlalchemy import update as _sa_upd_fp
-                            async with _gsf_fp()() as _sess_fp:
-                                await _sess_fp.execute(
-                                    _sa_upd_fp(_Run_fp).where(_Run_fp.id == run_id).values(live_url=_live_url)
-                                )
-                                await _sess_fp.commit()
-                            accumulated_context["live_url"] = _live_url
-                        except Exception as _e:
-                            logger.warning("Could not persist live_url: %s", _e)
-
-                # After p01 completes, extract project name from intake JSON
-                if phase_name == "p01_intake_requirements":
-                    import json as _json_p01
-                    _intake_path = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
-                    try:
-                        if _intake_path.exists():
-                            _intake = _json_p01.loads(_intake_path.read_text())
-                            _client_id = _intake.get("client_id", "")
-                            if _client_id and _client_id != "unknown":
-                                from aether_os.core.db import get_session_factory as _gsf_p01
-                                from aether_os.core.models import Run as _Run_p01
-                                from sqlalchemy import update as _sa_up_p01
-                                async with _gsf_p01()() as _s_p01:
-                                    await _s_p01.execute(
-                                        _sa_up_p01(_Run_p01)
-                                        .where(_Run_p01.id == run_id)
-                                        .values(project_name=_client_id.replace("-", " ").replace("_", " ").title())
-                                    )
-                                    await _s_p01.commit()
-                                accumulated_context["project_name"] = _client_id
-                                logger.info("[pipeline] project_name updated from p01: %s", _client_id)
-                    except Exception as _exc_p01:
-                        logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
-
-                    # Spec review gate: pause here if decision_mode != "autonomous"
-                    # Gate logic + LLM pre-critique extracted to spec_review_gate.py
-                    if accumulated_context.get("decision_mode") != "autonomous":
-                        try:
-                            from aether_os.orchestrator.spec_review_gate import run_spec_review_gate
-                            await run_spec_review_gate(
-                                run_id=run_id,
-                                accumulated_context=accumulated_context,
-                                emit_fn=emit,
-                                get_control_fn=get_control,
-                                set_control_fn=set_control,
-                                publish_event_fn=publish_event,
-                            )
-                        except RuntimeError:
-                            raise
-                        except Exception as _sr_exc:
-                            logger.warning("[pipeline] Spec review gate error (non-fatal): %s", _sr_exc)
-
-                # After p00_research: read build_profile from design_brief.json
-                # and store in accumulated_context so all downstream phases
-                # receive the stack selection without re-running classification.
-                if phase_name == "p00_research":
-                    import json as _json_p00
-                    _brief_path = project_dir / "p00_research" / "design_brief.json"
-                    if _brief_path.exists():
-                        try:
-                            _brief = _json_p00.loads(_brief_path.read_text())
-                            _bp = _brief.get("build_profile")
-                            if _bp:
-                                accumulated_context["build_profile"] = _bp
-                                logger.info(
-                                    "[pipeline] build_profile loaded: %s (backend=%s, arch=%s)",
-                                    _bp.get("name"), _bp.get("backend_lang"),
-                                    _bp.get("architecture"),
-                                )
-                        except Exception as _e:
-                            logger.warning("[pipeline] Failed to load build_profile from design_brief: %s", _e)
-                        # Propagate domain_knowledge so P01/P02/P04/P06 receive it
-                        try:
-                            _dk = _brief.get("domain_knowledge")
-                            if _dk:
-                                accumulated_context["domain_knowledge"] = _dk
-                                logger.info(
-                                    "[pipeline] domain_knowledge propagated: domain=%s, entities=%d",
-                                    _dk.get("domain"), len(_dk.get("entity_names", [])),
-                                )
-                        except Exception as _e:
-                            logger.warning("[pipeline] Failed to propagate domain_knowledge: %s", _e)
-
-                # After p00c: read service_map.json and store in accumulated_context.
-                # go_generator and node_generator use this to produce N service dirs
-                # instead of a single monolith when architecture == "microservices".
-                if phase_name == "p00c_architecture_planner":
-                    import json as _json_p00c
-                    _sm_path = project_dir / "p00c_architecture_planner" / "service_map.json"
-                    if _sm_path.exists():
-                        try:
-                            _sm = _json_p00c.loads(_sm_path.read_text())
-                            if _sm.get("services"):
-                                accumulated_context["service_map"] = _sm
-                                logger.info(
-                                    "[pipeline] service_map loaded: %d services, bus=%s",
-                                    len(_sm["services"]),
-                                    _sm.get("message_bus", ""),
-                                )
-                        except Exception as _e:
-                            logger.warning("[pipeline] Failed to load service_map: %s", _e)
-
-                # Eagerly load architecture.json after p02 so all downstream
-                # phases receive it via data.get("architecture_json", {}).
-                if phase_name == "p02_architecture":
-                    import json as _json
-                    # Try the explicit output_path first, then scan the phase dir
-                    _arch_candidates = []
-                    _op = phase_result.get("output_path", "")
-                    if _op:
-                        _arch_candidates.append(Path(_op))
-                    _phase_dir = project_dir / "p02_architecture"
-                    _arch_candidates.append(_phase_dir / "architecture.json")
-                    for _cand in _arch_candidates:
-                        if _cand.exists():
-                            try:
-                                accumulated_context["architecture_json"] = _json.loads(
-                                    _cand.read_text()
-                                )
-                                accumulated_context["p02_architecture_path"] = str(_cand)
-                                logger.info("[pipeline] architecture_json loaded from %s", _cand)
-                                break
-                            except Exception as _e:
-                                logger.warning("[pipeline] Failed to load architecture_json from %s: %s",
-                                               _cand, _e)
-                    else:
-                        logger.warning("[pipeline] architecture.json not found after p02 — "
-                                       "downstream phases will use their own fallbacks")
-
-                # Load integration_map.json after p01b so all downstream phases receive it
-                if phase_name == "p01b_integration_discovery":
-                    import json as _json_p01b
-                    _p01b_dir = project_dir / "p01b_integration_discovery"
-                    _imap_path = _p01b_dir / "integration_map.json"
-                    if _imap_path.exists():
-                        try:
-                            accumulated_context["integration_map"] = _json_p01b.loads(_imap_path.read_text())
-                            logger.info("[pipeline] integration_map loaded from %s", _imap_path)
-                        except Exception as _e:
-                            logger.warning("[pipeline] Failed to load integration_map: %s", _e)
-
-                # Load permission_model.json after p02c so all downstream phases receive it
-                if phase_name == "p02c_permission_modeling":
-                    import json as _json_p02c
-                    _p02c_dir = project_dir / "p02c_permission_modeling"
-                    _perm_path = _p02c_dir / "permission_model.json"
-                    if _perm_path.exists():
-                        try:
-                            accumulated_context["permission_model"] = _json_p02c.loads(_perm_path.read_text())
-                            logger.info("[pipeline] permission_model loaded from %s", _perm_path)
-                        except Exception as _e:
-                            logger.warning("[pipeline] Failed to load permission_model: %s", _e)
-
-                # Load domain_ir.json after p02b so all downstream phases receive it
-                if phase_name == "p02b_domain_ir":
-                    import json as _json
-                    _ir_path_str = (
-                        phase_result.get("metadata", {}).get("domain_ir_path", "")
-                        or phase_result.get("output_path", "")
-                    )
-                    _ir_candidates = []
-                    if _ir_path_str:
-                        _ir_candidates.append(Path(_ir_path_str))
-                    _ir_candidates.append(project_dir / "p02b_domain_ir" / "domain_ir.json")
-                    for _cand in _ir_candidates:
-                        if _cand.exists():
-                            try:
-                                accumulated_context["domain_ir_path"] = str(_cand)
-                                logger.info("[pipeline] domain_ir_path loaded from %s", _cand)
-                                break
-                            except Exception as _e:
-                                logger.warning("[pipeline] Failed to load domain_ir from %s: %s", _cand, _e)
-
-                # GraphRAG: build knowledge graph from architecture JSON after p02
-                if phase_name == "p02_architecture":
-                    try:
-                        from aether_os.core.memory.knowledge_graph import KnowledgeGraph as _KG
-                        _arch = accumulated_context.get("architecture_json", {})
-                        _kg = _KG()
-                        _domain = accumulated_context.get("domain", "general")
-                        _kg.add_node("domain", "Domain", {"name": _domain})
-                        _ts = _arch.get("tech_stack", {})
-                        for _k, _v in _ts.items():
-                            _nid = f"tech:{_k}:{_v}"
-                            _kg.add_node(_nid, "Technology", {"layer": _k, "choice": _v})
-                            _kg.add_edge("domain", _nid, "USES")
-                        for _ep in _arch.get("api_endpoints", [])[:20]:
-                            _eid = f"endpoint:{_ep.get('method','GET')}:{_ep.get('path','/')}"
-                            _kg.add_node(_eid, "Endpoint", {"method": _ep.get("method"), "path": _ep.get("path"), "auth": _ep.get("auth")})
-                            _kg.add_edge("domain", _eid, "IMPLEMENTS")
-                        for _tbl in _arch.get("database_schema", [])[:15]:
-                            _mid = f"model:{_tbl.get('table', _tbl.get('name',''))}"
-                            _kg.add_node(_mid, "Model", {"table": _tbl.get("table", _tbl.get("name")), "columns": len(_tbl.get("columns", []))})
-                            _kg.add_edge("domain", _mid, "DEPENDS_ON")
-                        # Store compact graph context for downstream phases
-                        _endpoints = [f"{e.get('method')} {e.get('path')}" for e in _arch.get("api_endpoints", [])[:10]]
-                        _models = [t.get("table", t.get("name")) for t in _arch.get("database_schema", [])[:8]]
-                        accumulated_context["graph_context"] = {
-                            "domain": _domain,
-                            "tech_stack": _ts,
-                            "endpoints": _endpoints,
-                            "models": _models,
-                            "graph_stats": _kg.stats(),
-                        }
-                        # Persist graph for this run
-                        _kg_path = str(project_dir / "knowledge_graph.gpickle")
-                        _kg.persist(_kg_path)
-                        accumulated_context["knowledge_graph_path"] = _kg_path
-                        logger.info("[RAG] Knowledge graph built: %d nodes, %d endpoints, %d models",
-                                    _kg.stats()["node_count"], len(_endpoints), len(_models))
-                    except Exception as _kg_exc:
-                        logger.warning("[RAG] Knowledge graph build failed: %s", _kg_exc)
-
-                # After p04_backend: merge generated code into p03 scaffolding tree (S11 fix)
-                if phase_name == "p04_backend":
-                    import shutil as _shutil
-                    _p04_src = project_dir / "p04_backend" / "backend_codegen" / "src"
-                    # Find the scaffolding directory (first subdir of p03_scaffolding)
-                    _p03_dir = project_dir / "p03_scaffolding"
-                    _scaffold_dirs = [d for d in _p03_dir.iterdir() if d.is_dir()] if _p03_dir.exists() else []
-                    if _p04_src.exists() and _scaffold_dirs:
-                        _scaffold_root = _scaffold_dirs[0]
-                        _dest_src = _scaffold_root / "src"
-                        _dest_src.mkdir(parents=True, exist_ok=True)
-                        # Copy entire tree (including routers/, middleware/ subdirs)
-                        _shutil.copytree(str(_p04_src), str(_dest_src), dirs_exist_ok=True,
-                                         ignore=_shutil.ignore_patterns("__pycache__", "*.pyc"))
-                        logger.info("[pipeline] S11: merged p04 src tree → %s", _dest_src)
-                        # Also expose the merged src path for downstream phases
-                        accumulated_context["backend_src_dir"] = str(_dest_src)
-                        accumulated_context["backend_main_py"] = str(_dest_src / "main.py")
-                    else:
-                        # Fallback: expose p04 src directly
-                        if _p04_src.exists():
-                            accumulated_context["backend_src_dir"] = str(_p04_src)
-                            accumulated_context["backend_main_py"] = str(_p04_src / "main.py")
-
-                    # Propagate api_routes.json path so p05 can wire real endpoints
-                    _routes_candidate = project_dir / "p04_backend" / "backend_codegen" / "api_routes.json"
-                    if not _routes_candidate.exists():
-                        _routes_candidate = project_dir / "p04_backend" / "api_routes.json"
-                    if _routes_candidate.exists():
-                        accumulated_context["api_routes_path"] = str(_routes_candidate)
-                        logger.info("[pipeline] api_routes_path → %s", _routes_candidate)
-
-                    # Pattern library injection — apply matching code patterns
-                    # (WebSocket, file upload, Stripe, RBAC) based on domain IR
-                    try:
-                        from aether_os.phases.patterns import PatternSelector as _PS
-                        _ir_for_patterns = accumulated_context.get("domain_ir", {})
-                        if not _ir_for_patterns:
-                            _ir_path_for_patterns = accumulated_context.get("domain_ir_path", "")
-                            if _ir_path_for_patterns:
-                                import json as _j
-                                from pathlib import Path as _P
-                                try:
-                                    _ir_for_patterns = _j.loads(_P(_ir_path_for_patterns).read_text())
-                                except Exception as exc:
-                                    logger.debug("Pattern library: failed to read domain_ir file (non-fatal): %s", exc)
-                        if _ir_for_patterns:
-                            _ps = _PS(_ir_for_patterns)
-                            _applied = _ps.apply_all(project_dir)
-                            if _applied:
-                                accumulated_context["applied_patterns"] = list(_applied.keys())
-                                logger.info("[pipeline] Pattern library: applied %s", list(_applied.keys()))
-                    except Exception as _pat_exc:
-                        logger.warning("[pipeline] Pattern library injection failed (non-fatal): %s", _pat_exc)
-
-                    # BackendAuditCouncil — blocking re-generation feedback loop.
-                    # If avg_score < threshold, council issues are injected into
-                    # accumulated_context and p04_backend re-runs (max 2 retries).
-                    _BAC_THRESHOLD = float(os.environ.get("COUNCIL_THRESHOLD", "0.70"))
-                    _bac_main_candidates = [
-                        project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
-                        project_dir / "p04_backend" / "src" / "main.py",
-                        project_dir / "src" / "main.py",
-                    ]
-                    _bac_main_py = next((p for p in _bac_main_candidates if p.exists()), None)
-                    if _bac_main_py:
-                        for _bac_attempt in range(3):  # initial review + max 2 re-gens
-                            try:
-                                from aether_os.core.council.council_reviewer import run_council
-                                import json as _bac_cj
-                                from dataclasses import asdict as _bac_asdict
-                                _bac_src = _bac_main_py.read_text()
-                                _bac_report = await asyncio.wait_for(
-                                    run_council(
-                                        _bac_src, run_id,
-                                        accumulated_context.get("project_name", "Project"),
-                                        domain or "general",
-                                    ),
-                                    timeout=90.0,
-                                )
-                                _bac_report_dict = _bac_asdict(_bac_report)
-                                (project_dir / "council_review.json").write_text(
-                                    _bac_cj.dumps(_bac_report_dict, indent=2)
-                                )
-                                accumulated_context["council_review"] = _bac_report_dict
-                                await emit({
-                                    "type": "council_review_complete",
-                                    "score": _bac_report.average_score,
-                                    "issues": len(_bac_report.consensus_issues),
-                                    "attempt": _bac_attempt + 1,
-                                }, run_id=run_id)
-                                logger.info(
-                                    "[BackendAuditCouncil] run %s attempt %d: avg_score=%.2f issues=%d",
-                                    run_id, _bac_attempt + 1,
-                                    _bac_report.average_score, len(_bac_report.consensus_issues),
-                                )
-
-                                if _bac_report.average_score >= _BAC_THRESHOLD or _bac_attempt >= 2:
-                                    break  # score acceptable or retry cap reached
-
-                                # Score below threshold — inject issues and re-run p04_backend
-                                _bac_issues_text = "\n".join(
-                                    f"- {iss}" for iss in (_bac_report.consensus_issues or [])
-                                )
-                                accumulated_context["council_feedback"] = (
-                                    f"BackendAuditCouncil scored {_bac_report.average_score:.2f}/1.0 "
-                                    f"(attempt {_bac_attempt + 1}). Fix before generating:\n"
-                                    f"{_bac_issues_text}"
-                                )
-                                await emit({
-                                    "type": "council_p04_retry",
-                                    "attempt": _bac_attempt + 1,
-                                    "score": _bac_report.average_score,
-                                }, run_id=run_id)
-                                logger.info(
-                                    "[BackendAuditCouncil] score %.2f < %.2f — re-running p04_backend (retry %d/2)",
-                                    _bac_report.average_score, _BAC_THRESHOLD, _bac_attempt + 1,
-                                )
-                                _bac_retry_input = PhaseInput(
-                                    run_id=run_id,
-                                    project_id=run_id,
-                                    phase="p04_backend",
-                                    input_data=accumulated_context,
-                                    output_dir=str(project_dir),
-                                    domain=domain,
-                                    client_id=client_id,
-                                )
-                                try:
-                                    _bac_retry_result = await asyncio.wait_for(
-                                        self._run_phase("p04_backend", _bac_retry_input),
-                                        timeout=600.0,
-                                    )
-                                    results["p04_backend"] = _bac_retry_result
-                                    # Re-do S11 merge so downstream phases see improved code
-                                    import shutil as _bac_shutil
-                                    _bac_p04_src = project_dir / "p04_backend" / "backend_codegen" / "src"
-                                    _bac_p03_dir = project_dir / "p03_scaffolding"
-                                    _bac_scaffold_dirs = (
-                                        [d for d in _bac_p03_dir.iterdir() if d.is_dir()]
-                                        if _bac_p03_dir.exists() else []
-                                    )
-                                    if _bac_p04_src.exists() and _bac_scaffold_dirs:
-                                        _bac_dest = _bac_scaffold_dirs[0] / "src"
-                                        _bac_dest.mkdir(parents=True, exist_ok=True)
-                                        _bac_shutil.copytree(
-                                            str(_bac_p04_src), str(_bac_dest),
-                                            dirs_exist_ok=True,
-                                            ignore=_bac_shutil.ignore_patterns("__pycache__", "*.pyc"),
-                                        )
-                                        accumulated_context["backend_src_dir"] = str(_bac_dest)
-                                        accumulated_context["backend_main_py"] = str(_bac_dest / "main.py")
-                                        logger.info("[BackendAuditCouncil] S11 re-merge → %s", _bac_dest)
-                                    # Refresh main.py reference for next council pass
-                                    _bac_main_py = next(
-                                        (p for p in _bac_main_candidates if p.exists()), None
-                                    )
-                                    if not _bac_main_py:
-                                        logger.warning("[BackendAuditCouncil] main.py missing after retry")
-                                        break
-                                except Exception as _bac_retry_exc:
-                                    logger.warning(
-                                        "[BackendAuditCouncil] p04 retry failed: %s — stopping loop",
-                                        _bac_retry_exc,
-                                    )
-                                    break
-                            except Exception as _bac_exc:
-                                logger.warning("[BackendAuditCouncil] council failed (non-fatal): %s", _bac_exc)
-                                break
-                    else:
-                        logger.debug("[BackendAuditCouncil] main.py not found, skipping")
+                # Per-phase post-processing hooks (extracted to phase_hooks.py).
+                # Includes: live_url persistence, intake JSON extraction, architecture
+                # loading, knowledge graph build, BackendAuditCouncil, quality gate.
+                # Mutates accumulated_context in-place.
+                await run_phase_hooks(
+                    phase_name=phase_name,
+                    phase_result=phase_result,
+                    run_id=run_id,
+                    project_dir=project_dir,
+                    accumulated_context=accumulated_context,
+                    domain=domain,
+                    client_id=client_id,
+                    emit_fn=emit,
+                    get_control_fn=get_control,
+                    set_control_fn=set_control,
+                    publish_event_fn=publish_event,
+                    run_phase_fn=self._run_phase,
+                    background_tasks=self._background_tasks,
+                    messages_module=_messages_module,
+                    phase_input=phase_input,
+                )
 
                 # Update state
                 p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
@@ -1204,167 +792,54 @@ class FactoryPipeline:
         await self._update_state(run_id, "pipeline", "complete")
         await self.ledger.async_update_run_status(run_id, "council_review")
 
-        # Auto-start the generated app via the HTTP layer.
-        # Import the router function via a service shim so the orchestrator does not
-        # directly depend on the HTTP router module (architectural fix [14]).
-        async def _auto_start_app():
-            try:
-                from aether_os.core.services.run_app_service import _launch_generated_app
-                _system_user = {"org_id": org_id, "user_id": "system", "role": "admin", "email": "system@aetheros.internal"}
-                result = await _launch_generated_app(run_id=run_id, user=_system_user)
-                logger.info("Auto-started generated app for run %s: %s", run_id, result)
-                await publish_event(run_id, {
-                    "type": "app_started",
-                    "run_id": run_id,
-                    "port": result.get("port"),
-                    "mode": result.get("mode", "backend"),
-                    "preview_url": "/app-preview/",
-                })
-            except Exception as _e:
-                logger.warning("Auto-start generated app failed for run %s: %s", run_id, _e)
-        _ast = asyncio.create_task(_auto_start_app())
-        self._background_tasks.add(_ast)
-        _ast.add_done_callback(self._background_tasks.discard)
-
         duration = time.time() - pipeline_start
 
-        # LLM Council delivery check (background — stores result and flags run if quality fails)
-        _dc_task = asyncio.create_task(delivery_council_check(
-            run_id=run_id,
-            project_name=project_name,
-            raw_input=raw_input,
-            domain=domain,
-            results=results,
-            org_id=org_id,
-            accumulated_context=accumulated_context,
-        ))
-        self._background_tasks.add(_dc_task)
-        _dc_task.add_done_callback(self._background_tasks.discard)
+        # Persist finished_at inline (fast ORM write — not background)
+        await persist_finished_at(run_id)
 
         # Emit pipeline_complete immediately so SSE clients are not blocked.
         # Status is "council_review" until the DeliveryCouncil background task completes.
-        # Fix 62: persist finished_at at pipeline completion (ORM, SQLite-safe)
-        try:
-            from aether_os.core.db import get_session_factory as _gsf_fin
-            from aether_os.core.models import Run as _Run_fin
-            async with _gsf_fin()() as _s_fin:
-                _r_fin = await _s_fin.get(_Run_fin, run_id)
-                if _r_fin:
-                    _r_fin.finished_at = time.time()
-                    await _s_fin.commit()
-        except Exception as exc:
-            logger.debug("finished_at persist failed on pipeline completion (non-fatal): %s", exc)
-        _complete_event = {
+        await publish_event(run_id, {
             "type": "pipeline_complete",
             "status": "council_review",
             "duration": round(duration, 1),
             "ts": time.time(),
-        }
-        await publish_event(run_id, _complete_event)
+        })
 
-        # Create in-app notification for org members
-        if org_id:
-            async def _create_completion_notification():
-                try:
-                    from aether_os.core.db import get_session_factory as _gsf_n
-                    from aether_os.core.models import Notification as _Notif
-                    _pname = accumulated_context.get("project_name") or f"run-{run_id[:8]}"
-                    _notif = _Notif(
-                        org_id=org_id,
-                        type="pipeline_complete",
-                        title=f"✅ {_pname} is ready",
-                        message=f"Factory run completed in {round(duration, 1)}s across {len(phases_to_run)} phases.",
-                        link=f"/dashboard/runs/{run_id}",
-                    )
-                    async with _gsf_n()() as _s:
-                        _s.add(_notif)
-                        await _s.commit()
-                except Exception as _ne:
-                    logger.debug("[pipeline] notification creation failed: %s", _ne)
-            _n_task = asyncio.create_task(_create_completion_notification())
-            self._background_tasks.add(_n_task)
-            _n_task.add_done_callback(self._background_tasks.discard)
-
-        # T5-01: Deliver webhook to org subscribers (background, non-blocking)
-        if org_id:
-            async def _fire_completion_webhook():
-                try:
-                    from aether_os.core.webhooks.delivery import deliver_event as _wh_deliver
-                    await _wh_deliver(
-                        org_id=org_id,
-                        event_type="pipeline.complete",
-                        payload={
-                            "run_id": run_id,
-                            "status": "completed",
-                            "duration_s": round(duration, 1),
-                            "phases": list(results.keys()),
-                        },
-                    )
-                except Exception as _wh_exc:
-                    logger.debug("[pipeline] webhook delivery skipped: %s", _wh_exc)
-            _wh_t = asyncio.create_task(_fire_completion_webhook())
-            self._background_tasks.add(_wh_t)
-            _wh_t.add_done_callback(self._background_tasks.discard)
-
-        # ── Extract and persist learning patterns (background, non-blocking) ────
-        _lt = asyncio.create_task(extract_learning(
+        # Schedule all background completion tasks (notifications, webhooks, learning,
+        # S3 upload, etc.) via pipeline_completion.schedule_completion_tasks().
+        schedule_completion_tasks(
             run_id=run_id,
             org_id=org_id,
             client_id=client_id,
             domain=domain,
-            results=results,
-            accumulated_context=accumulated_context,
-        ))
-        self._background_tasks.add(_lt)
-        _lt.add_done_callback(self._background_tasks.discard)
-
-        # D6: Finalize project living memory
-        _pm_update(project_dir, {"tech_stack": accumulated_context.get("architecture_json", {}).get("tech_stack", {})})
-        _pm_changelog(project_dir, f"Pipeline completed in {round(duration, 1)}s — {len(phases_to_run)} phases", author="system")
-
-        # Schedule Redis key cleanup after 5 minutes (B3 + B5: store task ref)
-        async def _cleanup():
-            await asyncio.sleep(300)
-            await clear_run(run_id)
-            self._background_tasks.discard(asyncio.current_task())
-        _t = asyncio.create_task(_cleanup())
-        self._background_tasks.add(_t)
-        _t.add_done_callback(self._background_tasks.discard)
-
-        # ── Store outcome in cross-run memory for future learning (background) ──
-        _t2 = asyncio.create_task(store_run_memory(
-            run_id=run_id,
-            org_id=org_id,
             raw_input=raw_input,
-            domain=domain,
-            results=results,
-        ))
-        self._background_tasks.add(_t2)
-        _t2.add_done_callback(self._background_tasks.discard)
-
-        # ── PART 2: Embed artifacts for semantic search (background, non-blocking)
-        _t3 = asyncio.create_task(embed_artifacts(
-            run_id=run_id,
+            project_name=project_name,
             project_dir=project_dir,
+            duration=duration,
             results=results,
-            org_id=org_id,
-        ))
-        self._background_tasks.add(_t3)
-        _t3.add_done_callback(self._background_tasks.discard)
-
-        # ── PART 3: Upload artifacts to S3 (background, non-blocking)
-        _t4 = asyncio.create_task(upload_to_s3(run_id=run_id, project_dir=project_dir))
-        self._background_tasks.add(_t4)
-        _t4.add_done_callback(self._background_tasks.discard)
+            phases_to_run=list(phases_to_run),
+            accumulated_context=accumulated_context,
+            background_tasks=self._background_tasks,
+            publish_event_fn=publish_event,
+            clear_run_fn=clear_run,
+            delivery_council_check_fn=delivery_council_check,
+            extract_learning_fn=extract_learning,
+            store_run_memory_fn=store_run_memory,
+            embed_artifacts_fn=embed_artifacts,
+            upload_to_s3_fn=upload_to_s3,
+            pm_update_fn=_pm_update,
+            pm_changelog_fn=_pm_changelog,
+        )
 
         return {
             "run_id": run_id,
-            "project_id": run_id,  # In this refactored version, run_id is used for project_dir
+            "project_id": run_id,
             "status": "complete",
             "phases": results,
             "output_dir": str(project_dir),
             "duration_seconds": round(duration, 2),
-            "phase_count": len(phases_to_run)
+            "phase_count": len(phases_to_run),
         }
 
     async def _run_phase(self, phase_name: str, phase_input: PhaseInput) -> dict:
