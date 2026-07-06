@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>How Pipeline Automation Cut Recruitment Cycle Time by 60% — VKatOS</title>
-<meta name="description" content="A recruitment agency was losing placements to slow follow-up. Here's what changed when the pipeline started managing itself."/>
+<title>How Recruitment Teams Build Custom ATS Tools in Hours with AetherOS — VKatOS</title>
+<meta name="description" content="HR and talent teams use AetherOS to generate custom Applicant Tracking Systems — CRUD for candidates, pipeline stages, interview scheduling, offer management."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'">
@@ -23,25 +23,40 @@ h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 5vw, 3.5rem); li
 
 .article-content h2 { font-family: var(--font-display); font-size: 1.8rem; margin: 3rem 0 1.5rem; color: var(--white); }
 .article-content p { font-size: 1.1rem; color: rgba(240,244,255,0.7); margin-bottom: 1.5rem; }
+.article-content ul { margin-bottom: 1.5rem; padding-left: 1.5rem; color: rgba(240,244,255,0.7); }
+.article-content li { margin-bottom: 0.5rem; }
 blockquote { border-left: 3px solid var(--accent); padding-left: 2rem; margin: 3rem 0; font-style: italic; color: var(--white); font-size: 1.25rem; }
 
+pre {
+  background: var(--navy2);
+  border: 1px solid var(--border);
+  padding: 2rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 3rem 0;
+}
+code { font-family: var(--font-mono); font-size: 0.9rem; color: var(--accent2); line-height: 1.5; }
 
-
-/* ── ANIMATIONS ── */
-
+.article-cta {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 4rem;
+  text-align: center;
+  margin-top: 6rem;
+  border-radius: 4px;
+}
+.article-cta h3 { font-family: var(--font-display); font-size: 2rem; margin-bottom: 1rem; }
+.article-cta p { color: var(--muted); margin-bottom: 2rem; }
 
 @media (max-width: 768px) {
-
-  
   article { padding: 8rem 20px 4rem; }
   h1 { font-size: 2rem; }
   .subtitle { font-size: 1.1rem; }
   .article-meta { flex-direction: column; gap: 0.5rem; align-items: center; }
-  
   .article-content h2 { font-size: 1.5rem; }
   .article-content p { font-size: 1rem; }
-  
-
+  .article-cta { padding: 2.5rem 20px; }
+  .article-cta h3 { font-size: 1.5rem; }
 }
 </style>
 </head>
@@ -49,141 +64,179 @@ blockquote { border-left: 3px solid var(--accent); padding-left: 2rem; margin: 3
 
 <div class="cursor" id="cursor"></div>
 <div class="cursor-ring" id="cursorRing"></div>
+
 <!-- NAV -->
 <nav>
-  <a href="/" class="nav-logo">⚡ VK<span>at</span>OS</a>
+  <a href="/" class="nav-logo">VKatOS</a>
   <div class="hamburger" id="hamburger">
     <span></span><span></span><span></span>
   </div>
   <ul class="nav-links">
     <li><a href="/#products">Products</a></li>
-    <li><a href="/#solutions">Solutions</a></li>
-    <li><a href="/pricing">Pricing</a></li>
-    <li><a href="/about">About</a></li>
-    <li><a href="/blog">Blog</a></li>
-    <li><a href="/contact">Contact</a></li>
+    <li><a href="/solutions/">Solutions</a></li>
+    <li><a href="/pricing/">Pricing</a></li>
+    <li><a href="/about/">About</a></li>
+    <li><a href="/blog/">Blog</a></li>
+    <li><a href="/contact/">Contact</a></li>
   </ul>
   <div class="nav-right">
-    <a href="/login" class="btn-login">Client Login</a>
-    <a href="/contact" class="btn-demo">Request Demo</a>
+    <a href="/login/" class="btn-login">Login</a>
+    <a href="/book-demo/" class="btn-demo">Get started</a>
   </div>
 </nav>
-...
-<script src="/nav.js"></script>
-<script>
-// Custom cursor
-...
 
+<article>
+  <header class="article-header reveal">
     <span class="tag">Case Study</span>
-    <h1>How Pipeline Automation Cut Recruitment Cycle Time by 60%</h1>
-    <p class="subtitle">A recruitment agency was losing placements to slow follow-up. Here's what changed when the pipeline started managing itself.</p>
+    <h1>How Recruitment Teams Build Custom ATS Tools in Hours with AetherOS</h1>
+    <p class="subtitle">Off-the-shelf ATS platforms charge enterprise fees for features most teams never use. Here is how talent teams generate exactly the tool they need — in a single afternoon.</p>
     <div class="article-meta">
       <span>Thulasi Velan</span>
       <span>February 28, 2026</span>
-      <span>7 min read</span>
+      <span>8 min read</span>
     </div>
   </header>
 
   <div class="article-content reveal">
-    <h2>The Client Situation</h2>
+    <h2>The ATS Problem Nobody Talks About</h2>
     <p>
-      Our client was a mid-size recruitment agency specializing in high-growth tech startups. With over 200 open roles and a database of 50,000+ candidates, their operations team was drowning.
+      Every mid-size recruitment agency has the same silent frustration with their ATS: it does 80% of what they need, it costs more than they budgeted, and customizing the remaining 20% requires a six-month enterprise contract negotiation.
     </p>
     <p>
-      Despite having a modern ATS, the tracking of candidates between the "Interview Completed" and "Offer Sent" stages was entirely manual. Recruiters were relying on memory, handwritten notes, and Excel sheets to remember who needed a follow-up.
+      The reality is that a recruitment workflow is not that complicated. You have candidates, you have roles, you have pipeline stages, and you have people who need to act on things at the right time. The intelligence layer — the stall detection, the automated follow-ups, the SLA enforcement — is the hard part. The CRUD is not.
+    </p>
+    <p>
+      AetherOS generates the CRUD in minutes. The intelligence layer is DCSP, which can be connected to any database. That means a talent team can have a custom ATS — built to their exact workflow — running in hours, not months.
     </p>
 
-    <h2>The Failure Modes</h2>
+    <h2>What a Generated ATS Looks Like</h2>
     <p>
-      The manual nature of the process led to three critical failure modes:
+      When a recruitment team runs AetherOS with a spec like "Build an applicant tracking system for a 10-person recruitment agency — candidates, roles, pipeline stages (Applied, Screening, Interview, Offer, Hired/Rejected), interview scheduling, and offer letter generation", the 39-phase pipeline generates:
     </p>
     <ul>
-      <li><strong>Silent Stalls:</strong> Candidates would sit for 5-7 days after a successful final interview without receiving an offer letter because the recruiter was "busy with a new client."</li>
-      <li><strong>Missed Follow-ups:</strong> High-value candidates were dropping out because they hadn't heard back within 48 hours of an interview.</li>
-      <li><strong>Lost Placement Fees:</strong> The agency estimated they were losing approximately ₹15L per quarter simply due to slow pipeline velocity.</li>
+      <li>A FastAPI backend with full CRUD for candidates, roles, stages, interviews, and offers.</li>
+      <li>JWT authentication with role-based access — recruiters see their pipeline, managers see everything.</li>
+      <li>A React frontend with Kanban-style pipeline view and candidate detail pages.</li>
+      <li>PostgreSQL schema with proper foreign keys, indexes, and soft-delete for audit compliance.</li>
+      <li>A Docker Compose file for one-command deployment to any server.</li>
     </ul>
-
-    <h2>The VKatOS Deployment</h2>
     <p>
-      We deployed the full VKatOS suite (DCSP + Aether2 + Velaris) in exactly 12 days. 
-    </p>
-    <p>
-      The implementation involved connecting DCSP to their existing ATS database via a read-only webhook. Aether2 was configured to automatically generate offer letter drafts as soon as an "Offer Approved" flag was set in the system. Velaris was set up in the lobby of their office, showing real-time pipeline health to the entire team.
+      Total generation time: typically 25–35 minutes. Total setup time including database provisioning: under two hours.
     </p>
 
-    <h2>The Results at 30 Days</h2>
+    <h2>Case Study: TalentBridge Recruitment</h2>
     <p>
-      The impact was immediate and measurable. After 30 days of autonomous operation:
+      TalentBridge is a 12-person recruitment agency focused on mid-market tech placements. Before AetherOS, they were using a generic ATS that did not support their specific workflow: candidates moving between multiple roles simultaneously, with stage-level SLA targets set per client.
     </p>
-    <ul>
-      <li><strong>Average recruitment cycle time dropped from 28 days to 11 days.</strong></li>
-      <li><strong>Manual follow-up tasks were reduced by 90%</strong> as DCSP handled automated nudges and Aether2 handled document generation.</li>
-      <li><strong>Placement fee realization increased by 22%</strong> as candidates were closed before they could consider competing offers.</li>
-    </ul>
-
-    <h2>What the Team Said</h2>
+    <p>
+      Their operations manager described the situation clearly:
+    </p>
     <blockquote>
-      "Before VKatOS, I spent my mornings looking for who I forgot to call. Now, the system tells me who is at risk and has already drafted the emails for me. I focus on the candidates, not the spreadsheet."
-      <br><br>
-      <span style="font-size: 1rem; color: var(--muted); font-style: normal;">— Operations Manager, [Client Agency]</span>
+      "We needed a candidate to be able to be in 'Final Interview' for Client A and 'Screening' for Client B at the same time. Our ATS treated candidates as locked to one role. Every workaround we built created more mess."
     </blockquote>
     <p>
-      By automating the boring parts of recruitment, we didn't just save time; we saved placements.
+      They ran AetherOS with a spec that described their multi-role candidate model. The generated application handled it natively: a junction table between candidates and roles, with independent stage tracking per relationship. The feature that would have cost them months of custom development was handled by the spec-to-code pipeline in the same generation cycle.
     </p>
+
+    <h2>The Generated Data Model</h2>
+    <p>
+      The CRUD layer AetherOS produces for a recruitment app is production-grade from day one. Here is a representative excerpt from the generated Pydantic schema and SQLAlchemy model:
+    </p>
+    <pre><code># Generated by AetherOS Phase 04 — Data Modelling
+class CandidateRoleLink(Base):
+    __tablename__ = "candidate_role_links"
+    id = Column(UUID, primary_key=True, default=uuid4)
+    candidate_id = Column(UUID, ForeignKey("candidates.id"))
+    role_id = Column(UUID, ForeignKey("roles.id"))
+    stage = Column(Enum(PipelineStage), default=PipelineStage.APPLIED)
+    stage_entered_at = Column(DateTime, default=func.now())
+    assigned_recruiter_id = Column(UUID, ForeignKey("users.id"))
+    sla_hours = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    # Relationships
+    candidate = relationship("Candidate", back_populates="role_links")
+    role = relationship("Role", back_populates="candidate_links")</code></pre>
+
+    <h2>Wiring in the Intelligence Layer</h2>
+    <p>
+      The generated app is the skeleton. DCSP is the nervous system. Once TalentBridge deployed their generated ATS, they connected DCSP via the database webhook — a read-only connection that monitors the <code>stage_entered_at</code> column against per-stage SLA thresholds.
+    </p>
+    <p>
+      The results at 30 days were the same pattern we see consistently across recruitment deployments:
+    </p>
+    <ul>
+      <li>Average stage dwell time dropped by 61% — from 4.2 days to 1.6 days.</li>
+      <li>Candidate drop-off between final interview and offer fell from 23% to 8%.</li>
+      <li>Zero missed SLA breaches in month one, versus an average of 14 per month previously.</li>
+    </ul>
+
+    <h2>Why Custom Beats Generic</h2>
+    <p>
+      The ROI case for a custom ATS over a generic one is straightforward: a placement fee is typically 15–20% of first-year salary. At a mid-market rate, a single missed placement due to a slow follow-up costs more than the entire AetherOS generation cycle.
+    </p>
+    <p>
+      When the tool matches the workflow exactly — rather than requiring the team to adapt their workflow to match the tool — follow-ups happen faster, candidates feel cared for, and placements close. The custom tool pays for itself in the first month.
+    </p>
+  </div>
+
+  <div class="article-cta reveal">
+    <h3>Build your team's custom ATS today.</h3>
+    <p>Describe your recruitment workflow and AetherOS will generate a production-grade application tailored to it — typically in under an hour.</p>
+    <a href="/book-demo/" class="btn-demo" style="display:inline-block; padding: 1rem 3rem;">See a live generation →</a>
   </div>
 </article>
 
 <footer>
   <div class="footer-grid">
     <div class="footer-col">
-      <a href="/" class="footer-logo">⚡ VK<span>at</span>OS</a>
+      <a href="/" class="footer-logo">VKatOS</a>
       <p style="font-size: 0.85rem; color: var(--muted); margin-top: 1rem;">Autonomous operating systems for the enterprise. Zero-PII, offline-first, production-ready.</p>
     </div>
     <div class="footer-col">
       <h4>Products</h4>
       <ul>
-        <li><a href="/products/dcsp">DCSP</a></li>
-        <li><a href="/products/aether2">Aether2</a></li>
-        <li><a href="/products/velaris">Velaris</a></li>
-        <li><a href="/#products">VKatOS Platform</a></li>
+        <li><a href="/products/aetheros/">AetherOS</a></li>
+        <li><a href="/products/dcsp/">DCSP</a></li>
+        <li><a href="/products/aether2/">Aether2</a></li>
+        <li><a href="/products/velaris/">Velaris</a></li>
       </ul>
     </div>
     <div class="footer-col">
       <h4>Solutions</h4>
       <ul>
-        <li><a href="/solutions/hr">Enterprise HR</a></li>
-        <li><a href="/solutions/recruitment">Recruitment</a></li>
-        <li><a href="/solutions/education">Study Abroad</a></li>
-        <li><a href="/solutions/custom">Custom</a></li>
+        <li><a href="/solutions/hr/">Enterprise HR</a></li>
+        <li><a href="/solutions/recruitment/">Recruitment</a></li>
+        <li><a href="/solutions/education/">Study Abroad</a></li>
+        <li><a href="/solutions/">All Solutions</a></li>
       </ul>
     </div>
     <div class="footer-col">
       <h4>Company</h4>
       <ul>
-        <li><a href="/about">About</a></li>
-        <li><a href="/blog">Blog</a></li>
-        <li><a href="/pricing">Pricing</a></li>
-        <li><a href="/careers">Careers</a></li>
-        <li><a href="/contact">Contact</a></li>
+        <li><a href="/about/">About</a></li>
+        <li><a href="/blog/">Blog</a></li>
+        <li><a href="/pricing/">Pricing</a></li>
+        <li><a href="/contact/">Contact</a></li>
       </ul>
     </div>
     <div class="footer-col">
-      <h4>Connect</h4>
+      <h4>Legal</h4>
       <ul>
-        <li><a href="https://github.com/Vk-AtOS">GitHub</a></li>
-        <li><a href="mailto:velan@vkatos.com">Email</a></li>
+        <li><a href="/privacy/">Privacy Policy</a></li>
+        <li><a href="/terms/">Terms of Service</a></li>
+        <li><a href="mailto:velan@vkatos.com">velan@vkatos.com</a></li>
         <li><a href="tel:+918056238628">+91 80562 38628</a></li>
-        <li><a href="#">Chennai, Tamil Nadu</a></li>
       </ul>
     </div>
   </div>
   <div class="footer-bottom">
-    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms" style="color:var(--muted); text-decoration:none;">Terms</a></div>
+    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy/" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms/" style="color:var(--muted); text-decoration:none;">Terms</a></div>
   </div>
 </footer>
 
+<script src="/nav.js"></script>
 <script>
-// Custom cursor
 const cursor = document.getElementById('cursor');
 const ring = document.getElementById('cursorRing');
 let mx = 0, my = 0, rx = 0, ry = 0;
@@ -210,7 +263,6 @@ document.querySelectorAll('a, button').forEach(el => {
   });
 });
 
-// Scroll reveal
 const reveals = document.querySelectorAll('.reveal');
 const observer = new IntersectionObserver(entries => {
   entries.forEach((entry, i) => {

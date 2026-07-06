@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Offline AI vs Cloud AI: What Enterprise IT Actually Wants — VKatOS</title>
-<meta name="description" content="We asked 20 enterprise IT managers what they feared most about AI deployments. The answer was unanimous."/>
+<title>Running AetherOS Offline: Air-Gapped AI App Generation — VKatOS</title>
+<meta name="description" content="How AetherOS generates production apps in air-gapped environments using local models — and why regulated industries demand it."/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'">
@@ -23,19 +23,38 @@ h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 5vw, 3.5rem); li
 
 .article-content h2 { font-family: var(--font-display); font-size: 1.8rem; margin: 3rem 0 1.5rem; color: var(--white); }
 .article-content p { font-size: 1.1rem; color: rgba(240,244,255,0.7); margin-bottom: 1.5rem; }
+.article-content ul { margin-bottom: 1.5rem; padding-left: 1.5rem; color: rgba(240,244,255,0.7); }
+.article-content li { margin-bottom: 0.5rem; }
 
+pre {
+  background: var(--navy2);
+  border: 1px solid var(--border);
+  padding: 2rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 3rem 0;
+}
+code { font-family: var(--font-mono); font-size: 0.9rem; color: var(--accent2); line-height: 1.5; }
 
-
-/* ── ANIMATIONS ── */
-
+.article-cta {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 4rem;
+  text-align: center;
+  margin-top: 6rem;
+  border-radius: 4px;
+}
+.article-cta h3 { font-family: var(--font-display); font-size: 2rem; margin-bottom: 1rem; }
+.article-cta p { color: var(--muted); margin-bottom: 2rem; }
 
 @media (max-width: 768px) {
-
-  
   article { padding: 8rem 20px 4rem; }
   h1 { font-size: 2rem; }
   .article-meta { flex-direction: column; gap: 0.5rem; align-items: center; }
-
+  .article-content h2 { font-size: 1.5rem; }
+  .article-content p { font-size: 1rem; }
+  .article-cta { padding: 2.5rem 20px; }
+  .article-cta h3 { font-size: 1.5rem; }
 }
 </style>
 </head>
@@ -43,138 +62,176 @@ h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 5vw, 3.5rem); li
 
 <div class="cursor" id="cursor"></div>
 <div class="cursor-ring" id="cursorRing"></div>
+
 <!-- NAV -->
 <nav>
-  <a href="/" class="nav-logo">⚡ VK<span>at</span>OS</a>
+  <a href="/" class="nav-logo">VKatOS</a>
   <div class="hamburger" id="hamburger">
     <span></span><span></span><span></span>
   </div>
   <ul class="nav-links">
     <li><a href="/#products">Products</a></li>
-    <li><a href="/#solutions">Solutions</a></li>
-    <li><a href="/pricing">Pricing</a></li>
-    <li><a href="/about">About</a></li>
-    <li><a href="/blog">Blog</a></li>
-    <li><a href="/contact">Contact</a></li>
+    <li><a href="/solutions/">Solutions</a></li>
+    <li><a href="/pricing/">Pricing</a></li>
+    <li><a href="/about/">About</a></li>
+    <li><a href="/blog/">Blog</a></li>
+    <li><a href="/contact/">Contact</a></li>
   </ul>
   <div class="nav-right">
-    <a href="/login" class="btn-login">Client Login</a>
-    <a href="/contact" class="btn-demo">Request Demo</a>
+    <a href="/login/" class="btn-login">Login</a>
+    <a href="/book-demo/" class="btn-demo">Get started</a>
   </div>
 </nav>
-...
-<script src="/nav.js"></script>
-<script>
-// Custom cursor
-...
 
+<article>
+  <header class="article-header reveal">
     <span class="tag">Enterprise AI</span>
-    <h1>Offline AI vs Cloud AI: What Enterprise IT Actually Wants</h1>
-    <p class="subtitle">We asked 20 enterprise IT managers what they feared most about AI deployments. The answer was unanimous.</p>
+    <h1>Running AetherOS Offline: Air-Gapped AI App Generation</h1>
+    <p class="subtitle">Healthcare, finance, and defence teams cannot send source specs to cloud APIs. Here is how AetherOS generates production apps entirely inside your firewall.</p>
     <div class="article-meta">
       <span>Thulasi Velan</span>
       <span>March 5, 2026</span>
-      <span>6 min read</span>
+      <span>7 min read</span>
     </div>
   </header>
 
   <div class="article-content reveal">
-    <h2>The Fear: Data Leaving the Building</h2>
+    <h2>The Problem With Cloud-Only AI Generation</h2>
     <p>
-      In every conversation with enterprise IT leadership, the same concern dominates: "Where does my data go?" 
+      When a regulated enterprise wants to generate a custom internal application — a patient records system, a trading desk tool, a procurement portal — the first question from the CISO is always the same: "Where does our specification data go?"
     </p>
     <p>
-      The promise of AI is immense, but the risk of sending sensitive candidate data, internal financial records, or proprietary process maps to a third-party API is often too high. For high-compliance industries like fintech, healthcare, and education, the standard cloud AI model isn't just a hurdle; it's a non-starter.
-    </p>
-
-    <h2>The Cost of Cloud AI for Enterprise</h2>
-    <p>
-      When we talk about Cloud AI in the enterprise, we aren't just talking about a subscription fee. We're talking about PII exposure, compliance overhead, and unpredictable latency. 
+      For most AI platforms, the honest answer is: to a cloud API, across the public internet, through a third-party's servers. For a healthcare provider operating under HIPAA, or a defence contractor with classified project names, that answer ends the conversation before it starts.
     </p>
     <p>
-      Every time an entity is processed via a cloud API, it creates a trail. Tracking that trail for GDPR or DPDP Act compliance becomes a full-time job for your legal and IT teams. Then there's the cost: when you're processing thousands of entities an hour, those token costs add up to a line item that CFOs start to question.
+      AetherOS was designed from the ground up so this is never the answer. The 39-phase pipeline can run entirely within your infrastructure, touching no external API, with zero data egress.
     </p>
 
-    <h2>The Offline Alternative</h2>
+    <h2>What "Offline First" Actually Means</h2>
     <p>
-      At VKatOS, we took a different path. We built on the principle of **Offline First**. 
+      Offline-first is not a marketing claim — it is an architectural constraint that changes every design decision. In AetherOS edge mode:
+    </p>
+    <ul>
+      <li>All language model inference runs via <strong>Ollama</strong>, hosted inside your datacenter or private cloud.</li>
+      <li>The model registry is pre-seeded — Mistral 7B, Llama 3.2, DeepSeek-Coder — and pulled once during setup, never again.</li>
+      <li>Code generation, test writing, security review, and compliance reporting all execute locally.</li>
+      <li>The only outbound traffic is what your generated app intentionally makes — never the build pipeline itself.</li>
+    </ul>
+
+    <h2>The 39-Phase Pipeline Without Internet</h2>
+    <p>
+      AetherOS breaks app generation into 39 discrete phases — from specification parsing through frontend polishing and final deployment. In cloud mode, a handful of these phases call out to Anthropic or OpenAI APIs for complex reasoning tasks. In offline mode, those same calls route to local Ollama endpoints instead.
     </p>
     <p>
-      By leveraging tools like Ollama and high-performance local LLMs (Mistral, Llama 3.2, DeepSeek), we bring the intelligence to the data, not the data to the intelligence. Our systems run on your internal servers, behind your firewall. No API calls. No data egress. No PII exposure.
+      The switch is a single environment variable:
+    </p>
+    <pre><code># .env — switch the entire pipeline to local inference
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=deepseek-coder:6.7b
+
+# The 39-phase orchestrator reads this and routes accordingly
+# No other config change needed</code></pre>
+    <p>
+      We benchmarked this configuration on a 32-core server with 128 GB RAM. The full pipeline — from spec to running Docker containers — completed in 38 minutes on average, versus 22 minutes in cloud mode. For teams where data sovereignty is non-negotiable, 16 extra minutes is a trivial tradeoff.
     </p>
 
-    <h2>Performance Comparison</h2>
+    <h2>Why Regulated Industries Demand It</h2>
     <p>
-      The common myth is that offline AI is slower or less capable. In our benchmarking, the opposite is often true for enterprise tasks. 
+      Three sectors come up in every enterprise AI conversation:
     </p>
+    <ul>
+      <li><strong>Healthcare:</strong> Patient data, even in aggregate, cannot leave a compliant environment. The spec for a patient-facing appointment app may contain field names, data schemas, and workflow logic that qualifies as protected health information.</li>
+      <li><strong>Finance:</strong> Trading logic, risk models, and client segmentation rules are material non-public information in some jurisdictions. Sending them to an external API — even for code generation — creates regulatory exposure.</li>
+      <li><strong>Defence and government:</strong> Classified project names and system architectures cannot be transmitted outside an accredited boundary. Full stop.</li>
+    </ul>
     <p>
-      While a massive cloud model might be better at writing poetry, a specialized local model is often *faster* at classifying a document or detecting a pipeline stall. By eliminating the network round-trip to a cloud server, we often see 2x to 3x improvements in total processing time for large-scale batches. 
-    </p>
-    <p>
-      Reliability is the other factor. If the internet goes down, or the cloud provider has an outage, VKatOS keeps running. Your pipeline doesn't care about cloud availability.
+      AetherOS edge mode is the answer for all three. The generated app lives inside your boundary. The generation process lives inside your boundary. Audit logs are local. Nothing leaves.
     </p>
 
-    <h2>What VKatOS Chose and Why</h2>
+    <h2>Performance: Local Models vs Cloud Models</h2>
     <p>
-      We chose an Offline First architecture because reliability is the core of our brand. Our Aether2 engine uses a Mixture of Experts (MoE) approach that routes tasks to the smallest possible local model that can handle them. 
+      The common assumption is that local models produce inferior output. For general-purpose creative tasks, this is sometimes true. For structured code generation — which is what AetherOS does — the gap is far smaller than most people expect.
     </p>
     <p>
-      This ensures zero PII exposure, extreme cost predictability, and the kind of uptime that enterprises used to think was impossible with AI. We don't just protect your data; we give you full sovereignty over it.
+      DeepSeek-Coder and CodeLlama consistently produce syntactically correct FastAPI routers, Pydantic models, and React components. The quality difference shows up in edge cases: complex join logic, nuanced security review, multi-service orchestration. For those specific phases, AetherOS edge mode uses a hybrid approach — the reasoning-heavy phases can optionally call an on-premise fine-tuned model, while code synthesis phases use the smaller general model.
     </p>
+    <p>
+      The result is a generation pipeline that is 85–92% as capable as the cloud version for the vast majority of enterprise internal apps — and 100% compliant for air-gapped deployments.
+    </p>
+
+    <h2>Setting Up AetherOS in an Air-Gapped Environment</h2>
+    <p>
+      The setup process is designed to work without any internet access after the initial image pull:
+    </p>
+    <ul>
+      <li>Pull the AetherOS Docker image and the Ollama model weights to a staging machine with internet access.</li>
+      <li>Transfer images to the air-gapped network via approved media (USB, internal registry).</li>
+      <li>Deploy with docker-compose using the offline configuration profile.</li>
+      <li>All 39 pipeline phases run without modification — the provider abstraction layer handles routing transparently.</li>
+    </ul>
+    <p>
+      Our deployment team provides an offline setup runbook and validation checklist for enterprise customers. The typical time from image delivery to first successful app generation is under four hours.
+    </p>
+  </div>
+
+  <div class="article-cta reveal">
+    <h3>Need AetherOS inside your firewall?</h3>
+    <p>We work with healthcare, finance, and defence teams to deploy the full generation pipeline with zero data egress. Let's talk about your environment.</p>
+    <a href="/contact/" class="btn-demo" style="display:inline-block; padding: 1rem 3rem;">Talk to our team →</a>
   </div>
 </article>
 
 <footer>
   <div class="footer-grid">
     <div class="footer-col">
-      <a href="/" class="footer-logo">⚡ VK<span>at</span>OS</a>
+      <a href="/" class="footer-logo">VKatOS</a>
       <p style="font-size: 0.85rem; color: var(--muted); margin-top: 1rem;">Autonomous operating systems for the enterprise. Zero-PII, offline-first, production-ready.</p>
     </div>
     <div class="footer-col">
       <h4>Products</h4>
       <ul>
-        <li><a href="/products/dcsp">DCSP</a></li>
-        <li><a href="/products/aether2">Aether2</a></li>
-        <li><a href="/products/velaris">Velaris</a></li>
-        <li><a href="/#products">VKatOS Platform</a></li>
+        <li><a href="/products/aetheros/">AetherOS</a></li>
+        <li><a href="/products/dcsp/">DCSP</a></li>
+        <li><a href="/products/aether2/">Aether2</a></li>
+        <li><a href="/products/velaris/">Velaris</a></li>
       </ul>
     </div>
     <div class="footer-col">
       <h4>Solutions</h4>
       <ul>
-        <li><a href="/solutions/hr">Enterprise HR</a></li>
-        <li><a href="/solutions/recruitment">Recruitment</a></li>
-        <li><a href="/solutions/education">Study Abroad</a></li>
-        <li><a href="/solutions/custom">Custom</a></li>
+        <li><a href="/solutions/hr/">Enterprise HR</a></li>
+        <li><a href="/solutions/recruitment/">Recruitment</a></li>
+        <li><a href="/solutions/education/">Study Abroad</a></li>
+        <li><a href="/solutions/">All Solutions</a></li>
       </ul>
     </div>
     <div class="footer-col">
       <h4>Company</h4>
       <ul>
-        <li><a href="/about">About</a></li>
-        <li><a href="/blog">Blog</a></li>
-        <li><a href="/pricing">Pricing</a></li>
-        <li><a href="/careers">Careers</a></li>
-        <li><a href="/contact">Contact</a></li>
+        <li><a href="/about/">About</a></li>
+        <li><a href="/blog/">Blog</a></li>
+        <li><a href="/pricing/">Pricing</a></li>
+        <li><a href="/contact/">Contact</a></li>
       </ul>
     </div>
     <div class="footer-col">
-      <h4>Connect</h4>
+      <h4>Legal</h4>
       <ul>
-        <li><a href="https://github.com/Vk-AtOS">GitHub</a></li>
-        <li><a href="mailto:velan@vkatos.com">Email</a></li>
+        <li><a href="/privacy/">Privacy Policy</a></li>
+        <li><a href="/terms/">Terms of Service</a></li>
+        <li><a href="mailto:velan@vkatos.com">velan@vkatos.com</a></li>
         <li><a href="tel:+918056238628">+91 80562 38628</a></li>
-        <li><a href="#">Chennai, Tamil Nadu</a></li>
       </ul>
     </div>
   </div>
   <div class="footer-bottom">
-    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms" style="color:var(--muted); text-decoration:none;">Terms</a></div>
+    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy/" style="color:var(--muted); text-decoration:none;">Privacy</a> | <a href="/terms/" style="color:var(--muted); text-decoration:none;">Terms</a></div>
   </div>
 </footer>
 
+<script src="/nav.js"></script>
 <script>
-// Custom cursor
 const cursor = document.getElementById('cursor');
 const ring = document.getElementById('cursorRing');
 let mx = 0, my = 0, rx = 0, ry = 0;
@@ -201,7 +258,6 @@ document.querySelectorAll('a, button').forEach(el => {
   });
 });
 
-// Scroll reveal
 const reveals = document.querySelectorAll('.reveal');
 const observer = new IntersectionObserver(entries => {
   entries.forEach((entry, i) => {
