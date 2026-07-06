@@ -184,7 +184,7 @@ input::placeholder{color:var(--muted)}
       <div class="field">
         <label>Password</label>
         <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" required minlength="8"/>
-        <a href="#" class="forgot" id="forgot-link">Forgot password?</a>
+        <a href="#" class="forgot" id="forgot-link" onclick="handleForgotPassword(event)">Forgot password?</a>
       </div>
       <button type="submit" class="btn-submit" id="submit-btn">Sign in to vkatos →</button>
     </form>
@@ -262,6 +262,31 @@ function oauthLogin(provider){
       ? 'https://app.vkatos.com/api/auth/oauth/google'
       : 'https://app.vkatos.com/api/auth/oauth/github';
   }, 400);
+}
+
+/* FORGOT PASSWORD */
+async function handleForgotPassword(e){
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  if(!email){
+    showMsg('Enter your email address first, then click Forgot password.', 'error');
+    return;
+  }
+  const link = document.getElementById('forgot-link');
+  link.textContent = 'Sending…';
+  try {
+    await fetch('https://app.vkatos.com/api/auth/password-reset-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    // Always show success to prevent email enumeration
+    showMsg('If an account exists for that email, a reset link has been sent. Check your inbox.', 'success');
+  } catch(err) {
+    showMsg('Could not send reset link. Please try again.', 'error');
+  } finally {
+    link.textContent = 'Forgot password?';
+  }
 }
 
 /* EMAIL AUTH */
