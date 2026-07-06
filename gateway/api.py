@@ -98,29 +98,17 @@ def create_app() -> FastAPI:
         """Application startup/shutdown lifecycle."""
         logger.info("AetherOS API starting up...")
 
-        # ── JWT key validation — reload from env, fail fast if misconfigured ───
+        # ── JWT key validation — reload from env, fail hard if RS256 keys missing ─
         # reload_keys() clears the lazy cache and re-reads from the current
         # environment so keys injected by dotenv AFTER import time are honoured.
+        # HS256 fallback has been removed — the server refuses to start without
+        # valid RS256 keys to prevent silent algorithm downgrade attacks.
         try:
             from aether_os.gateway.auth import reload_keys as _reload_jwt_keys
             _jwt_alg = _reload_jwt_keys()
-            logger.info("JWT: algorithm=%s", _jwt_alg)
-            if _jwt_alg == "HS256":
-                _hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
-                if not _hs_secret:
-                    raise RuntimeError(
-                        "HS256 is active but AETHER_SECRET_KEY is not set. "
-                        "Set AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 (RS256, recommended) "
-                        "or AETHER_SECRET_KEY (HS256, legacy) before starting the server."
-                    )
-                logger.warning(
-                    "JWT: HS256 mode active (symmetric). "
-                    "Set AETHER_JWT_PRIVATE_KEY_B64 + AETHER_JWT_PUBLIC_KEY_B64 to upgrade to RS256."
-                )
-            else:
-                logger.info("JWT: RS256 asymmetric signing active.")
+            logger.info("JWT: RS256 asymmetric signing active (algorithm=%s)", _jwt_alg)
         except RuntimeError as _jwt_err:
-            logger.critical("FATAL: JWT key configuration error — %s", _jwt_err)
+            logger.critical("FATAL: JWT RS256 key configuration error — %s", _jwt_err)
             import sys as _sys_jwt; _sys_jwt.exit(1)
 
         # ── Redis startup validation ──────────────────────────────────────────
