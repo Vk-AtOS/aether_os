@@ -103,7 +103,10 @@ _ENV_TEMPLATE = """\
 # For local development without PostgreSQL, set to: sqlite+aiosqlite:///./app.db
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/appdb
 # For local SQLite fallback (development only): DATABASE_URL=sqlite:///./app.db
-SECRET_KEY={secret_key}
+# JWT uses RS256. Keys are auto-generated as private_key.pem / public_key.pem on first run.
+# Override paths with RSA_PRIVATE_KEY_PATH / RSA_PUBLIC_KEY_PATH env vars.
+# INVITE_SECRET is used only for org invite tokens (HS256, short-lived).
+INVITE_SECRET={secret_key}
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ENVIRONMENT=development
@@ -154,22 +157,73 @@ volumes:
 """
 
 _AUTH_PY = '''\
-"""JWT access + refresh tokens, bcrypt password hashing, FastAPI dependencies."""
+"""JWT access + refresh tokens (RS256), bcrypt password hashing, FastAPI dependencies.
+
+RS256 keypair is auto-generated on first startup if the PEM files are absent.
+Set RSA_PRIVATE_KEY_PATH / RSA_PUBLIC_KEY_PATH env vars to use pre-existing keys.
+"""
 from __future__ import annotations
 import os
+import logging
 import bcrypt as _bcrypt
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt; JWTError = jwt.exceptions.PyJWTError
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "")
-if not SECRET_KEY:
-    import secrets as _secrets_mod
-    SECRET_KEY = _secrets_mod.token_hex(32)  # ephemeral; set SECRET_KEY env var for persistence
-ALGORITHM = "HS256"
+logger = logging.getLogger(__name__)
+
+ALGORITHM = "RS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+_PRIVATE_KEY_PATH = os.environ.get("RSA_PRIVATE_KEY_PATH", "private_key.pem")
+_PUBLIC_KEY_PATH = os.environ.get("RSA_PUBLIC_KEY_PATH", "public_key.pem")
+
+
+def _ensure_rsa_keys() -> None:
+    """Auto-generate a 2048-bit RSA keypair on first run if the PEM files are missing."""
+    if os.path.exists(_PRIVATE_KEY_PATH) and os.path.exists(_PUBLIC_KEY_PATH):
+        return
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        with open(_PRIVATE_KEY_PATH, "wb") as f:
+            f.write(private_key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+        with open(_PUBLIC_KEY_PATH, "wb") as f:
+            f.write(private_key.public_key().public_bytes(
+                serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            ))
+        logger.info("auth: generated RSA-2048 keypair (%s, %s)", _PRIVATE_KEY_PATH, _PUBLIC_KEY_PATH)
+    except Exception as exc:
+        logger.error("auth: RSA keypair generation failed: %s", exc)
+        raise RuntimeError(f"Cannot generate RSA keys for JWT signing: {exc}") from exc
+
+
+def _load_private_key():
+    _ensure_rsa_keys()
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    with open(_PRIVATE_KEY_PATH, "rb") as f:
+        return load_pem_private_key(f.read(), password=None)
+
+
+def _load_public_key():
+    _ensure_rsa_keys()
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+    with open(_PUBLIC_KEY_PATH, "rb") as f:
+        return load_pem_public_key(f.read())
+
+
+# Load keys once at module import (auto-generates if missing)
+_ensure_rsa_keys()
+_PRIVATE_KEY = _load_private_key()
+_PUBLIC_KEY = _load_public_key()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -187,14 +241,14 @@ def create_access_token(user_id: int | str, email: str, role: str, org_id: str |
     payload: dict = {"sub": str(user_id), "email": email, "role": role, "exp": expire, "type": "access"}
     if org_id:
         payload["org_id"] = str(org_id)
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _PRIVATE_KEY, algorithm=ALGORITHM)
 
 
 def create_refresh_token(user_id: int | str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     return jwt.encode(
         {"sub": str(user_id), "exp": expire, "type": "refresh"},
-        SECRET_KEY,
+        _PRIVATE_KEY,
         algorithm=ALGORITHM,
     )
 
@@ -206,7 +260,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _PUBLIC_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "access":
             raise exc
         sub = payload.get("sub")
@@ -259,8 +313,8 @@ from auth import (
     create_access_token,
     create_refresh_token,
     get_current_user,
-    SECRET_KEY,
     ALGORITHM,
+    _PUBLIC_KEY,
 )
 
 try:
@@ -348,7 +402,7 @@ async def refresh_token(data: RefreshRequest, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=503, detail="User model not available")
     exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     try:
-        payload = jwt.decode(data.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(data.refresh_token, _PUBLIC_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "refresh":
             raise exc
         user_id = payload.get("sub")

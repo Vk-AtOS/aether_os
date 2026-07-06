@@ -39,13 +39,31 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _decode_jwt(token: str) -> dict:
-    """Decode a JWT and return payload. Raises on invalid/expired token."""
-    try:
-        from jose import jwt as _jwt
-        secret = os.getenv("SECRET_KEY", "changeme")
-        return _jwt.decode(token, secret, algorithms=["HS256"])
-    except Exception as exc:
-        raise exc
+    """Decode a JWT and return payload. Raises on invalid/expired token.
+
+    Tries RS256 with the app's public key first (main access tokens),
+    then falls back to HS256 with INVITE_SECRET for invite tokens.
+    """
+    import jwt as _pyjwt
+
+    # Try RS256 with the app's RSA public key (used for access tokens)
+    _pub_path = os.getenv("RSA_PUBLIC_KEY_PATH", "public_key.pem")
+    if os.path.exists(_pub_path):
+        try:
+            from cryptography.hazmat.primitives.serialization import load_pem_public_key
+            with open(_pub_path, "rb") as _f:
+                _pub = load_pem_public_key(_f.read())
+            return _pyjwt.decode(token, _pub, algorithms=["RS256"])
+        except _pyjwt.exceptions.PyJWTError:
+            pass  # token may be an HS256 invite token — try below
+        except Exception as exc:
+            logger.debug("OrgMiddleware: RS256 decode error (non-fatal): %s", exc)
+
+    # Fall back to HS256 invite-token secret
+    secret = os.getenv("INVITE_SECRET", os.getenv("SECRET_KEY", ""))
+    if not secret:
+        raise ValueError("INVITE_SECRET (or SECRET_KEY) must be set to decode invite tokens")
+    return _pyjwt.decode(token, secret, algorithms=["HS256"])
 
 
 # ---------------------------------------------------------------------------
@@ -214,9 +232,11 @@ _INVITE_EXPIRY_HOURS = 48
 
 
 def _create_invite_token(org_id: str, role: str, invited_by: int) -> str:
-    """Sign a short-lived invite token with HS256."""
-    from jose import jwt as _jwt
-    secret = os.getenv("SECRET_KEY", "changeme")
+    """Sign a short-lived invite token with HS256 using the INVITE_SECRET."""
+    import jwt as _pyjwt
+    secret = os.getenv("INVITE_SECRET", os.getenv("SECRET_KEY", ""))
+    if not secret:
+        raise RuntimeError("INVITE_SECRET (or SECRET_KEY) must be set to sign invite tokens")
     payload = {
         "sub": f"invite:{org_id}",
         "org_id": org_id,
@@ -224,14 +244,16 @@ def _create_invite_token(org_id: str, role: str, invited_by: int) -> str:
         "invited_by": invited_by,
         "exp": datetime.now(timezone.utc) + timedelta(hours=_INVITE_EXPIRY_HOURS),
     }
-    return _jwt.encode(payload, secret, algorithm="HS256")
+    return _pyjwt.encode(payload, secret, algorithm="HS256")
 
 
 def _decode_invite_token(token: str) -> dict:
     """Decode and validate an invite token. Raises on invalid/expired."""
-    from jose import jwt as _jwt
-    secret = os.getenv("SECRET_KEY", "changeme")
-    payload = _jwt.decode(token, secret, algorithms=["HS256"])
+    import jwt as _pyjwt
+    secret = os.getenv("INVITE_SECRET", os.getenv("SECRET_KEY", ""))
+    if not secret:
+        raise RuntimeError("INVITE_SECRET (or SECRET_KEY) must be set to decode invite tokens")
+    payload = _pyjwt.decode(token, secret, algorithms=["HS256"])
     if not payload.get("org_id") or not str(payload.get("sub", "")).startswith("invite:"):
         raise ValueError("not an invite token")
     return payload
