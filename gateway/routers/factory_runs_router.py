@@ -12,7 +12,7 @@ import json
 import logging
 import pathlib
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -80,19 +80,30 @@ async def list_factory_runs(
     user: Dict[str, Any] = _current_user(),
     page: int = 1,
     limit: int = 50,
+    cursor: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """List pipeline runs for the organisation with pagination."""
+    """List pipeline runs for the organisation with cursor-based pagination.
+
+    Prefer cursor-based pagination for all pages after the first:
+      GET /factory/runs?limit=50              → first page, returns next_cursor
+      GET /factory/runs?limit=50&cursor=<ts>  → next page (fast keyset seek)
+
+    Legacy page/offset mode is also supported for backward compatibility but
+    degrades at high page numbers due to OFFSET scan cost.
+    """
     limit = min(max(limit, 1), 100)
     page = max(page, 1)
-    offset = (page - 1) * limit
+    # Only compute offset for legacy callers that pass page > 1 without a cursor
+    offset = 0 if cursor is not None else (page - 1) * limit
     try:
         from aether_os.core.audit.ledger import get_ledger
         org_id = user.get("org_id")
         result = await get_ledger().async_get_run_history(
-            org_id=org_id, limit=limit, offset=offset
+            org_id=org_id, limit=limit, offset=offset, cursor=cursor
         )
         items = result.get("items", [])
         total = result.get("total", len(items))
+        next_cursor = result.get("next_cursor")
 
         # Enrich with quality_score from Run table
         if items:
@@ -103,10 +114,16 @@ async def list_factory_runs(
             except Exception as _e:
                 logger.debug("quality_score enrichment failed: %s", _e)
 
-        return {"items": items, "page": page, "limit": limit, "total": total}
+        return {
+            "items": items,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "next_cursor": next_cursor,
+        }
     except Exception as exc:
         logger.warning("Could not fetch run history: %s", exc)
-        return {"items": [], "page": page, "limit": limit, "total": 0}
+        return {"items": [], "page": page, "limit": limit, "total": 0, "next_cursor": None}
 
 
 @router.get("/factory/runs/{run_id}")

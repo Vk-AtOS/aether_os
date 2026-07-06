@@ -27,10 +27,17 @@ async def get_run_list(
     org_id: str,
     limit: int = 100,
     offset: int = 0,
+    cursor: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Return paginated run history for an org with total count.
+    """Return paginated run history for an org.
 
-    Returns {"items": [...], "total": int} so callers don't overfetch.
+    Supports two pagination modes:
+    - Cursor-based (preferred): pass cursor=<started_at float> to get the next page.
+      Returns {"items": [...], "total": int, "next_cursor": float|None}.
+    - Offset-based (legacy): pass offset=N. Slower at high page numbers but kept for
+      backward compatibility with callers that haven't migrated yet.
+
+    Returns {"items": [...], "total": int, "next_cursor": float|None}.
     """
     from .db import get_session_factory
     from .models import Run, PhaseCompletion, RunMetadata
@@ -42,21 +49,35 @@ async def get_run_list(
         total: int = (await session.execute(count_stmt)).scalar_one()
 
         if total == 0:
-            return {"items": [], "total": 0}
+            return {"items": [], "total": 0, "next_cursor": None}
 
-        # Paginated runs
-        stmt = (
-            select(Run)
-            .where(Run.org_id == org_id)
-            .order_by(Run.started_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        # Cursor-based pagination: seek rows older than cursor timestamp
+        # (started_at DESC ordering — cursor is the started_at of the last seen row)
+        base_filter = Run.org_id == org_id
+        if cursor is not None:
+            # Fetch limit+1 to detect whether there is a next page
+            stmt = (
+                select(Run)
+                .where(base_filter, Run.started_at < cursor)
+                .order_by(Run.started_at.desc())
+                .limit(limit + 1)
+            )
+        else:
+            # No cursor: use offset for the first page (or legacy callers)
+            stmt = (
+                select(Run)
+                .where(base_filter)
+                .order_by(Run.started_at.desc())
+                .offset(offset)
+                .limit(limit + 1)
+            )
         result = await session.execute(stmt)
-        runs = result.scalars().all()
+        all_rows = result.scalars().all()
+        has_more = len(all_rows) > limit
+        runs = all_rows[:limit]
 
         if not runs:
-            return {"items": [], "total": total}
+            return {"items": [], "total": total, "next_cursor": None}
 
         run_ids = [r.id for r in runs]
 
@@ -101,7 +122,11 @@ async def get_run_list(
             "client_id":     run.client_id,
         }
         formatted.append(d)
-    return {"items": formatted, "total": total}
+
+    # Provide next_cursor so callers can avoid OFFSET on subsequent pages.
+    # next_cursor is the started_at float of the oldest item in this page.
+    next_cursor: Optional[float] = runs[-1].started_at if has_more and runs else None
+    return {"items": formatted, "total": total, "next_cursor": next_cursor}
 
 
 async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
