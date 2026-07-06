@@ -204,15 +204,16 @@ class DecisionLedger:
         org_id: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
+        cursor: Optional[float] = None,
     ) -> Dict[str, Any]:
         try:
             from aether_os.core.db_utils import get_run_list
             if org_id:
-                return await get_run_list(org_id=org_id, limit=limit, offset=offset)
-            return {"items": [], "total": 0}
+                return await get_run_list(org_id=org_id, limit=limit, offset=offset, cursor=cursor)
+            return {"items": [], "total": 0, "next_cursor": None}
         except Exception as exc:
             logger.debug("async_get_run_history failed: %s", exc)
-            return {"items": [], "total": 0}
+            return {"items": [], "total": 0, "next_cursor": None}
 
     async def async_get_run_detail(self, run_id: str,
                                    org_id: Optional[str] = None) -> Dict[str, Any]:
