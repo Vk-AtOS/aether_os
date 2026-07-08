@@ -34,9 +34,9 @@ def create_lifespan(background_tasks: Set):
         try:
             from aether_os.gateway.auth import reload_keys as _reload_jwt_keys
             _jwt_alg = _reload_jwt_keys()
-            logger.info("JWT: RS256 asymmetric signing active (algorithm=%s)", _jwt_alg)
+            logger.info("JWT: signing active (algorithm=%s)", _jwt_alg)
         except RuntimeError as _jwt_err:
-            logger.critical("FATAL: JWT RS256 key configuration error — %s", _jwt_err)
+            logger.critical("FATAL: JWT key configuration error — %s", _jwt_err)
             import sys as _sys_jwt; _sys_jwt.exit(1)
 
         # ── Redis startup validation ──────────────────────────────────────────
