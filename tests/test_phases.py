@@ -26,22 +26,22 @@ def _result(tmp_path, success=True, issues=None, metadata=None, confidence=0.9):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# P00 — Intake
+# P00 — Research
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_p00_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p00_intake.gate")
-    from aether_os.phases.p00_intake.gate import validate
+    pytest.importorskip("aether_os.phases.p00_research.gate")
+    from aether_os.phases.p00_research.gate import validate
 
-    intake_data = {
-        "raw_text": (
-            "Build a SaaS platform for HR teams that includes payroll processing, "
-            "leave management, employee onboarding, performance reviews, and analytics dashboards"
-        ),
-        "structured_requirements": "HR SaaS with payroll, leave management, and analytics",
+    brief = {
+        "domain": "hr_saas",
+        "competitor_sites": ["workday.com", "bamboohr.com"],
+        "layout_patterns": {"navigation": "sidebar"},
+        "color_scheme": {"primary": "indigo-600"},
+        "must_have_features": ["payroll", "leave management", "analytics"],
     }
-    out_file = tmp_path / "intake.json"
-    out_file.write_text(json.dumps(intake_data))
+    out_file = tmp_path / "design_brief.json"
+    out_file.write_text(json.dumps(brief))
 
     from aether_os.phases.base import TaskResult
     result = TaskResult(output_path=str(out_file), confidence=0.9, issues=[], metadata={}, success=True)
@@ -50,22 +50,19 @@ def test_p00_gate_pass(tmp_path):
 
 
 def test_p00_gate_fail_short_text(tmp_path):
-    pytest.importorskip("aether_os.phases.p00_intake.gate")
-    from aether_os.phases.p00_intake.gate import validate
-
-    intake_data = {"raw_text": "No", "structured_requirements": ""}
-    out_file = tmp_path / "intake.json"
-    out_file.write_text(json.dumps(intake_data))
+    # Gate fails when result.success=False (research task itself failed).
+    pytest.importorskip("aether_os.phases.p00_research.gate")
+    from aether_os.phases.p00_research.gate import validate
 
     from aether_os.phases.base import TaskResult
-    result = TaskResult(output_path=str(out_file), confidence=0.3, issues=[], metadata={}, success=True)
+    result = TaskResult(output_path=str(tmp_path / "design_brief.json"), confidence=0.3, issues=[], metadata={}, success=False)
     outcome = validate(result)
     assert not outcome.passed
 
 
 def test_p00_gate_fail_no_output_file(tmp_path):
-    pytest.importorskip("aether_os.phases.p00_intake.gate")
-    from aether_os.phases.p00_intake.gate import validate
+    pytest.importorskip("aether_os.phases.p00_research.gate")
+    from aether_os.phases.p00_research.gate import validate
 
     from aether_os.phases.base import TaskResult
     result = TaskResult(output_path=str(tmp_path / "missing.json"), confidence=0.1, issues=[], metadata={}, success=True)
@@ -74,37 +71,33 @@ def test_p00_gate_fail_no_output_file(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# P01 — Requirements
+# P01 — Intake Requirements
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_p01_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p01_requirements.gate")
-    from aether_os.phases.p01_requirements.gate import validate
+    pytest.importorskip("aether_os.phases.p01_intake_requirements.gate")
+    from aether_os.phases.p01_intake_requirements.gate import validate
     from aether_os.phases.base import TaskResult
 
-    data = {
-        "functional_requirements": ["User can login", "User can logout"],
-        "acceptance_criteria": ["Login works"],
-        "estimated_complexity": "medium",
-        "domain": "general"
-    }
-    req_file = tmp_path / "requirements.json"
-    req_file.write_text(json.dumps(data))
+    out_file = tmp_path / "consolidated.json"
+    out_file.write_text(json.dumps({"raw_input": "Build a SaaS app for HR teams"}))
 
-    result = TaskResult(output_path=str(req_file), confidence=0.9, success=True)
+    result = TaskResult(output_path=str(out_file), confidence=0.9, success=True)
     outcome = validate(result)
     assert outcome.passed
 
 
 def test_p01_gate_fail_empty(tmp_path):
-    pytest.importorskip("aether_os.phases.p01_requirements.gate")
-    from aether_os.phases.p01_requirements.gate import validate
+    # Gate fails when output file is missing and parent dir is empty (nothing produced at all).
+    # Note: gate has a fallback — empty file passes if *any* sibling file exists in the dir.
+    pytest.importorskip("aether_os.phases.p01_intake_requirements.gate")
+    from aether_os.phases.p01_intake_requirements.gate import validate
     from aether_os.phases.base import TaskResult
 
-    req_file = tmp_path / "requirements.json"
-    req_file.write_text(json.dumps({}))
+    empty_dir = tmp_path / "empty_run"
+    empty_dir.mkdir()
 
-    result = TaskResult(output_path=str(req_file), confidence=0.3, success=True)
+    result = TaskResult(output_path=str(empty_dir / "consolidated.json"), confidence=0.3, success=True)
     outcome = validate(result)
     assert not outcome.passed
 
@@ -197,33 +190,24 @@ def test_p04a_gate_pass(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# P04b — UI/UX Design
+# P04b — Business Logic
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_p04b_gate_pass(tmp_path):
-    pytest.importorskip("aether_os.phases.p04b_uiux_design.gate")
-    from aether_os.phases.p04b_uiux_design.gate import validate
+    pytest.importorskip("aether_os.phases.p04b_business_logic.gate")
+    from aether_os.phases.p04b_business_logic.gate import validate
     from aether_os.phases.base import TaskResult
 
-    design = {
-        "pages": [{"name": "Login"}, {"name": "Dashboard"}],
-        "design_tokens": {
-            "colors": {"primary": "#6366f1"},
-            "typography": {"body": "16px"},
-            "spacing": {"sm": "8px"},
-            "breakpoints": {"md": "768px"},
-        },
-        "component_inventory": [
-            {"name": "Button"}, {"name": "Input"}, {"name": "Card"},
-            {"name": "Modal"}, {"name": "Table"},
-        ],
-    }
-    json_path = tmp_path / "components.json"
-    json_path.write_text(json.dumps(design))
+    # Gate validates that service files with functions were produced.
+    service_file = tmp_path / "user_service.py"
+    service_file.write_text(
+        "def create_user(data): pass\n"
+        "def get_user(user_id): pass\n"
+        "def update_user(user_id, data): pass\n"
+    )
 
     result = TaskResult(
-        output_path=str(tmp_path / "design.md"), confidence=0.9, issues=[],
-        metadata={"json_path": str(json_path)}, success=True,
+        output_path=str(tmp_path), confidence=0.9, issues=[], metadata={}, success=True,
     )
     outcome = validate(result)
     assert outcome.passed

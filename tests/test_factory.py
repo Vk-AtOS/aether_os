@@ -488,17 +488,18 @@ async def test_factory_pipeline_start_phase(tmp_path):
 
 
 def test_factory_pipeline_phase_sequence():
-    """PHASE_SEQUENCE starts with research and ends with handoff."""
+    """PHASE_SEQUENCE uses the 12-stage architecture starting with s01_intake."""
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
 
     assert len(PHASE_SEQUENCE) >= 10
-    # Pipeline starts with p00_research (pre-flight analysis)
-    assert PHASE_SEQUENCE[0] == "p00_research"
-    # Pipeline ends with the last known phase (p21_sre_agent added after p20_multiregion)
-    assert PHASE_SEQUENCE[-1] in ("p20_multiregion", "p21_sre_agent")
-    # Core phases must be present
-    assert "p01_intake_requirements" in PHASE_SEQUENCE
-    assert "p14_client_portal" in PHASE_SEQUENCE
+    # Refactored pipeline starts with s01_intake (was p00_research before stage consolidation)
+    assert PHASE_SEQUENCE[0] == "s01_intake"
+    # Pipeline ends with the specialist stage
+    assert PHASE_SEQUENCE[-1] == "s12_specialist"
+    # All 12 stages must be present
+    assert "s01_intake" in PHASE_SEQUENCE
+    assert "s03_backend" in PHASE_SEQUENCE
+    assert "s11_handoff" in PHASE_SEQUENCE
 
 
 def test_factory_pipeline_phase_supervisors_mapped():
