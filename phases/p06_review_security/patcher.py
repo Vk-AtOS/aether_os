@@ -4,7 +4,6 @@ Provides structured, semantically-safe code modification.
 """
 import ast
 import re
-import astor
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,6 +33,13 @@ class ASTSecurityPatcher(ast.NodeTransformer):
 
     def patch_file(self, path: str):
         """Load, parse, apply AST patches, and write back to disk."""
+        try:
+            import astor  # optional dependency — only needed for AST-based patching
+        except ImportError as exc:
+            raise RuntimeError(
+                "astor is required for AST-based security patching. "
+                "Install it with: pip install astor"
+            ) from exc
         with open(path, "r") as f:
             source = f.read()
         tree = ast.parse(source)
