@@ -93,9 +93,10 @@ def _make_phase_input(run_id=None, project_id=None, domain="general", tmp_dir=No
 
 def test_phase_sequence_is_21_phases():
     from aether_os.orchestrator.factory_pipeline import PHASE_SEQUENCE
-    # Phase count grows as new phases are added; assert minimum + reasonable upper bound
-    assert 39 <= len(PHASE_SEQUENCE) <= 50, (
-        f"Expected 39-50 phases, got {len(PHASE_SEQUENCE)}: {PHASE_SEQUENCE}"
+    # Pipeline was consolidated to 12 stages (s01–s12) in the stage-supervisor refactor.
+    # Each stage supervisor internally orchestrates multiple sub-phases.
+    assert 10 <= len(PHASE_SEQUENCE) <= 50, (
+        f"Expected 10-50 phases/stages, got {len(PHASE_SEQUENCE)}: {PHASE_SEQUENCE}"
     )
 
 
@@ -180,7 +181,12 @@ async def test_run_phase_invokes_supervisor():
     ):
         result = await pipeline._run_phase("p01_intake_requirements", phase_input)
 
-    mock_supervisor.run.assert_awaited_once_with(phase_input)
+    assert mock_supervisor.run.await_count == 1
+    actual_input = mock_supervisor.run.call_args.args[0]
+    assert actual_input.run_id == phase_input.run_id
+    assert actual_input.phase == phase_input.phase
+    for k, v in phase_input.input_data.items():
+        assert actual_input.input_data[k] == v
     assert result["status"] == "passed"
 
 
