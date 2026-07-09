@@ -522,5 +522,27 @@ async def cache_delete(key: str):
         await r.delete(key)
     except Exception as exc:
         logger.warning("[cache] cache_delete failed (non-fatal): %s", exc)
+
+
+async def cache_delete_pattern(pattern: str):
+    """Invalidate all keys matching a glob pattern using Redis SCAN.
+
+    r.delete() treats its argument as a literal key — the '*' is never expanded.
+    SCAN iterates the keyspace and batch-deletes matching keys so cache
+    invalidation on list endpoints works correctly under high traffic.
+    """
+    r = await get_cache()
+    if r is None:
+        return
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await r.scan(cursor, match=pattern, count=100)
+            if keys:
+                await r.delete(*keys)
+            if cursor == 0:
+                break
+    except Exception as exc:
+        logger.warning("[cache] cache_delete_pattern failed (non-fatal): %s", exc)
 '''
 

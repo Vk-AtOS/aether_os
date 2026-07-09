@@ -37,11 +37,23 @@ logger = logging.getLogger(__name__)
 _DEFAULT_KG_PATH = Path(__file__).parent / "knowledge_graph.json"
 
 # Persistent directory for domain-specific KG files — survives server restarts.
+# NOTE: Do NOT call mkdir() here at module level — it runs during static analysis,
+# tests, and any import, polluting the filesystem.  mkdir() is deferred to
+# save_for_domain() and load_for_domain(), the first methods that need the directory.
 _KG_DOMAIN_DIR = os.environ.get(
     "AETHER_KG_DIR",
     os.path.join(os.path.expanduser("~"), ".aether_os", "knowledge_graphs")
 )
-Path(_KG_DOMAIN_DIR).mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_kg_domain_dir() -> Path:
+    """Create _KG_DOMAIN_DIR on first use. Never called at import time."""
+    kg_dir = Path(_KG_DOMAIN_DIR)
+    try:
+        kg_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        logger.warning("[kg] could not create domain dir %s: %s", kg_dir, exc)
+    return kg_dir
 
 _SINGLETON: Optional["KnowledgeGraph"] = None
 
@@ -338,8 +350,7 @@ class KnowledgeGraph:
         JSON-serialisable without importing KGEdge.
         """
         try:
-            kg_dir = Path(_KG_DOMAIN_DIR)
-            kg_dir.mkdir(parents=True, exist_ok=True)
+            kg_dir = _ensure_kg_domain_dir()
             safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
             kg_file = kg_dir / f"{safe_domain}.json"
             existing: dict = {}
@@ -410,7 +421,7 @@ class KnowledgeGraph:
         via the companion load_edges_for_domain() classmethod.
         """
         try:
-            kg_dir = Path(_KG_DOMAIN_DIR)
+            kg_dir = _ensure_kg_domain_dir()
             safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
             kg_file = kg_dir / f"{safe_domain}.json"
             if not kg_file.exists():
@@ -429,7 +440,7 @@ class KnowledgeGraph:
         Malformed edges are skipped with a warning.  Returns empty list on error.
         """
         try:
-            kg_dir = Path(_KG_DOMAIN_DIR)
+            kg_dir = _ensure_kg_domain_dir()
             safe_domain = domain.lower().replace(" ", "_").replace("/", "_")
             kg_file = kg_dir / f"{safe_domain}.json"
             if not kg_file.exists():

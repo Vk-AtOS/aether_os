@@ -338,7 +338,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
     """
     # Ensure we always have at least one entity so the schemas import line
     # is never produced with an empty trailing module list (SyntaxError).
-    safe_entities = entities[:8] if entities else [{"name": "Item", "table": "items"}]
+    safe_entities = entities if entities else [{"name": "Item", "table": "items"}]
     schemas_imports = ", ".join(
         f"{e.get('name', 'Item')}Create, {e.get('name', 'Item')}Update"
         for e in safe_entities
@@ -360,11 +360,12 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
         "    async def _log_action(*a, **kw): pass",
         # Cache helpers — no-op when Redis is unavailable (REDIS_URL unset)
         "try:",
-        "    from cache import cache_get as _cache_get, cache_set as _cache_set, cache_delete as _cache_delete",
+        "    from cache import cache_get as _cache_get, cache_set as _cache_set, cache_delete as _cache_delete, cache_delete_pattern as _cache_delete_pattern",
         "except ImportError:",
         "    async def _cache_get(k): return None",
         "    async def _cache_set(k, v, ttl=30): pass",
         "    async def _cache_delete(k): pass",
+        "    async def _cache_delete_pattern(p): pass",
         "",
         "logger = logging.getLogger(__name__)",
         "",
@@ -446,7 +447,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'CREATE', '{name}', str(getattr(obj, 'id', '')))",
             f"    await db.refresh(obj)",
-            f"    await _cache_delete(f\"{name}:list:*\")",
+            f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
@@ -461,7 +462,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    await _log_action(db, str(current_user.get('id', '')), 'UPDATE', '{name}', str(item_id))",
             f"    await db.refresh(obj)",
             f"    await _cache_delete(f\"{name}:{{item_id}}\")",
-            f"    await _cache_delete(f\"{name}:list:*\")",
+            f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
@@ -477,7 +478,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    await _log_action(db, str(current_user.get('id', '')), 'DELETE', '{name}', str(item_id))",
             f"    await db.delete(obj)",
             f"    await _cache_delete(f\"{name}:{{item_id}}\")",
-            f"    await _cache_delete(f\"{name}:list:*\")",
+            f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             "",
         ]
     # Append auth flow endpoints (forgot-password / reset-password / verify-email)

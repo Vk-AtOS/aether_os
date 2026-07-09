@@ -19,19 +19,20 @@ Usage:
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 
-# Adjust this import to match your project\'s auth module
+# The generated auth.py exports get_current_user (a FastAPI Depends-compatible
+# async function that decodes the RS256 JWT and returns a user dict).
+# It does NOT export decode_token — using decode_token would cause ImportError
+# on every generated app.
 try:
-    from src.auth import decode_token
+    from auth import get_current_user
 except ImportError:
-    try:
-        from auth import decode_token
-    except ImportError:
-        def decode_token(token: str) -> dict:
-            return {}
+    from fastapi.security import OAuth2PasswordBearer as _OAuth2PasswordBearer
+    _oauth2 = _OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+    async def get_current_user(token: str = Depends(_oauth2)) -> dict:  # type: ignore[misc]
+        """Fallback stub when auth.py is unavailable."""
+        return {"role": "user", "id": "0", "email": ""}
 
 # Role hierarchy: higher index = more permissions
 _ROLE_HIERARCHY = ["viewer", "member", "manager", "admin", "superadmin"]
@@ -42,17 +43,6 @@ def _role_level(role: str) -> int:
         return _ROLE_HIERARCHY.index(role.lower())
     except ValueError:
         return -1
-
-
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return payload
 
 
 def require_role(minimum_role: str):
