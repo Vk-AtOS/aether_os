@@ -109,18 +109,17 @@ async def run_spec_review_gate(
     if _ctrl == "spec_approved":
         logger.info("[spec_review_gate] Spec already approved — skipping gate (run=%s)", run_id)
         return
-    if _ctrl is None or _ctrl not in ("spec_review", "spec_approved"):
-        logger.error(
-            "[spec_review_gate] Gate decision not found for run %s — emitting gate_error",
-            run_id,
+    # None means first run — normal, no error. Only warn on truly unexpected values.
+    if _ctrl is not None and _ctrl not in ("spec_review", "spec_approved", "cancel"):
+        logger.warning(
+            "[spec_review_gate] Unexpected gate state '%s' for run %s — emitting gate_error",
+            _ctrl, run_id,
         )
         await publish_event_fn(run_id, {
             "type": "gate_error",
             "run_id": run_id,
             "message": "Gate decision not found. It may have been wiped by a system restore.",
         })
-        # Do not abort — the gate_error SSE is enough for the UI to warn the user.
-        # We continue and set the gate state below.
 
     # ── Step 3: Emit spec_review_ready and wait for human decision ────────────
     await set_control_fn(run_id, "spec_review")

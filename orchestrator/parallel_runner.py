@@ -42,13 +42,13 @@ logger = logging.getLogger(__name__)
 
 # Default per-phase timeout (seconds) — overridable via PHASE_TIMEOUT_SECONDS env var.
 _DEFAULT_PHASE_TIMEOUT = 600.0
-_FRONTEND_TIMEOUT = 1200.0   # p05 needs longer; matches factory_pipeline logic
+_FRONTEND_TIMEOUT = 1200.0   # s04_frontend needs longer; matches factory_pipeline logic
 
 
 def _phase_timeout_for(phase_name: str) -> float:
     """Return the per-phase timeout in seconds, honouring env overrides."""
     env_key = f"PHASE_TIMEOUT_{phase_name.upper()}"
-    default = _FRONTEND_TIMEOUT if phase_name == "p05_frontend" else _DEFAULT_PHASE_TIMEOUT
+    default = _FRONTEND_TIMEOUT if phase_name == "s04_frontend" else _DEFAULT_PHASE_TIMEOUT
     return float(os.environ.get(env_key, os.environ.get("PHASE_TIMEOUT_SECONDS", default)))
 
 
