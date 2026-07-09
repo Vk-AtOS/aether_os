@@ -15,30 +15,33 @@ logger = logging.getLogger(__name__)
 # Maps human-readable area names (as supplied in change-request API calls) to the
 # canonical phase name that is the first phase that must re-run for that area.
 AREA_TO_PHASE: Dict[str, str] = {
-    "intake":          "p01_intake_requirements",
-    "requirements":    "p01_intake_requirements",
-    "architecture":    "p02_architecture",
-    "scaffolding":     "p03_scaffolding",
-    "backend":         "p04_backend",
-    "api":             "p04_backend",
-    "database":        "p04_backend",
-    "frontend":        "p05_frontend",
-    "ui":              "p05_frontend",
-    "ux":              "p05_frontend",
-    "security":        "p06_review_security",
-    "review":          "p06_review_security",
-    "testing":         "p07_testing",
-    "tests":           "p07_testing",
-    "healing":         "p07b_self_healing",
-    "cicd":            "p08_cicd_deployment",
-    "ci":              "p08_cicd_deployment",
-    "cd":              "p08_cicd_deployment",
-    "observability":   "p09_observability",
-    "monitoring":      "p09_observability",
-    "docs":            "p10_docs_delivery",
-    "documentation":   "p10_docs_delivery",
-    "deployment":      "p11_deployment",
-    "deploy":          "p11_deployment",
+    # Current s0x_* stage names (post-July-2026 refactor)
+    "intake":          "s01_intake",
+    "requirements":    "s01_intake",
+    "architecture":    "s02_architecture",
+    "scaffolding":     "s02_architecture",
+    "backend":         "s03_backend",
+    "api":             "s03_backend",
+    "database":        "s03_backend",
+    "frontend":        "s04_frontend",
+    "ui":              "s04_frontend",
+    "ux":              "s04_frontend",
+    "security":        "s05_quality",
+    "review":          "s05_quality",
+    "testing":         "s06_testing",
+    "tests":           "s06_testing",
+    "healing":         "s07_healing",
+    "cicd":            "s09_devops",
+    "ci":              "s09_devops",
+    "cd":              "s09_devops",
+    "observability":   "s08_observability",
+    "monitoring":      "s08_observability",
+    "docs":            "s11_handoff",
+    "documentation":   "s11_handoff",
+    "deployment":      "s09_devops",
+    "deploy":          "s09_devops",
+    "enterprise":      "s10_enterprise",
+    "handoff":         "s11_handoff",
 }
 
 
@@ -59,7 +62,7 @@ def select_phases(
 def resolve_change_request_phase(
     affected_areas: List[str],
     phase_sequence: List[str],
-    default_phase: str = "p04_backend",
+    default_phase: str = "s03_backend",
 ) -> str:
     """Resolve a list of affected area names to the earliest phase that must re-run.
 
