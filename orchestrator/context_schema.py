@@ -16,6 +16,19 @@ REQUIRED_KEYS = {
 }
 
 PHASE_OUTPUTS = {
+    # Current s0x_* stage names (post-July-2026 refactor)
+    "s01_intake":       {"requirements", "entities", "api_endpoints"},
+    "s02_architecture": {"domain_ir", "architecture_json"},
+    "s03_backend":      {"backend_output_path"},
+    "s04_frontend":     {"frontend_output_path"},
+    "s05_quality":      {"quality_score"},
+    "s06_testing":      {"test_results"},
+    "s07_healing":      {"healing_passed"},
+    "s08_observability": {"observability_config"},
+    "s09_devops":       {"live_url"},
+    "s10_enterprise":   {"enterprise_features"},
+    "s11_handoff":      {"handoff_package"},
+    # Legacy p0x_* names kept for checkpoint-resumed runs
     "p01_intake_requirements": {"requirements", "entities", "api_endpoints"},
     "p02b_domain_ir": {"domain_ir"},
     "p04_backend": {"backend_output_path"},

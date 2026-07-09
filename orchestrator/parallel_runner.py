@@ -31,6 +31,7 @@ Usage (called from factory_pipeline._execute_pipeline):
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import os
 import time
@@ -173,10 +174,10 @@ async def run_phases_in_wave(
     Returns:
         Dict mapping phase_name → phase result dict for every phase in wave.
     """
-    # Take a snapshot of accumulated_context before the wave starts.
-    # Shallow copy is sufficient: nested dicts are read-only by convention
-    # within a phase; phases only write top-level keys like `<phase>_output`.
-    ctx_snapshot = dict(accumulated_context)
+    # Take a deep-copy snapshot of accumulated_context before the wave starts.
+    # Shallow copy would share nested dicts between concurrent phases, allowing
+    # one phase to corrupt another's context via mutations to nested objects.
+    ctx_snapshot = copy.deepcopy(accumulated_context)
 
     wave_start = time.time()
     logger.info(
