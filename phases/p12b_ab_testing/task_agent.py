@@ -23,9 +23,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (ab_dir / "ab_testing.py").write_text(
         '''import hashlib
 import json
+import logging
 import os
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _EXPERIMENTS_FILE = Path(os.getenv("AB_EXPERIMENTS_PATH", "ab_experiments.json"))
 _EXPERIMENTS: dict = {}

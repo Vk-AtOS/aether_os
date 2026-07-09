@@ -27,7 +27,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -111,7 +111,7 @@ class PurchaseRequest(Base):
     requester_id = Column(String, nullable=False, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, default="")
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
     currency = Column(String(8), default="USD")
     vendor = Column(String(255), default="")
     required_levels = Column(Integer, nullable=False, default=1)

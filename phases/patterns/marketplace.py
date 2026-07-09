@@ -19,7 +19,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -80,7 +80,7 @@ class Listing(Base):
     seller_id = Column(String, nullable=False, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, default="")
-    price = Column(Float, nullable=False)
+    price = Column(Numeric(12, 2), nullable=False)
     status = Column(Enum(ListingStatus), default=ListingStatus.ACTIVE)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -91,7 +91,7 @@ class Bid(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     listing_id = Column(String, ForeignKey("marketplace_listings.id"), nullable=False, index=True)
     bidder_id = Column(String, nullable=False, index=True)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
     message = Column(Text, default="")
     status = Column(Enum(BidStatus), default=BidStatus.PENDING)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -103,7 +103,7 @@ class Escrow(Base):
     bid_id = Column(String, ForeignKey("marketplace_bids.id"), nullable=False, unique=True)
     buyer_id = Column(String, nullable=False)
     seller_id = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
     state = Column(Enum(EscrowState), default=EscrowState.PENDING)
     dispute_reason = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
