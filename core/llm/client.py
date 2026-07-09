@@ -192,23 +192,16 @@ class LLMClient:
             "gemini-2.0-flash":                            {"input": 0.00015, "output": 0.0006},
         }
 
-        # Inject ContextVar provider override into os.environ for the model_router
-        # which reads PRIMARY_LLM from os.environ at call time.  We do this
-        # per-task via a ContextVar token so concurrent async tasks each see
-        # their own override without racing on the process-global environ.
+        # Read ContextVar provider override — passed directly to router.call() as
+        # primary_provider so the router reorders its fallback chain without any
+        # os.environ mutation (which would race under concurrent async tasks).
         _provider_override = _active_provider.get()
-        _env_token = None
-        if _provider_override is not None:
-            _old_primary = os.environ.get("PRIMARY_LLM")
-            os.environ["PRIMARY_LLM"] = _provider_override
-            _env_token = _old_primary  # stash original value for restoration in finally
 
         from aether_os.core.model_router import get_router
         try:
             _router = get_router()
-            # Pass temperature if the router supports it; older routers ignore unknown kwargs.
-            # Cache the signature check at the class level (keyed by router type) to avoid
-            # calling inspect.signature() on every LLM invocation.
+            # Cache inspect.signature() at class level keyed by router type to avoid
+            # expensive introspection on every LLM invocation.
             _router_type = type(_router)
             if not hasattr(LLMClient, "_router_sig_cache"):
                 LLMClient._router_sig_cache = {}  # type: ignore[attr-defined]
@@ -224,6 +217,7 @@ class LLMClient:
                 enforce_local=enforce_local,
                 org_id=org_id,
                 plan=plan,
+                primary_provider=_provider_override,
             )
             if "temperature" in _router_sig.parameters:
                 _router_kwargs["temperature"] = temperature
@@ -300,11 +294,6 @@ class LLMClient:
                 self.last_model = getattr(self, 'last_provider', 'unknown')
             raise
         finally:
-            # Restore PRIMARY_LLM env var if we temporarily patched it for a ContextVar override
-            if _env_token is None and _provider_override is not None:
-                os.environ.pop("PRIMARY_LLM", None)
-            elif _env_token is not None:
-                os.environ["PRIMARY_LLM"] = _env_token
             duration_ms = int((time.time() - start_time) * 1000)
             _run_id = run_id or (context.get("run_id") if context else None)
             _phase = phase or (context.get("phase", task_type) if context else task_type)

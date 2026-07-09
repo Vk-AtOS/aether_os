@@ -20,10 +20,13 @@ Default thresholds (USD):
 from __future__ import annotations
 
 import enum
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -57,7 +60,8 @@ def _get_thresholds() -> list[tuple[float, int, str]]:
         import json
         data = json.loads(raw)
         return [(float(t["max"]), int(t["levels"]), str(t["label"])) for t in data]
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to parse APPROVAL_THRESHOLDS env var, using defaults: %s", e)
         return _DEFAULT_THRESHOLDS
 
 def required_levels(amount: float) -> int:

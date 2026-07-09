@@ -16,15 +16,9 @@ _SOCIAL_DEFAULT_ENTITY_MAP: dict = {
 
 
 def get_social_code(entity_map: dict | None = None) -> str:
-    """Return the social graph router source with model names resolved from entity_map.
-
-    Parameters
-    ----------
-    entity_map:
-        Maps canonical role names to actual IR entity names.
-        Example: {"post": "Article", "follow": "Subscription"}
-        Unrecognised keys fall back to the canonical defaults.
-        Pass None (default) to use canonical names.
+    """Return social graph router source with IR-resolved model names.
+    entity_map keys: user_profile, follow, post, hashtag, post_hashtag, like, notification.
+    Unknown keys fall back to canonical defaults. Pass None to use canonical names.
     """
     em = dict(_SOCIAL_DEFAULT_ENTITY_MAP)
     if entity_map:
@@ -601,8 +595,6 @@ async def unlike_post(
    .replace('models.Like', f'models.{like}') \
    .replace('models.Notification', f'models.{notification}')
 
-
 # Backward-compatible constant — uses canonical (default) model names.
 SOCIAL_GRAPH_CODE = get_social_code()
-
 __all__ = ["SOCIAL_GRAPH_CODE", "SOCIAL_GRAPH_REQUIREMENTS", "get_social_code"]

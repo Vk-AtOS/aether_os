@@ -148,7 +148,8 @@ class CodeScanner:
                 path = Path(root) / file
                 try:
                     content = path.read_text(errors="ignore")
-                except Exception:
+                except Exception as e:
+                    logger.debug("Could not read %s for domain scan: %s", path, e)
                     continue
                 for rule_id, pattern, message, severity in domain_rules:
                     if re.search(pattern, content):
