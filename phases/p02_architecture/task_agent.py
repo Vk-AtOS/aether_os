@@ -5,6 +5,7 @@ unavailable.  The fallback produces a domain-aware schema derived from
 the raw_input text (not a generic hello-world placeholder).
 """
 from __future__ import annotations
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -153,10 +154,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             # from the spec, so the model has all the context it needs in one shot.
             # If it produces fewer entities than expected, gap-fill below handles it
             # deterministically from _spec_nouns rather than paying another LLM retry.
-            doc = await llm.call_structured(
-                prompt=prompt,
-                schema_example=schema_example,
-                task_type="architecture",
+            doc = await asyncio.wait_for(
+                llm.call_structured(
+                    prompt=prompt,
+                    schema_example=schema_example,
+                    task_type="architecture",
+                ),
+                timeout=120,
             )
             if doc.get("parse_error") or doc.get("tech_stack") == ARCHITECTURE_SCHEMA["tech_stack"]:
                 raise ValueError("LLM returned unparseable response")

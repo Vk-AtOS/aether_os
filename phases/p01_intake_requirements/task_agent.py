@@ -1,5 +1,6 @@
 """P01 Consolidated Task Agent — intake + requirements parsing via LLM."""
 from __future__ import annotations
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -82,7 +83,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             '  }\n'
             "}"
         )
-        combined = await llm.call_json(combined_prompt, task_type="analysis")
+        combined = await asyncio.wait_for(
+            llm.call_json(combined_prompt, task_type="analysis"),
+            timeout=90,
+        )
         intake_record = combined.get("intake") or {}
         contract_profile = combined.get("contract") or {}
         requirements_doc = combined.get("requirements") or {}

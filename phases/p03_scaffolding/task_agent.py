@@ -1,5 +1,6 @@
 """P03 Task Agent — scaffold project with cookiecutter and local fallback."""
 from __future__ import annotations
+import asyncio
 import ast
 import json
 import logging
@@ -439,7 +440,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         clone_dir = output_dir / project_name
         clone_dir.mkdir(parents=True, exist_ok=True)
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ["git", "clone", "--depth=1", github_url, str(clone_dir)],
                 capture_output=True, text=True, timeout=60,
             )
