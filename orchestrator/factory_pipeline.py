@@ -469,8 +469,8 @@ class FactoryPipeline:
                 # Look for PHASE_TIMEOUT_<PHASE_NAME> or fallback to PHASE_TIMEOUT_SECONDS/600
                 _env_key = f"PHASE_TIMEOUT_{phase_name.upper()}"
                 _default_timeout = "600"
-                if phase_name == "p05_frontend":
-                    # Skip p05 only when frontend is EXPLICITLY disabled; empty means "use default React"
+                if phase_name == "s04_frontend":
+                    # Skip s04 only when frontend is EXPLICITLY disabled; empty means "use default React"
                     _ds = accumulated_context.get("designer_spec") or {}
                     _tp = accumulated_context.get("tech_preferences") or {}
                     _frontend_selection = (
@@ -481,7 +481,7 @@ class FactoryPipeline:
                     )
                     if str(_frontend_selection).lower() in ("none", "no", "n/a"):
                         logger.info(
-                            "[pipeline] Skipping p05_frontend — frontend=%r (no UI requested)",
+                            "[pipeline] Skipping s04_frontend — frontend=%r (no UI requested)",
                             _frontend_selection,
                         )
                         results[phase_name] = {
@@ -498,8 +498,8 @@ class FactoryPipeline:
                             run_id=run_id,
                         )
                         continue  # finally block handles token reset
-                    _default_timeout = "1200"  # BUG-H2: Increase p05 timeout to 20 mins
-                elif phase_name == "p11_deployment":
+                    _default_timeout = "1200"  # frontend needs longer; matches parallel_runner logic
+                elif phase_name == "s09_devops":
                     _default_timeout = "1800"  # Docker build + vite + pip can exceed 600s on small VPS
 
                 _phase_timeout = float(os.environ.get(
