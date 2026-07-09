@@ -74,6 +74,7 @@ class ModelRouter:
         enforce_local: bool = False,
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
+        primary_provider: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Execute the fallback chain and return (text, provider).
@@ -149,6 +150,10 @@ class ModelRouter:
         chain = get_fallback_chain()
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
+
+        # ── Caller-pinned provider (ContextVar-safe; avoids os.environ mutation) ──
+        if primary_provider is not None and not enforce_local:
+            chain = sorted(chain, key=lambda s: 0 if s.provider == primary_provider else 1)
 
         # ── Org-specific provider overrides (DB takes precedence over env) ────
         if org_id and not enforce_local:

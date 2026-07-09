@@ -152,7 +152,7 @@ Return ONLY the JSON object, no markdown fences."""
         logger.info("[p10] wrote %s (%d chars)", rel_path, len(content))
 
     summary = {
-        "files": {k: len(v) for k, v in files.items()},
+        "files": {k: v for k, v in files.items()},
         "files_written": written,
         "project": project_name,
     }
