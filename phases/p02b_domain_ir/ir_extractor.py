@@ -460,7 +460,7 @@ async def run_4pass_extraction(
     if p1.get("entities"):
         _p2_prompt = _PASS2_PROMPT.format(
             requirements=req_snippet,
-            entities_json=json.dumps(p1.get("entities", [])[:30], indent=2),
+            entities_json=json.dumps(p1.get("entities", []), indent=2),
         )
         try:
             resp2 = await llm.call(_p2_prompt, task_type="analysis", max_tokens=2048)
@@ -479,7 +479,7 @@ async def run_4pass_extraction(
     if p1.get("entities"):
         _p3_prompt = _PASS3_PROMPT.format(
             requirements=req_snippet,
-            entities_json=json.dumps(p1.get("entities", [])[:20], indent=2),
+            entities_json=json.dumps(p1.get("entities", []), indent=2),
         )
         try:
             resp3 = await llm.call(_p3_prompt, task_type="analysis", max_tokens=3000)

@@ -112,7 +112,7 @@ async def list_factory_runs(
                 async with _gsf()() as _sess:
                     await enrich_runs_with_quality(_sess, items)
             except Exception as _e:
-                logger.debug("quality_score enrichment failed: %s", _e)
+                logger.warning("quality_score enrichment failed (run list will show no scores): %s", _e)
 
         return {
             "items": items,

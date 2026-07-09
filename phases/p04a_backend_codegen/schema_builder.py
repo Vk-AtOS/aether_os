@@ -108,7 +108,7 @@ def _fallback_models(project_name: str, entities: list) -> str:
         fields = ent.get("fields", []) or [{"name": "name"}, {"name": "description"}]
         cols = ["    id = Column(Integer, primary_key=True, index=True)"]
         rels = []
-        for f in fields[:10]:
+        for f in fields:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
@@ -185,7 +185,7 @@ def _fallback_schemas(entities: list) -> str:
         fields = ent.get("fields", []) or [{"name": "name"}, {"name": "description"}]
         all_field_lines = []
         response_field_lines = []
-        for f in fields[:20]:
+        for f in fields:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
