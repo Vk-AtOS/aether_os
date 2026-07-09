@@ -398,6 +398,13 @@ async def _hook_p02b_domain_ir(
             except Exception as _e:
                 logger.warning("[pipeline] Failed to load domain_ir from %s: %s", _cand, _e)
 
+    # C7: persist domain IR to knowledge graph so future similar-domain runs benefit
+    try:
+        from aether_os.core.knowledge_graph_integration import save_ir_to_knowledge_graph as _save_kg
+        _save_kg(accumulated_context)
+    except Exception as _kg_exc:
+        logger.debug("[pipeline] knowledge_graph save failed (non-fatal): %s", _kg_exc)
+
 
 async def _hook_p04_backend(
     phase_name: str,
