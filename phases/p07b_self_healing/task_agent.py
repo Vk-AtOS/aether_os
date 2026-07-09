@@ -123,6 +123,8 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
         for e in _raw_entities
         if e
     ]
+    # Quality breakdown from the gate — used to focus LLM repair on failing metrics
+    _quality_details: Optional[Dict] = _input_data.get("quality_score_details") if isinstance(_input_data, dict) else None
 
     main_py = _find_file(project_dir, "main.py")
     test_file = _find_file(project_dir, "test_*.py")
@@ -152,11 +154,18 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             logger.info(msg)
             await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg})
 
-            # Run multi-layer quality check (L1 startup / L2 auth / L3 crud / L4 data)
-            # Non-blocking: if probe fails to start, we still report test success.
+            # Run multi-layer quality check BEFORE declaring success — probe may find
+            # live failures (auth, empty CRUD) and apply deterministic fixes.
             _qp_msg = "[p07b_self_healing] Running quality probe (L1–L4)..."
             await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": _qp_msg})
             quality_probe_result = await _quality_probe(project_dir, _entity_names, output_dir)
+            _qp_failure = quality_probe_result.get("failure_type")
+            _qp_fixes = quality_probe_result.get("fixes_applied", [])
+
+            # Probe fixed something — loop back to verify the fix actually works
+            if _qp_failure and _qp_fixes and attempt < MAX_ATTEMPTS:
+                logger.info("[p07b_self_healing] Probe fixed %d issue(s) (%s) — re-running tests", len(_qp_fixes), _qp_failure)
+                continue
 
             result = {
                 "success": True,
@@ -166,7 +175,6 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
                 "quality_probe": quality_probe_result,
             }
             (output_dir / "self_healing.json").write_text(json.dumps(result, indent=2))
-            # Confidence reflects how many repair attempts were needed
             if attempt == 1:
                 _heal_confidence = 0.9
                 _heal_reason = "Tests passed on first attempt — no repairs needed"
@@ -177,8 +185,6 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
                 _heal_confidence = 0.5
                 _heal_reason = f"Tests passed after {attempt - 1} LLM repairs — code may be fragile"
 
-            # Downgrade confidence if quality probe detected a live failure
-            _qp_failure = quality_probe_result.get("failure_type")
             if _qp_failure:
                 _heal_confidence = min(_heal_confidence, 0.5)
                 _heal_reason += f" — quality probe detected {_qp_failure}"
@@ -196,20 +202,16 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 
         last_output = test_result["output"]
 
-        msg = f"🔧 [p07b_self_healing] Tests failing — requesting LLM fix (attempt {attempt}/{MAX_ATTEMPTS})..."
-        logger.info(msg)
-        await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg})
-
-        msg2 = f"🔧 [p07b_self_healing] Attempt {attempt}/{MAX_ATTEMPTS} — applying fix..."
-        logger.info(msg2)
-        await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": msg2})
+        _fix_msg = f"🔧 [p07b_self_healing] Attempt {attempt}/{MAX_ATTEMPTS} — tests failing, applying fix..."
+        logger.info(_fix_msg)
+        await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": _fix_msg})
 
         failing_file = _identify_failing_file(last_output, project_dir) or main_py
-        fix = await _get_fix(failing_file, test_file, last_output)
+        fix = await _get_fix(failing_file, test_file, last_output, _quality_details)
         if not fix:
             logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
-            # After attempt 1 LLM failure, switch to deterministic fallback generator
-            if attempt >= 2:
+            # Only apply deterministic fallback on the truly final attempt
+            if attempt >= MAX_ATTEMPTS:
                 _apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
             continue
 
@@ -242,9 +244,9 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 
         failing_file.write_text(fix)
 
-        # After attempt 1 LLM repair — also regenerate crud/seed deterministically
-        # so any structural issues (missing all_routers, bad seed values) are reset cleanly
-        if attempt >= 2:
+        # Only fall back to deterministic regen on the final attempt —
+        # earlier attempts leave the LLM-fixed code in place for further iteration
+        if attempt >= MAX_ATTEMPTS:
             _apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
 
     # Problem 45 fix: Max attempts reached — tests still failing → report failure accurately
@@ -307,29 +309,25 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
         return {"passed": False, "output": str(e)}
 
 
-async def _get_fix(target_file: Path, test_file: Path, failure_output: str) -> Optional[str]:
-    """
-    Problem 50 fix: Parse the exec validation error output to identify the exact failing
-    file and line number; send THAT file with the exact error to the LLM.
-    Do NOT rely on the escalation message from an earlier phase.
-    """
+async def _get_fix(
+    target_file: Path,
+    test_file: Path,
+    failure_output: str,
+    quality_details: Optional[Dict] = None,
+) -> Optional[str]:
+    """Send the failing file + test output + quality metrics to LLM for a targeted fix."""
     from aether_os.core.llm.client import get_llm_client
 
-    # Problem 50 fix: extract exact file path and line number from the Python traceback
     _tb_match = re.search(r'File "([^"]+\.py)", line (\d+)', failure_output)
     _exact_location = ""
     if _tb_match:
-        _exact_file_str = _tb_match.group(1)
-        _exact_line = _tb_match.group(2)
+        _exact_file_str, _exact_line = _tb_match.group(1), _tb_match.group(2)
         _exact_location = f"\nEXACT FAILING LOCATION: File \"{_exact_file_str}\", line {_exact_line}"
-        # If the traceback points to a different file than target_file, use it
         _tb_path = Path(_exact_file_str)
         if _tb_path.exists() and _tb_path.resolve() != target_file.resolve():
-            logger.info("[p07b] Traceback points to %s (not %s) — switching target file",
-                        _tb_path, target_file)
+            logger.info("[p07b] Traceback → %s — switching target", _tb_path)
             target_file = _tb_path
 
-    # Gather full context — target_file first (most important), then siblings
     src_dir = target_file.parent
     try:
         _target_content = target_file.read_text()
@@ -350,10 +348,16 @@ async def _get_fix(target_file: Path, test_file: Path, failure_output: str) -> O
     if len(_src_ctx) > 12000:
         _src_ctx = _src_ctx[:12000] + "\n# ... (truncated — remaining files omitted)"
 
+    _quality_block = ""
+    if quality_details:
+        _low = [f"  {k}: {v}%" for k, v in quality_details.items() if k != "total" and isinstance(v, (int, float)) and v < 80]
+        if _low:
+            _quality_block = "\nQUALITY METRICS BELOW 80% (fix these first):\n" + "\n".join(_low) + "\n"
+
     prompt = f"""You are a senior Python backend engineer. Fix the FastAPI backend so all tests pass.
 
 FAILING FILE: {target_file.name}{_exact_location}
-
+{_quality_block}
 SOURCE FILES (context):
 {_src_ctx}
 

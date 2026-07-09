@@ -91,6 +91,20 @@ async def _hook_quality_gate(
             msg = f"Quality score {quality.total:.1f}% < 80% — running self-healing attempt {attempt}/3"
             logger.info("[quality] %s", msg)
             await emit_fn({"type": "llm_chunk", "phase": "quality_gate", "text": msg}, run_id=run_id)
+            # Inject full quality breakdown so s07_healing can target specific gaps
+            accumulated_context["quality_score_details"] = {
+                "total": quality.total,
+                "auth_coverage": quality.auth_coverage,
+                "input_validation": quality.input_validation,
+                "test_score": quality.test_score,
+                "test_coverage": getattr(quality, "test_coverage", 0),
+                "domain_specificity": quality.domain_specificity,
+                "seed_data_quality": quality.seed_data_quality,
+                "security_clean": quality.security_clean,
+                "has_docker": getattr(quality, "has_docker", False),
+                "has_readme": getattr(quality, "has_readme", False),
+            }
+            logger.info("[quality] Injected quality_score_details into context for s07_healing")
             await run_phase_fn("s07_healing", phase_input)
         else:
             logger.error("[quality] Gate failed after 3 attempts. Final score: %.1f%%", quality.total)
