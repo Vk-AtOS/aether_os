@@ -91,7 +91,7 @@ async def _hook_quality_gate(
             msg = f"Quality score {quality.total:.1f}% < 80% — running self-healing attempt {attempt}/3"
             logger.info("[quality] %s", msg)
             await emit_fn({"type": "llm_chunk", "phase": "quality_gate", "text": msg}, run_id=run_id)
-            await run_phase_fn("p07b_self_healing", phase_input)
+            await run_phase_fn("s07_healing", phase_input)
         else:
             logger.error("[quality] Gate failed after 3 attempts. Final score: %.1f%%", quality.total)
             if org_id:
@@ -496,17 +496,17 @@ async def _hook_p04_backend(
                 f"{_bac_issues_text}"
             )
             logger.info(
-                "[BackendAuditCouncil] score %.2f < %.2f — re-running p04_backend (retry %d/2)",
+                "[BackendAuditCouncil] score %.2f < %.2f — re-running s03_backend (retry %d/2)",
                 _bac_report.average_score, _BAC_THRESHOLD, _bac_attempt + 1,
             )
             _bac_retry_input = PhaseInput(
-                run_id=run_id, project_id=run_id, phase="p04_backend",
+                run_id=run_id, project_id=run_id, phase="s03_backend",
                 input_data=accumulated_context, output_dir=str(project_dir),
                 domain=domain, client_id=client_id,
             )
             try:
                 await asyncio.wait_for(
-                    run_phase_fn("p04_backend", _bac_retry_input),
+                    run_phase_fn("s03_backend", _bac_retry_input),
                     timeout=600.0,
                 )
                 # Re-do S11 merge so downstream phases see improved code

@@ -28,6 +28,7 @@ PHASE_OUTPUTS = {
     "s09_devops":       {"live_url"},
     "s10_enterprise":   {"enterprise_features"},
     "s11_handoff":      {"handoff_package"},
+    "s12_specialist":   {"specialist_output"},
     # Legacy p0x_* names kept for checkpoint-resumed runs
     "p01_intake_requirements": {"requirements", "entities", "api_endpoints"},
     "p02b_domain_ir": {"domain_ir"},

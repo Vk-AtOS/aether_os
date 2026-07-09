@@ -39,7 +39,7 @@ async def _llm_models_and_schemas(
     mem_hint: str = "", multi_tenancy: bool = False,
 ) -> Tuple[str, str]:
     """One LLM call → (models.py, schemas.py)."""
-    entities_json = json.dumps(entities[:12], indent=2)
+    entities_json = json.dumps(entities, indent=2)
 
     # Inject golden few-shot examples for this domain
     golden_hint = ""
@@ -198,14 +198,14 @@ async def _llm_crud_routers(
     mem_hint: str = "", multi_tenancy: bool = False,
 ) -> str:
     """One LLM call → routers/crud.py with all entity CRUD routers."""
-    entity_names = [e.get("name", e.get("table", "")) for e in entities[:12]]
+    entity_names = [e.get("name", e.get("table", "")) for e in entities]
     entity_list = ", ".join(entity_names)
 
     # Build a compact entity→fields map so the LLM can produce correct column references
     entity_fields_summary = ""
-    for e in entities[:12]:
+    for e in entities:
         fields = e.get("fields", []) or []
-        field_names = [f.get("name", f) if isinstance(f, dict) else str(f) for f in fields[:12]]
+        field_names = [f.get("name", f) if isinstance(f, dict) else str(f) for f in fields]
         entity_fields_summary += f"  {e.get('name','')}: {', '.join(field_names)}\n"
 
     # Pass full models + schemas so LLM sees exact class names, field names, and types

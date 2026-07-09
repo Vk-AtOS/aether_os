@@ -125,7 +125,7 @@ class MessageBus:
 
         # In-process fallback
         if phase_name not in self._subscribers:
-            self._subscribers[phase_name] = asyncio.Queue()
+            self._subscribers[phase_name] = asyncio.Queue(maxsize=1000)
         try:
             return await asyncio.wait_for(
                 self._subscribers[phase_name].get(),
