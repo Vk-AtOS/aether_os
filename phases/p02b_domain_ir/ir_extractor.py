@@ -420,45 +420,122 @@ async def run_4pass_extraction(
     seed: str,
     llm: Any,
 ) -> Tuple[Dict, Dict, Dict, Dict, List[str]]:
-    """Run the combined single-pass Domain IR extraction.
+    """Run true 4-pass Domain IR extraction, one focused LLM call per concern.
 
-    Despite the name '4pass' (kept for backward compatibility), this runs ONE
-    combined LLM call. The 4-pass sequential approach was retired to cut latency
-    from ~720s worst-case to ~60s.
+    Pass 1 — entities and fields (the skeleton of the data model)
+    Pass 2 — relationships between entities (cardinality, FK, join tables)
+    Pass 3 — business rules, permissions, workflows, metrics, notifications
+    Pass 4 — consistency review: fill gaps, fix FK refs, merge duplicates
 
-    Returns (pass1, pass2, pass3, pass4, errors).  All four return the same
-    combined_result dict so that _build_ir_from_passes() merges correctly.
-    On parse failure all four are {} and errors contains the reason.
+    Each pass uses a focused prompt (~300–400 tokens) so the LLM produces
+    higher-quality output than a single mega-prompt.  Results are merged by
+    _build_ir_from_passes() which takes pass4 as the authoritative source.
+
+    Returns (pass1, pass2, pass3, pass4, errors).
+    On parse failure for any pass the dict is {} and errors records the reason.
     """
     errors: List[str] = []
+    req_snippet = requirements[:6000]
 
-    _prompt = _COMBINED_PROMPT_TEMPLATE.format(
-        requirements=requirements[:6000],
-        seed=seed,
+    # ── Pass 1: entities and fields ──────────────────────────────────────────
+    p1: Dict = {}
+    _p1_prompt = _PASS1_PROMPT.format(
+        requirements=req_snippet,
+        seed_entities=seed,
     )
-
     try:
-        resp = await llm.call(_prompt, task_type="analysis", max_tokens=4096)
-        combined_result = _extract_json(resp)
-        if not combined_result:
-            logger.warning("p02b pass 1 returned unparseable JSON")
-            errors.append("pass1_parse_error")
+        resp1 = await llm.call(_p1_prompt, task_type="analysis", max_tokens=4096)
+        p1 = _extract_json(resp1)
+        if not p1.get("entities"):
+            logger.warning("p02b pass1 returned no entities")
+            errors.append("pass1_no_entities")
     except Exception as exc:
-        logger.error("p02b LLM error: %s", exc)
+        logger.error("p02b pass1 LLM error: %s", exc)
         errors.append(f"pass1_llm_error: {exc}")
-        combined_result = {}
 
-    logger.info(
-        "p02b single-pass complete — %d entities / %d relationships / %d rules / %d metrics",
-        len(combined_result.get("entities", [])),
-        len(combined_result.get("relationships", [])),
-        len(combined_result.get("business_rules", [])),
-        len(combined_result.get("dashboard_metrics", [])),
-    )
+    logger.info("p02b pass1 complete — %d entities", len(p1.get("entities", [])))
 
-    # Return the same dict for all four pass slots — _build_ir_from_passes picks
-    # pass4 as the authoritative source, which is exactly what we want here.
-    return combined_result, combined_result, combined_result, combined_result, errors
+    # ── Pass 2: relationships ────────────────────────────────────────────────
+    p2: Dict = {}
+    if p1.get("entities"):
+        _p2_prompt = _PASS2_PROMPT.format(
+            requirements=req_snippet,
+            entities_json=json.dumps(p1.get("entities", [])[:30], indent=2),
+        )
+        try:
+            resp2 = await llm.call(_p2_prompt, task_type="analysis", max_tokens=2048)
+            p2 = _extract_json(resp2)
+            if not p2.get("relationships"):
+                logger.warning("p02b pass2 returned no relationships")
+                errors.append("pass2_no_relationships")
+        except Exception as exc:
+            logger.error("p02b pass2 LLM error: %s", exc)
+            errors.append(f"pass2_llm_error: {exc}")
+
+        logger.info("p02b pass2 complete — %d relationships", len(p2.get("relationships", [])))
+
+    # ── Pass 3: business rules, permissions, workflows, metrics, notifications ─
+    p3: Dict = {}
+    if p1.get("entities"):
+        _p3_prompt = _PASS3_PROMPT.format(
+            requirements=req_snippet,
+            entities_json=json.dumps(p1.get("entities", [])[:20], indent=2),
+        )
+        try:
+            resp3 = await llm.call(_p3_prompt, task_type="analysis", max_tokens=3000)
+            p3 = _extract_json(resp3)
+        except Exception as exc:
+            logger.error("p02b pass3 LLM error: %s", exc)
+            errors.append(f"pass3_llm_error: {exc}")
+
+        logger.info(
+            "p02b pass3 complete — %d rules / %d metrics / %d workflows",
+            len(p3.get("business_rules", [])),
+            len(p3.get("dashboard_metrics", [])),
+            len(p3.get("workflows", [])),
+        )
+
+    # ── Pass 4: consistency review ───────────────────────────────────────────
+    p4: Dict = {}
+    if p1.get("entities"):
+        _interim_ir = {
+            "entities": p1.get("entities", []),
+            "relationships": p2.get("relationships", []),
+            "business_rules": p3.get("business_rules", []),
+            "permissions": p3.get("permissions", []),
+            "workflows": p3.get("workflows", []),
+            "dashboard_metrics": p3.get("dashboard_metrics", []),
+            "notifications": p3.get("notifications", []),
+            "clarifying_questions": [],
+        }
+        _p4_prompt = _PASS4_PROMPT.format(
+            requirements=req_snippet,
+            ir_json=json.dumps(_interim_ir, indent=2)[:5000],
+        )
+        try:
+            resp4 = await llm.call(_p4_prompt, task_type="analysis", max_tokens=4096)
+            p4 = _extract_json(resp4)
+            if not p4.get("entities"):
+                # If pass4 fails to return a complete IR, fall back to the merged interim
+                logger.warning("p02b pass4 returned incomplete IR — using interim merge as pass4")
+                p4 = _interim_ir
+                errors.append("pass4_incomplete_fell_back_to_interim")
+        except Exception as exc:
+            logger.error("p02b pass4 LLM error: %s", exc)
+            errors.append(f"pass4_llm_error: {exc}")
+            p4 = _interim_ir  # safety fallback
+
+        logger.info(
+            "p02b pass4 complete — %d entities / %d relationships / %d metrics",
+            len(p4.get("entities", [])),
+            len(p4.get("relationships", [])),
+            len(p4.get("dashboard_metrics", [])),
+        )
+
+    # If all passes failed, return empty dicts
+    if not p1 and not p4:
+        logger.error("p02b: all 4 passes failed to produce any entities")
+    return p1, p2, p3, p4, errors
 
 
 def build_stub_ir(app_name: str) -> Dict:

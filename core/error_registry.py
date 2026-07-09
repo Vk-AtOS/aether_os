@@ -16,12 +16,21 @@ Usage
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Module-level lock for the read-modify-write on the JSON registry file.
+# Two concurrent pipeline runs could otherwise both read the same state,
+# both append, and the last writer would overwrite the first's entry.
+# Threading lock is used because record() is synchronous; if an async
+# caller needs it they can run it in an executor.
+_registry_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +96,10 @@ class ErrorRegistry:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            entries = self._load()
-            entries.append(entry)
-            self._save(entries)
+            with _registry_lock:
+                entries = self._load()
+                entries.append(entry)
+                self._save(entries)
             logger.debug(
                 "[error_registry] recorded %s in %s: %s",
                 category.value, phase, detail[:120],

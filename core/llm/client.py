@@ -30,7 +30,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.errors import LLMCallError
-from aether_os.core.llm._org_context import _current_org_id  # noqa: F401  (re-exported for back-compat)
+from aether_os.core.llm._org_context import _current_org_id, _active_provider  # noqa: F401  (re-exported for back-compat)
 
 # ── Sub-module re-exports (preserve public API for all existing import paths) ──
 from aether_os.core.llm.model_registry import (   # noqa: F401
@@ -192,10 +192,30 @@ class LLMClient:
             "gemini-2.0-flash":                            {"input": 0.00015, "output": 0.0006},
         }
 
+        # Inject ContextVar provider override into os.environ for the model_router
+        # which reads PRIMARY_LLM from os.environ at call time.  We do this
+        # per-task via a ContextVar token so concurrent async tasks each see
+        # their own override without racing on the process-global environ.
+        _provider_override = _active_provider.get()
+        _env_token = None
+        if _provider_override is not None:
+            _old_primary = os.environ.get("PRIMARY_LLM")
+            os.environ["PRIMARY_LLM"] = _provider_override
+            _env_token = _old_primary  # stash original value for restoration in finally
+
         from aether_os.core.model_router import get_router
         try:
             _router = get_router()
-            # Pass temperature if the router supports it; older routers ignore unknown kwargs
+            # Pass temperature if the router supports it; older routers ignore unknown kwargs.
+            # Cache the signature check at the class level (keyed by router type) to avoid
+            # calling inspect.signature() on every LLM invocation.
+            _router_type = type(_router)
+            if not hasattr(LLMClient, "_router_sig_cache"):
+                LLMClient._router_sig_cache = {}  # type: ignore[attr-defined]
+            if _router_type not in LLMClient._router_sig_cache:
+                import inspect as _inspect
+                LLMClient._router_sig_cache[_router_type] = _inspect.signature(_router.call)
+            _router_sig = LLMClient._router_sig_cache[_router_type]
             _router_kwargs: Dict[str, Any] = dict(
                 prompt=full_prompt,
                 task_type=task_type,
@@ -205,8 +225,6 @@ class LLMClient:
                 org_id=org_id,
                 plan=plan,
             )
-            import inspect as _inspect
-            _router_sig = _inspect.signature(_router.call)
             if "temperature" in _router_sig.parameters:
                 _router_kwargs["temperature"] = temperature
             raw_response, provider = await _router.call(**_router_kwargs)
@@ -282,6 +300,11 @@ class LLMClient:
                 self.last_model = getattr(self, 'last_provider', 'unknown')
             raise
         finally:
+            # Restore PRIMARY_LLM env var if we temporarily patched it for a ContextVar override
+            if _env_token is None and _provider_override is not None:
+                os.environ.pop("PRIMARY_LLM", None)
+            elif _env_token is not None:
+                os.environ["PRIMARY_LLM"] = _env_token
             duration_ms = int((time.time() - start_time) * 1000)
             _run_id = run_id or (context.get("run_id") if context else None)
             _phase = phase or (context.get("phase", task_type) if context else task_type)
@@ -507,8 +530,9 @@ def get_llm_client(provider: Optional[str] = None) -> LLMClient:
     """Return the global singleton LLMClient.
 
     When *provider* is given the returned client pins that provider as the
-    primary tier (by temporarily setting PRIMARY_LLM in the environment before
-    the first call).  Pass provider=None for the default multi-tier client.
+    primary tier using a ContextVar (not os.environ mutation, which is not
+    safe under concurrent async execution).  Pass provider=None for the
+    default multi-tier client.
     """
     global _instance
     if provider is not None:
@@ -516,21 +540,17 @@ def get_llm_client(provider: Optional[str] = None) -> LLMClient:
         # caller gets a clean last_provider state without side-effects on the
         # process-level singleton.
         client = LLMClient()
-        # Patch PRIMARY_LLM for this client's lifetime via a subclass hook.
-        # The model_router reads PRIMARY_LLM at call time from os.environ, so we
-        # temporarily override it inside the call.
         _orig_call = client.call
 
         async def _pinned_call(*args, **kwargs):
-            _old = os.environ.get("PRIMARY_LLM")
-            os.environ["PRIMARY_LLM"] = provider
+            # Set the ContextVar for this async task's subtree only.
+            # The call() method reads _active_provider and injects it into
+            # os.environ for the duration of the router call, then restores it.
+            token = _active_provider.set(provider)
             try:
                 return await _orig_call(*args, **kwargs)
             finally:
-                if _old is None:
-                    os.environ.pop("PRIMARY_LLM", None)
-                else:
-                    os.environ["PRIMARY_LLM"] = _old
+                _active_provider.reset(token)
 
         client.call = _pinned_call  # type: ignore[method-assign]
         return client

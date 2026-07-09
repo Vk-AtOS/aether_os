@@ -9,6 +9,67 @@ from __future__ import annotations
 import re
 
 
+# ── AetherType → Pydantic type mapping ────────────────────────────────────────
+
+# Standard imports block emitted at the top of every generated schemas.py
+_SCHEMA_IMPORTS = """\
+from __future__ import annotations
+from decimal import Decimal
+from datetime import datetime, date
+from uuid import UUID
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, ConfigDict, Field
+"""
+
+# Keywords in field *names* that imply a monetary/numeric type regardless of
+# the explicit AetherType.  This catches LLM-generated fields whose type was
+# set to "string" by mistake (e.g. price: string).
+_MONEY_NAME_KEYWORDS = frozenset({
+    "price", "amount", "cost", "salary", "rate", "total", "revenue",
+    "balance", "fee", "tax", "discount", "subtotal", "markup",
+})
+
+
+def _aether_type_to_pydantic(aether_type: str, field_name: str = "") -> str:
+    """Map an AetherType string (from Domain IR) to a Pydantic Optional[T] annotation.
+
+    Falls back to Optional[str] for any unknown or unrecognised type so that
+    the generated schema is always syntactically valid even if the LLM produced
+    a non-standard type string.
+    """
+    t = (aether_type or "string").lower().strip()
+    fn = (field_name or "").lower()
+
+    # Money/decimal field names override type regardless of declared AetherType
+    if any(kw in fn for kw in _MONEY_NAME_KEYWORDS):
+        return "Optional[Decimal]"
+
+    # Explicit type mapping (AetherType values + common SQL type aliases)
+    if t in ("int", "integer", "bigint", "smallint"):
+        return "Optional[int]"
+    if t in ("float", "double", "real", "number"):
+        return "Optional[float]"
+    if t in ("decimal", "numeric", "money", "amount", "price", "cost", "salary"):
+        return "Optional[Decimal]"
+    if t in ("bool", "boolean"):
+        return "Optional[bool]"
+    if t in ("datetime", "timestamp", "timestamptz"):
+        return "Optional[datetime]"
+    if t == "date":
+        return "Optional[date]"
+    if t in ("uuid",):
+        return "Optional[UUID]"
+    if t in ("json", "jsonb", "dict", "object"):
+        return "Optional[Dict[str, Any]]"
+    if t in ("list", "array"):
+        return "Optional[List[Any]]"
+    # fk fields are integer IDs
+    if t == "fk":
+        return "Optional[int]"
+    # email, url, enum, text, str, varchar, string → str
+    return "Optional[str]"
+
+
 # ── Type inference ─────────────────────────────────────────────────────────────
 
 def _col_to_sa_type(col_name: str) -> str:
@@ -41,7 +102,7 @@ def _col_to_sa_type(col_name: str) -> str:
 
 def _fallback_models(project_name: str, entities: list) -> str:
     entity_classes = []
-    for ent in entities[:8]:
+    for ent in entities:
         name = ent.get("name", "Item")
         table = ent.get("table", name.lower() + "s")
         fields = ent.get("fields", []) or [{"name": "name"}, {"name": "description"}]
@@ -100,7 +161,8 @@ def _fallback_models(project_name: str, entities: list) -> str:
 # ── Fallback schema generator ──────────────────────────────────────────────────
 
 def _fallback_schemas(entities: list) -> str:
-    blocks = ["from __future__ import annotations", "from pydantic import BaseModel, ConfigDict, Field", "from typing import Optional", "from datetime import datetime", ""]
+    # Emit the full import block so all referenced types (Decimal, UUID, etc.) are available
+    blocks = _SCHEMA_IMPORTS.splitlines() + [""]
     blocks += [
         "class UserCreate(BaseModel):",
         "    model_config = ConfigDict(extra='ignore')",
@@ -118,22 +180,26 @@ def _fallback_schemas(entities: list) -> str:
     # Fields that must never appear in response/read schemas (security: password exposure)
     _RESPONSE_EXCLUDED_FIELDS = {"password_hash", "password", "hashed_password"}
 
-    for ent in entities[:8]:
+    for ent in entities:
         name = ent.get("name", "Item")
         fields = ent.get("fields", []) or [{"name": "name"}, {"name": "description"}]
         all_field_lines = []
         response_field_lines = []
-        for f in fields[:10]:
+        for f in fields[:20]:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
-            all_field_lines.append(f"    {fn}: Optional[str] = None")
+            # Derive the correct Pydantic type from the AetherType in the field dict
+            atype = f.get("type", "string") if isinstance(f, dict) else "string"
+            pydantic_type = _aether_type_to_pydantic(atype, fn)
+            all_field_lines.append(f"    {fn}: {pydantic_type} = None")
             # Skip password-like fields in response/read schemas to avoid leaking hashes
             if fn not in _RESPONSE_EXCLUDED_FIELDS:
-                response_field_lines.append(f"    {fn}: Optional[str] = None")
+                response_field_lines.append(f"    {fn}: {pydantic_type} = None")
 
         base_fields = response_field_lines if response_field_lines else ["    name: Optional[str] = None"]
-        update_fields = [f"    {ln.strip().split(':')[0]}: Optional[str] = None" for ln in all_field_lines] if all_field_lines else ["    name: Optional[str] = None"]
+        # Update schemas keep the same inferred types (all Optional so PATCH works correctly)
+        update_fields = all_field_lines if all_field_lines else ["    name: Optional[str] = None"]
         blocks += [
             f"class {name}Base(BaseModel):",
             "    model_config = ConfigDict(extra='ignore')",
