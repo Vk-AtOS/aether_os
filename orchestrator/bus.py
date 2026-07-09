@@ -22,8 +22,9 @@ class MessageBus:
     def __init__(self, run_id: str) -> None:
         self._run_id = run_id
         self._prefix = f"aetheros:bus:{run_id}"
-        # In-process fallback queues (used when Redis is unavailable)
-        self._queue: asyncio.Queue[PhaseMessage] = asyncio.Queue()
+        # In-process fallback queues (used when Redis is unavailable).
+        # Bounded to prevent unbounded memory growth at high concurrency.
+        self._queue: asyncio.Queue[PhaseMessage] = asyncio.Queue(maxsize=1000)
         self._subscribers: Dict[str, asyncio.Queue[PhaseMessage]] = {}
 
     # ── Internal helpers ──────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import time
 import uuid
 import json
 import os
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -62,6 +63,7 @@ from aether_os.orchestrator.phase_selector import (
 )
 from aether_os.orchestrator.phase_hooks import run_phase_hooks
 from aether_os.orchestrator import messages as _messages_module
+from aether_os.orchestrator.bus import release_bus
 from aether_os.orchestrator.pipeline_completion import (
     persist_finished_at,
     schedule_completion_tasks,
@@ -446,8 +448,6 @@ class FactoryPipeline:
             run_token   = ACTIVE_RUN_ID.set(run_id)
             phase_token = ACTIVE_PHASE.set(phase_name)
             org_token   = ACTIVE_ORG_ID.set(org_id)
-            # Fix 12: also set os.environ for code paths that use os.environ["ACTIVE_ORG_ID"]
-            os.environ["ACTIVE_ORG_ID"] = org_id or ""
 
             # Update state machine
             await self._update_state(run_id, phase_name, "running")
@@ -601,6 +601,13 @@ class FactoryPipeline:
                 accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
                 accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
 
+                # Merge stage metadata keys into accumulated_context so downstream
+                # stages receive produced keys without relying on hooks as the only bridge.
+                _meta_merge = phase_result.get("metadata") or {}
+                for _mk, _mv in _meta_merge.items():
+                    if _mk not in accumulated_context or _mv is not None:
+                        accumulated_context[_mk] = _mv
+
                 # Advisory schema check — logs warnings if expected keys are absent
                 assert_context(accumulated_context, phase_name)
 
@@ -749,9 +756,11 @@ class FactoryPipeline:
                     return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} failed: {e}"}
 
             finally:
-                # Reset context vars after each phase
+                # Reset context vars after each phase — must reset all three to
+                # prevent ContextVar leaks between concurrent pipeline runs.
                 ACTIVE_RUN_ID.reset(run_token)
                 ACTIVE_PHASE.reset(phase_token)
+                ACTIVE_ORG_ID.reset(org_token)
 
             # ── Control signal check after each phase ──────────────────────
             control = await get_control(run_id)
@@ -831,6 +840,10 @@ class FactoryPipeline:
             pm_update_fn=_pm_update,
             pm_changelog_fn=_pm_changelog,
         )
+
+        # Release the in-process message bus for this run so its bounded queue
+        # is freed and doesn't accumulate across long-lived server processes.
+        release_bus(run_id)
 
         return {
             "run_id": run_id,
@@ -966,11 +979,16 @@ class FactoryPipeline:
         first_phase = resolve_change_request_phase(
             affected_areas=affected_areas,
             phase_sequence=PHASE_SEQUENCE,
-            default_phase="p04_backend",
+            default_phase="s03_backend",
         )
 
-        # Load original run's context so downstream phases have prior outputs
+        # Load original run's context so downstream phases have prior outputs.
+        # Carry plan, domain, org_slug from the original run so change-request
+        # runs don't silently default to "trial"/"general" and bypass quota checks.
         original_context: Dict[str, Any] = {}
+        _orig_plan: Optional[str] = None
+        _orig_domain: str = "general"
+        _orig_org_slug: Optional[str] = None
         try:
             original_dir = Path.home() / ".aether_os" / "projects" / project_id
             if original_dir.exists():
@@ -981,6 +999,9 @@ class FactoryPipeline:
                 # Expose original project dir so phases can read existing code
                 original_context["original_project_dir"] = str(original_dir)
                 original_context["base_project_id"] = project_id
+                _orig_plan = original_context.get("plan")
+                _orig_domain = original_context.get("domain", "general")
+                _orig_org_slug = original_context.get("org_slug")
         except Exception as _e:
             logger.debug("[change_request] Could not load original context: %s", _e)
 
@@ -991,6 +1012,9 @@ class FactoryPipeline:
             start_phase=first_phase,
             is_change_request=True,
             org_id=org_id,
+            org_slug=_orig_org_slug,
+            plan=_orig_plan,
+            domain=_orig_domain,
             run_id=run_id,
             memory_context=json.dumps(original_context) if original_context else None,
         )
@@ -1013,7 +1037,6 @@ async def _pause_for_questionnaire(
     """
     try:
         import secrets
-        from datetime import timedelta
         from aether_os.core.db import get_session_factory as _gsf_q
         from aether_os.core.models import QuestionnaireSession, Run
         from aether_os.core.questionnaire.stage_questions import get_stage_questions

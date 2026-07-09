@@ -22,7 +22,22 @@ logger = logging.getLogger(__name__)
 # An empty list means the phase has no dependencies (can start immediately).
 # ---------------------------------------------------------------------------
 PHASE_DEPENDENCIES: Dict[str, List[str]] = {
-    # ── Research & intake ──────────────────────────────────────────────────
+    # ── 12-stage pipeline (current) ────────────────────────────────────────
+    # These are the canonical stage names post-July-2026 refactor.
+    "s01_intake":        [],
+    "s02_architecture":  ["s01_intake"],
+    "s03_backend":       ["s02_architecture"],
+    "s04_frontend":      ["s03_backend"],
+    "s05_quality":       ["s03_backend", "s04_frontend"],
+    "s06_testing":       ["s05_quality"],
+    "s07_healing":       ["s06_testing"],
+    "s08_observability": ["s07_healing"],
+    "s09_devops":        ["s07_healing"],
+    "s10_enterprise":    ["s07_healing"],
+    "s11_handoff":       ["s08_observability", "s09_devops", "s10_enterprise"],
+    "s12_specialist":    ["s04_frontend"],
+
+    # ── Research & intake (legacy p0x_* names — kept for tests and checkpoint resume) ──
     "p00_research":               [],
     "p00b_data_archaeology":      ["p00_research"],
     "p00c_architecture_planner":  ["p00_research"],

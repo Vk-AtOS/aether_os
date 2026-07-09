@@ -75,7 +75,7 @@ async def _hook_quality_gate(
     messages_module: Any,
 ) -> None:
     """After p07_testing: run quality gate and self-healing loop (up to 3 attempts)."""
-    if phase_name != "p07_testing":
+    if phase_name != "s06_testing":
         return
     from aether_os.core.quality.metrics import score_project
     from aether_os.core.errors import PipelineBlockedError
@@ -128,8 +128,8 @@ async def _hook_persist_live_url(
     run_id: str,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """Persist live_url to runs table after p11_deployment."""
-    if phase_name != "p11_deployment":
+    """Persist live_url to runs table after s09_devops."""
+    if phase_name != "s09_devops":
         return
     _live_url = phase_result.get("metadata", {}).get("live_url")
     if not _live_url:
@@ -158,8 +158,8 @@ async def _hook_p01_intake(
     set_control_fn: Callable,
     publish_event_fn: Callable,
 ) -> None:
-    """After p01: extract project name from intake JSON and optionally run spec review gate."""
-    if phase_name != "p01_intake_requirements":
+    """After s01_intake: extract project name from intake JSON and optionally run spec review gate."""
+    if phase_name != "s01_intake":
         return
 
     _intake_path = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
@@ -206,8 +206,8 @@ async def _hook_p00_research(
     project_dir: Path,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """After p00_research: load build_profile and domain_knowledge from design_brief.json."""
-    if phase_name != "p00_research":
+    """After s01_intake: load build_profile and domain_knowledge from design_brief.json."""
+    if phase_name != "s01_intake":
         return
     _brief_path = project_dir / "p00_research" / "design_brief.json"
     if not _brief_path.exists():
@@ -241,8 +241,8 @@ async def _hook_p00c_architecture_planner(
     project_dir: Path,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """After p00c: load service_map.json into accumulated_context."""
-    if phase_name != "p00c_architecture_planner":
+    """After s01_intake: load service_map.json into accumulated_context."""
+    if phase_name != "s01_intake":
         return
     _sm_path = project_dir / "p00c_architecture_planner" / "service_map.json"
     if not _sm_path.exists():
@@ -265,8 +265,8 @@ async def _hook_p02_architecture(
     project_dir: Path,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """After p02_architecture: load architecture.json and build knowledge graph."""
-    if phase_name != "p02_architecture":
+    """After s02_architecture: load architecture.json and build knowledge graph."""
+    if phase_name != "s02_architecture":
         return
 
     # Load architecture.json
@@ -327,8 +327,8 @@ async def _hook_p01b_integration_discovery(
     project_dir: Path,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """After p01b: load integration_map.json."""
-    if phase_name != "p01b_integration_discovery":
+    """After s01_intake: load integration_map.json."""
+    if phase_name != "s01_intake":
         return
     _imap_path = project_dir / "p01b_integration_discovery" / "integration_map.json"
     if not _imap_path.exists():
@@ -345,8 +345,8 @@ async def _hook_p02c_permission_modeling(
     project_dir: Path,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """After p02c: load permission_model.json."""
-    if phase_name != "p02c_permission_modeling":
+    """After s02_architecture: load permission_model.json."""
+    if phase_name != "s02_architecture":
         return
     _perm_path = project_dir / "p02c_permission_modeling" / "permission_model.json"
     if not _perm_path.exists():
@@ -364,8 +364,8 @@ async def _hook_p02b_domain_ir(
     project_dir: Path,
     accumulated_context: Dict[str, Any],
 ) -> None:
-    """After p02b: load domain_ir_path."""
-    if phase_name != "p02b_domain_ir":
+    """After s02_architecture: load domain_ir_path."""
+    if phase_name != "s02_architecture":
         return
     _ir_path_str = (
         phase_result.get("metadata", {}).get("domain_ir_path", "")
@@ -396,8 +396,8 @@ async def _hook_p04_backend(
     background_tasks: set,
     messages_module: Any,
 ) -> None:
-    """After p04_backend: S11 merge, api_routes propagation, pattern injection, BackendAuditCouncil."""
-    if phase_name != "p04_backend":
+    """After s03_backend: S11 merge, api_routes propagation, pattern injection, BackendAuditCouncil."""
+    if phase_name != "s03_backend":
         return
 
     PhaseInput = messages_module.PhaseInput
