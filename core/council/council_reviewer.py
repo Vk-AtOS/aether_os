@@ -74,7 +74,8 @@ _PROMPTS = {
         ),
         "prompt_tmpl": (
             "Review this FastAPI application for security vulnerabilities and compliance gaps.\n"
-            "Domain: {domain}\n\n"
+            "Domain: {domain}\n"
+            "Domain-specific rules: {domain_rules}\n\n"
             "Focus on: authentication flaws, SQL injection, hardcoded secrets, "
             "missing input validation, CORS misconfiguration, privilege escalation risks, "
             "and GDPR/HIPAA data handling issues.\n\n"
@@ -93,7 +94,8 @@ _PROMPTS = {
         ),
         "prompt_tmpl": (
             "Review this FastAPI application for architecture problems and scalability issues.\n"
-            "Domain: {domain}\n\n"
+            "Domain: {domain}\n"
+            "Domain-specific rules: {domain_rules}\n\n"
             "Focus on: database design, API structure, separation of concerns, "
             "error handling patterns, async usage, connection pool management, "
             "and code maintainability.\n\n"
@@ -113,7 +115,8 @@ _PROMPTS = {
         "prompt_tmpl": (
             "Review this FastAPI application for performance anti-patterns "
             "and unnecessary complexity.\n"
-            "Domain: {domain}\n\n"
+            "Domain: {domain}\n"
+            "Domain-specific rules: {domain_rules}\n\n"
             "Focus on: N+1 queries, missing indexes, blocking I/O, "
             "over-engineering, dead code, and simplification opportunities.\n\n"
             "Code:\n```python\n{code}\n```"
@@ -122,6 +125,18 @@ _PROMPTS = {
 }
 
 _MAX_CODE_CHARS = 40_000  # trim very large files to keep tokens reasonable
+
+_DOMAIN_RULES: dict = {
+    "fintech": "Monetary fields must use Decimal, never float. All financial transactions require idempotency keys and audit logs. PCI-DSS: never log card numbers or CVV.",
+    "healthcare": "PHI fields (SSN, DOB, diagnosis) must be encrypted at rest. HIPAA audit trail required on every record access. No PHI in logs or error messages.",
+    "ecommerce": "Cart and order operations must be idempotent. Inventory decrement must be atomic (SELECT FOR UPDATE). Payment capture must be separate from authorization.",
+    "saas": "Every data query must filter by org_id. Role-based access: admin vs. user must be enforced at router level, not just frontend.",
+    "general": "Follow OWASP Top 10. Validate all inputs. Use parameterized queries. Never expose stack traces to clients.",
+}
+
+
+def _domain_rules(domain: str) -> str:
+    return _DOMAIN_RULES.get(domain.lower(), _DOMAIN_RULES["general"])
 
 
 # ── Parser ────────────────────────────────────────────────────────────────────
@@ -206,7 +221,7 @@ async def _call_via_bedrock(code: str, domain: str, role_key: str) -> Optional[C
             else os.environ.get("BEDROCK_MODEL_LIGHT", "us.anthropic.claude-3-5-haiku-20241022-v1:0")
         )
         region = os.environ.get("AWS_REGION", "us-east-1")
-        full_prompt = spec["prompt_tmpl"].format(domain=domain, code=code[:_MAX_CODE_CHARS])
+        full_prompt = spec["prompt_tmpl"].format(domain=domain, domain_rules=_domain_rules(domain), code=code[:_MAX_CODE_CHARS])
 
         def _invoke():
             _kwargs: dict = {"region_name": region}
@@ -249,7 +264,7 @@ async def _call_claude(code: str, domain: str) -> Optional[CouncilReview]:
                     messages=[{
                         "role": "user",
                         "content": spec["prompt_tmpl"].format(
-                            domain=domain, code=code[:_MAX_CODE_CHARS],
+                            domain=domain, domain_rules=_domain_rules(domain), code=code[:_MAX_CODE_CHARS],
                         ),
                     }],
                 ),
@@ -273,7 +288,7 @@ async def _call_gemini(code: str, domain: str) -> Optional[CouncilReview]:
             from google import genai  # type: ignore
             spec = _PROMPTS["gemini"]
             client = genai.Client(api_key=api_key)
-            full_prompt = f"{spec['system']}\n\n{spec['prompt_tmpl'].format(domain=domain, code=code[:_MAX_CODE_CHARS])}"
+            full_prompt = f"{spec['system']}\n\n{spec['prompt_tmpl'].format(domain=domain, domain_rules=_domain_rules(domain), code=code[:_MAX_CODE_CHARS])}"
             response = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
                     None,
@@ -302,6 +317,7 @@ async def _call_ollama(code: str, domain: str) -> Optional[CouncilReview]:
             "model": ollama_model,
             "prompt": spec["prompt_tmpl"].format(
                 domain=domain,
+                domain_rules=_domain_rules(domain),
                 code=code[:_MAX_CODE_CHARS],
             ),
             "system": spec["system"],
@@ -334,9 +350,6 @@ def _find_consensus(reviews: List[CouncilReview], min_models: int = 2) -> List[s
         "it", "its", "this", "that", "be", "by", "on", "at", "with", "from",
         "not", "no", "use", "used", "using", "when", "where", "which", "has",
         "have", "does", "do", "can", "all", "any", "should", "would", "will",
-        # Generic action words that create false-positive consensus
-        "missing", "must", "ensure", "check", "verify",
-        "add", "remove", "consider", "implement", "handle",
     })
 
     def _words(text: str) -> frozenset:
@@ -368,7 +381,7 @@ def _find_consensus(reviews: List[CouncilReview], min_models: int = 2) -> List[s
                 continue
             words_b = _words(issue_b)
             overlap = len(words_a & words_b)
-            if overlap >= 3:
+            if overlap >= 2:
                 cluster_models.add(model_b)
                 used.add(j)
 
