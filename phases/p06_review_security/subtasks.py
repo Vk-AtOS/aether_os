@@ -122,8 +122,6 @@ async def run_bandit_scan(
 ) -> TaskResult:
     """Sub-task 2: Static security scan using bandit."""
     try:
-        import subprocess
-
         data = phase_input.input_data
         project_dir = Path(data.get("project_dir", ""))
         backend_path = data.get("backend_output_path", "")
@@ -139,16 +137,22 @@ async def run_bandit_scan(
 
         bandit_findings: list = []
         if src_path:
-            subprocess.run(["pip", "install", "bandit", "-q"], check=False)
-            result = subprocess.run(
-                ["bandit", "-r", "-f", "json", "-ll", str(src_path)],
-                capture_output=True,
-                text=True,
-                timeout=60,
+            _pip = await asyncio.create_subprocess_exec(
+                "pip", "install", "bandit", "-q",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            if result.stdout:
+            await asyncio.wait_for(_pip.wait(), timeout=60)
+            _proc = await asyncio.create_subprocess_exec(
+                "bandit", "-r", "-f", "json", "-ll", str(src_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout_bytes, _ = await asyncio.wait_for(_proc.communicate(), timeout=60)
+            _stdout = _stdout_bytes.decode("utf-8", errors="replace") if _stdout_bytes else ""
+            if _stdout:
                 try:
-                    data_json = json.loads(result.stdout)
+                    data_json = json.loads(_stdout)
                     bandit_findings = data_json.get("results", [])
                     _errors_section = data_json.get("errors", [])
                     _skipped_files = [
