@@ -125,6 +125,8 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
     ]
     # Quality breakdown from the gate — used to focus LLM repair on failing metrics
     _quality_details: Optional[Dict] = _input_data.get("quality_score_details") if isinstance(_input_data, dict) else None
+    # Council feedback from BackendAuditCouncil — specific issues the LLM should fix
+    _council_feedback: str = _input_data.get("council_feedback", "") if isinstance(_input_data, dict) else ""
 
     main_py = _find_file(project_dir, "main.py")
     test_file = _find_file(project_dir, "test_*.py")
@@ -207,7 +209,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
         await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": _fix_msg})
 
         failing_file = _identify_failing_file(last_output, project_dir) or main_py
-        fix = await _get_fix(failing_file, test_file, last_output, _quality_details)
+        fix = await _get_fix(failing_file, test_file, last_output, _quality_details, _council_feedback)
         if not fix:
             logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
             # Only apply deterministic fallback on the truly final attempt
@@ -314,6 +316,7 @@ async def _get_fix(
     test_file: Path,
     failure_output: str,
     quality_details: Optional[Dict] = None,
+    council_feedback: str = "",
 ) -> Optional[str]:
     """Send the failing file + test output + quality metrics to LLM for a targeted fix."""
     from aether_os.core.llm.client import get_llm_client
@@ -353,11 +356,12 @@ async def _get_fix(
         _low = [f"  {k}: {v}%" for k, v in quality_details.items() if k != "total" and isinstance(v, (int, float)) and v < 80]
         if _low:
             _quality_block = "\nQUALITY METRICS BELOW 80% (fix these first):\n" + "\n".join(_low) + "\n"
+    _council_block = f"\nBACKEND AUDIT COUNCIL ISSUES (also fix these):\n{council_feedback}\n" if council_feedback else ""
 
     prompt = f"""You are a senior Python backend engineer. Fix the FastAPI backend so all tests pass.
 
 FAILING FILE: {target_file.name}{_exact_location}
-{_quality_block}
+{_quality_block}{_council_block}
 SOURCE FILES (context):
 {_src_ctx}
 
@@ -588,13 +592,8 @@ async def _quality_probe(
 
 def _find_file(project_dir: Path, pattern: str) -> Optional[Path]:
     _SKIP_DIRS = {"__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "p03_scaffolding"}
-    matches = [
-        p for p in project_dir.rglob(pattern)
-        if not any(part in _SKIP_DIRS for part in p.parts)
-    ]
+    matches = [p for p in project_dir.rglob(pattern) if not any(part in _SKIP_DIRS for part in p.parts)]
     if not matches:
-        # Second pass: include scaffolding as fallback when backend codegen hasn't run
         matches = list(project_dir.rglob(pattern))
-    # Prefer deeper paths — p04 backend output is always deeper than p03 scaffolding
     matches.sort(key=lambda p: len(p.parts), reverse=True)
     return matches[0] if matches else None

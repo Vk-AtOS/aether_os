@@ -23,6 +23,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     mem = memory_hint(memory_ctx)
     _domain_prefix = build_prompt_prefix(domain)
 
+    # C7: pull entity patterns from knowledge graph for similar past domains
+    _kg_hint = ""
+    try:
+        from aether_os.core.knowledge_graph_integration import get_similar_entity_patterns as _get_kgp
+        _past_patterns = _get_kgp(domain, limit=3)
+        if _past_patterns:
+            _kg_hint = "Past entity patterns for this domain (use as hints only):\n" + "\n".join(
+                f"  - {p.get('name','')}: {', '.join(p.get('fields', [])[:5])}" for p in _past_patterns if isinstance(p, dict)
+            ) + "\n"
+    except Exception as _kg_exc:
+        logger.debug("[p01] knowledge_graph retrieval failed (non-fatal): %s", _kg_exc)
+
     # ── SINGLE LLM call: intake + contract + requirements in one shot ────────
     # The previous version made three sequential call_json calls (intake,
     # scalability contract, requirements doc). Nova / Llama handle the whole
@@ -39,6 +51,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "You are a senior requirements analyst. Convert the following raw project "
             "description into a SINGLE structured JSON document.\n\n"
             f"Raw Input:\n{raw_input[:4000]}\n\n"
+            f"{_kg_hint}"
             f"{mem}"
             "Return ONLY this JSON (no markdown, no commentary):\n"
             "{\n"

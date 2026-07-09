@@ -204,9 +204,10 @@ class ModelRouter:
                 _wait = 5 if spec.provider == "openrouter" else 10
                 if error_class == "fallback":
                     _wait = 0  # hard failure → no cooldown, switch immediately
-                logger.info(
-                    "Router: falling back to %s/%s (fallbacks today: %d) — waiting %ds",
-                    spec.provider, spec.model, _fallback_count_today, _wait,
+                _log_fn = logger.warning if (primary_provider and spec.provider != primary_provider) else logger.info
+                _log_fn(
+                    "Router: falling back to %s/%s (fallbacks today: %d, pinned=%s) — waiting %ds",
+                    spec.provider, spec.model, _fallback_count_today, primary_provider or "none", _wait,
                 )
                 if _wait > 0:
                     await asyncio.sleep(_wait)
