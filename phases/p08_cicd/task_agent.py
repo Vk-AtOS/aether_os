@@ -1,5 +1,6 @@
 """P08 Task Agent — CI/CD Repair or Proactive Scan."""
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import re
@@ -78,14 +79,12 @@ class CICDAgent:
 
     async def _run_scan(self, code_dir: Path, phase_input: Any) -> dict:
         """Run security and quality scan."""
-        import subprocess
-
         # Write phase artifacts to a subdirectory of the project phase dir,
         # not to the project root (phase_input.output_dir may be the project root).
         _pdir = Path(phase_input.input_data.get("project_dir", phase_input.output_dir))
         output_dir = _pdir / "p08_cicd_deployment" / "cicd"
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         results = {
             "mode": "proactive_scan",
             "issues": [],
@@ -93,26 +92,35 @@ class CICDAgent:
             "security_issues": 0,
             "ci_config_generated": False
         }
-        
-        # Run bandit if code exists
+
+        # Run bandit asynchronously if code exists (avoids blocking the event loop)
         if code_dir.exists():
             py_files = list(code_dir.rglob("*.py"))
             results["files_scanned"] = len(py_files)
-            
+
             if py_files:
-                bandit_result = subprocess.run(
-                    ["python3", "-m", "bandit", "-r", str(code_dir), "-f", "json", "-q"],
-                    capture_output=True, text=True)
-                
-                if bandit_result.stdout:
-                    try:
-                        bandit_data = json.loads(bandit_result.stdout)
-                        issues = bandit_data.get("results", [])
-                        high = [i for i in issues if i.get("issue_severity") == "HIGH"]
-                        results["security_issues"] = len(high)
-                        results["issues"] = [i.get("issue_text","") for i in high[:5]]
-                    except Exception as _e:
-                        logger.warning("Failed to parse bandit JSON output: %s", _e)
+                try:
+                    bandit_proc = await asyncio.create_subprocess_exec(
+                        "python3", "-m", "bandit", "-r", str(code_dir), "-f", "json", "-q",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    bandit_stdout, _bandit_stderr = await asyncio.wait_for(
+                        bandit_proc.communicate(), timeout=60
+                    )
+                    if bandit_stdout:
+                        try:
+                            bandit_data = json.loads(bandit_stdout.decode())
+                            issues = bandit_data.get("results", [])
+                            high = [i for i in issues if i.get("issue_severity") == "HIGH"]
+                            results["security_issues"] = len(high)
+                            results["issues"] = [i.get("issue_text", "") for i in high[:5]]
+                        except Exception as _e:
+                            logger.warning("Failed to parse bandit JSON output: %s", _e)
+                except asyncio.TimeoutError:
+                    logger.warning("[p08] bandit scan timed out after 60s — skipping")
+                except Exception as _be:
+                    logger.warning("[p08] bandit scan failed (non-critical): %s", _be)
         
         # Generate GitHub Actions CI config with real project context
         project_name = phase_input.input_data.get("project_name", "app") if hasattr(phase_input, "input_data") else "app"
@@ -129,6 +137,23 @@ jobs:
   backend:
     name: Backend — Test & Lint
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
+      SECRET_KEY: ci-test-secret-key-not-for-production
     steps:
       - uses: actions/checkout@v4
 
@@ -142,7 +167,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout httpx ruff bandit
+          pip install pytest pytest-asyncio pytest-timeout httpx asyncpg ruff bandit
 
       - name: Lint (ruff)
         run: ruff check src/ --output-format=github
@@ -204,7 +229,8 @@ jobs:
         run: |
           docker run -d --name app_test -p 8080:8080 \\
             -e SECRET_KEY=ci-test-key-$(date +%s) \\
-            -e DATABASE_URL=sqlite:///./test.db \\
+            -e DATABASE_URL=postgresql+asyncpg://testuser:testpass@localhost:5432/testdb \\
+            --network host \\
             ${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}
           echo "Waiting for app to start..."
           for i in $(seq 1 30); do

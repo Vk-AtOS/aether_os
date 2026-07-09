@@ -93,8 +93,34 @@ async def websocket_endpoint(room_id: str, ws: WebSocket, token: str | None = No
 
 
 @router.post("/{room_id}/broadcast", status_code=200)
-async def broadcast_message(room_id: str, payload: dict) -> dict:
-    """HTTP endpoint to broadcast a message to all WebSocket clients in a room."""
+async def broadcast_message(
+    room_id: str,
+    payload: dict,
+    token: str = "",
+) -> dict:
+    """HTTP endpoint to broadcast a message to all WebSocket clients in a room.
+    Requires a valid JWT token (passed as ?token= query param or Authorization header).
+    """
+    import os
+    _secret = os.getenv("SECRET_KEY", "")
+    _algorithm = os.getenv("JWT_ALGORITHM", "HS256")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication token required")
+
+    try:
+        from jose import jwt as _jose_jwt, JWTError as _JWTError
+        payload_data = _jose_jwt.decode(token, _secret, algorithms=[_algorithm])
+        user_id = payload_data.get("sub") or payload_data.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+    except _JWTError as exc:
+        logger.warning("websocket broadcast: JWT validation failed for room %s: %s", room_id, exc)
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    except Exception as exc:
+        logger.warning("websocket broadcast: token decode error: %s", exc)
+        raise HTTPException(status_code=401, detail="Token validation error")
+
     sent = await manager.broadcast(room_id, {"type": "broadcast", "room": room_id, "data": payload})
     return {"room": room_id, "recipients": sent}
 '''

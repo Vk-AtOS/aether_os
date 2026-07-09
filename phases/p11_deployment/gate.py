@@ -1,7 +1,10 @@
 """P11 Gate — validates deployment outcome, including live E2E smoke test."""
 from __future__ import annotations
+import logging
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 def validate(result: TaskResult) -> GateOutcome:

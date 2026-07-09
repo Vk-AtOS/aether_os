@@ -256,7 +256,8 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
             proc.kill()
         except Exception as exc:
             logger.debug("p07a: failed to kill timed-out validation process (non-fatal): %s", exc)
-        return {"passed": True, "error": None, "fixed": False}  # timeout ≈ app blocking on startup = OK
+        logger.warning("[p07a] exec validation: app startup timed out after 20s — treating as failure")
+        return {"passed": False, "error": "App startup timed out after 20 seconds", "fixed": False}
 
     out = stdout.decode()
     err = stderr.decode()
@@ -309,7 +310,8 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
                         logger.info("[p07a] exec validation: FIXED by LLM")
                         return {"passed": True, "error": None, "fixed": True}
                 except asyncio.TimeoutError:
-                    return {"passed": True, "error": None, "fixed": True}
+                    logger.warning("[p07a] exec validation: re-validation after LLM fix timed out")
+                    return {"passed": False, "error": "App startup timed out after LLM fix (20s)", "fixed": False}
         except Exception as _fix_exc:
             logger.warning("[p07a] LLM fix attempt failed: %s", _fix_exc)
 

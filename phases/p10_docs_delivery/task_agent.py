@@ -152,12 +152,12 @@ Return ONLY the JSON object, no markdown fences."""
         logger.info("[p10] wrote %s (%d chars)", rel_path, len(content))
 
     summary = {
-        "files": {k: v for k, v in files.items()},
+        "files": {k: len(v) for k, v in files.items()},
         "files_written": written,
         "project": project_name,
     }
     summary_path = output_dir / "docs_summary.json"
-    summary_path.write_text(json.dumps({k: len(v) for k, v in files.items()}, indent=2))
+    summary_path.write_text(json.dumps(summary, indent=2))
 
     return TaskResult(
         output_path=str(summary_path),
