@@ -89,6 +89,22 @@ async def _generate_file(
         return None
 
 
+def _build_rag_context_p05(accumulated_context: dict, domain: str) -> str:
+    """Retrieve ranked KG/RAG context for p05 frontend generation.
+    Returns a formatted section string (or empty string if unavailable).
+    Mirrors the pattern used in p04a_backend_codegen/prompts.py.
+    """
+    try:
+        from aether_os.core.llm.retrieval_ranker import retrieve_for_phase, format_for_prompt
+        from aether_os.core.llm.context_compressor import compress_context
+        compressed_ctx = compress_context("p05_frontend", accumulated_context)
+        ranked = retrieve_for_phase("p05_frontend", domain, compressed_ctx)
+        return format_for_prompt(ranked, max_items=4)
+    except Exception as exc:
+        logger.debug("p05: KG/RAG context unavailable (non-fatal): %s", exc)
+        return ""
+
+
 async def _generate_domain_component(
     domain: str, entities: List[dict], project_name: str, mem_hint: str = "",
     primary_hex: str = "",
@@ -98,6 +114,7 @@ async def _generate_domain_component(
     font_pairing: str = "",
     border_radius: str = "",
     density: str = "",
+    accumulated_context: Optional[dict] = None,
 ) -> Optional[str]:
     """Generate a domain-specific React component via one LLM call with hardcoded fallback."""
     from aether_os.core.llm.client import get_llm_client
@@ -107,6 +124,9 @@ async def _generate_domain_component(
 
     component_desc = DOMAIN_COMPONENT_DESC.get(domain, DOMAIN_COMPONENT_DESC.get("saas", "a SaaS dashboard widget"))
     entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []
+
+    # Inject KG/RAG architecture context from knowledge graph
+    rag_context = _build_rag_context_p05(accumulated_context, domain) if accumulated_context else ""
 
     # Inject golden few-shot examples for this domain
     golden_hint = ""
@@ -135,9 +155,14 @@ async def _generate_domain_component(
         # Fall back to domain-based color hints
         _color_hint = DOMAIN_COLOR_HINTS.get(domain, "white/gray neutral: bg-white, text-gray-900, cards bg-white border-gray-100")
 
+    _rag_section = (
+        f"## Architecture Context (from knowledge graph)\n{rag_context}\n\n"
+        if rag_context else ""
+    )
     prompt = (
         f'Generate a React functional component for a {domain} application called "{project_name}".\n\n'
         f"The component should render: {component_desc}\n\n"
+        f"{_rag_section}"
         f"{mem_hint}"
         f"{golden_hint}"
         "Hard requirements:\n"

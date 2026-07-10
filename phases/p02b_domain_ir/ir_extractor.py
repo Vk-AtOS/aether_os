@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from aether_os.core.domain_ir import (
     DomainIR, IREntity, IRField, IRRelationship, IRBusinessRule,
@@ -414,11 +414,31 @@ _COMBINED_PROMPT_TEMPLATE = (
 )
 
 
+def _build_rag_context_p02b(domain: str, accumulated_context: Dict) -> str:
+    """Retrieve ranked KG/RAG context for p02b domain IR extraction.
+
+    Surfaces golden entity patterns and past domain models from the knowledge
+    graph so the extraction LLM benefits from similar past projects.
+    Returns a formatted section string (or empty string if unavailable).
+    """
+    try:
+        from aether_os.core.llm.retrieval_ranker import retrieve_for_phase, format_for_prompt
+        from aether_os.core.llm.context_compressor import compress_context
+        compressed_ctx = compress_context("p02b_domain_ir", accumulated_context)
+        ranked = retrieve_for_phase("p02b_domain_ir", domain, compressed_ctx)
+        return format_for_prompt(ranked, max_items=4)
+    except Exception as exc:
+        logger.debug("p02b: KG/RAG context unavailable (non-fatal): %s", exc)
+        return ""
+
+
 async def run_4pass_extraction(
     *,
     requirements: str,
     seed: str,
     llm: Any,
+    domain: str = "",
+    accumulated_context: Optional[Dict] = None,
 ) -> Tuple[Dict, Dict, Dict, Dict, List[str]]:
     """Run true 4-pass Domain IR extraction, one focused LLM call per concern.
 
@@ -437,12 +457,20 @@ async def run_4pass_extraction(
     errors: List[str] = []
     req_snippet = requirements[:6000]
 
+    # Inject KG/RAG context into Pass 1 so entity extraction benefits from
+    # similar past domain models seen in the knowledge graph.
+    rag_section = ""
+    if accumulated_context is not None:
+        _rag = _build_rag_context_p02b(domain, accumulated_context)
+        if _rag:
+            rag_section = f"\n## Similar Past Domain Models (from knowledge graph)\n{_rag}\n"
+
     # ── Pass 1: entities and fields ──────────────────────────────────────────
     p1: Dict = {}
     _p1_prompt = _PASS1_PROMPT.format(
         requirements=req_snippet,
         seed_entities=seed,
-    )
+    ) + rag_section
     try:
         resp1 = await llm.call(_p1_prompt, task_type="analysis", max_tokens=4096)
         p1 = _extract_json(resp1)

@@ -102,6 +102,8 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
         requirements=requirements,
         seed=seed,
         llm=llm,
+        domain=domain,
+        accumulated_context=data,
     )
     errors.extend(_ext_errors)
     combined_result = p1  # single-pass: all four are the same dict

@@ -3,11 +3,16 @@
 Validates that required keys are present and that each completed phase
 placed its expected outputs into the context.  Validation is always
 non-fatal: warnings are logged but the pipeline is never halted.
+
+DC1 addition: REQUIRED_AFTER_STAGE provides structured per-stage required-key
+validation.  validate_context_after_stage() is called by factory_pipeline.py
+after each stage completes, replacing the one-time advisory assert_context()
+with checkpointed, stage-specific checks.
 """
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,27 @@ PHASE_OUTPUTS = {
     "p05_frontend": {"frontend_output_path"},
     "p07b_self_healing": {"healing_passed"},
 }
+
+# Keys that MUST be present after each named stage completes.
+# Missing keys are logged as warnings (never fatal) so downstream phases can
+# diagnose incomplete context early rather than failing silently later.
+REQUIRED_AFTER_STAGE: Dict[str, List[str]] = {
+    "s02_architecture": ["architecture_json", "domain_ir_path"],
+    "s03_backend": ["backend_output_path"],
+    "s04_frontend": ["frontend_output_path"],
+    "s05_quality": ["quality_score"],
+}
+
+
+def validate_context_after_stage(stage_name: str, ctx: Dict[str, Any]) -> List[str]:
+    """Return list of missing required keys for this stage.
+
+    Empty list means all expected keys are present.
+    Uses REQUIRED_AFTER_STAGE for structured, per-stage checks.
+    Never raises — validation is always advisory.
+    """
+    required = REQUIRED_AFTER_STAGE.get(stage_name, [])
+    return [k for k in required if not ctx.get(k)]
 
 
 def validate_context(ctx: dict, phase_name: Optional[str] = None) -> list[str]:
