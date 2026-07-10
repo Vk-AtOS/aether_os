@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Custom Enterprise Solutions — VKatOS | Autonomous Pipelines</title>
+<meta name="description" content="Custom AI pipeline builds for enterprises. AetherOS adapted to your domain, compliance requirements, and tech stack."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="/assets/site.css"/>
+<style>
+body { cursor: none; }
+.solutions-hero { padding: 12rem 4rem 6rem; position: relative; }
+h1 { font-family: var(--font-display); font-size: clamp(2.5rem, 6vw, 4.5rem); line-height: 1.1; margin-bottom: 1.5rem; letter-spacing: -0.02em; }
+.hero-sub { font-size: 1.25rem; color: var(--muted); max-width: 700px; line-height: 1.6; }
+.section-label { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 2rem; display: block; }
+.grid-section { padding: 8rem 4rem; display: grid; grid-template-columns: 1fr 1fr; gap: 6rem; max-width: 1200px; margin: 0 auto; }
+.feature-card { background: var(--card); border: 1px solid var(--border); padding: 3rem; border-radius: 4px; margin-bottom: 2rem; }
+.feature-card h3 { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 1rem; }
+.feature-card p { color: var(--muted); line-height: 1.7; }
+.domains-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; padding: 0 4rem 8rem; max-width: 1200px; margin: 0 auto; }
+.domain-badge { background: var(--card); border: 1px solid var(--border); padding: 1.5rem 2rem; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent); }
+.domain-badge p { color: var(--muted); font-family: var(--font-body); font-size: 0.85rem; margin-top: 0.5rem; }
+.cta-section { padding: 8rem 4rem; text-align: center; background: var(--navy2); }
+@media (max-width: 768px) {
+  .solutions-hero, .grid-section, .cta-section { padding: 6rem 20px; }
+  .grid-section { grid-template-columns: 1fr; gap: 2rem; }
+  .domains-grid { grid-template-columns: 1fr 1fr; padding: 0 20px 4rem; }
+}
+</style>
+</head>
+<body>
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+<nav>
+  <a href="/" class="nav-logo">VKatOS</a>
+  <div class="hamburger" id="hamburger"><span></span><span></span><span></span></div>
+  <ul class="nav-links">
+    <li><a href="/#products">Products</a></li>
+    <li><a href="/pricing/">Pricing</a></li>
+    <li><a href="/about/">About</a></li>
+    <li><a href="/blog/">Blog</a></li>
+  </ul>
+  <div class="nav-right">
+    <a href="/login/" class="btn-login">Login</a>
+    <a href="/book-demo/" class="btn-demo">Get started</a>
+  </div>
+</nav>
+
+<section class="solutions-hero">
+  <span class="section-label reveal">// custom solutions</span>
+  <h1 class="reveal">Built to your<br>exact requirements.</h1>
+  <p class="hero-sub reveal">
+    AetherOS adapted for your domain, compliance requirements, tech stack, and existing infrastructure. We scope, build, and deploy — you own the result.
+  </p>
+  <div style="margin-top: 3rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+    <a href="/book-demo/" class="btn-demo">Book a scoping call →</a>
+    <a href="mailto:velan@vkatos.com" class="btn-login" style="display:inline-block; padding: 0.9rem 2rem;">Email us directly</a>
+  </div>
+</section>
+
+<div class="grid-section reveal">
+  <div>
+    <span class="section-label">// what you get</span>
+    <div class="feature-card">
+      <h3>Domain Pack Extension</h3>
+      <p>We extend AetherOS's domain knowledge with your industry's specific rules, compliance requirements, and data models. Your generated apps understand your domain from line one.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Private Deployment</h3>
+      <p>AetherOS deployed inside your VPC. Air-gapped if required. Your source code and data never leave your infrastructure. Full audit trail.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Integration Wiring</h3>
+      <p>Pre-wired integrations for your existing stack — Salesforce, SAP, Oracle, Workday, custom ERP. Every generated app connects to your systems on day one.</p>
+    </div>
+  </div>
+  <div>
+    <span class="section-label">// how it works</span>
+    <div style="position: relative; padding-left: 2rem;">
+      <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--border);"></div>
+      <div style="margin-bottom: 3rem; position: relative;">
+        <span style="position: absolute; left: -2.4rem; top: 0; width: 9px; height: 9px; background: var(--accent); border-radius: 50; display: block;"></span>
+        <span class="section-label" style="margin-bottom: 0.5rem;">Step 1</span>
+        <h4 style="font-family: var(--font-display); font-size: 1.2rem; margin-bottom: 0.5rem;">Scoping call (30 min)</h4>
+        <p style="color: var(--muted); font-size: 0.9rem;">We map your domain, compliance requirements, existing stack, and target outcome. Walk away with a written build scope.</p>
+      </div>
+      <div style="margin-bottom: 3rem; position: relative;">
+        <span class="section-label" style="margin-bottom: 0.5rem;">Step 2</span>
+        <h4 style="font-family: var(--font-display); font-size: 1.2rem; margin-bottom: 0.5rem;">Domain pack build (1–2 weeks)</h4>
+        <p style="color: var(--muted); font-size: 0.9rem;">We build a custom domain pack: entity schemas, compliance rules, golden examples, integration templates for your stack.</p>
+      </div>
+      <div style="margin-bottom: 3rem; position: relative;">
+        <span class="section-label" style="margin-bottom: 0.5rem;">Step 3</span>
+        <h4 style="font-family: var(--font-display); font-size: 1.2rem; margin-bottom: 0.5rem;">Pipeline run + review</h4>
+        <p style="color: var(--muted); font-size: 0.9rem;">We run the pipeline on your spec. You review the generated output. We refine until it meets your acceptance criteria.</p>
+      </div>
+      <div style="position: relative;">
+        <span class="section-label" style="margin-bottom: 0.5rem;">Step 4</span>
+        <h4 style="font-family: var(--font-display); font-size: 1.2rem; margin-bottom: 0.5rem;">Handoff</h4>
+        <p style="color: var(--muted); font-size: 0.9rem;">You receive: source code, Docker compose, CI/CD config, compliance PDF, API docs, and Postman collection. Zero lock-in.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section style="padding: 0 4rem 6rem; max-width: 1200px; margin: 0 auto;">
+  <span class="section-label reveal">// supported domains</span>
+  <div class="domains-grid">
+    <div class="domain-badge"><strong>Healthcare / HIPAA</strong><p>PHI masking, audit logs, FHIR-compatible schemas</p></div>
+    <div class="domain-badge"><strong>FinTech / PCI-DSS</strong><p>Decimal money types, ledger entries, PCI audit trails</p></div>
+    <div class="domain-badge"><strong>SaaS Multi-tenant</strong><p>org_id row isolation, invite flows, usage metering</p></div>
+    <div class="domain-badge"><strong>Government / GovTech</strong><p>Citizen records, service applications, GDPR compliance</p></div>
+    <div class="domain-badge"><strong>E-commerce</strong><p>Product catalog, cart, orders, Stripe, inventory</p></div>
+    <div class="domain-badge"><strong>ERP / Procurement</strong><p>Multi-level approvals, purchase orders, supplier management</p></div>
+    <div class="domain-badge"><strong>AI-Integrated</strong><p>Agent loops, tool registry, SSE streaming, conversation history</p></div>
+    <div class="domain-badge"><strong>Marketplace</strong><p>Listings, bids, escrow state machine, dispute handling</p></div>
+    <div class="domain-badge"><strong>Your domain</strong><p>We build custom domain packs for any vertical on request</p></div>
+  </div>
+</section>
+
+<section class="cta-section reveal">
+  <span class="section-label">// let's talk</span>
+  <h2 style="font-family: var(--font-display); font-size: 2.5rem; margin-bottom: 1.5rem;">Ready to scope your build?</h2>
+  <p style="color: var(--muted); max-width: 600px; margin: 0 auto 3rem; font-size: 1.1rem; line-height: 1.6;">
+    Tell us what you're building and we'll tell you how fast we can build it. Most custom engagements ship in 2–4 weeks.
+  </p>
+  <a href="/book-demo/" class="btn-demo" style="display: inline-block; padding: 1rem 3rem; font-size: 1rem;">Book a scoping call →</a>
+</section>
+
+<footer>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <a href="/" class="footer-logo">VKatOS</a>
+      <p style="font-size: 0.85rem; color: var(--muted); margin-top: 1rem;">Autonomous operating systems for the enterprise.</p>
+    </div>
+    <div class="footer-col"><h4>Products</h4><ul><li><a href="/products/aetheros">AetherOS</a></li><li><a href="/products/dcsp">DCSP</a></li></ul></div>
+    <div class="footer-col"><h4>Solutions</h4><ul><li><a href="/solutions/hr">Enterprise HR</a></li><li><a href="/solutions/recruitment">Recruitment</a></li><li><a href="/solutions/education">Study Abroad</a></li><li><a href="/solutions/custom">Custom</a></li></ul></div>
+    <div class="footer-col"><h4>Company</h4><ul><li><a href="/about">About</a></li><li><a href="/blog">Blog</a></li><li><a href="/contact">Contact</a></li><li><a href="/careers">Careers</a></li></ul></div>
+  </div>
+  <div class="footer-bottom">
+    <div class="footer-copy">© 2026 VKatOS. All rights reserved. | <a href="/privacy/" style="color:var(--muted);text-decoration:none;">Privacy</a> | <a href="/terms/" style="color:var(--muted);text-decoration:none;">Terms</a></div>
+  </div>
+</footer>
+
+<script src="/nav.js"></script>
+<script>
+const cursor = document.getElementById('cursor');
+const ring = document.getElementById('cursorRing');
+let mx = 0, my = 0, rx = 0, ry = 0;
+document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; cursor.style.transform = `translate(${mx-5}px,${my-5}px)`; });
+function animateRing() { rx += (mx-rx)*0.12; ry += (my-ry)*0.12; ring.style.transform = `translate(${rx-18}px,${ry-18}px)`; requestAnimationFrame(animateRing); }
+animateRing();
+document.querySelectorAll('a,button').forEach(el => {
+  el.addEventListener('mouseenter', () => { ring.style.width='50px'; ring.style.height='50px'; ring.style.borderColor='rgba(0,194,212,0.6)'; });
+  el.addEventListener('mouseleave', () => { ring.style.width='36px'; ring.style.height='36px'; ring.style.borderColor='rgba(0,194,212,0.4)'; });
+});
+const reveals = document.querySelectorAll('.reveal');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach((entry, i) => { if (entry.isIntersecting) setTimeout(() => entry.target.classList.add('visible'), i*80); });
+}, { threshold: 0.1 });
+reveals.forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

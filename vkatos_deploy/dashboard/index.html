@@ -330,7 +330,7 @@ a{text-decoration:none;color:inherit}
           <div class="pc-status"><div class="status-dot live"></div><span style="color:var(--green);font-size:11px">Live</span></div>
         </div>
         <div class="pc-name">AetherOS</div>
-        <p class="pc-desc">AI Software Factory — 29-phase pipeline from idea to deployed application.</p>
+        <p class="pc-desc">AI Software Factory — 12-stage AI pipeline from idea to deployed application.</p>
         <div class="usage-row">
           <div class="usage-label"><span>Monthly runs used</span><span>3 / 5</span></div>
           <div class="bar-bg"><div class="bar-fill" style="width:60%"></div></div>
@@ -402,7 +402,7 @@ a{text-decoration:none;color:inherit}
         <div class="ai-icon ae">⚡</div>
         <div class="ai-text">
           <div class="ai-title">AetherOS run completed — "TaskFlow Pro"</div>
-          <div class="ai-sub">29/29 phases · React + FastAPI · PostgreSQL</div>
+          <div class="ai-sub">12/12 stages · React + FastAPI · PostgreSQL</div>
         </div>
         <div class="ai-badge success">Complete</div>
         <div class="ai-time">2h ago</div>
@@ -420,7 +420,7 @@ a{text-decoration:none;color:inherit}
         <div class="ai-icon ae">⚡</div>
         <div class="ai-text">
           <div class="ai-title">AetherOS run completed — "InventoryPro"</div>
-          <div class="ai-sub">29/29 phases · Next.js + FastAPI · PostgreSQL</div>
+          <div class="ai-sub">12/12 stages · Next.js + FastAPI · PostgreSQL</div>
         </div>
         <div class="ai-badge success">Complete</div>
         <div class="ai-time">1d ago</div>
@@ -445,13 +445,14 @@ const raw=localStorage.getItem('vk_user');
 if(!raw){window.location.href='/login/';}
 
 let user={name:'User',email:'',avatar:'V',plan:'free',joined:new Date().toISOString()};
-try{user=JSON.parse(raw);}catch(e){}
+try{user=JSON.parse(raw)||user;}catch(e){console.error('Failed to parse user session:',e);}
 
-/* FILL IN USER DATA */
-document.getElementById('user-name').textContent=user.name||user.email||'User';
-document.getElementById('user-plan').textContent=(user.plan||'free').toUpperCase()+' PLAN';
-document.getElementById('user-avatar').textContent=(user.avatar||(user.name||'V')[0]).toUpperCase();
-document.getElementById('welcome-name').textContent=(user.name||'there').split(' ')[0];
+/* FILL IN USER DATA — guard against missing elements */
+const setText=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
+setText('user-name',user.name||user.email||'User');
+setText('user-plan',(user.plan||'free').toUpperCase()+' PLAN');
+setText('user-avatar',(user.avatar||(user.name||'V')[0]||'V').toUpperCase());
+setText('welcome-name',(user.name||'there').split(' ')[0]);
 
 /* GREETING */
 const hr=new Date().getHours();
@@ -460,10 +461,12 @@ document.getElementById('greeting').textContent=(hr<12?'Good morning':hr<17?'Goo
 /* MEMBER SINCE */
 try{
   const d=new Date(user.joined);
-  const diff=Math.floor((Date.now()-d)/86400000);
-  document.getElementById('member-since').textContent=diff===0?'Today':diff===1?'Yesterday':`${diff}d ago`;
-  document.getElementById('joined-time').textContent=diff===0?'just now':`${diff}d ago`;
-}catch(e){}
+  if(!isNaN(d.getTime())){
+    const diff=Math.floor((Date.now()-d)/86400000);
+    setText('member-since',diff===0?'Today':diff===1?'Yesterday':`${diff}d ago`);
+    setText('joined-time',diff===0?'just now':`${diff}d ago`);
+  }
+}catch(e){console.error('Failed to compute member duration:',e);}
 
 /* LOGOUT */
 function logout(){
