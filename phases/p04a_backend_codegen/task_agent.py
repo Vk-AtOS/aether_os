@@ -222,13 +222,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         generated_via = "templates+fallback"
 
     # ── Step 3: Deterministic CRUD routers ───────────────────────────────────
+    # permission_model flows in from p02c via accumulated_context → input_data
+    _permission_model: dict | None = data.get("permission_model") or None
+    if _permission_model:
+        logger.info(
+            "[p04a] ABAC permission_model present (%d roles) — wiring require_role() guards into CRUD",
+            len(_permission_model.get("roles", [])),
+        )
     if not crud_code:
-        crud_code = _fallback_crud_routers(entities, multi_tenancy=multi_tenancy)
+        crud_code = _fallback_crud_routers(
+            entities, multi_tenancy=multi_tenancy, permission_model=_permission_model
+        )
     try:
         compile(crud_code, "crud.py", "exec")
     except SyntaxError as _syn:
         logger.warning("[p04a] SyntaxError in crud.py: %s — using fallback", _syn)
-        crud_code = _fallback_crud_routers(entities, multi_tenancy=multi_tenancy)
+        crud_code = _fallback_crud_routers(
+            entities, multi_tenancy=multi_tenancy, permission_model=_permission_model
+        )
     # Ensure all_routers is always present — may be missing from IR-generated code
     if "all_routers" not in crud_code:
         _router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', crud_code, re.MULTILINE)

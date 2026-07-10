@@ -275,6 +275,22 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
+
+
+def require_role(*roles: str):
+    """Dependency factory: require the current user to have one of the given ABAC roles.
+
+    Usage: current_user: dict = Depends(require_role("Admin", "Manager"))
+    The role is sourced from the JWT claim written by create_access_token().
+    """
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+        if current_user.get("role") not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient role. Required one of: {list(roles)}",
+            )
+        return current_user
+    return _check
 '''
 
 _CONFIG_PY = '''\
