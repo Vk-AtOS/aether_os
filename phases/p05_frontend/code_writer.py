@@ -2030,10 +2030,10 @@ export function CrudModal<T extends Record<string, unknown>>({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
             <X size={20} />
           </button>
         </div>
@@ -2047,7 +2047,7 @@ export function CrudModal<T extends Record<string, unknown>>({
             const resolvedOptions = isFkSelect ? (fkOptions[f.name] ?? []) : (f.options ?? [])
             return (
               <div key={f.name}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {f.label}
                   {f.required && <span className="text-red-500 ml-1">*</span>}
                 </label>
@@ -2056,13 +2056,13 @@ export function CrudModal<T extends Record<string, unknown>>({
                     {...register(f.name as keyof T extends string ? keyof T : never, {
                       required: f.required ? `${f.label} is required` : false,
                     } as any)}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                     rows={3}
                   />
                 ) : f.type === 'select' || isFkSelect ? (
                   <select
                     {...register(f.name as any, { required: f.required ? `${f.label} is required` : false })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="">
                       {isFkSelect && resolvedOptions.length === 0 ? 'Loading...' : 'Select...'}
@@ -2085,7 +2085,7 @@ export function CrudModal<T extends Record<string, unknown>>({
                         },
                       } : {}),
                     })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                   />
                 )}
                 {errors[f.name as keyof T] && (
@@ -2096,11 +2096,11 @@ export function CrudModal<T extends Record<string, unknown>>({
               </div>
             )
           })}
-          <div className="flex justify-end gap-3 pt-4 border-t">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>
@@ -3418,11 +3418,15 @@ def _generate_entity_page(
     ent: dict,
     route_map: Dict[str, str],
     fk_refs: Optional[Dict[str, Dict[str, str]]] = None,
+    realtime_features: bool = False,
 ) -> str:
     """Generate a full CRUD page for one entity.
 
     fk_refs: maps field_name -> {endpoint, label_key} from domain_ir FK data.
     When None, heuristic pluralisation is used as fallback.
+    realtime_features: when True, include useSSE import and live-refresh hook.
+    When False (default), SSE import and hook are omitted to avoid firing
+    EventSource connections for domains that don't require real-time updates.
     """
     table = ent["table"]
     columns = ent["columns"]
@@ -3508,6 +3512,20 @@ def _generate_entity_page(
         if fk_config_entries else ""
     )
 
+    # SSE import and hook are only emitted when realtime_features is True.
+    # Unconditionally firing EventSource for every entity floods the browser
+    # with connection attempts when the domain doesn't expose SSE endpoints.
+    _sse_import = "import {{ useSSE }} from '../hooks/useSSE'\n" if realtime_features else ""
+    _sse_hook = f"""\
+  // Real-time updates via SSE — refetch whenever the server pushes an event for this entity
+  const {{ lastEvent: _sseEvent }} = useSSE(`/api/sse/{table}`)
+  useEffect(() => {{
+    if (_sseEvent) {{
+      void refetch()
+    }}
+  }}, [_sseEvent])
+""" if realtime_features else ""
+
     return f"""\
 // Auto-generated by AetherOS p05_frontend
 import {{ useState, useEffect }} from 'react'
@@ -3522,8 +3540,7 @@ import {{ {camel}Api }} from '../lib/api'
 import {{ type {type_name} }} from '../types'
 import {{ useToast }} from '../components/Toaster'
 import {{ Plus, Pencil, Trash2 }} from 'lucide-react'
-import {{ useSSE }} from '../hooks/useSSE'
-
+{_sse_import}
 const PAGE_SIZE = 20
 
 const FIELDS: FieldDef[] = [
@@ -3544,13 +3561,7 @@ export default function {pascal}Page() {{
     placeholderData: (prev) => prev,
   }})
 
-  // Real-time updates via SSE — refetch whenever the server pushes an event for this entity
-  const {{ lastEvent: _sseEvent }} = useSSE(`/api/sse/{table}`)
-  useEffect(() => {{
-    if (_sseEvent) {{
-      void refetch()
-    }}
-  }}, [_sseEvent])
+{_sse_hook}
 
   // Support both paginated {{items, total}} and plain array responses
   const data: {type_name}[] = Array.isArray(pageData)
@@ -3630,14 +3641,26 @@ export default function {pascal}Page() {{
   ]
 
   const handleExport = () => {{
-    const headers = columns.map(c => c.header).filter(h => h).join(',')
-    const rows = data.map(item => columns.map(c => (item as any)[c.id as string] ?? '').join(',')).join('\\n')
-    const blob = new Blob([headers + '\\n' + rows], {{ type: 'text/csv' }})
-    const url = window.URL.createObjectURL(blob)
+    if (!data.length) return
+    // Properly escape values that contain commas, double-quotes, or newlines
+    const escapeCell = (v: unknown): string => {{
+      const s = String(v ?? '')
+      return s.includes(',') || s.includes('"') || s.includes('\\n')
+        ? `"${{s.replace(/"/g, '""')}}"`
+        : s
+    }}
+    const headers = columns.map(c => escapeCell(c.header ?? '')).join(',')
+    const rows = data.map(item =>
+      columns.map(c => escapeCell((item as any)[c.id as string])).join(',')
+    )
+    const csv = [headers, ...rows].join('\\n')
+    const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }})
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `{table}_export.csv`
     a.click()
+    URL.revokeObjectURL(url)
   }}
 
   return (
@@ -4266,7 +4289,7 @@ export function Modal({ open, onOpenChange, title, description, children, classN
         <Dialog.Content
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-            'w-full rounded-2xl bg-white shadow-2xl',
+            'w-full rounded-2xl bg-white dark:bg-gray-900 shadow-2xl',
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -4276,20 +4299,20 @@ export function Modal({ open, onOpenChange, title, description, children, classN
           )}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 dark:border-gray-700 shrink-0">
             <div>
-              <Dialog.Title className="text-lg font-semibold text-gray-900 tracking-tight">
+              <Dialog.Title className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
                 {title}
               </Dialog.Title>
               {description && (
-                <Dialog.Description className="text-sm text-gray-500 mt-0.5">
+                <Dialog.Description className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                   {description}
                 </Dialog.Description>
               )}
             </div>
             <Dialog.Close asChild>
               <button
-                className="rounded-lg p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="rounded-lg p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 aria-label="Close dialog"
               >
                 <X size={18} />
@@ -4297,7 +4320,7 @@ export function Modal({ open, onOpenChange, title, description, children, classN
             </Dialog.Close>
           </div>
           {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4 text-gray-900 dark:text-gray-100">
             {children}
           </div>
         </Dialog.Content>
