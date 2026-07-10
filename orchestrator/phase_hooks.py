@@ -461,7 +461,14 @@ async def _hook_p04_backend(
                 except Exception as exc:
                     logger.debug("Pattern library: failed to read domain_ir file (non-fatal): %s", exc)
         if _ir_for_patterns:
-            _ps = _PS(_ir_for_patterns)
+            # Build entity_map so IoT/Social patterns resolve model names from the
+            # actual IR entity names instead of hard-coded defaults (Device, User, Post…).
+            _entities_for_map = _ir_for_patterns.get("entities", [])
+            _entity_map = (
+                {e["name"].lower(): e["name"] for e in _entities_for_map if e.get("name")}
+                if _entities_for_map else {}
+            )
+            _ps = _PS(_ir_for_patterns, entity_map=_entity_map)
             _applied = _ps.apply_all(project_dir)
             if _applied:
                 accumulated_context["applied_patterns"] = list(_applied.keys())
