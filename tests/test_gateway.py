@@ -5,6 +5,7 @@ Tests FastAPI endpoints.
 from __future__ import annotations
 import os
 import sys
+import warnings
 from pathlib import Path
 from unittest.mock import patch, AsyncMock
 
@@ -12,6 +13,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# TestClient wraps an async app in a sync context via anyio. When the test
+# process tears down, anyio's internal async generators may emit
+# ResourceWarning about unclosed async generators or sockets. These are from
+# the test harness, not from production code bugs, and are safe to suppress.
+warnings.filterwarnings("ignore", category=ResourceWarning)
+warnings.filterwarnings("ignore", message="coroutine .* was never awaited", category=RuntimeWarning)
 
 
 def _make_app(tmp_path=None):
