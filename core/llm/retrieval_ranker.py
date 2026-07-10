@@ -358,6 +358,108 @@ def _get_architecture_warning_knowledge(ctx: dict) -> list[RankedKnowledge]:
     return items
 
 
+# Weight for per-run knowledge graph (built from architecture.json after p02)
+_W_RUN_GRAPH = 0.70
+
+
+def _load_run_graph(kg_path: str) -> "object | None":
+    """Load the per-run knowledge graph built by the architecture hook.
+
+    The graph is persisted as JSON (node-link format) by core/memory/knowledge_graph.py.
+    Returns the KnowledgeGraph instance or None if loading fails.
+    """
+    try:
+        from aether_os.core.memory.knowledge_graph import KnowledgeGraph
+        kg = KnowledgeGraph()
+        kg.load(kg_path)
+        return kg
+    except Exception as e:
+        logger.warning("retrieval_ranker: failed to load run knowledge graph at %s: %s", kg_path, e)
+        return None
+
+
+def _get_run_graph_knowledge(ctx: dict) -> list[RankedKnowledge]:
+    """Query the per-run knowledge graph and return relevant nodes as RankedKnowledge.
+
+    The graph is built by _hook_p02_architecture and pickled to disk.  We load it
+    here and do a BFS from the 'domain' node to surface tech choices, endpoints,
+    and models that are specific to THIS run — giving downstream phases run-aware
+    context that the static global KG cannot provide.
+    """
+    items: list[RankedKnowledge] = []
+    kg_path = ctx.get("knowledge_graph_path", "")
+    if not kg_path:
+        return items
+
+    try:
+        import os
+        if not os.path.exists(kg_path):
+            logger.debug("retrieval_ranker: knowledge_graph_path does not exist: %s", kg_path)
+            return items
+
+        kg = _load_run_graph(kg_path)
+        if kg is None:
+            return items
+
+        # BFS from the 'domain' node to collect tech/endpoint/model nodes.
+        # get_related_entities() returns dicts with id, type, metadata.
+        related = kg.get_related_entities("domain", depth=2)
+        if not related:
+            return items
+
+        # Group by node type for a structured summary
+        tech_lines: list[str] = []
+        endpoint_lines: list[str] = []
+        model_lines: list[str] = []
+
+        for node in related[:30]:  # cap to avoid oversized prompts
+            node_type = node.get("type", "")
+            meta = node.get("metadata", {})
+            node_id = node.get("id", "")
+
+            if node_type == "Technology":
+                layer = meta.get("layer", "")
+                choice = meta.get("choice", "")
+                if layer and choice:
+                    tech_lines.append(f"  {layer}: {choice}")
+            elif node_type == "Endpoint":
+                method = meta.get("method", "")
+                path = meta.get("path", "")
+                auth = meta.get("auth", "")
+                if method and path:
+                    auth_note = f" (auth: {auth})" if auth else ""
+                    endpoint_lines.append(f"  {method} {path}{auth_note}")
+            elif node_type == "Model":
+                table = meta.get("table", node_id)
+                cols = meta.get("columns", "")
+                col_note = f" ({cols} columns)" if cols else ""
+                if table:
+                    model_lines.append(f"  {table}{col_note}")
+
+        parts: list[str] = ["Run-specific architecture context:"]
+        if tech_lines:
+            parts.append("Tech stack:\n" + "\n".join(tech_lines[:8]))
+        if endpoint_lines:
+            parts.append("API endpoints:\n" + "\n".join(endpoint_lines[:10]))
+        if model_lines:
+            parts.append("Database models:\n" + "\n".join(model_lines[:8]))
+
+        if len(parts) > 1:  # at least one section was added
+            items.append(RankedKnowledge(
+                source="run_knowledge_graph",
+                content="\n".join(parts),
+                weight=_W_RUN_GRAPH,
+                phase_relevance=1.0,
+            ))
+            logger.debug(
+                "retrieval_ranker: run KG contributed %d tech / %d endpoints / %d models",
+                len(tech_lines), len(endpoint_lines), len(model_lines),
+            )
+    except Exception as exc:
+        logger.warning("retrieval_ranker: run knowledge graph query failed (non-fatal): %s", exc)
+    return items
+
+
 def retrieve_for_phase(
     phase_name: str,
     domain: str,
@@ -376,6 +478,8 @@ def retrieve_for_phase(
     all_items.extend(_get_knowledge_graph_knowledge(domain))
     all_items.extend(_get_golden_examples_knowledge(domain, phase_name))
     all_items.extend(_get_architecture_warning_knowledge(ctx))
+    # Per-run KG: built after p02_architecture, provides run-specific tech/endpoint/model context.
+    all_items.extend(_get_run_graph_knowledge(ctx))
 
     # Sort by score descending — highest priority items first
     all_items.sort(key=lambda k: k.score, reverse=True)
