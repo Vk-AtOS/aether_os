@@ -1,4 +1,9 @@
-"""IoT time-series ingestion and fleet management pattern."""
+"""IoT time-series ingestion and fleet management pattern.
+
+Model names are hard-coded to canonical defaults (Device, SensorReading,
+Alert, Command).  To resolve names from the actual IR entities, use
+generate_iot_pattern() from pattern_name_resolver instead of this constant.
+"""
 from __future__ import annotations
 
 IOT_TIMESERIES_REQUIREMENTS = ["paho-mqtt>=1.6", "influxdb-client>=1.39"]

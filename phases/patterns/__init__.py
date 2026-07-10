@@ -110,21 +110,71 @@ def _rbac_pattern() -> Pattern:
     )
 
 
-_ALL_PATTERN_FACTORIES = [
+def _iot_pattern(entity_map: Optional[Dict[str, str]] = None) -> Pattern:
+    """IoT time-series pattern. entity_map resolves canonical names from the IR."""
+    from aether_os.phases.patterns.iot_timeseries import IOT_TIMESERIES_REQUIREMENTS
+    from aether_os.phases.patterns.pattern_name_resolver import generate_iot_pattern
+    code = generate_iot_pattern(entity_map)
+    return Pattern(
+        name="iot_timeseries",
+        description="IoT device fleet management with time-series sensor readings and alerts",
+        triggers=["iot", "sensor", "device", "telemetry", "timeseries", "time-series",
+                  "fleet", "mqtt", "influx", "reading", "firmware"],
+        files={"src/routers/iot_router.py": code},
+        requirements=IOT_TIMESERIES_REQUIREMENTS,
+        env_vars=["MQTT_BROKER_HOST=localhost", "INFLUXDB_URL=http://localhost:8086"],
+    )
+
+
+def _social_pattern(entity_map: Optional[Dict[str, str]] = None) -> Pattern:
+    """Social graph pattern. entity_map resolves canonical names from the IR."""
+    from aether_os.phases.patterns.social_graph import SOCIAL_GRAPH_REQUIREMENTS
+    from aether_os.phases.patterns.pattern_name_resolver import generate_social_pattern
+    code = generate_social_pattern(entity_map)
+    return Pattern(
+        name="social_graph",
+        description="Social follow graph, activity feed, hashtags, likes and notifications",
+        triggers=["social", "follow", "follower", "feed", "post", "like",
+                  "hashtag", "notification", "share", "comment", "profile"],
+        files={"src/routers/social_router.py": code},
+        requirements=SOCIAL_GRAPH_REQUIREMENTS,
+        env_vars=["REDIS_URL=redis://localhost:6379/0"],
+    )
+
+
+# Pattern factories that don't need entity_map (no hard-coded model names)
+_SIMPLE_PATTERN_FACTORIES = [
     _websocket_pattern,
     _file_upload_pattern,
     _stripe_pattern,
     _rbac_pattern,
 ]
 
+# Pattern factories that accept entity_map to resolve IR entity names
+_ENTITY_AWARE_FACTORIES = [
+    _iot_pattern,
+    _social_pattern,
+]
+
 
 # ── Pattern selector ──────────────────────────────────────────────────────────
 
 class PatternSelector:
-    """Selects applicable patterns from the library based on domain_ir content."""
+    """Selects applicable patterns from the library based on domain_ir content.
 
-    def __init__(self, domain_ir: Optional[Dict[str, Any]] = None):
+    Pass entity_map to resolve canonical model names in IoT/Social patterns
+    from the actual IR entity names instead of hard-coded defaults.
+    """
+
+    def __init__(
+        self,
+        domain_ir: Optional[Dict[str, Any]] = None,
+        entity_map: Optional[Dict[str, str]] = None,
+    ):
         self._ir = domain_ir or {}
+        # entity_map: lowercase canonical role → actual IR entity name
+        # e.g. {"device": "Sensor", "user": "Member"}
+        self._entity_map = entity_map or {}
 
     def _ir_text(self) -> str:
         """Flatten domain_ir to searchable text."""
@@ -144,7 +194,8 @@ class PatternSelector:
         """Return patterns whose triggers match the domain IR content."""
         text = self._ir_text()
         selected: List[Pattern] = []
-        for factory in _ALL_PATTERN_FACTORIES:
+
+        for factory in _SIMPLE_PATTERN_FACTORIES:
             try:
                 pattern = factory()
                 if any(trigger in text for trigger in pattern.triggers):
@@ -152,6 +203,20 @@ class PatternSelector:
                     logger.info("PatternSelector: selected '%s' (trigger match)", pattern.name)
             except Exception as exc:
                 logger.warning("PatternSelector: could not load pattern factory %s: %s", factory.__name__, exc)
+
+        for factory in _ENTITY_AWARE_FACTORIES:
+            try:
+                # Pass entity_map so patterns resolve names from the IR
+                pattern = factory(entity_map=self._entity_map or None)
+                if any(trigger in text for trigger in pattern.triggers):
+                    selected.append(pattern)
+                    logger.info(
+                        "PatternSelector: selected '%s' (trigger match, entity_map=%s)",
+                        pattern.name, list(self._entity_map.keys()),
+                    )
+            except Exception as exc:
+                logger.warning("PatternSelector: could not load entity-aware factory %s: %s", factory.__name__, exc)
+
         return selected
 
     def apply_all(self, project_dir: Path) -> Dict[str, List[str]]:

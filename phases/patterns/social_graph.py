@@ -1,4 +1,10 @@
-"""Social graph backend pattern — follow graph, feed, notifications, hashtags."""
+"""Social graph backend pattern — follow graph, feed, notifications, hashtags.
+
+Model names are hard-coded to canonical defaults (User, UserProfile, Follow,
+Post, Hashtag, PostHashtag, Like, Notification).  To resolve names from the
+actual IR entities, use generate_social_pattern() from pattern_name_resolver
+instead of this constant.
+"""
 from __future__ import annotations
 
 SOCIAL_GRAPH_REQUIREMENTS = ["redis>=5.0", "cloudinary>=1.36"]
