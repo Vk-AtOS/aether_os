@@ -38,7 +38,7 @@ async def _record_used_totp(user_id: str, code: str) -> None:
         r = await _get_async_redis()
         if r:
             key = f"mfa_used:{user_id}:{code}"
-            await r.setex(key, 90, "1")
+            await r.set(key, "1", ex=90)
     except Exception as exc:
         logger.warning("MFA replay prevention: Redis write failed: %s", exc)
 

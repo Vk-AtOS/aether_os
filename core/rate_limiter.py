@@ -314,7 +314,7 @@ async def sse_token_set(token: str, org_id: str, run_id: str) -> None:
     if r:
         try:
             import json
-            await r.setex(f"sse:{token}", _SSE_TTL, json.dumps({"org_id": org_id, "run_id": run_id}))
+            await r.set(f"sse:{token}", json.dumps({"org_id": org_id, "run_id": run_id}), ex=_SSE_TTL)
             return
         except Exception as exc:
             logger.warning("SSE token Redis write failed: %s", exc)
@@ -353,7 +353,7 @@ async def run_app_port_set(run_id: str, port: int) -> None:
     r = await _get_async_redis()
     if r:
         try:
-            await r.setex(_RUN_APP_KEY, _RUN_APP_TTL, f"{run_id}:{port}")
+            await r.set(_RUN_APP_KEY, f"{run_id}:{port}", ex=_RUN_APP_TTL)
             return
         except Exception as exc:
             logger.warning("run_app_port_set Redis write failed: %s", exc)

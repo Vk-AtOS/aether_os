@@ -180,7 +180,7 @@ def cached(ttl: int = 300):
                 logger.debug("Cache GET failed: %s", exc)
             result = await func(*args, **kwargs)
             try:
-                await r.setex(key, ttl, json.dumps(result, default=str))
+                await r.set(key, json.dumps(result, default=str), ex=ttl)
             except Exception as exc:
                 logger.debug("Cache SET failed: %s", exc)
             return result

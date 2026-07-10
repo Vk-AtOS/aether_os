@@ -93,7 +93,7 @@ async def cache_set(key: str, value: Any, ttl: int = 30) -> None:
         r = await _get_redis()
         if r is None:
             return
-        await r.setex(key, ttl, json.dumps(value, default=str))
+        await r.set(key, json.dumps(value, default=str), ex=ttl)
     except Exception as exc:
         logger.warning("[cache] cache_set failed (non-fatal): %s", exc)
 
