@@ -27,6 +27,18 @@ echo ""
 echo "AetherOS Smoke Test — $BASE"
 echo "----------------------------------------"
 
+# ── .env permission check (Item 2: never world-readable) ─────────────────────
+# Check both VPS path and local repo path
+for ENV_CHECK_PATH in "/home/aether_os/.env" "$(dirname "$0")/../.env"; do
+    if [ -f "$ENV_CHECK_PATH" ]; then
+        ENV_PERMS=$(stat -c %a "$ENV_CHECK_PATH" 2>/dev/null || stat -f %Lp "$ENV_CHECK_PATH" 2>/dev/null || echo "unknown")
+        if [ "$ENV_PERMS" != "600" ] && [ "$ENV_PERMS" != "unknown" ]; then
+            echo -e "  ${YELLOW}WARN${NC}  .env is world-readable ($ENV_PERMS at $ENV_CHECK_PATH) — run scripts/harden_env.sh"
+        fi
+        break
+    fi
+done
+
 # ── 1. Health ─────────────────────────────────────────────────────────────────
 STATUS=$(curl -sf "$BASE/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
 if [ "$STATUS" = "ok" ]; then pass "GET /health → ok"
