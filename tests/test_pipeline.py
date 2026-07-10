@@ -1,14 +1,32 @@
 """
 AetherOS — Pipeline and State Machine Tests
+
+NOTE: tests in this file that import orchestrator.pipeline are testing the
+LEGACY 10-phase pipeline (deprecated). New pipeline tests should use
+orchestrator.factory_pipeline.FactoryPipeline instead.
 """
 from __future__ import annotations
 import sys
+import warnings
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# Suppress the DeprecationWarning emitted by the legacy orchestrator.pipeline
+# module so test output stays clean. The module is intentionally deprecated
+# in favour of orchestrator.factory_pipeline.
+warnings.filterwarnings(
+    "ignore",
+    message="orchestrator.pipeline is deprecated",
+    category=DeprecationWarning,
+)
+# Suppress ResourceWarning and RuntimeWarning (unclosed socket/loop) that
+# originate from the async test harness teardown, not from production code.
+warnings.filterwarnings("ignore", category=ResourceWarning)
+warnings.filterwarnings("ignore", message="coroutine .* was never awaited", category=RuntimeWarning)
 
 
 # ── Execution Context ─────────────────────────────────────────────────────────
@@ -186,6 +204,9 @@ if __name__ == "__main__":
             mock_resp.json.return_value = {"models": [{"name": "qwen2.5-coder:3b"}]}
             mock_get.return_value = mock_resp
 
+            # NOTE: Pipeline is the legacy 10-phase orchestrator. New pipeline
+            # code should use FactoryPipeline from orchestrator.factory_pipeline.
+            # The DeprecationWarning is suppressed by filterwarnings at module top.
             from aether_os.orchestrator.pipeline import Pipeline
             pipeline = Pipeline()
             result = await pipeline.run(
@@ -239,7 +260,9 @@ if __name__ == "__main__":
 async def test_write_output_to_disk(tmp_path):
     """Test Bug 9 fix: generated code is written to disk."""
     from aether_os.orchestrator.context import ExecutionContext
-    from aether_os.orchestrator.pipeline import write_output_to_disk
+    # write_output_to_disk lives in pipeline_helpers; importing from the legacy
+    # pipeline module still works but emits a DeprecationWarning.
+    from aether_os.orchestrator.pipeline_helpers import write_output_to_disk
 
     ctx = ExecutionContext(
         requirement="test",
