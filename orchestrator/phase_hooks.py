@@ -500,7 +500,45 @@ async def _hook_p04_backend(
         try:
             from aether_os.core.council.council_reviewer import run_council
             from dataclasses import asdict as _bac_asdict
-            _bac_src = _bac_main_py.read_text()
+
+            # Build combined source: main.py + sibling generated files that
+            # contain the actual business logic (crud, models, schemas, auth).
+            # Reviewing only main.py misses SQL injection and auth bypass patterns.
+            _bac_src_dir = _bac_main_py.parent
+            _bac_src = f"# === main.py ===\n{_bac_main_py.read_text()}"
+            _bac_extra_names = [
+                "crud.py", "models.py", "schemas.py", "auth.py", "routers/crud.py",
+            ]
+            _bac_extra_parts: list = []
+            for _bac_fname in _bac_extra_names:
+                _bac_p = _bac_src_dir / _bac_fname
+                if _bac_p.exists():
+                    _bac_extra_parts.append(
+                        f"# === {_bac_fname} ===\n{_bac_p.read_text()}"
+                    )
+            if _bac_extra_parts:
+                _bac_src += "\n\n" + "\n\n".join(_bac_extra_parts)
+            logger.info(
+                "[BackendAuditCouncil] reviewing %d file(s): main.py + [%s]",
+                1 + len(_bac_extra_parts),
+                ", ".join(
+                    n for n in _bac_extra_names
+                    if (_bac_src_dir / n).exists()
+                ),
+            )
+
+            # Truncate to stay within model context limits
+            _MAX_REVIEW_CHARS = 12_000
+            if len(_bac_src) > _MAX_REVIEW_CHARS:
+                _bac_src = (
+                    _bac_src[:_MAX_REVIEW_CHARS]
+                    + "\n# ... truncated for review ..."
+                )
+                logger.debug(
+                    "[BackendAuditCouncil] source truncated to %d chars for review",
+                    _MAX_REVIEW_CHARS,
+                )
+
             _bac_report = await asyncio.wait_for(
                 run_council(
                     _bac_src, run_id,
