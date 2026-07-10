@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aether_os.orchestrator.context_schema import assert_context
+from aether_os.orchestrator.context_schema import assert_context, validate_context_after_stage
 from aether_os.orchestrator.messages import PhaseInput
 from aether_os.orchestrator.events import (
     ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID, emit,
@@ -614,6 +614,16 @@ class FactoryPipeline:
 
                 # Advisory schema check — logs warnings if expected keys are absent
                 assert_context(accumulated_context, phase_name)
+
+                # DC1: structured per-stage required-key validation
+                # Checks REQUIRED_AFTER_STAGE for the current stage and logs any
+                # missing keys so downstream phases can diagnose gaps early.
+                _missing_keys = validate_context_after_stage(phase_name, accumulated_context)
+                if _missing_keys:
+                    logger.warning(
+                        "[pipeline] accumulated_context missing expected keys after %s: %s",
+                        phase_name, _missing_keys,
+                    )
 
                 # Confidence propagation: record every phase's confidence in a central trail
                 _phase_conf = phase_result.get("confidence", 1.0)

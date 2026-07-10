@@ -363,6 +363,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         density=density, phase_start=_phase_start, phase_timeout=_PHASE_TIMEOUT,
         generate_domain_component_fn=_generate_domain_component,
         write_with_guard_fn=_write_with_guard,
+        accumulated_context=data,
     )
 
     # ── Phase 8: Customer Portal (Home, About) ──

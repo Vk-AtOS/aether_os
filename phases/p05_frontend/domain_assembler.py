@@ -203,6 +203,7 @@ async def generate_domain_widget(
     phase_timeout: float,
     generate_domain_component_fn: Any,
     write_with_guard_fn: Any,
+    accumulated_context: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Phase 7: Generate optional LLM DomainWidget component.
 
@@ -220,6 +221,7 @@ async def generate_domain_widget(
             background_hex=background_hex, surface_hex=surface_hex,
             font_pairing=font_pairing, border_radius=border_radius,
             density=density,
+            accumulated_context=accumulated_context,
         )
         if domain_component:
             write_with_guard_fn(src_dir / "components" / "DomainWidget.jsx", domain_component)
