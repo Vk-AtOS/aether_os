@@ -349,7 +349,8 @@ def _extract_source_text(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     """
     try:
         return ast.unparse(node)
-    except Exception:
+    except Exception as e:
+        logger.warning("[z3_encoder] ast.unparse failed for %s: %s", getattr(node, "name", "<unknown>"), e)
         return ""
 
 
@@ -358,7 +359,8 @@ def _check_org_id_filter(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     try:
         src = ast.unparse(node)
         return bool(_TENANT_FILTER_RE.search(src))
-    except Exception:
+    except Exception as e:
+        logger.warning("[z3_encoder] constraint check failed (org_id_filter/%s): %s", getattr(node, "name", "<unknown>"), e)
         return False
 
 
@@ -367,7 +369,8 @@ def _check_ownership_pattern(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bo
     try:
         src = ast.unparse(node)
         return bool(_OWNERSHIP_SRC_RE.search(src))
-    except Exception:
+    except Exception as e:
+        logger.warning("[z3_encoder] constraint check failed (ownership_pattern/%s): %s", getattr(node, "name", "<unknown>"), e)
         return False
 
 
@@ -376,7 +379,8 @@ def _count_db_commits(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
     try:
         src = ast.unparse(node)
         return len(_COMMIT_SRC_RE.findall(src))
-    except Exception:
+    except Exception as e:
+        logger.warning("[z3_encoder] constraint check failed (db_commits/%s): %s", getattr(node, "name", "<unknown>"), e)
         return 0
 
 

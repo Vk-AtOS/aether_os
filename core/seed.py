@@ -25,8 +25,19 @@ async def ensure_demo_user() -> None:
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import User, Organisation
 
-    email = os.environ.get("AETHER_ADMIN_EMAIL", "demo@aetheros.ai")
-    password = os.environ.get("AETHER_ADMIN_PASS", "demo1234")
+    email = os.environ.get("AETHER_ADMIN_EMAIL")
+    if not email:
+        raise RuntimeError(
+            "AETHER_ADMIN_EMAIL is required but not set. "
+            "Add it to your .env file (e.g. AETHER_ADMIN_EMAIL=admin@example.com)."
+        )
+    password = os.environ.get("AETHER_ADMIN_PASS")
+    if not password:
+        raise RuntimeError(
+            "AETHER_ADMIN_PASS is required but not set. "
+            "Add a strong password to your .env file. "
+            "Never use 'demo1234' — it is on the blocked-password list."
+        )
     org_id = "org_demo_aetheros_ai"
 
     sf = get_session_factory()

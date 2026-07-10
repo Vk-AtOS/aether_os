@@ -391,8 +391,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     try:
         from aether_os.orchestrator.events import ACTIVE_RUN_ID as _ARID
         run_id = _ARID.get()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("[p05] ACTIVE_RUN_ID.get() failed: %s", e)
 
     # ── Gate 3: Admin Requirements Approval ──
     # Delegated to domain_assembler.run_gate3_approval to reduce task_agent lines.

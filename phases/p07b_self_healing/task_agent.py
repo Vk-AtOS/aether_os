@@ -450,6 +450,10 @@ async def _quality_probe(
     Returns a dict with keys: skipped, failure_type, quality_summary, fixes_applied.
     Non-fatal — any exception returns skipped=True so the pipeline continues.
     """
+    # Generate a random probe credential per run so no fixed password is written
+    # into deliverable artifacts or log files.
+    probe_password = secrets.token_urlsafe(20)
+
     # Locate src/main.py to know the backend directory
     main_py = _find_file(project_dir, "main.py")
     if not main_py:
@@ -477,7 +481,7 @@ async def _quality_probe(
         env_file.write_text(
             f"DATABASE_URL=sqlite+aiosqlite:///{backend_dir}/probe_q.db\n"
             f"SECRET_KEY={secrets.token_hex(32)}\n"
-            f"ADMIN_PASSWORD=Admin1234!\n"
+            f"ADMIN_PASSWORD={probe_password}\n"
             f"CORS_ORIGINS=http://localhost:3000\n"
         )
         _wrote_env = True
@@ -520,7 +524,7 @@ async def _quality_probe(
         monitor = QualityMonitor(
             base_url=base_url,
             admin_email="admin@example.com",
-            admin_password="Admin1234!",
+            admin_password=probe_password,
             entities=entities,
         )
         results = await monitor.run_full_check()
