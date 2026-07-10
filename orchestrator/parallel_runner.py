@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json as _json
 import logging
 import os
 import time
@@ -39,6 +40,20 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _fast_snapshot(ctx: dict) -> dict:
+    """Faster alternative to copy.deepcopy for accumulated_context.
+    JSON-round-trips each value (fast for strings/dicts/lists);
+    falls back to deepcopy only for non-serializable objects."""
+    result = {}
+    for k, v in ctx.items():
+        try:
+            result[k] = _json.loads(_json.dumps(v, default=str))
+        except Exception:
+            result[k] = copy.deepcopy(v)
+    return result
+
 
 # Default per-phase timeout (seconds) — overridable via PHASE_TIMEOUT_SECONDS env var.
 _DEFAULT_PHASE_TIMEOUT = 600.0
@@ -174,10 +189,12 @@ async def run_phases_in_wave(
     Returns:
         Dict mapping phase_name → phase result dict for every phase in wave.
     """
-    # Take a deep-copy snapshot of accumulated_context before the wave starts.
+    # Take a snapshot of accumulated_context before the wave starts.
     # Shallow copy would share nested dicts between concurrent phases, allowing
     # one phase to corrupt another's context via mutations to nested objects.
-    ctx_snapshot = copy.deepcopy(accumulated_context)
+    # _fast_snapshot JSON-round-trips JSON-serializable values (faster for large
+    # string/dict data) and falls back to deepcopy only for non-serializable objects.
+    ctx_snapshot = _fast_snapshot(accumulated_context)
 
     wave_start = time.time()
     logger.info(
