@@ -123,6 +123,9 @@ class FactoryPipeline:
         logger.info("Pipeline %s waiting for concurrency slot (%d/%d in use)", run_id, sem._value ^ int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2")) - sem._value, int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2")))
         async with sem:
             logger.info("Pipeline %s acquired concurrency slot", run_id)
+            # Store sem on the instance so _pause_for_questionnaire can release it
+            # during guided-mode waits without holding the concurrency slot for up to 7 days.
+            self._pipeline_sem = sem
             try:
                 return await asyncio.wait_for(self._execute_pipeline(
                     client_id, raw_input, domain, project_name, start_phase,
@@ -529,6 +532,7 @@ class FactoryPipeline:
                         stage_id=phase_name,
                         stage_result=phase_result,
                         accumulated_context=accumulated_context,
+                        sem=getattr(self, "_pipeline_sem", None),
                     )
 
                 # FIX-020: If phase escalated, wait for human approval before continuing
@@ -1027,6 +1031,7 @@ async def _pause_for_questionnaire(
     stage_id: str,
     stage_result: dict,
     accumulated_context: dict,
+    sem: Optional[asyncio.Semaphore] = None,
 ) -> None:
     """Create a QuestionnaireSession for this stage and poll until completed or expired.
 
@@ -1034,6 +1039,11 @@ async def _pause_for_questionnaire(
     "waiting_for_input" so the frontend can show a waiting state, then polls the
     DB every 30 seconds.  On completion, merges answers into accumulated_context.
     Timeout: 7 days (604800 s) — matches the default token TTL.
+
+    H1 — semaphore release during wait: if *sem* is provided, the pipeline
+    concurrency slot is released before each sleep interval and re-acquired
+    after.  This prevents guided-mode runs from holding a concurrency slot for
+    up to 7 days and starving all other pipeline users.
     """
     try:
         import secrets
@@ -1116,8 +1126,17 @@ async def _pause_for_questionnaire(
                 "questionnaire: waiting for stage %s input (run %s, waited=%ds)",
                 stage_id, run_id, waited,
             )
-            await asyncio.sleep(_POLL_INTERVAL)
-            waited += _POLL_INTERVAL
+            # H1: Release the pipeline concurrency slot during the sleep so
+            # other users' runs are not blocked while we wait for questionnaire
+            # input (which can take up to 7 days).  Re-acquire after waking.
+            if sem is not None:
+                sem.release()
+            try:
+                await asyncio.sleep(_POLL_INTERVAL)
+                waited += _POLL_INTERVAL
+            finally:
+                if sem is not None:
+                    await sem.acquire()
 
             async with _sf() as _db_poll:
                 row = (await _db_poll.execute(

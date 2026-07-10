@@ -31,6 +31,7 @@ CRITICAL: No — pipeline continues even if healing fails (handoff includes fail
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
@@ -81,6 +82,41 @@ class HealingStageSupervisor(PhaseBase):
         pm = get_project_manager()
         output_dir = pm.get_output_dir(phase_input.project_id, self.phase_name)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # WL2: if the quality-gate hook already ran healing successfully (triggered
+        # from phase_hooks._hook_quality_gate after p07_testing), skip re-running the
+        # full repair loop to avoid a double-heal race where whichever pass runs last
+        # wins with no explicit reconciliation.  Run validate_gate() only instead.
+        _acc = phase_input.input_data if hasattr(phase_input, "input_data") and isinstance(phase_input.input_data, dict) else {}
+        if _acc.get("s07_healing_done"):
+            _prior = _acc.get("s07_healing_result", {})
+            logger.info(
+                "[s07] healing already completed via quality gate hook (score=%.1f, attempt=%s) "
+                "— running final validation only",
+                _prior.get("score", 0.0),
+                _prior.get("attempt", "?"),
+            )
+            return TaskResult(
+                success=True,
+                output={"skipped": True, "reason": "already_healed_via_gate"},
+                metadata={
+                    "healing_passed": True,
+                    "repairs_applied": [],
+                    "error_patterns": [],
+                    "auto_validators": [],
+                    "self_healing_report": {
+                        "attempts": 0,
+                        "status": "skipped_already_healed",
+                        "exhausted": False,
+                        "quality_probe": {},
+                        "validator_violations": [],
+                    },
+                    "skipped_reason": "already_healed_via_gate",
+                    "prior_result": _prior,
+                },
+                issues=[],
+                confidence=1.0,
+            )
 
         # ── Delegate to the pre-approved self-healing engine ──────────────────
         # p07b_self_healing.run() handles:
