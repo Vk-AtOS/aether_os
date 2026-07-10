@@ -89,12 +89,15 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     llm = get_llm_client()
     errors: list[str] = []
 
-    logger.info("p02b: starting SINGLE-pass Domain IR extraction for run %s", run_id)
+    logger.info("p02b: starting Domain IR extraction for run %s", run_id)
 
     # ── LLM extraction — delegated to ir_extractor.run_4pass_extraction ────────
-    # Single combined LLM call (was 4-pass sequential; retired to cut latency from
-    # ~720s worst-case to ~60s).  Extracted to ir_extractor.py to keep this file
-    # under 350 lines.
+    # run_4pass_extraction issues a SINGLE combined LLM call whose output is
+    # returned as p1; p2/p3/p4 are aliases to the same dict so downstream merge
+    # logic (_build_ir_from_passes) stays unchanged. The 4-pass *sequential* mode
+    # (entities → relationships → endpoints → integrations as separate calls) was
+    # retired to cut worst-case latency from ~720 s to ~60 s. Function is extracted
+    # to ir_extractor.py to keep this file under 350 lines.
     p1, p2, p3, p4, _ext_errors = await run_4pass_extraction(
         requirements=requirements,
         seed=seed,

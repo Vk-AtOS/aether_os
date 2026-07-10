@@ -150,11 +150,8 @@ def _build_report(
         "invariants_verified": verified,
         "invariants_failed": failed,
         "invariants_unverifiable": unverifiable,
-        "patent_eligible": True,
-        "patent_basis": (
-            "AI-assisted formal verification of LLM-generated code via SMT solver; "
-            "USPTO August 2025 AI patent guidance — not practically performable in the human mind"
-        ),
+        # patent_eligible field removed — was hardcoded marketing copy in a
+        # technical artifact, not a valid output of the SMT verification process.
     }
     if partial_reason:
         report["partial_reason"] = partial_reason
