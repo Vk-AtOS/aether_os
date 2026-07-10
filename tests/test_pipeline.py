@@ -141,6 +141,7 @@ def test_router_unknown_failure_returns_none():
 # ── Pipeline (mocked LLM) ─────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:orchestrator.pipeline is deprecated:DeprecationWarning")
 async def test_pipeline_run_complete(tmp_path):
     """Test full pipeline run with mocked LLM responses."""
     import os

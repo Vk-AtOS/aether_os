@@ -238,24 +238,23 @@ def _safe_json(value: Optional[str]) -> Any:
 
 
 def _run_async(coro) -> Any:
-    """Run a coroutine from sync code. Creates a new event loop if needed."""
+    """Run a coroutine from sync code. Creates a new event loop if needed.
+
+    When called from within a running event loop (e.g. during a sync helper
+    invoked from async pipeline code) we schedule the coroutine as a fire-and-
+    forget task rather than blocking — blocking would deadlock because the same
+    thread can't advance the loop while fut.result() is waiting.  The caller
+    (sync ledger methods) does not need the return value in these paths.
+    """
     try:
         loop = asyncio.get_running_loop()
-        # Already inside a running loop — schedule as a task and wait (thread-safe)
-        import concurrent.futures
-        fut = concurrent.futures.Future()
-
-        async def _wrapper():
-            try:
-                fut.set_result(await coro)
-            except Exception as exc:
-                logger.debug("_run_async wrapper caught exception: %s", exc)
-                fut.set_exception(exc)
-
-        asyncio.run_coroutine_threadsafe(_wrapper(), loop)
-        return fut.result(timeout=30)
+        # We are inside the running loop's thread — cannot block here.
+        # Schedule the coroutine as a background task (fire-and-forget).
+        # This ensures the coroutine is always awaited, preventing RuntimeWarning.
+        asyncio.ensure_future(coro, loop=loop)
+        return None
     except RuntimeError:
-        # No running loop (sync context) — use asyncio.run()
+        # No running loop (pure sync context) — use asyncio.run()
         return asyncio.run(coro)
     except Exception as exc:
         logger.debug("_run_async failed: %s", exc)
