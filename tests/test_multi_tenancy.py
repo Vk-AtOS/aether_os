@@ -2,9 +2,13 @@ import pytest
 import uuid
 import os
 import asyncio
+import warnings
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from aether_os.gateway.api import create_app
+
+# Suppress ResourceWarning from anyio/httpx teardown in TestClient fixtures.
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 
 @pytest.mark.asyncio
