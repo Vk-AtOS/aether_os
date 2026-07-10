@@ -116,8 +116,8 @@ async def set_app_state(
     r = await _get_async_redis()
     if r is not None:
         try:
-            await r.setex(_state_key(run_id), _APP_STATE_TTL, serialised)
-            await r.setex(_KEY_CURRENT, _APP_STATE_TTL, run_id)
+            await r.set(_state_key(run_id), serialised, ex=_APP_STATE_TTL)
+            await r.set(_KEY_CURRENT, run_id, ex=_APP_STATE_TTL)
             # Mirror into memory so same-process reads are always fast
             _STATE_MEMORY[run_id] = payload
             if _CURRENT_RUN_MEMORY:
@@ -200,7 +200,7 @@ async def set_current_run_id(run_id: str) -> None:
     r = await _get_async_redis()
     if r is not None:
         try:
-            await r.setex(_KEY_CURRENT, _APP_STATE_TTL, run_id)
+            await r.set(_KEY_CURRENT, run_id, ex=_APP_STATE_TTL)
         except Exception as exc:
             logger.warning("app_state: Redis write for current_run failed: %s", exc)
 

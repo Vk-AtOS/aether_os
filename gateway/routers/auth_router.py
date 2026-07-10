@@ -143,7 +143,7 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
             r = await get_redis()
             if r:
                 # Store verification token in Redis (24 hours expiry)
-                await r.setex(f"email_verify:{verify_token}", 86400, user.id)
+                await r.set(f"email_verify:{verify_token}", user.id, ex=86400)
         except Exception as exc:
             logger.debug("Failed to store email verification token in Redis for user %s: %s", user.id, exc)
 
@@ -319,7 +319,7 @@ async def logout(request: Request, user: Dict[str, Any] = _auth()) -> Dict[str, 
             r = await get_redis()
             if r:
                 ttl = max(1, int(exp - time.time()))
-                await r.setex(f"jwt:blacklist:{jti}", ttl, "1")
+                await r.set(f"jwt:blacklist:{jti}", "1", ex=ttl)
         except Exception as exc:
             logger.debug("Failed to add JWT jti=%s to Redis blacklist on logout: %s", jti, exc)
     return {"message": "Logged out"}

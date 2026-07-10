@@ -121,7 +121,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
                 r = await get_redis()
                 if r:
                     # Store token in Redis with 1 hour expiry
-                    await r.setex(f"pw_reset:{token}", 3600, user.id)
+                    await r.set(f"pw_reset:{token}", user.id, ex=3600)
             except Exception as exc:
                 logger.debug("Failed to store password reset token in Redis for user %s: %s", user.id, exc)
 

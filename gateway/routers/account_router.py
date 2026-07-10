@@ -144,7 +144,7 @@ async def delete_account(user: Dict[str, Any] = _current_user()) -> Dict[str, st
             r = await get_redis()
             if r:
                 ttl = max(1, int(exp - time.time()))
-                await r.setex(f"jwt:blacklist:{jti}", ttl, "1")
+                await r.set(f"jwt:blacklist:{jti}", "1", ex=ttl)
         except Exception as exc:
             logger.debug("Failed to blacklist JWT jti=%s in Redis during account deletion: %s", jti, exc)
 

@@ -260,7 +260,7 @@ class Pipeline:
                 "security_report": ctx.security_report,
                 "test_results": ctx.test_results,
                 "docs": ctx.docs,
-                "phases": [p.dict() for p in ctx.phase_outputs],
+                "phases": [p.model_dump() for p in ctx.phase_outputs],
                 "duration_seconds": round(duration, 2),
             }
 
@@ -277,7 +277,7 @@ class Pipeline:
                 "run_id": ctx.run_id,
                 "error": str(exc),
                 "errors": ctx.errors,
-                "phases": [p.dict() for p in ctx.phase_outputs],
+                "phases": [p.model_dump() for p in ctx.phase_outputs],
             }
 
         finally:
