@@ -326,7 +326,54 @@ def _entity_serialize_dict(name: str, fields: list, obj_var: str = "obj") -> str
     return "{" + pairs + "}"
 
 
-def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
+def _get_roles_for_action(entity_name: str, action: str, perm_model: dict | None) -> list | None:
+    """Return list of allowed roles for the given entity + action, or None (any authenticated user).
+
+    Reads the p02c permission_model structure:
+      permissions: {RoleName: {ResourceName: ["read", "create", "update", "delete"]}}
+
+    Returns a sorted, deduplicated list of role names that have the action permitted,
+    or None when no permission model is present so callers fall back to get_current_user.
+    """
+    if not perm_model:
+        return None
+    permissions: dict = perm_model.get("permissions", {})
+    if not permissions:
+        return None
+    allowed: list = []
+    for role_name, resources in permissions.items():
+        if not isinstance(resources, dict):
+            continue
+        # Wildcard resource ("*") grants all actions to this role
+        wildcard = resources.get("*", [])
+        if "*" in wildcard or action in wildcard:
+            allowed.append(role_name)
+            continue
+        # Look up this specific entity first, then try case-insensitive match
+        actions_for_entity = resources.get(entity_name)
+        if actions_for_entity is None:
+            # Try case-insensitive fallback
+            for res_key, res_actions in resources.items():
+                if res_key.lower() == entity_name.lower():
+                    actions_for_entity = res_actions
+                    break
+        if actions_for_entity and ("*" in actions_for_entity or action in actions_for_entity):
+            allowed.append(role_name)
+    # SuperAdmin always has all permissions — ensure it is present in every allowed list
+    # to avoid accidentally locking out the top-level admin role
+    super_admin_name = next(
+        (r for r in permissions if r.lower() in ("superadmin", "super_admin")), None
+    )
+    if super_admin_name and super_admin_name not in allowed:
+        allowed.append(super_admin_name)
+    return allowed if allowed else None
+
+
+def _fallback_crud_routers(
+    entities: list,
+    multi_tenancy: bool = False,
+    permission_model: dict | None = None,
+) -> str:
     """Fallback CRUD using ORM (no raw SQL — no injection vectors).
 
     Generates complete typed CRUD with paginated list, get-by-id, create (201),
@@ -335,6 +382,11 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
 
     When multi_tenancy=True, every list query filters by org_id and every create
     endpoint stamps org_id from the calling user's JWT claims.
+
+    When permission_model is provided (from p02c), each CRUD endpoint uses
+    require_role(*roles) instead of get_current_user so that ABAC is enforced
+    from the first generated request. Falls back gracefully to get_current_user
+    when no model is available.
     """
     # Ensure we always have at least one entity so the schemas import line
     # is never produced with an empty trailing module list (SyntaxError).
@@ -351,7 +403,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
         "from sqlalchemy.ext.asyncio import AsyncSession",
         "from sqlalchemy import select, func",
         "from database import get_db",
-        "from auth import get_current_user, require_admin",
+        "from auth import get_current_user, require_admin, require_role",
         "import models",
         f"from schemas import {schemas_imports}",
         "try:",
@@ -403,6 +455,24 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             else f"f\"{name}:list:{{page}}:{{page_size}}\""
         )
 
+        # ── ABAC role guards ─────────────────────────────────────────────────────
+        # Resolve allowed roles from the permission model for each action.
+        # Falls back to bare get_current_user / require_admin when not available.
+        def _dep(action: str, fallback: str = "get_current_user") -> str:
+            """Return the Depends() string for the given CRUD action."""
+            roles = _get_roles_for_action(name, action, permission_model)
+            if roles:
+                # Emit require_role("Role1", "Role2", ...) — quoted role names
+                quoted = ", ".join(f'"{r}"' for r in roles)
+                return f"require_role({quoted})"
+            return fallback
+
+        read_dep = _dep("read")
+        create_dep = _dep("create")
+        update_dep = _dep("update")
+        # delete falls back to require_admin (not get_current_user) for safety
+        delete_dep = _dep("delete", fallback="require_admin")
+
         lines += [
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
@@ -411,7 +481,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    page: int = Query(1, ge=1),",
             f"    page_size: int = Query(20, ge=1, le=200),",
             f"    db: AsyncSession = Depends(get_db),",
-            f"    current_user: dict = Depends(get_current_user),",
+            f"    current_user: dict = Depends({read_dep}),",
             f"):",
             f"    _ck = {list_cache_key}",
             f"    _cached = await _cache_get(_ck)",
@@ -427,7 +497,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    return _resp",
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
-            f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({read_dep})):",
             f"    _ck = f\"{name}:{{item_id}}\"",
             f"    _cached = await _cache_get(_ck)",
             f"    if _cached is not None:",
@@ -441,7 +511,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    return _resp",
             "",
             f"@{var}.post('/', status_code=status.HTTP_201_CREATED, response_model=dict)",
-            f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends({create_dep})):",
             f"    obj = models.{name}(**data.model_dump(exclude_unset=True){mt_create_kwarg})",
             f"    db.add(obj)",
             f"    await db.flush()",
@@ -451,7 +521,7 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
-            f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends({update_dep})):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
             f"    obj = result.scalar_one_or_none()",
             f"    if obj is None:",
@@ -466,11 +536,11 @@ def _fallback_crud_routers(entities: list, multi_tenancy: bool = False) -> str:
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.put('/{{item_id}}', response_model=dict, include_in_schema=False)",
-            f"async def update_{table}_put(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
+            f"async def update_{table}_put(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends({update_dep})):",
             f"    return await update_{table}(item_id, data, db, current_user)",
             "",
             f"@{var}.delete('/{{item_id}}', status_code=status.HTTP_204_NO_CONTENT)",
-            f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_admin)):",
+            f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({delete_dep})):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
             f"    obj = result.scalar_one_or_none()",
             f"    if obj is None:",
