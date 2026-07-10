@@ -95,12 +95,12 @@ def reset_config() -> None:
     \"\"\"Reset all stored config values to defaults.\"\"\"
     try:
         keyring.delete_password(SERVICE, "token")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[cli_generator] keyring.delete_password(token) failed: %s", e)
     try:
         keyring.delete_password(SERVICE, "api_base")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[cli_generator] keyring.delete_password(api_base) failed: %s", e)
 
 def get_token() -> str:
     return keyring.get_password(SERVICE, "token") or ""
