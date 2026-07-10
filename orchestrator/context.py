@@ -9,7 +9,7 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,7 @@ class ExecutionContext(BaseModel):
     approval_ticket_id: Optional[str] = None
     human_approved: Optional[bool] = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def add_error(self, error: str) -> None:
         self.errors.append(error)
