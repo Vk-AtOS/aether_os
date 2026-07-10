@@ -13,7 +13,7 @@ ExecStart=/home/aether_os/venv/bin/uvicorn aether_os.gateway.api:create_app \
     --factory \
     --host 0.0.0.0 \
     --port 8000 \
-    --workers 2 \
+    --workers 4 \
     --log-level info
 Restart=on-failure
 RestartSec=5
