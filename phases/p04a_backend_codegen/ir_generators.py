@@ -65,9 +65,23 @@ def _ref_to_table_name(ref: str) -> str:
     return _pluralise(snake)
 
 
-def _sa_column(field: IRField) -> str:
-    """Return SQLAlchemy Column(...) definition for one IRField."""
+def _sa_column(field: IRField, domain: str = "") -> str:
+    """Return SQLAlchemy Column(...) definition for one IRField.
+
+    domain: when set to a money domain (fintech/marketplace/erp), DECIMAL fields
+    are typed as Numeric(12, 2) per PCI/domain-pack constraints, and money-named
+    STRING fields are promoted to Numeric(12, 2) automatically.
+    """
+    from aether_os.phases.p04a_backend_codegen.schema_builder import (
+        _is_money_domain,
+        _is_healthcare,
+        _MONEY_FIELDS,
+        _PHI_FIELDS,
+        _needs_audit_annotation,
+    )
+
     atype = field.type
+    field_lower = field.name.lower()
 
     # Build column type string
     if atype == AetherType.FK:
@@ -81,9 +95,15 @@ def _sa_column(field: IRField) -> str:
     elif atype == AetherType.ENUM:
         col_type = "String(50)"
     elif atype == AetherType.STRING:
-        col_type = "String(255)"
+        # Promote money-named STRING fields to Numeric in money domains so the
+        # generated model matches PCI/FinTech domain-pack constraints.
+        if _is_money_domain(domain) and field_lower in _MONEY_FIELDS:
+            col_type = "Numeric(12, 2)"
+        else:
+            col_type = "String(255)"
     elif atype == AetherType.DECIMAL:
-        col_type = "Numeric(14, 2)"
+        # Precision: 12,2 for money domains; 14,2 generic otherwise.
+        col_type = "Numeric(12, 2)" if _is_money_domain(domain) else "Numeric(14, 2)"
     else:
         col_type = SA_TYPE_MAP.get(atype, "String(255)")
 
@@ -108,7 +128,13 @@ def _sa_column(field: IRField) -> str:
     if field.default is not None and atype == AetherType.BOOLEAN:
         parts.append(f"default={str(field.default).capitalize()}")
 
-    return f"    {field.name} = Column({', '.join(parts)})"
+    # Healthcare PHI comment so developers know these fields need special handling.
+    phi_comment = (
+        "  # PHI - handle per HIPAA"
+        if _is_healthcare(domain) and field_lower in _PHI_FIELDS
+        else ""
+    )
+    return f"    {field.name} = Column({', '.join(parts)}){phi_comment}"
 
 
 def _relationship_line(field: IRField) -> str | None:
@@ -155,9 +181,21 @@ class User(Base):
 """
 
 
-def generate_models_py(ir: DomainIR) -> str:
-    """Generate complete models.py from DomainIR."""
-    lines = [_SA_IMPORTS, ""]
+def generate_models_py(ir: DomainIR, domain: str = "") -> str:
+    """Generate complete models.py from DomainIR.
+
+    domain: propagated to _sa_column so that domain-specific column types are
+    applied (e.g. Numeric(12,2) for money fields in fintech/marketplace/erp,
+    PHI comments in healthcare).
+    """
+    from aether_os.phases.p04a_backend_codegen.schema_builder import _is_money_domain
+
+    # Money domains need Decimal import at module level.
+    sa_imports = _SA_IMPORTS
+    if _is_money_domain(domain):
+        sa_imports = "from decimal import Decimal\n" + sa_imports
+
+    lines = [sa_imports, ""]
 
     # Always emit User model first so auth router import works
     lines.append(_USER_MODEL)
@@ -194,7 +232,8 @@ def generate_models_py(ir: DomainIR) -> str:
         lines.append("")
         lines.append("    id = Column(Integer, primary_key=True, index=True)")
         for f in entity.fields:
-            lines.append(_sa_column(f))
+            # Pass domain so column types respect domain pack constraints
+            lines.append(_sa_column(f, domain=domain))
 
         # FIX 6: Add relationship fields
         for f in entity.fields:
@@ -209,9 +248,9 @@ def generate_models_py(ir: DomainIR) -> str:
     return "\n".join(lines)
 
 
-def ir_to_models(ir: DomainIR) -> str:
+def ir_to_models(ir: DomainIR, domain: str = "") -> str:
     """Alias for generate_models_py to match v2 directive."""
-    return generate_models_py(ir)
+    return generate_models_py(ir, domain=domain)
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +268,21 @@ _VALIDATOR_OP_MAP = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "!=": "!=", "="
 _VALIDATOR_EXPR_RE = _re.compile(r'^(\w+)\s*(>=|<=|!=|>|<|=)\s*([0-9.]+)$')
 
 
-def _pydantic_type(field: IRField) -> str:
-    """Return the Python/Pydantic type annotation for an IRField."""
+def _pydantic_type(field: IRField, domain: str = "") -> str:
+    """Return the Python/Pydantic type annotation for an IRField.
+
+    domain: when set to a money domain, DECIMAL fields and money-named STRING
+    fields use Decimal instead of float/str so generated schemas satisfy
+    PCI/FinTech domain-pack constraints.
+    """
+    from aether_os.phases.p04a_backend_codegen.schema_builder import (
+        _is_money_domain,
+        _MONEY_FIELDS,
+    )
+
     atype = field.type
+    field_lower = field.name.lower()
+
     type_map = {
         AetherType.STRING:   "str",
         AetherType.TEXT:     "str",
@@ -246,7 +297,16 @@ def _pydantic_type(field: IRField) -> str:
         AetherType.FK:       "int",
         AetherType.JSON:     "Any",
     }
-    base = type_map.get(atype, "str")
+
+    # Money domains: DECIMAL fields and money-named STRING fields use Decimal.
+    if _is_money_domain(domain) and (
+        atype == AetherType.DECIMAL
+        or (atype == AetherType.STRING and field_lower in _MONEY_FIELDS)
+    ):
+        base = "Decimal"
+    else:
+        base = type_map.get(atype, "str")
+
     if field.nullable:
         return f"Optional[{base}]"
     return base
@@ -284,9 +344,25 @@ def _pydantic_validators(entity_name: str, rules: list) -> list:
     return validators
 
 
-def generate_schemas_py(ir: DomainIR) -> str:
-    """Generate complete schemas.py from DomainIR."""
-    lines = [_PYDANTIC_IMPORTS, ""]
+def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
+    """Generate complete schemas.py from DomainIR.
+
+    domain: when set to a money domain (fintech/marketplace/erp), DECIMAL and
+    money-named fields use Decimal type and the Decimal import is injected.
+    Healthcare domain adds PHI comments on sensitive fields.
+    """
+    from aether_os.phases.p04a_backend_codegen.schema_builder import (
+        _is_money_domain,
+        _is_healthcare,
+        _PHI_FIELDS,
+    )
+
+    # Inject Decimal import for money domains so generated schemas compile.
+    pydantic_imports = _PYDANTIC_IMPORTS
+    if _is_money_domain(domain):
+        pydantic_imports = "from decimal import Decimal\n" + pydantic_imports
+
+    lines = [pydantic_imports, ""]
 
     # Generic paginated response
     lines.extend([
@@ -305,7 +381,7 @@ def generate_schemas_py(ir: DomainIR) -> str:
         fields_block_update = []
 
         for f in entity.fields:
-            ptype = _pydantic_type(f)
+            ptype = _pydantic_type(f, domain=domain)
             if f.nullable:
                 default = " = None"
             elif f.default is not None and f.type == AetherType.BOOLEAN:
@@ -313,8 +389,15 @@ def generate_schemas_py(ir: DomainIR) -> str:
             else:
                 default = ""
             optional_ptype = f"Optional[{ptype.replace('Optional[', '').rstrip(']')}]"
-            fields_block_base.append(f"    {f.name}: {ptype}{default}")
-            fields_block_update.append(f"    {f.name}: {optional_ptype} = None")
+
+            # PHI comment for healthcare-domain sensitive fields
+            phi_comment = (
+                "  # PHI - handle per HIPAA"
+                if _is_healthcare(domain) and f.name.lower() in _PHI_FIELDS
+                else ""
+            )
+            fields_block_base.append(f"    {f.name}: {ptype}{default}{phi_comment}")
+            fields_block_update.append(f"    {f.name}: {optional_ptype} = None{phi_comment}")
 
         validators = _pydantic_validators(name, ir.business_rules)
 
@@ -355,6 +438,6 @@ def generate_schemas_py(ir: DomainIR) -> str:
     return "\n".join(lines)
 
 
-def ir_to_schemas(ir: DomainIR) -> str:
+def ir_to_schemas(ir: DomainIR, domain: str = "") -> str:
     """Alias for generate_schemas_py to match v2 directive."""
-    return generate_schemas_py(ir)
+    return generate_schemas_py(ir, domain=domain)

@@ -177,8 +177,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     try:
         if not models_code or not schemas_code:
             await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating models + schemas (deterministic)…"})
-            models_code = _fallback_models(project_name, entities)
-            schemas_code = _fallback_schemas(entities)
+            # Pass domain so money/PHI constraints are applied in fallback codegen.
+            models_code = _fallback_models(project_name, entities, domain=domain)
+            schemas_code = _fallback_schemas(entities, domain=domain)
             generated_via = "deterministic_fallback"
 
             _llm_classes = re.findall(r'^class \w+\(Base\)', models_code, re.MULTILINE)
@@ -191,8 +192,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         # arguments (e.g. Column(default=True, ..., default=False)) which
         # ast.parse() silently accepts on Python 3.10.
         for _fname, _code, _fallback_fn, _fallback_args in [
-            ("models.py", models_code, _fallback_models, [project_name, entities]),
-            ("schemas.py", schemas_code, _fallback_schemas, [entities]),
+            ("models.py", models_code, _fallback_models, [project_name, entities, domain]),
+            ("schemas.py", schemas_code, _fallback_schemas, [entities, domain]),
         ]:
             try:
                 compile(_code, _fname, "exec")
@@ -212,8 +213,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     len(models_code), len(_llm_classes), len(schemas_code))
     except Exception as exc:
         logger.warning("[p04a] models/schemas generation failed (%s), using fallback", exc)
-        models_code = _fallback_models(project_name, entities)
-        schemas_code = _fallback_schemas(entities)
+        models_code = _fallback_models(project_name, entities, domain=domain)
+        schemas_code = _fallback_schemas(entities, domain=domain)
         models_code = fix_relative_imports(models_code)
         schemas_code = fix_relative_imports(schemas_code)
         (src_dir / "models.py").write_text(models_code)

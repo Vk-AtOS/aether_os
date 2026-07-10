@@ -31,20 +31,12 @@ _MONEY_NAME_KEYWORDS = frozenset({
 
 
 def _aether_type_to_pydantic(aether_type: str, field_name: str = "") -> str:
-    """Map an AetherType string (from Domain IR) to a Pydantic Optional[T] annotation.
-
-    Falls back to Optional[str] for any unknown or unrecognised type so that
-    the generated schema is always syntactically valid even if the LLM produced
-    a non-standard type string.
-    """
+    """Map an AetherType string (from Domain IR) to a Pydantic Optional[T] annotation."""
     t = (aether_type or "string").lower().strip()
     fn = (field_name or "").lower()
 
-    # Money/decimal field names override type regardless of declared AetherType
     if any(kw in fn for kw in _MONEY_NAME_KEYWORDS):
         return "Optional[Decimal]"
-
-    # Explicit type mapping (AetherType values + common SQL type aliases)
     if t in ("int", "integer", "bigint", "smallint"):
         return "Optional[int]"
     if t in ("float", "double", "real", "number"):
@@ -63,17 +55,55 @@ def _aether_type_to_pydantic(aether_type: str, field_name: str = "") -> str:
         return "Optional[Dict[str, Any]]"
     if t in ("list", "array"):
         return "Optional[List[Any]]"
-    # fk fields are integer IDs
     if t == "fk":
         return "Optional[int]"
-    # email, url, enum, text, str, varchar, string → str
     return "Optional[str]"
+
+
+# ── Domain constraint helpers ──────────────────────────────────────────────────
+
+_MONEY_DOMAINS = frozenset({"fintech", "marketplace", "erp"})
+
+_MONEY_FIELDS = frozenset({
+    "amount", "price", "cost", "salary", "balance", "fee", "total",
+    "subtotal", "tax_amount", "revenue", "daily_limit", "monthly_limit",
+    "refund_amount", "discount", "commission",
+})
+
+_PHI_FIELDS = frozenset({
+    "dob", "date_of_birth", "ssn", "mrn", "patient_id",
+    "diagnosis", "symptoms", "treatment_plan", "instructions",
+})
+
+_AUDIT_SUFFIXES = ("_at", "_by")
+_AUDIT_PREFIXES = ("created_", "updated_")
+
+
+def _is_healthcare(domain: str) -> bool:
+    return domain.lower() in ("healthcare", "hipaa")
+
+
+def _is_money_domain(domain: str) -> bool:
+    return domain.lower() in _MONEY_DOMAINS
+
+
+def _needs_audit_annotation(field_name: str) -> bool:
+    lower = field_name.lower()
+    return (
+        any(lower.endswith(s) for s in _AUDIT_SUFFIXES)
+        or any(lower.startswith(p) for p in _AUDIT_PREFIXES)
+    )
 
 
 # ── Type inference ─────────────────────────────────────────────────────────────
 
-def _col_to_sa_type(col_name: str) -> str:
-    """Infer SQLAlchemy column type from field name."""
+def _col_to_sa_type(col_name: str, domain: str = "") -> str:
+    """Infer SQLAlchemy column type from field name.
+
+    When domain is a money domain (fintech/marketplace/erp), monetary fields
+    are forced to Numeric(12, 2) instead of the generic Numeric(14, 2) so that
+    generated code satisfies PCI/domain-pack constraints without relying on the LLM.
+    """
     lower = col_name.lower()
     if lower.endswith("_id"):
         return "Integer, ForeignKey('users.id')" if "user" in lower else "Integer"
@@ -81,8 +111,9 @@ def _col_to_sa_type(col_name: str) -> str:
         return "String(320), unique=True, index=True"
     if lower in ("phone", "mobile", "tel") or lower.endswith("_phone"):
         return "String(50)"
-    if lower in ("price", "amount", "cost", "salary", "rate", "total", "revenue", "balance", "fee"):
-        return "Numeric(14, 2)"
+    if lower in _MONEY_FIELDS:
+        # Money domains require Numeric; other domains get the same type for safety.
+        return "Numeric(12, 2)" if _is_money_domain(domain) else "Numeric(14, 2)"
     if lower in ("count", "quantity", "qty", "age", "year", "rank", "position", "score") or lower.startswith("num_"):
         return "Integer"
     if lower.startswith("is_") or lower.startswith("has_") or lower.startswith("can_") or lower in ("active", "enabled", "verified", "completed", "archived", "published"):
@@ -98,9 +129,24 @@ def _col_to_sa_type(col_name: str) -> str:
     return "String(255)"
 
 
+def _col_comment(field_name: str, domain: str) -> str:
+    """Return an inline comment to append to a Column line, or empty string.
+
+    Healthcare domain: PHI fields get # PHI - handle per HIPAA.
+    """
+    if _is_healthcare(domain) and field_name.lower() in _PHI_FIELDS:
+        return "  # PHI - handle per HIPAA"
+    return ""
+
+
 # ── Fallback model generator ───────────────────────────────────────────────────
 
-def _fallback_models(project_name: str, entities: list) -> str:
+def _fallback_models(project_name: str, entities: list, domain: str = "") -> str:
+    """Generate SQLAlchemy models from entity list.
+
+    domain: if provided, domain-specific column types are applied (e.g. Numeric
+    for money fields in fintech/marketplace/erp).
+    """
     entity_classes = []
     for ent in entities:
         name = ent.get("name", "Item")
@@ -112,13 +158,18 @@ def _fallback_models(project_name: str, entities: list) -> str:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
-            sa_type = _col_to_sa_type(fn)
+            sa_type = _col_to_sa_type(fn, domain)
 
             if fn in ("status", "type", "stage", "priority"):
                 sa_type += f", CheckConstraint(\"{fn} IN ('active', 'inactive', 'pending', 'open', 'closed', 'new')\", name='ck_{table}_{fn}')"
 
             nullable = "False" if any(req in fn.lower() for req in ("name", "email", "title", "status")) else "True"
-            cols.append(f"    {fn} = Column({sa_type}, nullable={nullable})")
+            comment = _col_comment(fn, domain)
+            cols.append(f"    {fn} = Column({sa_type}, nullable={nullable}){comment}")
+
+            # Healthcare HIPAA: add audit_columns annotation comment for audit fields
+            if _is_healthcare(domain) and _needs_audit_annotation(fn):
+                cols.append(f"    # audit_columns: {fn} required for HIPAA audit trail")
 
             if fn.endswith("_id") and "user" not in fn:
                 ref_name = fn[:-3].capitalize()
@@ -137,10 +188,13 @@ def _fallback_models(project_name: str, entities: list) -> str:
     # Build as a plain string to avoid textwrap.dedent misaligning dynamic class bodies.
     # Entity class bodies use 4-space indent; f-string+dedent pattern is unsafe here.
     entity_block = "\n\n\n".join(entity_classes)
+    # Money domains need Decimal import; include it unconditionally (harmless if unused).
+    decimal_import = "from decimal import Decimal\n" if _is_money_domain(domain) else ""
     return (
         "from __future__ import annotations\n"
         "from datetime import datetime, timezone\n"
-        "from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey, CheckConstraint, func\n"
+        + decimal_import
+        + "from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, Float, ForeignKey, CheckConstraint, func\n"
         "from sqlalchemy.orm import relationship\n"
         "from database import Base\n"
         "\n"
@@ -160,8 +214,9 @@ def _fallback_models(project_name: str, entities: list) -> str:
 
 # ── Fallback schema generator ──────────────────────────────────────────────────
 
-def _fallback_schemas(entities: list) -> str:
-    # Emit the full import block so all referenced types (Decimal, UUID, etc.) are available
+def _fallback_schemas(entities: list, domain: str = "") -> str:
+    """Generate Pydantic schemas from entity list with domain-aware types."""
+    # Always emit full imports — Decimal/UUID etc. are referenced by _aether_type_to_pydantic
     blocks = _SCHEMA_IMPORTS.splitlines() + [""]
     blocks += [
         "class UserCreate(BaseModel):",
@@ -189,13 +244,21 @@ def _fallback_schemas(entities: list) -> str:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
             if fn in ("id", "created_at", "updated_at"):
                 continue
-            # Derive the correct Pydantic type from the AetherType in the field dict
+            # Derive correct Pydantic type from IR AetherType; domain overrides apply on top
             atype = f.get("type", "string") if isinstance(f, dict) else "string"
             pydantic_type = _aether_type_to_pydantic(atype, fn)
-            all_field_lines.append(f"    {fn}: {pydantic_type} = None")
-            # Skip password-like fields in response/read schemas to avoid leaking hashes
+            # Domain override: force Decimal for money fields in money domains
+            if _is_money_domain(domain) and fn.lower() in _MONEY_FIELDS:
+                pydantic_type = "Optional[Decimal]"
+            # PHI comment for healthcare
+            phi_comment = "  # PHI - handle per HIPAA" if _is_healthcare(domain) and fn.lower() in _PHI_FIELDS else ""
+            # Audit annotation for healthcare
+            audit_comment = "  # audit_columns" if _is_healthcare(domain) and _needs_audit_annotation(fn) else ""
+            suffix = phi_comment or audit_comment
+
+            all_field_lines.append(f"    {fn}: {pydantic_type} = None{suffix}")
             if fn not in _RESPONSE_EXCLUDED_FIELDS:
-                response_field_lines.append(f"    {fn}: {pydantic_type} = None")
+                response_field_lines.append(f"    {fn}: {pydantic_type} = None{suffix}")
 
         base_fields = response_field_lines if response_field_lines else ["    name: Optional[str] = None"]
         # Update schemas keep the same inferred types (all Optional so PATCH works correctly)
