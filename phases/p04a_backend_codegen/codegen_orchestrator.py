@@ -306,8 +306,9 @@ def run_ir_fastpath(
         if not _ir.entities:
             return models_code, schemas_code, crud_code, seed_code, entities
 
-        models_code = _ir_to_models(_ir)
-        schemas_code = _ir_to_schemas(_ir)
+        # Pass domain so money/PHI constraints flow into generated column types.
+        models_code = _ir_to_models(_ir, domain=domain)
+        schemas_code = _ir_to_schemas(_ir, domain=domain)
         stats_code = _gen_stats(_ir)
         seed_code = _gen_seed(
             _ir,
