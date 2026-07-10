@@ -1,8 +1,13 @@
 """
-AetherOS — Main Pipeline Orchestrator
-Migrated from aether2/aether/agents/orchestrator.py + wired to state machine.
+AetherOS — Main Pipeline Orchestrator (DEPRECATED)
 
-Key improvements:
+.. deprecated::
+    Use :mod:`orchestrator.factory_pipeline` instead.
+    ``orchestrator.pipeline`` is the legacy 10-phase orchestrator retained only
+    for backward-compatible test coverage. All new work should target
+    ``orchestrator.factory_pipeline.FactoryPipeline``.
+
+Key improvements (historical):
 - Uses unified LLM client (Anthropic primary)
 - Uses PipelineStateMachine for state tracking
 - BUG 9 FIX: write_output_to_disk() writes generated code to output_dir
@@ -13,6 +18,14 @@ Phase implementations live in pipeline_helpers.py to keep this file under
 600 lines.
 """
 from __future__ import annotations
+
+import warnings as _warnings
+_warnings.warn(
+    "orchestrator.pipeline is deprecated; use orchestrator.factory_pipeline instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import asyncio
 import json
 import logging
