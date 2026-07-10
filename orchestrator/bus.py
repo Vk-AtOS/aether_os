@@ -87,9 +87,20 @@ class MessageBus:
         if redis is None:
             # Redis unavailable — in-process only delivery
             if target and target in self._subscribers:
-                await self._subscribers[target].put(message)
+                sub_q = self._subscribers[target]
+                if sub_q.qsize() > 800:
+                    logger.warning(
+                        "Bus subscriber queue for %s at %d/%d — consumer may be slow",
+                        target, sub_q.qsize(), 1000,
+                    )
+                await sub_q.put(message)
 
         # Always push to in-process queue for drain() and local monitoring
+        if self._queue.qsize() > 800:
+            logger.warning(
+                "Bus broadcast queue for run %s at %d/%d — drain() consumer may be slow",
+                self._run_id, self._queue.qsize(), 1000,
+            )
         await self._queue.put(message)
 
         # Audit every message
