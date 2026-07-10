@@ -106,6 +106,40 @@ def _patch_layout_tsx(
         logger.warning("domain_pages: Layout.tsx patch failed: %s", e)
 
 
+def _patch_app_tsx_global_component(app_tsx: Path, component_import: str, component_tag: str) -> None:
+    """Idempotently insert a global component (e.g. CommandPalette) into App.tsx.
+
+    Adds the import line and renders the component once inside the router root JSX.
+    """
+    if not app_tsx.exists():
+        return
+    try:
+        text = app_tsx.read_text()
+        # Add import if missing
+        if component_import not in text and "import NotFoundPage" in text:
+            text = text.replace(
+                "import NotFoundPage from './pages/NotFoundPage'",
+                f"{component_import}\nimport NotFoundPage from './pages/NotFoundPage'",
+                1,
+            )
+        # Render tag once — insert before closing </RouterProvider> or </div> at root
+        if component_tag not in text:
+            # Try to insert before RouterProvider closing tag
+            if "</RouterProvider>" in text:
+                text = text.replace("</RouterProvider>", f"{component_tag}\n      </RouterProvider>", 1)
+            elif "<RouterProvider" in text:
+                # Wrap in fragment after RouterProvider
+                text = text.replace(
+                    "<RouterProvider",
+                    f"{component_tag}\n      <RouterProvider",
+                    1,
+                )
+        app_tsx.write_text(text)
+        logger.info("domain_pages: patched App.tsx with global component %s", component_tag)
+    except Exception as e:
+        logger.warning("domain_pages: App.tsx global component patch failed: %s", e)
+
+
 def write_domain_pages(src_dir: Path, domain: str, build_types: List[str]) -> None:
     """Write domain-specific pages and patch App.tsx routing + Layout.tsx nav.
 
@@ -113,6 +147,7 @@ def write_domain_pages(src_dir: Path, domain: str, build_types: List[str]) -> No
     All operations are idempotent — safe to call on repeated pipeline runs.
     """
     pages_dir = src_dir / "pages"
+    components_dir = src_dir / "components"
     app_tsx = src_dir / "App.tsx"
     layout_tsx = src_dir / "components" / "Layout.tsx"
     extra_routes: list[tuple[str, str, str]] = []   # (route_var, path, PageName)
@@ -122,6 +157,14 @@ def write_domain_pages(src_dir: Path, domain: str, build_types: List[str]) -> No
     _has_iot    = domain == "iot" or "iot_timeseries" in build_types
     _has_erp    = "erp" in build_types or "approval" in build_types
     _has_flags  = "feature_flags" in build_types
+    _has_kanban = (
+        domain in ("project_management", "saas", "crm", "hrm")
+        or "kanban" in build_types
+    )
+    _has_calendar = (
+        domain in ("healthcare", "erp", "hospitality", "fitness", "gym_fitness")
+        or "calendar" in build_types
+    )
 
     try:
         if _has_social:
@@ -175,9 +218,60 @@ def write_domain_pages(src_dir: Path, domain: str, build_types: List[str]) -> No
             extra_nav    += [("/flags", "Feature Flags", "Flag")]
             logger.info("domain_pages: wrote flags page (FlagAdminPage)")
 
+        if _has_kanban:
+            from aether_os.phases.p05_frontend.code_writer import (  # noqa: PLC0415
+                generate_kanban_component,
+            )
+            # Generate a generic task/item Kanban — entity name "tasks" is the most
+            # common for project-management domains; falls back gracefully if absent.
+            kanban_code = generate_kanban_component("tasks", status_field="status")
+            _guard_write(pages_dir / "TasksKanbanPage.tsx", kanban_code)
+            extra_routes += [("tasksKanbanRoute", "/tasks/kanban", "TasksKanbanPage")]
+            extra_nav    += [("/tasks/kanban", "Kanban Board", "Layout")]
+            logger.info("domain_pages: wrote Kanban page (TasksKanbanPage)")
+
+        if _has_calendar:
+            from aether_os.phases.p05_frontend.code_writer import (  # noqa: PLC0415
+                generate_calendar_component,
+            )
+            # Calendar date field varies by domain — use the most common names
+            cal_date_field = "date" if domain in ("erp", "hospitality") else "appointment_date"
+            cal_entity = "appointments" if domain in ("healthcare", "fitness", "gym_fitness") else "events"
+            cal_code = generate_calendar_component(cal_entity, date_field=cal_date_field)
+            page_name = "AppointmentsCalendarPage" if "appointment" in cal_entity else "EventsCalendarPage"
+            route_var = "appointmentsCalendarRoute" if "appointment" in cal_entity else "eventsCalendarRoute"
+            _guard_write(pages_dir / f"{page_name}.tsx", cal_code)
+            extra_routes += [(route_var, f"/{cal_entity}/calendar", page_name)]
+            extra_nav    += [(f"/{cal_entity}/calendar", "Calendar", "Calendar")]
+            logger.info("domain_pages: wrote Calendar page (%s)", page_name)
+
     except Exception as e:
         logger.warning("domain_pages: write failed: %s", e)
         return
 
     _patch_app_tsx(app_tsx, extra_routes)
     _patch_layout_tsx(layout_tsx, extra_nav)
+
+    # Wire the Command Palette as a global component into App.tsx for all domains.
+    # It's a no-op (renders null) until Cmd+K is pressed, so safe for every domain.
+    try:
+        # Collect entity names from pages already written (any *Page.tsx files)
+        entity_pages = sorted(
+            p.stem.replace("Page", "").lower()
+            for p in pages_dir.glob("*Page.tsx")
+            if not p.stem.startswith(("Dashboard", "Login", "NotFound", "Error"))
+        )
+        if entity_pages:
+            from aether_os.phases.p05_frontend.code_writer import (  # noqa: PLC0415
+                generate_command_palette,
+            )
+            palette_code = generate_command_palette(entity_pages[:10])  # cap at 10 entities
+            _guard_write(components_dir / "CommandPalette.tsx", palette_code)
+            _patch_app_tsx_global_component(
+                app_tsx,
+                "import { CommandPalette } from './components/CommandPalette'",
+                "<CommandPalette />",
+            )
+            logger.info("domain_pages: wired CommandPalette into App.tsx (%d entities)", len(entity_pages))
+    except Exception as e:
+        logger.warning("domain_pages: CommandPalette wiring failed: %s", e)
