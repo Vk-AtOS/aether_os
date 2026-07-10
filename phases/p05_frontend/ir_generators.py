@@ -23,8 +23,12 @@ from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField, TS
 def _field_to_input_type(f: IRField) -> str:
     """Map an IRField to HTML input type for form generation."""
     atype = f.type
-    if atype in (AetherType.INTEGER, AetherType.DECIMAL, AetherType.FK):
+    if atype in (AetherType.INTEGER, AetherType.DECIMAL):
         return "number"
+    if atype == AetherType.FK:
+        # FK fields render as relational select dropdowns, not bare number inputs.
+        # ref_entity drives the useQuery; falls back to number input when unknown.
+        return "fk-select"
     if atype == AetherType.BOOLEAN:
         return "checkbox"
     if atype in (AetherType.DATE, AetherType.DATETIME):
@@ -54,6 +58,15 @@ def ir_to_p05_entities(ir: DomainIR) -> list[dict]:
         columns = [f.name for f in entity.fields]
         fields = []
         for f in entity.fields:
+            # For FK fields, derive ref_table so code_writer can build the endpoint.
+            # If ref_entity is absent but field name ends in _id, infer entity name.
+            _ref_entity = f.ref_entity or ""
+            if not _ref_entity and f.type == AetherType.FK and f.name.endswith("_id"):
+                _ref_entity = f.name[:-3].replace("_", " ").title().replace(" ", "")
+            _ref_table = (
+                "".join("_" + c.lower() if c.isupper() else c for c in _ref_entity).lstrip("_") + "s"
+                if _ref_entity else ""
+            )
             fields.append({
                 "name": f.name,
                 "type": f.type,
@@ -61,7 +74,8 @@ def ir_to_p05_entities(ir: DomainIR) -> list[dict]:
                 "nullable": f.nullable,
                 "unique": f.unique,
                 "enum_values": f.enum_values,
-                "ref_entity": f.ref_entity,
+                "ref_entity": _ref_entity,
+                "ref_table": _ref_table,
                 "label": f.name.replace("_", " ").title(),
             })
         result.append({
@@ -277,9 +291,21 @@ def _form_field_jsx(f: IRField, ref_data_var: str | None = None) -> str:
           ))}}
         </select>
       </div>"""
+    # FK field without a resolved ref (ref_entity unknown) — keep number input but
+    # add a descriptive hint so users know what value is expected.
+    if f.type == AetherType.FK:
+        return f"""      <div>
+        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <input type="number" name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
+          placeholder="Enter related record ID"
+          title="Foreign key ID — enter the ID of the related record"
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" />
+      </div>"""
+    # Resolve input_type: fk-select was handled above; remaining types use HTML input
+    resolved_input_type = "number" if input_type == "fk-select" else input_type
     return f"""      <div>
         <label className="block text-sm font-medium text-gray-700">{label}</label>
-        <input type="{input_type}" name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
+        <input type="{resolved_input_type}" name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" />
       </div>"""
 
@@ -290,24 +316,32 @@ def generate_ir_entity_page(entity: IREntity) -> str:
     table = entity.table
     label = name.replace("_", " ")
 
-    # Collect FK refs → unique query hooks
+    # Collect FK refs → unique query hooks.
+    # If f.ref_entity is missing but field name ends in _id, infer the ref entity
+    # (e.g. customer_id → Customer) so a select dropdown can still be generated.
     fk_hook_lines = []
     fk_var_map: dict[str, str] = {}
     seen_refs: set[str] = set()
     for f in entity.fields:
-        if f.type == AetherType.FK and f.ref_entity:
-            ref = f.ref_entity
-            data_var = ref[0].lower() + ref[1:] + "Data"
-            fk_var_map[f.name] = data_var
-            if ref not in seen_refs:
-                seen_refs.add(ref)
-                ref_table = "".join(
-                    "_" + c.lower() if c.isupper() else c for c in ref
-                ).lstrip("_") + "s"
-                fk_hook_lines.append(
-                    f"  const {{ data: {data_var} }} = useQuery({{ queryKey: ['{ref_table}'], "
-                    f"queryFn: () => api.get('/{ref_table}').then(r => r.data) }});"
-                )
+        if f.type != AetherType.FK:
+            continue
+        ref = f.ref_entity or ""
+        if not ref and f.name.endswith("_id"):
+            # Infer PascalCase entity name from field name: customer_id → Customer
+            ref = f.name[:-3].replace("_", " ").title().replace(" ", "")
+        if not ref:
+            continue
+        data_var = ref[0].lower() + ref[1:] + "Data"
+        fk_var_map[f.name] = data_var
+        if ref not in seen_refs:
+            seen_refs.add(ref)
+            ref_table = "".join(
+                "_" + c.lower() if c.isupper() else c for c in ref
+            ).lstrip("_") + "s"
+            fk_hook_lines.append(
+                f"  const {{ data: {data_var} }} = useQuery({{ queryKey: ['{ref_table}'], "
+                f"queryFn: () => api.get('/{ref_table}').then(r => r.data) }});"
+            )
     fk_hooks = ("\n" + "\n".join(fk_hook_lines)) if fk_hook_lines else ""
 
     # Lookup maps for FK fields (reuse the ref data already fetched for dropdowns)
@@ -334,8 +368,10 @@ def generate_ir_entity_page(entity: IREntity) -> str:
 
     def _col_cell(f: IRField) -> str:
         fname = f.name
-        if f.type == AetherType.FK and f.ref_entity:
-            lookup_var = f.ref_entity[0].lower() + f.ref_entity[1:] + "Lookup"
+        # Use the data_var already resolved in fk_var_map (covers inferred refs too)
+        if f.type == AetherType.FK and fname in fk_var_map:
+            data_var = fk_var_map[fname]
+            lookup_var = data_var[:-4] + "Lookup"  # e.g. customerData → customerLookup
             return (
                 f"              <td className='px-4 py-2 text-sm text-gray-900'>"
                 f"{{{lookup_var}[row.{fname}] ?? row.{fname}}}</td>"
