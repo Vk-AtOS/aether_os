@@ -49,7 +49,7 @@ def _fast_snapshot(ctx: dict) -> dict:
     result = {}
     for k, v in ctx.items():
         try:
-            result[k] = _json.loads(_json.dumps(v, default=str))
+            result[k] = _json.loads(_json.dumps(v))
         except Exception:
             result[k] = copy.deepcopy(v)
     return result
