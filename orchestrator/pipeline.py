@@ -123,13 +123,8 @@ class Pipeline:
         logger.info("Pipeline starting [run=%s] requirement=%s", ctx.run_id, requirement[:60])
         pipeline_start = time.time()
 
-        # Start stall monitor
-        try:
-            from aether_os.orchestrator.monitor import get_pipeline_monitor
-            thresholds = cfg.get("pipeline.stage_timeout_seconds", {})
-            get_pipeline_monitor().start_monitoring(ctx.run_id, thresholds)
-        except Exception as exc:
-            logger.warning("Could not start stall monitor: %s", exc)
+        # Stall monitor removed — orchestrator/monitor.py deleted (M3: PipelineMonitor
+        # was only used by this deprecated pipeline.py; factory_pipeline.py never used it).
 
         try:
             sm.transition_to(PipelineState.REQUIREMENTS, reason="pipeline start")
@@ -294,11 +289,7 @@ class Pipeline:
             }
 
         finally:
-            try:
-                from aether_os.orchestrator.monitor import get_pipeline_monitor
-                get_pipeline_monitor().stop_monitoring()
-            except Exception as exc:
-                logger.debug("Pipeline monitor stop_monitoring failed (non-fatal): %s", exc)
+            pass  # stall monitor removed (see M3 comment above)
 
 
 _pipeline_instance: Optional[Pipeline] = None

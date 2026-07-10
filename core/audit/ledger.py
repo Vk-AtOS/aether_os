@@ -16,9 +16,14 @@ import json
 import logging
 import time
 import uuid
+import weakref
 from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
+
+# M5: track all fire-and-forget audit futures in a WeakSet so callers can
+# drain them during graceful shutdown instead of silently losing events.
+_active_audit_futures: weakref.WeakSet = weakref.WeakSet()
 
 
 class DecisionLedger:
@@ -240,18 +245,22 @@ def _safe_json(value: Optional[str]) -> Any:
 def _run_async(coro) -> Any:
     """Run a coroutine from sync code. Creates a new event loop if needed.
 
-    When called from within a running event loop (e.g. during a sync helper
-    invoked from async pipeline code) we schedule the coroutine as a fire-and-
-    forget task rather than blocking — blocking would deadlock because the same
-    thread can't advance the loop while fut.result() is waiting.  The caller
-    (sync ledger methods) does not need the return value in these paths.
+    When called from a running event loop, the coroutine is scheduled as a
+    fire-and-forget asyncio Task tracked in _active_audit_futures so
+    drain_audit_futures() can await completion during graceful shutdown —
+    preventing silent audit event loss on teardown.
     """
     try:
         loop = asyncio.get_running_loop()
-        # We are inside the running loop's thread — cannot block here.
-        # Schedule the coroutine as a background task (fire-and-forget).
-        # This ensures the coroutine is always awaited, preventing RuntimeWarning.
-        asyncio.ensure_future(coro, loop=loop)
+        # Inside a running loop — cannot block. Schedule fire-and-forget Task
+        # and track it so drain_audit_futures() can await it on shutdown.
+        task = asyncio.ensure_future(coro, loop=loop)
+        _active_audit_futures.add(task)
+
+        def _cleanup(f, _ws=_active_audit_futures):
+            _ws.discard(f)
+
+        task.add_done_callback(_cleanup)
         return None
     except RuntimeError:
         # No running loop (pure sync context) — use asyncio.run()
@@ -259,6 +268,17 @@ def _run_async(coro) -> Any:
     except Exception as exc:
         logger.debug("_run_async failed: %s", exc)
         return None
+
+
+async def drain_audit_futures(timeout: float = 5.0) -> None:
+    """Await all pending fire-and-forget audit futures. Call during graceful shutdown.
+
+    Prevents audit events from being silently lost when the event loop is torn
+    down before the asyncio Tasks scheduled by _run_async have completed.
+    """
+    futs = list(_active_audit_futures)
+    if futs:
+        await asyncio.wait(futs, timeout=timeout)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
