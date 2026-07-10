@@ -33,7 +33,10 @@ class FactoryStartRequest(BaseModel):
     All new fields are Optional with safe defaults so existing callers that
     only send raw_input + domain continue to work without modification.
     """
-    model_config = ConfigDict(extra="ignore")
+    # protected_namespaces=() suppresses the PydanticUserWarning for the
+    # model_preference field, which starts with "model_" (a Pydantic v2 reserved
+    # prefix). The field name is intentional and not a Pydantic internal.
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
 
     # Core fields (pre-existing)
     raw_input: Optional[str] = None
