@@ -441,7 +441,7 @@ const Settings = () => {
       };
       if (bedrockConfig.aws_access_key_id.trim()) payload.aws_access_key_id = bedrockConfig.aws_access_key_id.trim();
       if (bedrockConfig.aws_secret_access_key.trim()) payload.aws_secret_access_key = bedrockConfig.aws_secret_access_key.trim();
-      const res = await api.client.post('/api/settings/bedrock/test', payload);
+      const res = await api.client.post('/settings/test-provider', { provider: 'bedrock' });
       const ok = res.data?.success;
       setBedrockTestResult(res.data);
       setBedrockTestStatus(ok ? 'ok' : 'fail');

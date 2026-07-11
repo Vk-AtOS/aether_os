@@ -382,10 +382,10 @@ const Compliance = () => {
             <tbody>
               {auditLogs.map((log, i) => (
                 <tr key={i} className="border-b border-border hover:bg-surface">
-                  <td className="py-1 px-1 font-mono text-xs text-muted">{log.timestamp}</td>
+                  <td className="py-1 px-1 font-mono text-xs text-muted">{log.created_at ? new Date(log.created_at * 1000).toLocaleString() : '—'}</td>
                   <td className="py-1 px-1">{log.action}</td>
                   <td className="py-1 px-1">{log.resource_type}</td>
-                  <td className="py-1 px-1">{log.user}</td>
+                  <td className="py-1 px-1">{log.user_id || '—'}</td>
                 </tr>
               ))}
             </tbody>

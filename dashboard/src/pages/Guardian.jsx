@@ -248,8 +248,8 @@ export default function Guardian() {
     if (!window.confirm('Refresh the file integrity baseline? Do this only after a planned code deployment.')) return;
     setBaselineRefreshing(true);
     try {
-      const res = await api.client.post('/guardian/baseline/refresh');
-      alert(`Baseline refreshed for: ${res.data.refreshed_files.join(', ')}`);
+      const res = await api.client.post('/guardian/update-baseline');
+      alert(`Baseline refreshed for: ${res.data.updated_files?.join(', ')}`);
     } catch (e) {
       alert('Failed: ' + (e.response?.data?.detail || e.message));
     } finally {
