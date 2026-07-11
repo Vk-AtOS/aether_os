@@ -27,6 +27,7 @@ const Marketplace = () => {
   const [publishSuccess, setPublishSuccess] = useState(null);
   const [installMessage, setInstallMessage] = useState(null); // { text, type }
   const [installingId, setInstallingId] = useState(null);
+  const [installedIds, setInstalledIds] = useState(new Set());
 
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
@@ -43,7 +44,15 @@ const Marketplace = () => {
     }
   }, []);
 
-  useEffect(() => { fetchProfiles(); }, [fetchProfiles]);
+  useEffect(() => {
+    fetchProfiles();
+    // Fetch installed profiles to track state
+    api.client.get('/marketplace/installed').then(res => {
+      const data = res.data;
+      const ids = new Set((Array.isArray(data) ? data : (data?.items ?? [])).map(p => p.profile_id || p.id));
+      setInstalledIds(ids);
+    }).catch(() => {});
+  }, [fetchProfiles]);
 
   const handlePublish = async (e) => {
     e.preventDefault();
@@ -65,6 +74,17 @@ const Marketplace = () => {
       setError('Publish failed: ' + (err.response?.data?.detail || err.message));
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const handleUninstall = async (profileId, profileName) => {
+    if (!window.confirm(`Uninstall ${profileName}?`)) return;
+    try {
+      await api.client.delete(`/marketplace/profiles/${profileId}`);
+      setInstalledIds(prev => { const n = new Set(prev); n.delete(profileId); return n; });
+      setInstallMessage({ text: `${profileName} uninstalled.`, type: 'success' });
+    } catch (err) {
+      setInstallMessage({ text: 'Uninstall failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
     }
   };
 
@@ -243,24 +263,39 @@ const Marketplace = () => {
                       <span className="text-xs text-slate-600">{usageCount} uses</span>
                     )}
                   </div>
-                  <button
-                    disabled={installingId === p.id}
-                    className="bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 disabled:opacity-50 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-all duration-200 shadow-md shadow-violet-500/20"
-                    onClick={async () => {
-                      setInstallingId(p.id);
-                      setInstallMessage(null);
-                      try {
-                        await api.client.post(`/marketplace/install/${p.id}`);
-                        setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
-                      } catch (err) {
-                        setInstallMessage({ text: 'Install failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
-                      } finally {
-                        setInstallingId(null);
-                      }
-                    }}
-                  >
-                    {installingId === p.id ? 'Installing…' : 'Install'}
-                  </button>
+                  {installedIds.has(p.id) ? (
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 rounded-lg">
+                        <CheckCircle2 className="w-3 h-3" /> Installed
+                      </span>
+                      <button
+                        className="text-[10px] font-bold text-danger/70 hover:text-danger transition-colors border border-danger/30 px-2 py-1 rounded-lg hover:bg-danger/10"
+                        onClick={() => handleUninstall(p.id, p.name)}
+                      >
+                        Uninstall
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      disabled={installingId === p.id}
+                      className="bg-gradient-to-r from-violet-600 to-indigo-500 hover:from-violet-500 hover:to-indigo-400 disabled:opacity-50 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-all duration-200 shadow-md shadow-violet-500/20"
+                      onClick={async () => {
+                        setInstallingId(p.id);
+                        setInstallMessage(null);
+                        try {
+                          await api.client.post(`/marketplace/install/${p.id}`);
+                          setInstalledIds(prev => new Set([...prev, p.id]));
+                          setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
+                        } catch (err) {
+                          setInstallMessage({ text: 'Install failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
+                        } finally {
+                          setInstallingId(null);
+                        }
+                      }}
+                    >
+                      {installingId === p.id ? 'Installing…' : 'Install'}
+                    </button>
+                  )}
                 </div>
               </div>
             );
