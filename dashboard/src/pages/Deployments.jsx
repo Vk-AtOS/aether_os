@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
-import { Rocket, Loader2, RefreshCw, ExternalLink, Clock, CheckCircle2, AlertTriangle, XCircle, Globe } from 'lucide-react';
+import { Rocket, Loader2, RefreshCw, ExternalLink, Clock, CheckCircle2, AlertTriangle, XCircle, Globe, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const STATUS_META = {
@@ -27,6 +27,7 @@ const Deployments = () => {
   const [deployments, setDeployments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [undeploying, setUndeploying] = useState({});
   const navigate = useNavigate();
 
   const load = async () => {
@@ -43,7 +44,31 @@ const Deployments = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const handleUndeploy = async (runId, e) => {
+    e.preventDefault();
+    if (!window.confirm('Stop this deployed app?')) return;
+    setUndeploying(p => ({ ...p, [runId]: true }));
+    try {
+      await api.stopDeploy(runId);
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Undeploy failed');
+    } finally {
+      setUndeploying(p => ({ ...p, [runId]: false }));
+    }
+  };
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(() => {
+      setDeployments(prev => {
+        const hasActive = prev.some(d => d.status === 'deploying' || d.status === 'running');
+        if (hasActive) load();
+        return prev;
+      });
+    }, 8000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -121,12 +146,24 @@ const Deployments = () => {
                         {dep.run_id && <span className="font-mono opacity-60">{dep.run_id.substring(0, 8)}</span>}
                       </div>
                     </div>
-                    {appUrl && (
-                      <a href={appUrl} target="_blank" rel="noopener noreferrer"
-                        className="shrink-0 flex items-center gap-1.5 text-xs font-bold text-accent hover:text-accent/80 transition-colors border border-accent/30 rounded-lg px-3 py-1.5">
-                        <ExternalLink className="w-3 h-3" /> Open App
-                      </a>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {appUrl && (
+                        <a href={appUrl} target="_blank" rel="noopener noreferrer"
+                          className="shrink-0 flex items-center gap-1.5 text-xs font-bold text-accent hover:text-accent/80 transition-colors border border-accent/30 rounded-lg px-3 py-1.5">
+                          <ExternalLink className="w-3 h-3" /> Open App
+                        </a>
+                      )}
+                      {dep.run_id && (dep.status === 'deployed' || dep.status === 'completed' || dep.proc_status === 'running') && (
+                        <button
+                          onClick={(e) => handleUndeploy(dep.run_id, e)}
+                          disabled={undeploying[dep.run_id]}
+                          className="shrink-0 flex items-center gap-1.5 text-xs font-bold text-danger hover:text-danger/80 transition-colors border border-danger/30 rounded-lg px-3 py-1.5 hover:bg-danger/10 disabled:opacity-50"
+                        >
+                          {undeploying[dep.run_id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                          Undeploy
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {dep.error && (
                     <div className="mt-3 bg-danger/10 border border-danger/20 rounded-lg px-3 py-2 text-xs text-danger">

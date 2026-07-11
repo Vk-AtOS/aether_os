@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
-import { Plus, Trash2, FolderOpen, Users, Globe, Loader2 } from 'lucide-react';
+import { Plus, Trash2, FolderOpen, Users, Globe, Loader2, Pencil } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 const Workspaces = () => {
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   // Create modal state
   const [showCreate, setShowCreate] = useState(false);
@@ -16,6 +18,11 @@ const Workspaces = () => {
   // Confirm delete
   const [confirmDelete, setConfirmDelete] = useState(null); // workspace object
   const [deleteStatus, setDeleteStatus] = useState({}); // { [id]: 'deleting' }
+
+  // Edit modal state
+  const [editingWs, setEditingWs] = useState(null); // workspace object being edited
+  const [editForm, setEditForm] = useState({ name: '', description: '', is_shared: false });
+  const [editStatus, setEditStatus] = useState(null); // null|'saving'|'error'
 
   const loadWorkspaces = async () => {
     setLoading(true);
@@ -58,6 +65,21 @@ const Workspaces = () => {
     } finally {
       setDeleteStatus(s => { const n = { ...s }; delete n[workspace.id]; return n; });
       setConfirmDelete(null);
+    }
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    if (!editForm.name.trim()) return;
+    setEditStatus('saving');
+    try {
+      await api.client.put(`/workspaces/${editingWs.id}`, editForm);
+      setEditingWs(null);
+      setEditStatus(null);
+      await loadWorkspaces();
+    } catch (err) {
+      setEditStatus('error');
+      setTimeout(() => setEditStatus(null), 3000);
     }
   };
 
@@ -142,17 +164,27 @@ const Workspaces = () => {
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setConfirmDelete(ws)}
-                  disabled={deleteStatus[ws.id] === 'deleting'}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 text-muted hover:text-danger hover:bg-danger/10 rounded transition-all disabled:opacity-50"
-                  title="Delete workspace"
-                  aria-label={`Delete workspace ${ws.name}`}
-                >
-                  {deleteStatus[ws.id] === 'deleting'
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <Trash2 className="w-3.5 h-3.5" />}
-                </button>
+                <div className="flex items-center">
+                  <button
+                    onClick={() => { setEditingWs(ws); setEditForm({ name: ws.name, description: ws.description || '', is_shared: ws.is_shared || false }); }}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 text-muted hover:text-accent hover:bg-accent/10 rounded transition-all mr-1"
+                    title="Edit workspace"
+                    aria-label={`Edit workspace ${ws.name}`}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(ws)}
+                    disabled={deleteStatus[ws.id] === 'deleting'}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 text-muted hover:text-danger hover:bg-danger/10 rounded transition-all disabled:opacity-50"
+                    title="Delete workspace"
+                    aria-label={`Delete workspace ${ws.name}`}
+                  >
+                    {deleteStatus[ws.id] === 'deleting'
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
 
               {ws.description && (
@@ -165,6 +197,12 @@ const Workspaces = () => {
                 </span>
                 <span className="text-[10px] font-mono text-muted/60 truncate max-w-[80px]" title={ws.id}>{ws.id.slice(0, 8)}</span>
               </div>
+              <button
+                onClick={() => navigate(`/projects?workspace=${ws.id}`)}
+                className="text-[10px] text-accent hover:underline"
+              >
+                View Projects →
+              </button>
             </div>
           ))}
         </div>
@@ -234,6 +272,70 @@ const Workspaces = () => {
                   className="flex-1 px-4 py-2 text-sm font-bold bg-accent hover:bg-accent/90 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {createStatus === 'saving' ? 'Creating…' : createStatus === 'error' ? '✗ Error' : 'Create Workspace'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit workspace modal */}
+      {editingWs && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setEditingWs(null)}
+          role="presentation"
+        >
+          <div
+            className="bg-panel border border-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-bright mb-4">Edit Workspace</h3>
+            <form onSubmit={handleEdit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Name *</label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={editForm.description}
+                  onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent resize-none"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditForm(f => ({ ...f, is_shared: !f.is_shared }))}
+                  role="switch"
+                  aria-checked={editForm.is_shared}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${editForm.is_shared ? 'bg-accent' : 'bg-border'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${editForm.is_shared ? 'translate-x-[18px]' : 'translate-x-1'}`} />
+                </button>
+                <span className="text-sm text-bright">Shared workspace</span>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditingWs(null)} className="flex-1 px-4 py-2 text-sm text-muted border border-border rounded-lg hover:text-bright transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editForm.name.trim() || editStatus === 'saving'}
+                  className="flex-1 px-4 py-2 text-sm font-bold bg-accent hover:bg-accent/90 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {editStatus === 'saving' ? 'Saving…' : editStatus === 'error' ? '✗ Error' : 'Save Changes'}
                 </button>
               </div>
             </form>
