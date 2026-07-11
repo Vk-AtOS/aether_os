@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import {
   CreditCard, TrendingUp, RefreshCw, AlertTriangle, CheckCircle2,
-  Zap, Star, Building2, Loader2, ExternalLink,
+  Zap, Star, Building2, Loader2, ExternalLink, Download,
 } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
 
@@ -35,6 +35,9 @@ const Billing = () => {
   const [upgrading, setUpgrading] = useState(null);
   const [success, setSuccess]     = useState(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [invoices, setInvoices] = useState([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [cancellingSubscription, setCancellingSubscription] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -48,6 +51,10 @@ const Billing = () => {
       const planList = plansRes.data?.plans ?? [];
       setPlans(planList);
       if (!plansRes.data) setError('Billing plans could not be loaded. Please check your connection or contact support.');
+      // Fetch invoices (non-blocking — may not exist for all payment methods)
+      api.client.get('/billing/invoices').then(res => {
+        setInvoices(res.data?.invoices ?? res.data ?? []);
+      }).catch(() => setInvoices([]));
     } catch (e) {
       setError('Failed to load billing data.');
     } finally {
@@ -146,6 +153,21 @@ const Billing = () => {
     }
   };
 
+  // ── India cancel subscription ─────────────────────────────────────────────
+  const handleCancelIndia = async () => {
+    if (!window.confirm('Cancel your subscription? You will be downgraded to the Trial plan at end of current period.')) return;
+    setCancellingSubscription(true);
+    try {
+      await api.client.post('/billing/cancel');
+      setSuccess('Subscription cancelled. You will retain access until end of current period.');
+      await fetchAll();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Could not cancel subscription.');
+    } finally {
+      setCancellingSubscription(false);
+    }
+  };
+
   // ── Detect success/cancel from URL params after Stripe redirect ──────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -183,6 +205,16 @@ const Billing = () => {
                 : <ExternalLink className="w-3.5 h-3.5" />
               }
               Manage Subscription
+            </button>
+          )}
+          {india && currentPlan !== 'trial' && (
+            <button
+              onClick={handleCancelIndia}
+              disabled={cancellingSubscription}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-danger border border-danger/30 rounded-lg hover:bg-danger/10 transition-colors disabled:opacity-50"
+            >
+              {cancellingSubscription ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Cancel Subscription
             </button>
           )}
           <button
@@ -383,6 +415,56 @@ const Billing = () => {
               }
             </p>
           </section>
+
+          {/* Invoice history */}
+          {invoices.length > 0 && (
+            <section>
+              <h2 className="text-sm font-bold text-muted uppercase tracking-widest mb-4">Invoice History</h2>
+              <div className="panel overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-border/10">
+                      <th className="text-left text-[10px] font-bold text-muted uppercase px-4 py-3">Date</th>
+                      <th className="text-left text-[10px] font-bold text-muted uppercase px-4 py-3">Amount</th>
+                      <th className="text-left text-[10px] font-bold text-muted uppercase px-4 py-3">Status</th>
+                      <th className="text-right text-[10px] font-bold text-muted uppercase px-4 py-3">Invoice</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {invoices.map((inv, i) => (
+                      <tr key={inv.id || i} className="hover:bg-border/5 transition-colors">
+                        <td className="px-4 py-3 text-xs text-muted font-mono">
+                          {inv.created ? new Date(inv.created * 1000).toLocaleDateString() : inv.date || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-bold text-bright">
+                          {inv.amount_paid != null ? `$${(inv.amount_paid / 100).toFixed(2)}` : inv.amount || '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                            inv.status === 'paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                          }`}>{inv.status || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {inv.invoice_pdf ? (
+                            <a href={inv.invoice_pdf} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-accent hover:underline flex items-center gap-1 justify-end">
+                              <Download className="w-3 h-3" /> PDF
+                            </a>
+                          ) : inv.hosted_invoice_url ? (
+                            <a href={inv.hosted_invoice_url} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-accent hover:underline">
+                              View ↗
+                            </a>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>
