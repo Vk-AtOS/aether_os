@@ -15,7 +15,13 @@ import {
   Shield,
   Star,
   FileCode,
+  Pause,
+  Play,
+  X,
+  Rocket,
+  Globe,
 } from 'lucide-react';
+import RerunDropdown from '../components/RerunDropdown';
 
 // ── Phase constants ───────────────────────────────────────────────────────────
 
@@ -178,6 +184,10 @@ const RunDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
 
   const loadRun = useCallback(async () => {
     try {
@@ -222,6 +232,92 @@ const RunDetail = () => {
       // ignore
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!window.confirm('Cancel this run? It cannot be resumed.')) return;
+    setCancelling(true);
+    try {
+      await api.cancelRun(runId);
+      await loadRun();
+    } catch (e) {
+      alert('Cancel failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handlePause = async () => {
+    setPausing(true);
+    try {
+      await api.pauseRun(runId);
+      await loadRun();
+    } catch (e) {
+      alert('Pause failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setPausing(true);
+    try {
+      await api.resumeRun(runId);
+      await loadRun();
+    } catch (e) {
+      alert('Resume failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    setDeploying(true);
+    try {
+      await api.deployRun(runId);
+      await loadRun();
+    } catch (e) {
+      alert('Deploy failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const handleUndeploy = async () => {
+    if (!window.confirm('Stop this deployed app?')) return;
+    setDeploying(true);
+    try {
+      await api.stopDeploy(runId);
+      await loadRun();
+    } catch (e) {
+      alert('Undeploy failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const handleRerunPhase = async (phase) => {
+    setRerunning(true);
+    try {
+      await api.rerunFromPhase(runId, phase);
+      await loadRun();
+    } catch (e) {
+      alert('Rerun failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setRerunning(false);
+    }
+  };
+
+  const handleFullRestart = async () => {
+    setRerunning(true);
+    try {
+      await api.rerunFromPhase(runId, 'p01_intake_requirements');
+      await loadRun();
+    } catch (e) {
+      alert('Restart failed: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setRerunning(false);
     }
   };
 
@@ -291,7 +387,93 @@ const RunDetail = () => {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          {(run.status === 'completed' || run.status === 'needs_review') && (
+
+          {/* Cancel — only when running */}
+          {run.status === 'running' && (
+            <button
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="flex items-center gap-1.5 px-3 py-2 bg-danger/20 text-danger border border-danger/30 rounded-lg text-xs font-bold hover:bg-danger/30 transition-colors disabled:opacity-50"
+              title="Cancel run"
+            >
+              {cancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+              Cancel
+            </button>
+          )}
+
+          {/* Pause / Resume */}
+          {run.status === 'running' && (
+            <button
+              onClick={handlePause}
+              disabled={pausing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-bold hover:bg-blue-500/30 transition-colors disabled:opacity-50"
+              title="Pause run"
+            >
+              {pausing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
+              Pause
+            </button>
+          )}
+          {run.status === 'paused' && (
+            <button
+              onClick={handleResume}
+              disabled={pausing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-success/20 text-success border border-success/30 rounded-lg text-xs font-bold hover:bg-success/30 transition-colors disabled:opacity-50"
+              title="Resume run"
+            >
+              {pausing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              Resume
+            </button>
+          )}
+
+          {/* Rerun dropdown — for completed/failed/paused/needs_review/cancelled */}
+          {['completed', 'failed', 'needs_review', 'paused', 'cancelled'].includes(run.status) && (
+            <RerunDropdown
+              status={run.status}
+              rawInput={run.raw_input || run.requirement || ''}
+              onContinue={handleResume}
+              onEditRestart={(req) => { navigate('/new-project', { state: { prefill: req } }); }}
+              onRerunPhase={handleRerunPhase}
+              onFullRestart={handleFullRestart}
+              loading={rerunning}
+              variant="button"
+            />
+          )}
+
+          {/* Deploy / Undeploy */}
+          {run.status === 'completed' && !run.live_url && !run.deployed_at && (
+            <button
+              onClick={handleDeploy}
+              disabled={deploying}
+              className="flex items-center gap-1.5 px-3 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-xs font-bold hover:bg-purple-500/30 transition-colors disabled:opacity-50"
+              title="Deploy app"
+            >
+              {deploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+              Deploy
+            </button>
+          )}
+          {(run.live_url || run.deployed_at) && run.status !== 'failed' && (
+            <button
+              onClick={handleUndeploy}
+              disabled={deploying}
+              className="flex items-center gap-1.5 px-3 py-2 bg-danger/20 text-danger border border-danger/30 rounded-lg text-xs font-bold hover:bg-danger/30 transition-colors disabled:opacity-50"
+              title="Stop deployment"
+            >
+              {deploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+              Undeploy
+            </button>
+          )}
+
+          {/* Open Portal */}
+          <button
+            onClick={() => navigate(`/portal/${runId}`)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-surface border border-border rounded-lg text-xs font-bold text-muted hover:text-bright hover:border-accent/40 transition-colors"
+            title="Open client portal"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            Portal
+          </button>
+
+          {(run.status === 'completed' || run.status === 'needs_review' || run.status === 'failed') && (
             <button
               onClick={handleDownload}
               disabled={downloading}
