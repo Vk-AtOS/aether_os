@@ -396,43 +396,40 @@ No explanation. No markdown. No code fences. Just valid Python."""
             code = "\n".join(l for l in lines if not l.startswith("```"))
         return code
 
-    # PIPELINE-046: try primary LLM first, fall back to Anthropic if primary fails
+    # Attempt 1: full router chain (Anthropic → Gemini → Ollama)
     try:
         llm = get_llm_client()
-        response = await asyncio.wait_for(
-            llm.call(prompt, "code_generation", {}),
-            timeout=LLM_TIMEOUT,
-        )
+        response = await asyncio.wait_for(llm.call(prompt, "code_generation", {}), timeout=LLM_TIMEOUT)
         if response and len(response.strip()) > 50:
             cleaned = _strip_fences(response)
-            # Validate syntax before accepting — fall through to Anthropic if broken
-            # compile() not ast.parse(): catches duplicate keyword args that ast.parse misses
             try:
-                compile(cleaned, target_file.name, "exec")
+                compile(cleaned, target_file.name, "exec")  # catches dup kwargs ast.parse misses
+                logger.info("[p07b_self_healing] repair ok via %s", llm.last_provider or "router")
                 return cleaned
             except SyntaxError as _syn:
-                logger.warning("[p07b_self_healing] Primary LLM response has SyntaxError: %s — escalating to Anthropic", _syn)
-                raise ValueError(f"Primary LLM produced syntactically invalid Python: {_syn}") from _syn
-        raise ValueError("Empty or trivial response from primary LLM")
+                raise ValueError(f"LLM produced invalid Python: {_syn}") from _syn
+        raise ValueError("empty response from primary LLM")
     except Exception as primary_exc:
-        logger.warning("[p07b_self_healing] Primary LLM call failed: %s", primary_exc)
+        logger.warning("[p07b_self_healing] attempt 1 failed: %s", primary_exc)
 
-    # Fallback: direct Anthropic client if ANTHROPIC_API_KEY is set
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            import anthropic as _anthropic
-            _client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-            _msg = _client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            fallback_response = _msg.content[0].text if _msg.content else ""
-            if fallback_response and len(fallback_response.strip()) > 50:
-                logger.info("[p07b_self_healing] Anthropic fallback succeeded")
-                return _strip_fences(fallback_response)
-        except Exception as fallback_exc:
-            logger.warning("[p07b_self_healing] Anthropic fallback also failed: %s", fallback_exc)
+    # Attempt 2: stricter code-only prefix through the same router chain.
+    # Works with any configured provider — no hard dependency on ANTHROPIC_API_KEY.
+    try:
+        llm2 = get_llm_client()
+        r2 = await asyncio.wait_for(
+            llm2.call("Output ONLY valid Python. No fences, no prose.\n\n" + prompt, "code_generation", {}),
+            timeout=LLM_TIMEOUT,
+        )
+        if r2 and len(r2.strip()) > 50:
+            c2 = _strip_fences(r2)
+            try:
+                compile(c2, target_file.name, "exec")
+                logger.info("[p07b_self_healing] retry ok via %s", llm2.last_provider or "router")
+                return c2
+            except SyntaxError as _syn2:
+                logger.warning("[p07b_self_healing] retry SyntaxError: %s", _syn2)
+    except Exception as retry_exc:
+        logger.warning("[p07b_self_healing] attempt 2 failed: %s", retry_exc)
 
     return None
 
