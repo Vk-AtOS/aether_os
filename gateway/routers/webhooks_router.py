@@ -113,3 +113,55 @@ async def delete_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()
         await session.delete(wh)
         await session.commit()
     return {"success": True}
+
+
+@router.put("/webhooks/{webhook_id}")
+async def update_webhook(webhook_id: str, req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Webhook
+    from sqlalchemy import select
+
+    org_id = user["org_id"]
+    url = req.get("url", "").strip()
+    events = req.get("events")
+
+    sf = get_session_factory()
+    async with sf() as session:
+        wh = (await session.execute(
+            select(Webhook).where(Webhook.id == webhook_id, Webhook.org_id == org_id)
+        )).scalar_one_or_none()
+        if not wh:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+        if url:
+            wh.url = url
+        if events is not None:
+            wh.events = events
+        await session.commit()
+        await session.refresh(wh)
+    return {"id": wh.id, "url": wh.url, "events": wh.events, "is_active": wh.is_active}
+
+
+@router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()):
+    import httpx
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Webhook
+    from sqlalchemy import select
+    import time
+
+    org_id = user["org_id"]
+    sf = get_session_factory()
+    async with sf() as session:
+        wh = (await session.execute(
+            select(Webhook).where(Webhook.id == webhook_id, Webhook.org_id == org_id)
+        )).scalar_one_or_none()
+        if not wh:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+
+    payload = {"event": "webhook.test", "timestamp": time.time(), "message": "AetherOS test ping"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(wh.url, json=payload, headers={"X-AetherOS-Event": "webhook.test"})
+        return {"ok": resp.status_code < 400, "status_code": resp.status_code, "message": f"HTTP {resp.status_code}"}
+    except Exception as exc:
+        return {"ok": False, "status_code": None, "message": str(exc)[:200]}
