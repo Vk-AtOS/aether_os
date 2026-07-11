@@ -19,6 +19,12 @@ const WebhookSettings = () => {
   const [addError, setAddError] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ url: '', events: [] });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState(null);
+  const [testing, setTesting] = useState({});
+  const [testResults, setTestResults] = useState({});
 
   const fetchWebhooks = async () => {
     setLoading(true);
@@ -72,6 +78,42 @@ const WebhookSettings = () => {
       events: prev.events.includes(evt)
         ? prev.events.filter(e => e !== evt)
         : [...prev.events, evt],
+    }));
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    if (!editForm.url.trim()) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await api.client.put(`/webhooks/${editingId}`, editForm);
+      setEditingId(null);
+      await fetchWebhooks();
+    } catch (e) {
+      setEditError(e.response?.data?.detail || 'Failed to update webhook');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleTest = async (id) => {
+    setTesting(p => ({ ...p, [id]: true }));
+    setTestResults(p => ({ ...p, [id]: null }));
+    try {
+      const res = await api.client.post(`/webhooks/${id}/test`);
+      setTestResults(p => ({ ...p, [id]: res.data }));
+    } catch (e) {
+      setTestResults(p => ({ ...p, [id]: { ok: false, message: e.response?.data?.detail || e.message } }));
+    } finally {
+      setTesting(p => ({ ...p, [id]: false }));
+    }
+  };
+
+  const toggleEditEvent = (evt) => {
+    setEditForm(prev => ({
+      ...prev,
+      events: prev.events.includes(evt) ? prev.events.filter(e => e !== evt) : [...prev.events, evt],
     }));
   };
 
@@ -182,34 +224,97 @@ const WebhookSettings = () => {
         ) : (
           <div className="divide-y divide-border">
             {webhooks.map(wh => (
-              <div key={wh.id} className="px-6 py-4 flex items-center justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    {wh.is_active
-                      ? <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-                      : <XCircle className="w-3.5 h-3.5 text-muted" />}
-                    <span className="text-sm font-medium text-bright break-all">{wh.url}</span>
+              <div key={wh.id}>
+                <div className="px-6 py-4 flex items-center justify-between">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      {wh.is_active
+                        ? <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+                        : <XCircle className="w-3.5 h-3.5 text-muted" />}
+                      <span className="text-sm font-medium text-bright break-all">{wh.url}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 pl-5">
+                      {(wh.events ?? []).map(e => (
+                        <span key={e} className="text-[9px] font-bold text-muted uppercase bg-border/30 px-2 py-0.5 rounded-full">{e}</span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 pl-5">
-                    {(wh.events ?? []).map(e => (
-                      <span key={e} className="text-[9px] font-bold text-muted uppercase bg-border/30 px-2 py-0.5 rounded-full">{e}</span>
-                    ))}
+                  <div className="flex items-center gap-2 ml-4 shrink-0">
+                    <button
+                      onClick={() => handleTest(wh.id)}
+                      disabled={testing[wh.id]}
+                      className="text-xs font-bold text-blue-400/70 hover:text-blue-400 border border-blue-500/30 px-2.5 py-1 rounded-lg hover:bg-blue-500/10 transition-colors disabled:opacity-50"
+                      title="Send test ping"
+                    >
+                      {testing[wh.id] ? '…' : 'Test'}
+                    </button>
+                    <button
+                      onClick={() => { setEditingId(wh.id); setEditForm({ url: wh.url, events: wh.events ?? [] }); setEditError(null); }}
+                      className="text-xs font-bold text-muted hover:text-bright border border-border px-2.5 py-1 rounded-lg hover:border-accent/40 transition-colors"
+                      title="Edit webhook"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(wh.id)}
+                      disabled={deleting[wh.id]}
+                      className="text-danger/50 hover:text-danger transition-colors disabled:opacity-30"
+                      title="Delete webhook"
+                      aria-label={`Delete webhook ${wh.url}`}
+                    >
+                      {deleting[wh.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => setConfirmDelete(wh.id)}
-                  disabled={deleting[wh.id]}
-                  className="ml-4 text-danger/50 hover:text-danger transition-colors disabled:opacity-30"
-                  title="Delete webhook"
-                  aria-label={`Delete webhook ${wh.url}`}
-                >
-                  {deleting[wh.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                </button>
+                {testResults[wh.id] && (
+                  <div className={`mx-6 mb-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2 ${testResults[wh.id].ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-danger'}`}>
+                    {testResults[wh.id].ok ? '✓' : '✗'} {testResults[wh.id].message}
+                    {testResults[wh.id].status_code && <span className="font-mono">({testResults[wh.id].status_code})</span>}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {editingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditingId(null)}>
+          <div className="bg-panel border border-border rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-bright mb-4">Edit Webhook</h3>
+            <form onSubmit={handleEdit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-muted uppercase tracking-wider mb-1">Endpoint URL</label>
+                <input
+                  type="url"
+                  value={editForm.url}
+                  onChange={e => setEditForm(p => ({ ...p, url: e.target.value }))}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-sm text-bright focus:outline-none focus:border-accent"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Events</label>
+                <div className="flex flex-wrap gap-2">
+                  {EVENT_OPTIONS.map(evt => (
+                    <button key={evt} type="button" onClick={() => toggleEditEvent(evt)}
+                      className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase transition-colors border ${editForm.events.includes(evt) ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface text-muted border-border hover:border-accent/40'}`}>
+                      {evt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {editError && <p className="text-xs text-danger">{editError}</p>}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setEditingId(null)} className="flex-1 px-4 py-2 text-sm text-muted border border-border rounded-lg hover:text-bright transition-colors">Cancel</button>
+                <button type="submit" disabled={editSaving} className="flex-1 px-4 py-2 text-sm font-bold bg-accent hover:bg-accent/90 text-white rounded-lg transition-colors disabled:opacity-50">
+                  {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!confirmDelete}

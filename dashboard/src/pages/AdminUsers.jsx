@@ -35,6 +35,8 @@ const AdminUsers = () => {
   const [pruneResult, setPruneResult] = useState(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState(null); // userId or 'bulk'
   const [prunePreview, setPrunePreview] = useState(null); // { deleted_count, deleted_mb }
+  const [roleFilter, setRoleFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const LIMIT = 20;
 
@@ -42,9 +44,11 @@ const AdminUsers = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.client.get('/admin/users', {
-        params: { page, limit: LIMIT, search: search || undefined },
-      });
+      const params = { page, limit: LIMIT };
+      if (search) params.search = search;
+      if (roleFilter) params.role = roleFilter;
+      if (statusFilter) params.status = statusFilter;
+      const res = await api.client.get('/admin/users', { params });
       const data = res.data;
       setItems(data.items ?? data ?? []);
       setTotal(data.total ?? (data.items ?? data ?? []).length);
@@ -53,7 +57,7 @@ const AdminUsers = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, search, roleFilter, statusFilter]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -72,6 +76,27 @@ const AdminUsers = () => {
       setError(err.response?.data?.detail || 'Failed to change role.');
     } finally {
       setChangingRole(prev => { const n = { ...prev }; delete n[userId]; return n; });
+    }
+  };
+
+  const handleReactivate = async (userId) => {
+    try {
+      await api.client.post(`/admin/users/${userId}/reactivate`);
+      setItems(prev => prev.map(u => u.id === userId ? { ...u, is_active: true } : u));
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to reactivate user.');
+    }
+  };
+
+  const handleResetPassword = async (userId) => {
+    if (!window.confirm('Generate a temporary password for this user?')) return;
+    try {
+      const res = await api.client.post(`/admin/users/${userId}/reset-password`);
+      const { temp_password } = res.data;
+      navigator.clipboard?.writeText(temp_password).catch(() => {});
+      alert(`Temporary password (copied to clipboard):\n${temp_password}\n\nShare this securely with the user.`);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to reset password.');
     }
   };
 
@@ -390,21 +415,42 @@ const AdminUsers = () => {
               )
             )}
           </div>
-          <form onSubmit={handleSearch} className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
-              <input
-                type="text"
-                placeholder="Search by email…"
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                className="bg-surface border border-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent w-52"
-              />
+          <div className="flex items-center gap-2 flex-wrap">
+            <form onSubmit={handleSearch} className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search by email…"
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  className="bg-surface border border-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent w-52"
+                />
+              </div>
+              <button type="submit" className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-3 py-1.5 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors">
+                Search
+              </button>
+            </form>
+            <div className="flex items-center gap-2">
+              <select
+                value={roleFilter}
+                onChange={e => { setRoleFilter(e.target.value); setPage(1); }}
+                className="bg-surface border border-border rounded-lg px-2 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+              >
+                <option value="">All roles</option>
+                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+                className="bg-surface border border-border rounded-lg px-2 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
+              >
+                <option value="">All status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
             </div>
-            <button type="submit" className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-3 py-1.5 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors">
-              Search
-            </button>
-          </form>
+          </div>
         </div>
 
         {loading ? (
@@ -487,22 +533,38 @@ const AdminUsers = () => {
                     {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    {u.is_active !== false && (
-                      confirmDeactivate === u.id ? (
-                        <span className="flex items-center justify-end gap-2 text-[10px]">
-                          <span className="text-danger font-bold">Confirm?</span>
-                          <button onClick={() => handleDeactivate(u.id)} className="text-danger font-bold underline">Yes</button>
-                          <button onClick={() => setConfirmDeactivate(null)} className="text-muted hover:text-bright">No</button>
-                        </span>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleResetPassword(u.id)}
+                        className="text-[10px] font-bold text-muted/60 hover:text-muted uppercase tracking-wider transition-colors"
+                        title="Reset password"
+                      >
+                        Reset Pw
+                      </button>
+                      {u.is_active !== false ? (
+                        confirmDeactivate === u.id ? (
+                          <span className="flex items-center gap-2 text-[10px]">
+                            <span className="text-danger font-bold">Confirm?</span>
+                            <button onClick={() => handleDeactivate(u.id)} className="text-danger font-bold underline">Yes</button>
+                            <button onClick={() => setConfirmDeactivate(null)} className="text-muted hover:text-bright">No</button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleDeactivate(u.id)}
+                            className="text-[10px] font-bold text-danger/60 hover:text-danger uppercase tracking-wider transition-colors"
+                          >
+                            Deactivate
+                          </button>
+                        )
                       ) : (
                         <button
-                          onClick={() => handleDeactivate(u.id)}
-                          className="text-[10px] font-bold text-danger/60 hover:text-danger uppercase tracking-wider transition-colors"
+                          onClick={() => handleReactivate(u.id)}
+                          className="text-[10px] font-bold text-success/70 hover:text-success uppercase tracking-wider transition-colors"
                         >
-                          Deactivate
+                          Reactivate
                         </button>
-                      )
-                    )}
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -188,6 +188,59 @@ async def deactivate_user(user_id: str, user: Dict[str, Any] = _current_user()):
     return {"id": user_id, "is_active": False}
 
 
+@router.post("/admin/users/{user_id}/reactivate")
+async def reactivate_user(
+    user_id: str,
+    user: Dict[str, Any] = _current_user(),
+):
+    if user.get("role") not in ["owner", "admin"]:
+        raise HTTPException(status_code=403)
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import User
+    from sqlalchemy import select
+
+    org_id = user["org_id"]
+    sf = get_session_factory()
+    async with sf() as session:
+        target = (await session.execute(
+            select(User).where(User.id == user_id, User.org_id == org_id)
+        )).scalar_one_or_none()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        target.is_active = True
+        await session.commit()
+    return {"success": True, "user_id": user_id}
+
+
+@router.post("/admin/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    user: Dict[str, Any] = _current_user(),
+):
+    import secrets as _secrets
+    import string as _string
+    if user.get("role") not in ["owner", "admin"]:
+        raise HTTPException(status_code=403)
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import User
+    from sqlalchemy import select
+    import bcrypt
+
+    org_id = user["org_id"]
+    temp_password = "Tmp!" + "".join(_secrets.choice(_string.ascii_letters + _string.digits) for _ in range(12))
+    sf = get_session_factory()
+    async with sf() as session:
+        target = (await session.execute(
+            select(User).where(User.id == user_id, User.org_id == org_id)
+        )).scalar_one_or_none()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        target.password_hash = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
+        await session.commit()
+    logger.info("admin_router: password reset for user %s by %s", user_id, user.get("sub"))
+    return {"success": True, "temp_password": temp_password, "user_id": user_id}
+
+
 @router.get("/admin/audit/export.csv")
 async def export_audit_csv(
     from_date: Optional[str] = Query(None, description="Start date ISO-8601 (YYYY-MM-DD)"),
