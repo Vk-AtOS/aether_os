@@ -269,8 +269,30 @@ const Profile = () => {
           {mfaSetup && !mfaEnabled && (
             <div className="space-y-4">
               <div className="p-4 bg-surface border border-border rounded-lg space-y-3">
-                <p className="text-xs font-bold text-muted uppercase tracking-wider">1. Scan this URI in your authenticator app</p>
-                <div className="font-mono text-[10px] text-accent break-all bg-panel px-3 py-2 rounded border border-border">{mfaSetup.provisioning_uri}</div>
+                <div className="flex items-center gap-2">
+                  <QrCode className="w-4 h-4 text-accent shrink-0" />
+                  <p className="text-xs font-bold text-muted uppercase tracking-wider">1. Add to your authenticator app</p>
+                </div>
+                {/* Mobile tap-to-open link */}
+                <a
+                  href={mfaSetup.provisioning_uri}
+                  className="flex items-center gap-2 w-full px-4 py-3 bg-accent/10 border border-accent/30 rounded-lg text-sm font-bold text-accent hover:bg-accent/20 transition-colors justify-center"
+                >
+                  <QrCode className="w-4 h-4" />
+                  Tap to Open in Authenticator App
+                </a>
+                <p className="text-[10px] text-muted text-center">On mobile: tap the link above to open your authenticator app directly.</p>
+                <p className="text-[10px] text-muted text-center">On desktop: copy the URI below and paste it into your authenticator.</p>
+                <div className="relative">
+                  <div className="font-mono text-[10px] text-accent break-all bg-panel px-3 py-2 rounded border border-border pr-16">{mfaSetup.provisioning_uri}</div>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard?.writeText(mfaSetup.provisioning_uri)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted hover:text-bright border border-border rounded px-2 py-0.5 bg-panel"
+                  >
+                    Copy
+                  </button>
+                </div>
                 <p className="text-xs font-bold text-muted uppercase tracking-wider">Or enter this secret key manually:</p>
                 <div className="font-mono text-sm text-bright bg-panel px-3 py-2 rounded border border-border tracking-widest">{mfaSetup.secret}</div>
               </div>
