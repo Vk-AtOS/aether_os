@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """
-    Implements p13_app_memory: Semantic Memory Layer (JSON-file-backed stub).
+    Generates a full semantic memory service for the built app.
+
+    Backend: ChromaDB (best; if importable) → pgvector (if PGVECTOR_ENABLED=true)
+    → JSON file (zero-dependency fallback). All three expose the same interface:
+    add_memory(), get_memories(), search_memories().
     """
     logger.info(
         "p13_app_memory: generating memory service with ChromaDB → pgvector → JSON fallback"

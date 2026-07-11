@@ -45,6 +45,22 @@ _active_model: Optional[str] = None        # e.g. "anthropic/claude-sonnet-4-6"
 _fallback_count_today: int = 0
 _fallback_date: str = ""
 
+# ── Adaptive Hybrid Mesh (lazy import — avoids circular deps at module load) ───
+_ahm = None
+
+
+def _get_ahm():
+    """Return the AHM singleton, importing it lazily on first call."""
+    global _ahm
+    if _ahm is None:
+        try:
+            from aether_os.orchestrator.routing.ahm import default_ahm
+            _ahm = default_ahm
+        except Exception as _ahm_import_exc:
+            logger.debug("AHM import failed (non-fatal, routing continues): %s", _ahm_import_exc)
+            _ahm = False   # sentinel: don't retry broken import every call
+    return _ahm if _ahm is not False else None
+
 
 # ── Router ────────────────────────────────────────────────────────────────────
 
@@ -158,6 +174,18 @@ class ModelRouter:
         # ── Org-specific provider overrides (DB takes precedence over env) ────
         if org_id and not enforce_local:
             chain = await _apply_org_chain_overrides(chain, org_id)
+
+        # ── AHM: reorder chain based on runtime health scores ─────────────────
+        # Healthy providers (score >= 0.5) stay first; degraded ones move last.
+        # Caller-pinned and org overrides above take precedence — AHM only acts
+        # on providers that weren't already explicitly sorted above.
+        if not enforce_local and primary_provider is None:
+            try:
+                _ahm_inst = _get_ahm()
+                if _ahm_inst:
+                    chain = _ahm_inst.reorder_chain(chain)
+            except Exception as _ahm_exc:
+                logger.debug("AHM reorder failed (non-fatal): %s", _ahm_exc)
 
         # ── 3. Plan-based model enforcement (P10) ─────────────────────────────
         if plan == "trial" and not enforce_local:
@@ -370,6 +398,13 @@ class ModelRouter:
                             )
                             await asyncio.sleep(1.5 ** attempt)
                         continue
+                    # ── AHM: record success ───────────────────────────────────
+                    try:
+                        _ahm_s = _get_ahm()
+                        if _ahm_s:
+                            _ahm_s.record_success(spec.provider)
+                    except Exception:
+                        pass
                     # ─────────────────────────────────────────────────────────
                     return result, spec.provider
 
@@ -378,6 +413,13 @@ class ModelRouter:
                     logger.warning("Router: %s", msg)
                     errors.append(msg)
                     error_class = "fallback"   # timeout → skip to next tier
+                    # ── AHM: record timeout as a failure ─────────────────────
+                    try:
+                        _ahm_t = _get_ahm()
+                        if _ahm_t:
+                            _ahm_t.record_failure(spec.provider, f"timeout {spec.timeout_seconds}s")
+                    except Exception:
+                        pass
                     break
 
                 except Exception as exc:
@@ -388,6 +430,13 @@ class ModelRouter:
                     # Open circuit breaker for permanent failures (bad key, no payment)
                     if error_class == "fallback":
                         _mark_provider_dead(spec.provider, exc, model=spec.model)
+                    # ── AHM: record exception as a failure ────────────────────
+                    try:
+                        _ahm_e = _get_ahm()
+                        if _ahm_e:
+                            _ahm_e.record_failure(spec.provider, str(exc)[:120])
+                    except Exception:
+                        pass
                     # For OpenRouter free-tier, a rate-limit on one model won't
                     # clear in 1-2 seconds — skip immediately to the next model.
                     if spec.provider == "openrouter" and error_class == "retry":
