@@ -28,7 +28,19 @@ import {
 } from 'lucide-react';
 import StorageWidget from '../components/StorageWidget';
 import { useSettings } from '../contexts/SettingsContext';
-import hljs from 'highlight.js';
+import hljs from 'highlight.js/lib/core';
+import json from 'highlight.js/lib/languages/json';
+import javascript from 'highlight.js/lib/languages/javascript';
+import python from 'highlight.js/lib/languages/python';
+import yaml from 'highlight.js/lib/languages/yaml';
+import bash from 'highlight.js/lib/languages/bash';
+import sql from 'highlight.js/lib/languages/sql';
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('sql', sql);
 
 import 'highlight.js/styles/github-dark.css';
 
