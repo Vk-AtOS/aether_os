@@ -49,7 +49,7 @@ const Profile = () => {
     try {
       await api.client.delete('/account');
       api.clearToken();
-      window.location.href = '/dashboard/login';
+      window.location.href = '/login';
     } catch (e) {
       setEraseError(e.response?.data?.detail || 'Erasure failed. Please try again.');
       setErasing(false);
@@ -386,9 +386,9 @@ const Profile = () => {
           </div>
 
           <div className="flex gap-4">
-            <a href="/dashboard/legal?doc=privacy" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Privacy Policy ↗</a>
-            <a href="/dashboard/legal?doc=tos" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Terms of Service ↗</a>
-            <a href="/dashboard/legal?doc=dpa" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">DPA ↗</a>
+            <a href="/legal?doc=privacy" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Privacy Policy ↗</a>
+            <a href="/legal?doc=tos" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Terms of Service ↗</a>
+            <a href="/legal?doc=dpa" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">DPA ↗</a>
           </div>
 
           <div className="border-t border-border/50 pt-5 space-y-3">
