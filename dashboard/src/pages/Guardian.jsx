@@ -183,13 +183,15 @@ export default function Guardian() {
   const [baselineRefreshing, setBaselineRefreshing] = useState(false);
   const [tab, setTab] = useState('events');
   const [error, setError] = useState(null);
+  const [severityFilter, setSeverityFilter] = useState('');
+  const [scanning, setScanning] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const [statusRes, statsRes, eventsRes, snapshotsRes] = await Promise.all([
         api.client.get('/guardian/status'),
         api.client.get('/guardian/stats'),
-        api.client.get('/guardian/events?limit=50'),
+        api.client.get('/guardian/events', { params: { limit: 50, ...(severityFilter ? { severity: severityFilter } : {}) } }),
         api.client.get('/guardian/snapshots?limit=20'),
       ]);
       setStatus(statusRes.data);
@@ -202,7 +204,7 @@ export default function Guardian() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [severityFilter]);
 
   useEffect(() => {
     load();
@@ -228,6 +230,19 @@ export default function Guardian() {
       alert('Snapshot failed: ' + (e.response?.data?.detail || e.message));
     } finally {
       setSnapshotting(false);
+    }
+  };
+
+  const handleScan = async () => {
+    setScanning(true);
+    try {
+      await api.client.post('/guardian/scan');
+      setTimeout(load, 2000);
+    } catch (e) {
+      // scan endpoint may not exist — just reload
+      await load();
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -299,6 +314,15 @@ export default function Guardian() {
           >
             {snapshotting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
             Snapshot Now
+          </button>
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted hover:text-bright hover:border-accent/40 transition-colors disabled:opacity-50"
+            title="Trigger on-demand health scan"
+          >
+            {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+            Scan Now
           </button>
           <button
             onClick={load}
@@ -453,15 +477,34 @@ export default function Guardian() {
       {/* Events tab */}
       {tab === 'events' && (
         <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs text-muted">Filter:</span>
+            {['', 'critical', 'high', 'medium', 'low'].map(sev => (
+              <button
+                key={sev}
+                onClick={() => { setSeverityFilter(sev); }}
+                className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase transition-colors border ${
+                  severityFilter === sev
+                    ? 'bg-accent/20 text-accent border-accent/40'
+                    : 'bg-surface text-muted border-border hover:border-accent/40'
+                }`}
+              >
+                {sev || 'All'}
+              </button>
+            ))}
+            <span className="ml-auto text-xs text-muted">{events.filter(e => !e.resolved).length} unresolved</span>
+          </div>
           {events.length === 0 ? (
             <div className="text-center py-16">
               <ShieldCheck className="w-12 h-12 text-emerald-400/40 mx-auto mb-3" />
               <p className="text-muted text-sm">No threat events recorded</p>
             </div>
           ) : (
-            events.map(e => (
-              <EventRow key={e.id} event={e} onResolve={handleResolve} />
-            ))
+            events
+              .filter(e => !severityFilter || e.severity === severityFilter)
+              .map(e => (
+                <EventRow key={e.id} event={e} onResolve={handleResolve} />
+              ))
           )}
         </div>
       )}

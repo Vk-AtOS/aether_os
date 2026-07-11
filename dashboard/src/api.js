@@ -213,6 +213,25 @@ export const api = {
   createWebhook: (data) => client.post('/webhooks', data),
   deleteWebhook: (id) => client.delete(`/webhooks/${id}`),
 
+  // Webhooks (extended)
+  updateWebhook: (id, data) => client.put(`/webhooks/${id}`, data),
+  testWebhook: (id) => client.post(`/webhooks/${id}/test`),
+
+  // Workspaces (extended)
+  updateWorkspace: (id, data) => client.put(`/workspaces/${id}`, data),
+
+  // Marketplace (extended)
+  uninstallMarketplaceProfile: (profileId) => client.delete(`/marketplace/profiles/${profileId}`),
+  getInstalledProfiles: () => client.get('/marketplace/installed'),
+
+  // Admin users (extended)
+  reactivateUser: (userId) => client.post(`/admin/users/${userId}/reactivate`),
+  resetUserPassword: (userId) => client.post(`/admin/users/${userId}/reset-password`),
+
+  // Billing (extended)
+  getInvoices: () => client.get('/billing/invoices'),
+  cancelSubscription: () => client.post('/billing/cancel'),
+
   // Workspaces
   getWorkspaces: () => client.get('/workspaces'),
   createWorkspace: (data) => client.post('/workspaces', data),
