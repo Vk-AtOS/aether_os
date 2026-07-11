@@ -15,6 +15,9 @@ const AuditLogs = () => {
   const [showPurgeDialog, setShowPurgeDialog] = useState(false);
   const [purgeDays, setPurgeDays] = useState('90');
   const [purgeConfirmed, setPurgeConfirmed] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [userFilter, setUserFilter] = useState('');
   const LIMIT = 50;
 
   const fetchLogs = useCallback(async () => {
@@ -22,6 +25,9 @@ const AuditLogs = () => {
     try {
       const params = { page, limit: LIMIT };
       if (search) params.action = search;
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
+      if (userFilter) params.user_id = userFilter;
       const res = await api.client.get('/audit/logs', { params });
       const data = res.data;
       if (Array.isArray(data)) {
@@ -36,7 +42,7 @@ const AuditLogs = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, search, fromDate, toDate, userFilter]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -199,6 +205,43 @@ const AuditLogs = () => {
           onChange={e => { setSearch(e.target.value); setPage(1); }}
           className="w-full pl-9 pr-4 py-2 bg-panel border border-border rounded-lg text-sm text-bright placeholder-muted focus:outline-none focus:ring-1 focus:ring-accent"
         />
+      </div>
+
+      {/* Date range and user filter */}
+      <div className="flex flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted whitespace-nowrap">From:</label>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={e => { setFromDate(e.target.value); setPage(1); }}
+            className="bg-panel border border-border rounded-lg px-3 py-1.5 text-xs text-bright focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted whitespace-nowrap">To:</label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={e => { setToDate(e.target.value); setPage(1); }}
+            className="bg-panel border border-border rounded-lg px-3 py-1.5 text-xs text-bright focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+        </div>
+        <input
+          type="text"
+          placeholder="Filter by user ID…"
+          value={userFilter}
+          onChange={e => { setUserFilter(e.target.value); setPage(1); }}
+          className="bg-panel border border-border rounded-lg px-3 py-1.5 text-xs text-bright placeholder-muted focus:outline-none focus:ring-1 focus:ring-accent min-w-[160px]"
+        />
+        {(fromDate || toDate || userFilter) && (
+          <button
+            onClick={() => { setFromDate(''); setToDate(''); setUserFilter(''); setPage(1); }}
+            className="text-xs text-muted hover:text-bright transition-colors border border-border rounded-lg px-3 py-1.5"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Table */}

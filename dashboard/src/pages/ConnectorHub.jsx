@@ -30,6 +30,7 @@ const TAG_COLORS = {
 
 function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
   const [expanded, setExpanded] = useState(false);
+  const [editingConfig, setEditingConfig] = useState(false);
   const [configValues, setConfigValues] = useState({});
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -88,6 +89,10 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
                   {testing ? <Loader2 size={12} className="animate-spin" /> : null}
                   Test
                 </button>
+                <button onClick={() => setEditingConfig(v => !v)}
+                  className="text-xs px-3 py-1.5 bg-yellow-950/40 text-yellow-400 rounded-lg hover:bg-yellow-900/50 flex items-center gap-1">
+                  {editingConfig ? 'Cancel' : 'Edit Config'}
+                </button>
                 <button onClick={() => onUninstall(plugin.id)}
                   className="p-1.5 text-red-400 hover:bg-red-950/30 rounded-lg">
                   <Trash2 size={14} />
@@ -119,6 +124,52 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
           </div>
         )}
       </div>
+
+      {/* Edit Config panel */}
+      {editingConfig && isInstalled && Object.keys(schema).length > 0 && (
+        <div className="border-t border-border/50 p-4 bg-surface">
+          <p className="text-xs font-semibold text-muted mb-3 uppercase tracking-wide">Update Configuration</p>
+          {Object.entries(schema).map(([key, field]) => (
+            <div key={key} className="mb-3">
+              <label className="block text-xs font-medium text-muted mb-1">
+                {field.label || key}
+                {field.required && <span className="text-red-400 ml-1">*</span>}
+              </label>
+              <input
+                type={field.secret ? 'password' : 'text'}
+                placeholder={field.default ? String(field.default) : 'New value'}
+                value={configValues[key] || ''}
+                onChange={(e) => setConfigValues((v) => ({ ...v, [key]: e.target.value }))}
+                className="w-full text-sm px-3 py-2 border border-border rounded-lg bg-background text-bright focus:outline-none focus:border-blue-400"
+              />
+            </div>
+          ))}
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await api.client.put(`/v2/plugins/installed/${plugin.id}/config`, { config: configValues });
+                  setEditingConfig(false);
+                  setConfigValues({});
+                } catch (e) {
+                  alert('Update failed: ' + (e.response?.data?.detail || e.message));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+              className="flex-1 py-2 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? 'Saving…' : 'Save Config'}
+            </button>
+            <button onClick={() => { setEditingConfig(false); setConfigValues({}); }}
+              className="px-4 py-2 text-muted border border-border rounded-lg text-sm hover:bg-surface">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Config form */}
       {expanded && !isInstalled && (
@@ -161,7 +212,6 @@ export default function ConnectorHub() {
   const [installed, setInstalled] = useState({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("connector");
   const [error, setError] = useState(null);
 
   const load = async () => {
