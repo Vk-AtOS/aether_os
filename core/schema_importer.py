@@ -8,6 +8,27 @@ from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 
+def _validate_sqlite_path(connection_string: str) -> None:
+    """SEC-C2: Reject SQLite paths that could read arbitrary local files.
+
+    Blocks absolute paths (e.g. sqlite:////etc/passwd) and directory
+    traversal sequences (e.g. sqlite:///../../.env) so this function
+    cannot be used as a local-file read primitive.
+    """
+    # Strip the 'sqlite:///' prefix (3 slashes = relative, 4 = absolute)
+    after_prefix = connection_string[len("sqlite:///"):]
+    if after_prefix.startswith("/"):
+        raise ValueError(
+            "SQLite connection string must use a relative path, "
+            "not an absolute path (SSRF/LFI prevention)"
+        )
+    if ".." in after_prefix.split("/"):
+        raise ValueError(
+            "SQLite connection string must not contain '..' path traversal "
+            "(SSRF/LFI prevention)"
+        )
+
+
 async def import_schema(connection_string: str) -> Dict[str, Any]:
     """Connect to an existing database and return its schema in p02 db_schema format.
 
@@ -15,7 +36,7 @@ async def import_schema(connection_string: str) -> Dict[str, Any]:
       - postgresql://user:pass@host:5432/dbname
       - mysql+pymysql://user:pass@host:3306/dbname
       - mysql://user:pass@host:3306/dbname
-      - sqlite:///path/to/db.sqlite
+      - sqlite:///path/to/db.sqlite  (relative paths only — no leading / or ..)
 
     Returns:
       {
@@ -31,6 +52,14 @@ async def import_schema(connection_string: str) -> Dict[str, Any]:
 
     On error returns: {"error": str(e), "tables": []}
     """
+    # SEC-C2: validate SQLite paths before any I/O
+    if connection_string.lower().startswith("sqlite:///"):
+        try:
+            _validate_sqlite_path(connection_string)
+        except ValueError as ve:
+            logger.warning("[schema_importer] rejected unsafe SQLite path: %s", ve)
+            return {"error": str(ve), "tables": []}
+
     try:
         result = await asyncio.wait_for(
             _do_import(connection_string),
