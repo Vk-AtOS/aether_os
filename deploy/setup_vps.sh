@@ -85,8 +85,8 @@ ANTHROPIC_API_KEY=
 GOOGLE_API_KEY=REPLACE_WITH_YOUR_GEMINI_KEY
 PRIMARY_LLM=ollama
 OLLAMA_MODEL=qwen2.5-coder:3b
-AETHER_ADMIN_USER=admin
-AETHER_ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))")
+AETHER_ADMIN_EMAIL=admin@example.com
+AETHER_ADMIN_PASS=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))")
 AETHER_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 AETHER_ONE_ZT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 CORS_ORIGINS=https://$DOMAIN
@@ -162,4 +162,4 @@ echo "=== Setup complete ==="
 echo "Dashboard : https://$DOMAIN"
 echo "API docs  : https://$DOMAIN/api/docs"
 echo "Logs      : journalctl -u aetheros -f"
-echo "Admin pw  : $(grep AETHER_ADMIN_PASSWORD $INSTALL_DIR/.env | cut -d= -f2)"
+echo "Admin pw  : $(grep AETHER_ADMIN_PASS $INSTALL_DIR/.env | cut -d= -f2)"
