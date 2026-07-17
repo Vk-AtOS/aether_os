@@ -116,7 +116,10 @@ async def get_run_list(
             "finished_at":   int(run.finished_at * 1000) if run.finished_at else None,
             "live_url":      run.live_url,
             "current_phase": phase_map.get(run.id),
-            "phases":        run.phases or {},
+            # DB-H2: Run.phases JSON was a dual-write shortcut that could diverge from
+            # phase_completions (the authoritative source). List view omits phase detail;
+            # callers needing full phase status use get_run_detail() which reads phase_completions.
+            "phases":        {},
             "priority":      prio_map.get(run.id, "normal"),
             "domain":        run.domain,
             "client_id":     run.client_id,

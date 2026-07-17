@@ -291,21 +291,32 @@ async def get_scim_config(user: Dict[str, Any] = _current_user()) -> Dict[str, A
     from aether_os.core.models import Organisation as _Org
     async with _gsf()() as session:
         org = await session.get(_Org, org_id)
-    token = getattr(org, "scim_token", None)
-    return {"configured": bool(token), "scim_base_url": "/api/scim/v2"}
+    # DB-H1: never return plaintext token — only report whether one is configured
+    configured = bool(
+        getattr(org, "scim_token_hash", None) or getattr(org, "scim_token", None)
+    )
+    return {"configured": configured, "scim_base_url": "/api/scim/v2"}
 
 
 @router.post("/settings/scim/rotate")
 async def rotate_scim_token(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
-    if user.get("role") != "owner": raise HTTPException(status_code=403)
-    import secrets
-    new_token = secrets.token_urlsafe(32)
+    """Generate a new SCIM token. DB-H1: stores only the bcrypt hash; plaintext is
+    returned to the caller exactly once and never persisted."""
+    if user.get("role") != "owner":
+        raise HTTPException(status_code=403)
+    import secrets as _scim_sec
+    import bcrypt as _bcrypt
+    new_token = _scim_sec.token_urlsafe(32)
+    token_hash = _bcrypt.hashpw(new_token.encode(), _bcrypt.gensalt()).decode()
     org_id = user["org_id"]
     from aether_os.core.db import get_session_factory as _gsf
     from aether_os.core.models import Organisation as _Org
     async with _gsf()() as session:
         org = await session.get(_Org, org_id)
         if org:
-            org.scim_token = new_token
+            # DB-H1: store only the hash; clear legacy plaintext column
+            org.scim_token_hash = token_hash
+            org.scim_token = None
             await session.commit()
+    # Plaintext returned here only — never stored, never logged
     return {"token": new_token}

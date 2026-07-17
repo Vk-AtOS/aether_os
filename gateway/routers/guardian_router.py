@@ -177,5 +177,43 @@ async def list_events(
         ],
     }
 
+# ── Scan (any authenticated user) ─────────────────────────────────────────────
+
+@router.post("/scan")
+async def trigger_guardian_scan(
+    user: Dict[str, Any] = _get_current_user(),
+) -> Dict[str, Any]:
+    """FE-H1: Trigger a Guardian threat scan for the caller's org.
+
+    Runs a fresh threat-detector scan and returns the scan ID + current threat
+    level.  The scan is executed synchronously (fast) because the detector reads
+    from the database rather than running long I/O — no background task needed.
+    """
+    import uuid as _uuid_gs
+    from datetime import datetime, timezone
+
+    org_id = user.get("org_id")
+    scan_id = str(_uuid_gs.uuid4())
+
+    try:
+        from aether_os.core.guardian.threat_detector import get_threat_detector
+        td = get_threat_detector()
+        # run_all_checks: file integrity + brute-force + service health
+        findings, threat_level = await td.run_all_checks()
+    except Exception as exc:
+        logger.warning("guardian /scan failed for org %s: %s", org_id, exc)
+        threat_level = "unknown"
+        findings = []
+
+    return {
+        "status": "scan_complete",
+        "scan_id": scan_id,
+        "org_id": org_id,
+        "threat_level": threat_level,
+        "findings_count": len(findings),
+        "scanned_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # Snapshot management, event resolution, restore, and baseline-refresh routes live in
 # guardian_snapshots_router.py — see gateway/routers/guardian_snapshots_router.py

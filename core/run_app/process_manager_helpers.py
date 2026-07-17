@@ -178,7 +178,9 @@ def patch_generated_project(
     Returns (preview_email, preview_password).
     """
     _PREVIEW_PASSWORD = "Admin1234!"
-    _preview_email = "admin@example.com"
+    # FE-H3: None means email not found in seed.py — backend returns None so
+    # frontend can show guidance instead of a hardcoded credential that won't work.
+    _preview_email = None
 
     # ── Patch main.py ──────────────────────────────────────────────────────
     main_py = backend_dir / "src" / "main.py"
