@@ -50,6 +50,7 @@ class User(Base):
     mfa_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)  # SEC-H1/FIX15: set on admin password reset
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
 
