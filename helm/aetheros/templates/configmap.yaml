@@ -31,8 +31,8 @@ data:
   CORS_ORIGINS: {{ .Values.config.CORS_ORIGINS | quote }}
   FRONTEND_URL: {{ .Values.config.FRONTEND_URL | quote }}
 
-  # ── Admin ─────────────────────────────────────────────────────────────────
-  AETHER_ADMIN_USER: {{ .Values.config.AETHER_ADMIN_USER | quote }}
+  # ── Admin (INFRA-H2: standardised — matches core/seed.py) ────────────────
+  AETHER_ADMIN_EMAIL: {{ .Values.config.AETHER_ADMIN_EMAIL | quote }}
 
   # ── Pipeline tuning ────────────────────────────────────────────────────────
   PHASE_TIMEOUT_SECONDS: {{ .Values.config.PHASE_TIMEOUT_SECONDS | quote }}

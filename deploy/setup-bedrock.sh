@@ -62,7 +62,7 @@ echo "==> Installing dependencies..."
 pip install -q -e . --no-warn-script-location
 
 echo "==> Seeding marketplace templates..."
-AETHER_ADMIN_PASSWORD="$(grep '^AETHER_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)" \
+AETHER_ADMIN_PASS="$(grep '^AETHER_ADMIN_PASS=' "$ENV_FILE" | cut -d= -f2-)" \
 DATABASE_URL="$(grep '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2-)" \
 python3 seed_db.py || echo "WARN: seed_db.py failed — check logs"
 

@@ -9,6 +9,10 @@ import LogViewer from './LogViewer';
 import AppPreviewPanel from '../components/project/AppPreviewPanel';
 import QualityPanel from '../components/project/QualityPanel';
 import FeedbackPanel from '../components/project/FeedbackPanel';
+import CouncilPanel from '../components/project/CouncilPanel';
+import DecisionsPanel from '../components/project/DecisionsPanel';
+import EnvVarsPanel from '../components/project/EnvVarsPanel';
+import RunAppPanel from '../components/project/RunAppPanel';
 import { TraceTab } from '../components/TraceTab';
 import {
   Terminal,
@@ -32,11 +36,9 @@ import {
   GitBranch,
   Zap,
   ShieldCheck,
-  Star,
   Users,
   GitPullRequest,
   CheckCircle2,
-  XCircle,
   Copy,
   Check,
   List,
@@ -733,13 +735,11 @@ const ProjectView = () => {
   const [editContent, setEditContent]   = useState(null);  // null = view mode
   const [editSaving, setEditSaving]     = useState(false);
 
-  // Env vars tab
-  const [envVars, setEnvVars]       = useState(null);
-  const [envSaving, setEnvSaving]   = useState(false);
-  const [appRunning, setAppRunning]         = useState(false);
-  const [appOutput, setAppOutput]           = useState([]);
-  const [previewCreds, setPreviewCreds]     = useState(null);
-  const [credsCopied, setCredsCopied]       = useState(false);
+  // appRunning is shared state: RunAppPanel updates it via onRunningChange;
+  // AppPreviewPanel reads it to know whether to show the live iframe.
+  const [appRunning, setAppRunning] = useState(false);
+
+  // Env vars, Council, Decisions state is now managed inside extracted components
 
   // Re-run dropdown (managed inside RerunDropdown component)
 
@@ -748,17 +748,7 @@ const ProjectView = () => {
   const [complianceData, setComplianceData] = useState(null);
 
   // Build feedback state is now managed inside FeedbackPanel component
-
-  // Council review
-  const [councilReport, setCouncilReport]       = useState(null);
-  const [councilLoading, setCouncilLoading]     = useState(false);
-  const [councilError, setCouncilError]         = useState(null);
-
-  // Decisions
-  const [decisions, setDecisions]             = useState([]);
-  const [decisionsLoading, setDecisionsLoading] = useState(false);
-  const [decisionsError, setDecisionsError]   = useState(null);
-  const [decidingId, setDecidingId]           = useState(null);
+  // Council, Decisions state is now managed inside CouncilPanel / DecisionsPanel
 
   // Spec review gate
   const [specReview, setSpecReview]           = useState(null);   // parsed spec object or null
@@ -837,12 +827,6 @@ const ProjectView = () => {
     }
   }, [activeArtifactTab, fileTree, previewHtml, previewLoading, loadPreview]);
 
-  useEffect(() => {
-    if (activeArtifactTab === 'env' && envVars === null) {
-      api.getEnvVars(id).then(r => setEnvVars(r.data?.vars || [])).catch(() => setEnvVars([]));
-    }
-  }, [activeArtifactTab, envVars, id]);
-
   // Fetch quality + compliance once the run is done (or if already done on load)
   useEffect(() => {
     if (!run) return;
@@ -859,47 +843,6 @@ const ProjectView = () => {
         .catch(() => setComplianceData(false));
     }
   }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Restore appRunning state on mount (survives page refresh) ────────────
-  useEffect(() => {
-    if (!id || appRunning) return;
-    api.getRunAppStatus(id)
-      .then(r => {
-        if (r.data?.running) {
-          setAppRunning(true);
-          setAppOutput(prev => prev.length ? prev : ['[AetherOS] App is already running — preview available.']);
-        }
-      })
-      .catch(() => {});
-    // Fetch preview credentials (available after first Run App)
-    api.getPreviewCredentials(id)
-      .then(r => setPreviewCreds(r.data))
-      .catch(() => {});
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Poll app status after pipeline completes (SSE closes before auto-start fires) ──
-  // The pipeline auto-starts the app AFTER emitting status=completed, which means
-  // the SSE connection is already closed and app_started is never received.
-  // Polling fixes this without requiring a persistent WebSocket.
-  useEffect(() => {
-    if (!run || run.status !== 'completed' || appRunning) return;
-    let attempts = 0;
-    const iv = setInterval(() => {
-      attempts++;
-      api.getRunAppStatus(id)
-        .then(r => {
-          if (r.data?.running) {
-            setAppRunning(true);
-            setAppOutput(['[AetherOS] App auto-started — preview available at /app-preview/']);
-            api.getPreviewCredentials(id).then(r2 => setPreviewCreds(r2.data)).catch(() => {});
-            clearInterval(iv);
-          }
-        })
-        .catch(() => {});
-      if (attempts >= 20) clearInterval(iv); // stop after 60s
-    }, 3000);
-    return () => clearInterval(iv);
-  }, [run?.status, appRunning]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SSE live feed ─────────────────────────────────────────────────────────
 
@@ -974,10 +917,8 @@ const ProjectView = () => {
           }
 
           if (event.type === 'app_started') {
+            // Notify AppPreviewPanel to show the iframe; RunAppPanel manages its own output
             setAppRunning(true);
-            setAppOutput(prev => [...prev,
-              `[AetherOS] App auto-started (${event.mode || 'backend'}) — preview available at /app-preview/`,
-            ]);
           }
 
           if (event.type === 'pipeline_complete') {
@@ -2231,402 +2172,22 @@ const ProjectView = () => {
 
           {/* ── Env Vars tab ─────────────────────────────────────────────── */}
           {activeArtifactTab === 'env' && (
-            <div className="p-4 space-y-3 h-[420px] overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-muted uppercase tracking-wider">Environment Variables</span>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setEnvVars(prev => [...(prev || []), { key: '', value: '' }])}
-                    className="text-[10px] px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded"
-                  >+ Add</button>
-                  <button
-                    disabled={envSaving}
-                    onClick={async () => {
-                      setEnvSaving(true);
-                      try {
-                        await api.patchEnvVars(id, envVars.filter(v => v.key.trim()));
-                        setToast('Environment saved.');
-                      } catch { setToast('Save failed.'); }
-                      finally { setEnvSaving(false); }
-                    }}
-                    className="text-[10px] px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded disabled:opacity-50"
-                  >{envSaving ? 'Saving…' : 'Save .env'}</button>
-                </div>
-              </div>
-              {envVars === null ? (
-                <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 text-accent animate-spin" /></div>
-              ) : envVars.length === 0 ? (
-                <div className="text-muted text-xs italic text-center py-8">No .env file found. Add variables above.</div>
-              ) : (
-                envVars.map((v, i) => (
-                  <div key={i} className="flex items-center space-x-2">
-                    <input
-                      value={v.key}
-                      onChange={e => setEnvVars(prev => prev.map((x, j) => j === i ? { ...x, key: e.target.value } : x))}
-                      placeholder="KEY"
-                      className="w-40 bg-bg border border-border rounded px-2 py-1 text-xs font-mono text-bright focus:outline-none focus:border-accent"
-                    />
-                    <span className="text-muted text-xs">=</span>
-                    <input
-                      value={v.value}
-                      onChange={e => setEnvVars(prev => prev.map((x, j) => j === i ? { ...x, value: e.target.value } : x))}
-                      placeholder="value"
-                      className="flex-1 bg-bg border border-border rounded px-2 py-1 text-xs font-mono text-bright focus:outline-none focus:border-accent"
-                    />
-                    <button
-                      onClick={() => setEnvVars(prev => prev.filter((_, j) => j !== i))}
-                      className="text-danger hover:text-red-400 text-xs px-1"
-                    >✕</button>
-                  </div>
-                ))
-              )}
-            </div>
+            <EnvVarsPanel runId={run.run_id || run.id} onToast={showToast} />
           )}
 
           {/* ── Council Review tab ────────────────────────────────────────── */}
           {activeArtifactTab === 'council' && (
-            <div className="flex flex-col" style={{ minHeight: '420px' }}>
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-border/10 shrink-0">
-                <div className="flex items-center space-x-2">
-                  <Users className="w-4 h-4 text-accent" />
-                  <span className="text-xs font-bold text-muted uppercase tracking-wider">LLM Council Review</span>
-                  <span className="text-[10px] text-muted">Multi-model code analysis</span>
-                </div>
-                <button
-                  onClick={async () => {
-                    setCouncilLoading(true);
-                    setCouncilError(null);
-                    try {
-                      const res = await api.client.post(`/factory/runs/${id}/council-review`);
-                      setCouncilReport(res.data);
-                    } catch (e) {
-                      setCouncilError(e.response?.data?.detail || e.message || 'Council review failed');
-                    } finally {
-                      setCouncilLoading(false);
-                    }
-                  }}
-                  disabled={councilLoading}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors"
-                >
-                  {councilLoading
-                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>Running…</span></>
-                    : <><Users className="w-3.5 h-3.5" /><span>Run Council Review</span></>
-                  }
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                {/* Not yet run */}
-                {!councilReport && !councilLoading && !councilError && (
-                  <div className="h-full flex flex-col items-center justify-center text-muted space-y-3 py-12">
-                    <Users className="w-10 h-10 opacity-30" />
-                    <p className="text-sm font-medium">No council review yet</p>
-                    <p className="text-xs text-center max-w-sm opacity-70">
-                      Click "Run Council Review" to have Claude, Gemini, and Ollama independently
-                      review your generated code from different perspectives.
-                    </p>
-                  </div>
-                )}
-
-                {/* Loading state */}
-                {councilLoading && (
-                  <div className="h-full flex flex-col items-center justify-center space-y-4 py-12">
-                    <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
-                    <p className="text-sm text-muted">Council reviewing your code…</p>
-                    <p className="text-xs text-muted opacity-60">This takes 30-60 seconds</p>
-                  </div>
-                )}
-
-                {/* Error state */}
-                {councilError && !councilLoading && (
-                  <div className="flex items-start space-x-3 p-4 bg-red-900/20 border border-red-700/40 rounded-lg">
-                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-red-300">Council review failed</p>
-                      <p className="text-xs text-red-400 mt-1">{councilError}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Report */}
-                {councilReport && !councilLoading && (
-                  <div className="space-y-4">
-                    {/* Consensus issues */}
-                    {councilReport.consensus_issues && councilReport.consensus_issues.length > 0 && (
-                      <div className="p-4 bg-amber-900/20 border border-amber-700/40 rounded-lg">
-                        <div className="flex items-center space-x-2 mb-3">
-                          <AlertTriangle className="w-4 h-4 text-amber-400" />
-                          <span className="text-sm font-bold text-amber-300">
-                            Consensus Issues ({councilReport.consensus_issues.length} found by multiple models)
-                          </span>
-                        </div>
-                        <ul className="space-y-1.5">
-                          {councilReport.consensus_issues.map((issue, i) => (
-                            <li key={i} className="flex items-start space-x-2 text-xs text-amber-200">
-                              <span className="shrink-0 w-4 h-4 rounded-full bg-amber-600 text-amber-100 flex items-center justify-center text-[9px] font-bold mt-0.5">{i + 1}</span>
-                              <span>{issue}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Per-model reviews */}
-                    <div className="grid gap-3">
-                      {(councilReport.reviews || []).map((review, i) => {
-                        const modelColors = {
-                          claude: { bg: 'bg-orange-900/20', border: 'border-orange-700/40', badge: 'bg-orange-700', text: 'text-orange-300' },
-                          gemini: { bg: 'bg-blue-900/20', border: 'border-blue-700/40', badge: 'bg-blue-700', text: 'text-blue-300' },
-                          ollama: { bg: 'bg-green-900/20', border: 'border-green-700/40', badge: 'bg-green-700', text: 'text-green-300' },
-                        };
-                        const c = modelColors[review.model] || modelColors.ollama;
-                        const scoreColor = review.score >= 7 ? 'text-emerald-400' : review.score >= 4 ? 'text-amber-400' : 'text-red-400';
-                        return (
-                          <div key={i} className={`p-4 ${c.bg} border ${c.border} rounded-lg`}>
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center space-x-2">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-white ${c.badge}`}>
-                                  {review.model}
-                                </span>
-                                <span className={`text-xs ${c.text}`}>{review.focus}</span>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <Star className="w-3.5 h-3.5 text-muted" />
-                                <span className={`text-sm font-bold ${scoreColor}`}>{review.score}/10</span>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                              {review.issues && review.issues.length > 0 && (
-                                <div>
-                                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-1.5">Issues ({review.issues.length})</p>
-                                  <ul className="space-y-1">
-                                    {review.issues.map((issue, j) => (
-                                      <li key={j} className="flex items-start space-x-1.5 text-xs text-slate-300">
-                                        <span className="text-red-400 shrink-0 mt-0.5">•</span>
-                                        <span>{issue}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {review.strengths && review.strengths.length > 0 && (
-                                <div>
-                                  <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1.5">Strengths ({review.strengths.length})</p>
-                                  <ul className="space-y-1">
-                                    {review.strengths.map((s, j) => (
-                                      <li key={j} className="flex items-start space-x-1.5 text-xs text-slate-300">
-                                        <span className="text-emerald-400 shrink-0 mt-0.5">•</span>
-                                        <span>{s}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {councilReport.reviews && councilReport.reviews.length === 0 && (
-                      <div className="mt-2 p-4 rounded-lg bg-amber-900/20 border border-amber-700/30">
-                        <p className="text-sm font-medium text-amber-400 mb-1">No model responses received</p>
-                        <p className="text-xs text-amber-300/70">
-                          Add API keys in{' '}
-                          <a href="/dashboard/settings" className="underline text-amber-300 hover:text-amber-200">
-                            Settings → API Keys
-                          </a>{' '}
-                          to enable Claude and Gemini reviews, or start Ollama locally for a free offline review.
-                        </p>
-                      </div>
-                    )}
-
-                    <p className="text-[10px] text-muted text-right">
-                      Generated {councilReport.created_at ? new Date(councilReport.created_at).toLocaleString() : ''}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
+            <CouncilPanel runId={run.run_id || run.id} />
           )}
 
           {/* ── Decisions tab ──────────────────────────────────────────────── */}
           {activeArtifactTab === 'decisions' && (
-            <div className="flex flex-col" style={{ minHeight: '420px' }}>
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-border/10 shrink-0">
-                <div className="flex items-center space-x-2">
-                  <GitPullRequest className="w-4 h-4 text-accent" />
-                  <span className="text-xs font-bold text-muted uppercase tracking-wider">Decisions</span>
-                </div>
-                <button
-                  onClick={async () => {
-                    setDecisionsLoading(true);
-                    setDecisionsError(null);
-                    try {
-                      const res = await api.listDecisions(id);
-                      setDecisions(res.data ?? []);
-                    } catch (e) {
-                      setDecisionsError(e.response?.data?.detail || 'Failed to load decisions');
-                    } finally {
-                      setDecisionsLoading(false);
-                    }
-                  }}
-                  disabled={decisionsLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors"
-                >
-                  {decisionsLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                  Load Decisions
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {decisionsError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400">{decisionsError}</div>
-                )}
-                {!decisionsLoading && decisions.length === 0 && !decisionsError && (
-                  <div className="flex flex-col items-center justify-center h-48 text-muted">
-                    <GitPullRequest className="w-10 h-10 mb-3 opacity-20" />
-                    <p className="text-sm font-medium">No decisions yet</p>
-                    <p className="text-xs mt-1 opacity-60">Click Load Decisions to fetch pending approvals.</p>
-                  </div>
-                )}
-                {decisions.map(d => (
-                  <div key={d.id} className="p-4 bg-surface border border-border rounded-lg space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-bright">{d.title || d.decision_type || d.id}</span>
-                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                        d.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' :
-                        d.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
-                        'bg-amber-500/20 text-amber-400'
-                      }`}>{d.status}</span>
-                    </div>
-                    {d.description && <p className="text-xs text-muted">{d.description}</p>}
-                    {d.status === 'pending' && (
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          onClick={async () => {
-                            setDecidingId(d.id);
-                            try {
-                              await api.approveDecision(id, d.id, true, '');
-                              setDecisions(prev => prev.map(x => x.id === d.id ? { ...x, status: 'approved' } : x));
-                            } catch (e) {
-                              setDecisionsError(e.response?.data?.detail || 'Approval failed');
-                            } finally { setDecidingId(null); }
-                          }}
-                          disabled={decidingId === d.id}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          <CheckCircle2 className="w-3 h-3" /> Approve
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setDecidingId(d.id);
-                            try {
-                              await api.approveDecision(id, d.id, false, '');
-                              setDecisions(prev => prev.map(x => x.id === d.id ? { ...x, status: 'rejected' } : x));
-                            } catch (e) {
-                              setDecisionsError(e.response?.data?.detail || 'Rejection failed');
-                            } finally { setDecidingId(null); }
-                          }}
-                          disabled={decidingId === d.id}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-bold uppercase rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          <XCircle className="w-3 h-3" /> Reject
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <DecisionsPanel runId={run.run_id || run.id} />
           )}
 
           {/* ── Run App tab ───────────────────────────────────────────────── */}
           {activeArtifactTab === 'run' && (
-            <div className="flex flex-col h-[420px]">
-              <div className="flex items-center space-x-3 px-4 py-2.5 border-b border-border bg-border/10 shrink-0">
-                <span className="text-xs font-bold text-muted uppercase tracking-wider">App Runner</span>
-                <div className="flex items-center space-x-2 ml-auto">
-                  {!appRunning ? (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const res = await api.startRunApp(id);
-                          setAppRunning(true);
-                          const email = res.data?.preview_email || 'admin@example.com';
-                          const pw    = res.data?.preview_password || 'Admin1234!';
-                          setPreviewCreds({ email, password: pw });
-                          setAppOutput([
-                            '[AetherOS] Starting app… (builds frontend + installs deps ~15s)',
-                            `[AetherOS] Demo login → ${email} / ${pw}`,
-                            '[AetherOS] Preview available at /app-preview/',
-                          ]);
-                          setToast('App starting — demo credentials shown below.');
-                        } catch (e) {
-                          setToast('Failed to start app: ' + (e.response?.data?.detail || e.message));
-                        }
-                      }}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors"
-                    >
-                      <Play className="w-3.5 h-3.5" /><span>Run App</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={async () => {
-                        try {
-                          await api.stopRunApp(id);
-                          setAppRunning(false);
-                          setAppOutput(prev => [...prev, '[AetherOS] App stopped.']);
-                        } catch { setAppRunning(false); }
-                      }}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-colors"
-                    >
-                      <Pause className="w-3.5 h-3.5" /><span>Stop App</span>
-                    </button>
-                  )}
-                  {appRunning && (
-                    <a
-                      href="/app-preview/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center space-x-1 text-xs text-emerald-400 hover:text-emerald-300"
-                    >
-                      <ExternalLink className="w-3 h-3" /> Open App Preview
-                    </a>
-                  )}
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 bg-[#0a0c10] font-mono text-[11px] text-emerald-300 custom-scrollbar space-y-0.5">
-                {appOutput.length === 0 ? (
-                  <div className="text-muted italic">Press "Run App" to start the generated app. A live preview will appear in the APP PREVIEW tab.</div>
-                ) : (
-                  appOutput.map((line, i) => <div key={i} className="leading-relaxed">{line}</div>)
-                )}
-              </div>
-              {/* ── Demo credentials card ── */}
-              {previewCreds && (
-                <div className="border-t border-border px-4 py-3 bg-emerald-950/30 flex items-center justify-between gap-4 shrink-0">
-                  <div className="flex items-center gap-3 text-[11px]">
-                    <span className="text-emerald-400 font-bold uppercase tracking-wider text-[10px]">Demo Login</span>
-                    <span className="font-mono text-emerald-300">{previewCreds.email}</span>
-                    <span className="text-muted">·</span>
-                    <span className="font-mono text-emerald-300 tracking-wider">{previewCreds.password}</span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(`${previewCreds.email}\n${previewCreds.password}`);
-                      setCredsCopied(true);
-                      setTimeout(() => setCredsCopied(false), 1800);
-                    }}
-                    className="flex items-center gap-1 px-2 py-1 bg-emerald-800/40 hover:bg-emerald-700/50 text-emerald-300 rounded text-[10px] font-bold transition-colors shrink-0"
-                  >
-                    {credsCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {credsCopied ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-              )}
-            </div>
+            <RunAppPanel runId={run.run_id || run.id} onToast={showToast} onRunningChange={setAppRunning} />
           )}
           </div>
         </section>

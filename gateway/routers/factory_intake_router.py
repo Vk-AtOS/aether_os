@@ -134,6 +134,14 @@ async def import_existing_schema(
     if not any(connection_string.startswith(p) for p in allowed):
         raise HTTPException(400, "Unsupported connection string format")
 
+    # SEC-C2: guard SQLite paths here too (defense in depth)
+    if connection_string.lower().startswith("sqlite:///"):
+        from aether_os.core.schema_importer import _validate_sqlite_path
+        try:
+            _validate_sqlite_path(connection_string)
+        except ValueError as ve:
+            raise HTTPException(400, str(ve))
+
     from aether_os.core.schema_importer import import_schema
     result = await import_schema(connection_string)
     return result
