@@ -26,7 +26,7 @@ def _make_app(tmp_path=None):
     """Create a test app with required env vars set."""
     os.environ["AETHER_SECRET_KEY"] = "test-secret-key-32-chars-minimum"
     os.environ["AETHER_ADMIN_EMAIL"] = "admin@aetheros.ai"
-    os.environ["AETHER_ADMIN_PASSWORD"] = "admin"
+    os.environ["AETHER_ADMIN_PASS"] = "admin"  # INFRA-H2: standardised name
     os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 
     if tmp_path:
