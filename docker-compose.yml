@@ -82,8 +82,9 @@ services:
       # Error tracking
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Admin account created on first startup
-      AETHER_ADMIN_USER: ${AETHER_ADMIN_USER:-admin@example.com}
-      AETHER_ADMIN_PASSWORD: ${AETHER_ADMIN_PASSWORD:?AETHER_ADMIN_PASSWORD must be set in .env}
+      # INFRA-H2: standardised to AETHER_ADMIN_PASS — matches core/seed.py
+      AETHER_ADMIN_EMAIL: ${AETHER_ADMIN_EMAIL:-admin@example.com}
+      AETHER_ADMIN_PASS: ${AETHER_ADMIN_PASS:?AETHER_ADMIN_PASS must be set in .env}
     depends_on:
       db:
         condition: service_healthy

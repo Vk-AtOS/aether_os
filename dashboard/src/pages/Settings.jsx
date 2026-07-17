@@ -1718,7 +1718,7 @@ const Settings = () => {
                         onClick={async () => {
                           setDeleteOrgStatus('deleting');
                           try {
-                            await api.client.delete('/account/org');
+                            await api.deleteOrg();
                             // After soft-delete, the user's token will become invalid on next check
                             // but we clear it now for better UX.
                             setTimeout(() => {

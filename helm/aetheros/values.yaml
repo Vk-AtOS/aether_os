@@ -241,8 +241,8 @@ config:
   # Frontend URL used in email links and SAML ACS callbacks
   FRONTEND_URL: "https://aetheros.example.com/dashboard"
 
-  # Admin user (username only — password is in the Secret)
-  AETHER_ADMIN_USER: admin
+  # Admin email — must match AETHER_ADMIN_EMAIL in core/seed.py (INFRA-H2)
+  AETHER_ADMIN_EMAIL: admin@example.com
 
   # Pipeline tuning
   PHASE_TIMEOUT_SECONDS: "600"
@@ -289,8 +289,8 @@ secrets:
   # -- Zero-trust execution secret.
   AETHER_ONE_ZT_SECRET: "REPLACE_WITH_ZERO_TRUST_SECRET"
 
-  # -- Admin password.
-  AETHER_ADMIN_PASSWORD: "REPLACE_WITH_STRONG_ADMIN_PASSWORD"
+  # -- Admin password (INFRA-H2: standardised to AETHER_ADMIN_PASS).
+  AETHER_ADMIN_PASS: "REPLACE_WITH_STRONG_ADMIN_PASSWORD"
 
   # -- Anthropic API key (required if PRIMARY_LLM=anthropic).
   ANTHROPIC_API_KEY: ""
