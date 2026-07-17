@@ -226,11 +226,22 @@ async def export_audit_logs(
 
 @router.post("/admin/system/deploy")
 async def system_deploy(user: Dict[str, Any] = _current_user()):
-    """Pull latest code from git and restart the service. Owner/admin only."""
+    """Pull latest code from git and restart the service.
+
+    ARCH-H3: Restricted to superadmin only — any lower role would allow git remote
+    compromise to become full host takeover via arbitrary code execution.
+    All calls are logged at WARNING with the caller's user ID.
+    """
     import subprocess as _sp
     import sys as _sys
-    if user.get("role") not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Owner or admin required")
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin access required for platform deployment")
+
+    # ARCH-H3: always log at WARNING so every deploy attempt is visible in production logs
+    logger.warning(
+        "admin_system_deploy: called by user=%s (sub=%s) — initiating git pull + service restart",
+        user.get("user_id", "?"), user.get("sub", "?"),
+    )
 
     install_dir = pathlib.Path(__file__).resolve().parents[2]
     log: list[str] = []
