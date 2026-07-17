@@ -67,21 +67,38 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
         return {"org_id": scim_org_id, "role": "admin", "sub": "scim-provisioner"}
 
     # 2. Per-org DB token (rotatable via /settings/scim)
+    # DB-H1: scim_token_hash stores a bcrypt hash — never compare plaintext stored value
     try:
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import Organisation
         from sqlalchemy import select
+        import bcrypt as _bcrypt
         sf = get_session_factory()
         async with sf() as session:
+            # Prefer hashed tokens; fall back to legacy plaintext scim_token for migration
             orgs = (await session.execute(
-                select(Organisation).where(Organisation.scim_token.isnot(None))
+                select(Organisation).where(
+                    Organisation.scim_token_hash.isnot(None) | Organisation.scim_token.isnot(None)
+                )
             )).scalars().all()
         for org in orgs:
-            if org.scim_token and secrets.compare_digest(token, org.scim_token):
+            # Check hashed token first (new path)
+            if org.scim_token_hash:
+                try:
+                    if _bcrypt.checkpw(token.encode(), org.scim_token_hash.encode()):
+                        return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
+                except Exception as _bce:
+                    logger.warning("SCIM bcrypt compare failed for org %s: %s", org.id, _bce)
+            # Legacy plaintext fallback (only during migration window)
+            elif org.scim_token and secrets.compare_digest(token, org.scim_token):
+                logger.warning(
+                    "SCIM: org %s is using deprecated plaintext scim_token — "
+                    "rotate via /settings/scim to migrate to hashed storage", org.id
+                )
                 return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
     except Exception as exc:
         # scim_token column may not exist yet (pre-migration) — fall through
-        logger.debug("SCIM per-org token lookup failed (column may not exist yet): %s", exc)
+        logger.warning("SCIM per-org token lookup failed: %s", exc)
 
     # 3. Fallback: standard JWT (dev / backward-compat)
     from aether_os.gateway.auth import decode_access_token
