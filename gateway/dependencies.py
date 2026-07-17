@@ -79,7 +79,13 @@ async def get_current_user(
             except HTTPException:
                 raise
             except Exception as exc:
-                logger.debug("JWT blacklist check failed (Redis unavailable?): %s", exc)
+                # SEC-C1: Redis blacklist unavailable — fail CLOSED to prevent
+                # revoked tokens from silently passing auth during an outage.
+                logger.warning("JWT blacklist check failed (Redis unavailable) — denying request: %s", exc)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Auth service temporarily unavailable — please retry",
+                )
         return payload
 
     # 2. Try API Key
