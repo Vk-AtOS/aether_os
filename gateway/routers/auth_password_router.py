@@ -108,6 +108,16 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
     user_agent = request.headers.get("User-Agent", "-")
     from aether_os.core.audit.ledger import get_ledger
 
+    # SEC-H3: rate limit — 5 requests per 15 minutes per IP to prevent email abuse
+    from aether_os.core.rate_limiter import get_rate_limiter as _get_rl
+    _rl = _get_rl()
+    await _rl.record_password_reset_attempt(client_ip)
+    if not await _rl.check_password_reset_attempts(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many password reset requests. Please wait 15 minutes before trying again.",
+        )
+
     session_factory = get_session_factory()
     async with session_factory() as session:
         stmt = select(User).where(User.email == req.email)
