@@ -7,13 +7,64 @@ Default: redis://localhost:6379/0
 """
 from __future__ import annotations
 import asyncio
+import ipaddress
 import logging
 import os
 import time
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
+
+# ── Trusted proxy CIDRs (SEC-C3) ─────────────────────────────────────────────
+# Only trust X-Forwarded-For when the direct connection comes from these ranges.
+# Extend via TRUSTED_PROXY_CIDRS env var (comma-separated CIDR list).
+_DEFAULT_TRUSTED_CIDRS = ["127.0.0.1/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+
+
+def _build_trusted_networks() -> list:
+    raw = os.environ.get("TRUSTED_PROXY_CIDRS", "")
+    cidrs = [c.strip() for c in raw.split(",") if c.strip()] if raw else _DEFAULT_TRUSTED_CIDRS
+    nets = []
+    for c in cidrs:
+        try:
+            nets.append(ipaddress.ip_network(c, strict=False))
+        except ValueError as exc:
+            logger.warning("Invalid TRUSTED_PROXY_CIDRS entry %r: %s", c, exc)
+    return nets
+
+
+_TRUSTED_NETWORKS: list = _build_trusted_networks()
+
+
+def get_client_ip(request: "Request") -> str:
+    """Return the authoritative client IP for rate-limiting purposes.
+
+    SEC-C3: X-Forwarded-For is only trusted when the direct connection
+    (request.client.host) comes from a known trusted proxy CIDR. Otherwise
+    the direct connection IP is used, preventing spoofing via forged headers.
+    """
+    direct_ip = request.client.host if request.client else None
+    if not direct_ip:
+        logger.warning("Rate limiter: request.client is None — using 'unknown_ip' bucket")
+        return "unknown_ip"
+
+    # Only honour X-Forwarded-For from trusted proxies
+    try:
+        direct_addr = ipaddress.ip_address(direct_ip)
+        is_trusted_proxy = any(direct_addr in net for net in _TRUSTED_NETWORKS)
+    except ValueError:
+        is_trusted_proxy = False
+
+    if is_trusted_proxy:
+        xff = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        if xff:
+            return xff
+
+    return direct_ip
 
 # ── Async Redis connection ────────────────────────────────────────────────────
 
