@@ -14,14 +14,19 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 
 security_scheme = HTTPBearer(auto_error=False)
 
+# Endpoints exempt from must_change_password block — user must be able to reach
+# change-password and logout even when forced to rotate credentials.
+_PASSWORD_CHANGE_EXEMPT_PATHS = {"/auth/change-password", "/auth/logout"}
+
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> Dict[str, Any]:
     """FastAPI dependency: validates JWT token or API Key, returns user claims."""
@@ -68,6 +73,15 @@ async def get_current_user(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="email_not_verified",
                     )
+
+                # FIX-15: block all endpoints except change-password/logout when must_change_password is set.
+                # This is set by admin reset-password and invite flows to force credential rotation.
+                if getattr(db_user, "must_change_password", False):
+                    if request.url.path not in _PASSWORD_CHANGE_EXEMPT_PATHS:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="password_change_required",
+                        )
 
         jti = payload.get("jti")
         if jti:

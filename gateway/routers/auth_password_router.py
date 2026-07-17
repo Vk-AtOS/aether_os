@@ -265,6 +265,9 @@ async def change_password(req: Dict[str, Any], request: Request, user: Dict[str,
         if not pw_ok:
             raise HTTPException(status_code=401, detail="Current password is incorrect.")
         db_user.password_hash = await loop.run_in_executor(None, get_password_hash, new_pw)
+        # FIX-15: clear forced password-change flag after successful rotation
+        if getattr(db_user, "must_change_password", False):
+            db_user.must_change_password = False
         await session.commit()
 
         # Audit: password_change
