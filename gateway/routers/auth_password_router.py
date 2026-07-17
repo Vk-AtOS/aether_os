@@ -116,14 +116,33 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
 
         if user:
             token = secrets.token_urlsafe(32)
+            # SEC-H2: store token FIRST — only send email if storage succeeded.
+            # Sending the email before confirming persistence causes a dead link
+            # (user clicks it, Redis has no entry, 400 error).
+            token_stored = False
             try:
                 from aether_os.core.pipeline_state import get_redis
                 r = await get_redis()
                 if r:
-                    # Store token in Redis with 1 hour expiry
                     await r.set(f"pw_reset:{token}", user.id, ex=3600)
+                    token_stored = True
+                else:
+                    logger.warning(
+                        "password_reset_request: Redis unavailable — cannot persist token for user %s",
+                        user.id,
+                    )
             except Exception as exc:
-                logger.debug("Failed to store password reset token in Redis for user %s: %s", user.id, exc)
+                logger.warning(
+                    "password_reset_request: failed to store reset token in Redis for user %s: %s",
+                    user.id, exc,
+                )
+
+            if not token_stored:
+                # Return 503 so the caller knows to retry; don't send a dead link.
+                raise HTTPException(
+                    status_code=503,
+                    detail="Password reset is temporarily unavailable. Please try again in a few minutes.",
+                )
 
             # Audit: password_reset_request
             asyncio.create_task(get_ledger().async_log_audit_event(
@@ -134,7 +153,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
                 user_agent=user_agent
             ))
 
-            # Send email
+            # Send email — token is persisted, safe to deliver the link now.
             from aether_os.core.notifications.email import get_email_notifier
             notifier = get_email_notifier()
             frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
