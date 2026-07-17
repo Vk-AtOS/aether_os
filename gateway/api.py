@@ -188,7 +188,10 @@ def create_app() -> FastAPI:
                             ),
                         ))
             except Exception as exc:
-                logger.debug("Audit log write failed (non-fatal): %s", exc)  # Audit logging must never break the request
+                # ARCH-H2: WARNING so failures are visible in production (DEBUG is off by default).
+                # Audit log failures are a SOC-2/GDPR liability — "no events" must not be
+                # indistinguishable from "events failed to write".
+                logger.warning("Audit log write failed (non-fatal): %s", exc)
         return response
 
     # ── Global exception handler — prevents stack traces leaking to clients ────

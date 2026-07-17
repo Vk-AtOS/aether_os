@@ -158,7 +158,9 @@ class DecisionLedger:
                 ))
                 await session.commit()
         except Exception as exc:
-            logger.debug("async_log_audit_event failed: %s", exc)
+            # ARCH-H2: WARNING so failures appear in production logs (DEBUG is off by default).
+            # Audit write failures are a SOC-2/GDPR liability.
+            logger.warning("async_log_audit_event failed: %s", exc)
 
     async def async_get_audit_logs(self, org_id: str, page: int = 1,
                                    limit: int = 50, action: Optional[str] = None,

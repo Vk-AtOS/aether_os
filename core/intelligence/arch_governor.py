@@ -70,7 +70,7 @@ class ArchGovernor:
                 org_id=org_id,
             )
         except Exception as exc:
-            logger.debug("ArchGovernor.enforce audit log failed: %s", exc)
+            logger.warning("ArchGovernor.enforce audit log failed: %s", exc)
         return result
 
 
