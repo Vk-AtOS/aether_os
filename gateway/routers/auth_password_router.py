@@ -108,6 +108,16 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
     user_agent = request.headers.get("User-Agent", "-")
     from aether_os.core.audit.ledger import get_ledger
 
+    # SEC-H3: rate limit — 5 requests per 15 minutes per IP to prevent email abuse
+    from aether_os.core.rate_limiter import get_rate_limiter as _get_rl
+    _rl = _get_rl()
+    await _rl.record_password_reset_attempt(client_ip)
+    if not await _rl.check_password_reset_attempts(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many password reset requests. Please wait 15 minutes before trying again.",
+        )
+
     session_factory = get_session_factory()
     async with session_factory() as session:
         stmt = select(User).where(User.email == req.email)
@@ -116,14 +126,33 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
 
         if user:
             token = secrets.token_urlsafe(32)
+            # SEC-H2: store token FIRST — only send email if storage succeeded.
+            # Sending the email before confirming persistence causes a dead link
+            # (user clicks it, Redis has no entry, 400 error).
+            token_stored = False
             try:
                 from aether_os.core.pipeline_state import get_redis
                 r = await get_redis()
                 if r:
-                    # Store token in Redis with 1 hour expiry
                     await r.set(f"pw_reset:{token}", user.id, ex=3600)
+                    token_stored = True
+                else:
+                    logger.warning(
+                        "password_reset_request: Redis unavailable — cannot persist token for user %s",
+                        user.id,
+                    )
             except Exception as exc:
-                logger.debug("Failed to store password reset token in Redis for user %s: %s", user.id, exc)
+                logger.warning(
+                    "password_reset_request: failed to store reset token in Redis for user %s: %s",
+                    user.id, exc,
+                )
+
+            if not token_stored:
+                # Return 503 so the caller knows to retry; don't send a dead link.
+                raise HTTPException(
+                    status_code=503,
+                    detail="Password reset is temporarily unavailable. Please try again in a few minutes.",
+                )
 
             # Audit: password_reset_request
             asyncio.create_task(get_ledger().async_log_audit_event(
@@ -134,7 +163,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
                 user_agent=user_agent
             ))
 
-            # Send email
+            # Send email — token is persisted, safe to deliver the link now.
             from aether_os.core.notifications.email import get_email_notifier
             notifier = get_email_notifier()
             frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
@@ -265,6 +294,9 @@ async def change_password(req: Dict[str, Any], request: Request, user: Dict[str,
         if not pw_ok:
             raise HTTPException(status_code=401, detail="Current password is incorrect.")
         db_user.password_hash = await loop.run_in_executor(None, get_password_hash, new_pw)
+        # FIX-15: clear forced password-change flag after successful rotation
+        if getattr(db_user, "must_change_password", False):
+            db_user.must_change_password = False
         await session.commit()
 
         # Audit: password_change

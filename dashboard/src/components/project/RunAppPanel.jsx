@@ -30,12 +30,15 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
     try {
       const res = await api.startRunApp(runId);
       setRunning(true);
-      const email = res.data?.preview_email || 'admin@example.com';
-      const pw    = res.data?.preview_password || 'Admin1234!';
-      setPreviewCreds({ email, password: pw });
+      const email = res.data?.preview_email || null;
+      const pw    = res.data?.preview_password || null;
+      setPreviewCreds(email ? { email, password: pw } : null);
+      const credLine = email
+        ? `[AetherOS] Demo login → ${email} / ${pw}`
+        : "[AetherOS] Check your generated app's seed data for login credentials";
       setAppOutput([
         '[AetherOS] Starting app… (builds frontend + installs deps ~15s)',
-        `[AetherOS] Demo login → ${email} / ${pw}`,
+        credLine,
         '[AetherOS] Preview available at /app-preview/',
       ]);
       onToast('App starting — demo credentials shown below.');

@@ -315,6 +315,41 @@ class RateLimiter:
                 logger.warning("Rate limiter Redis error: %s", e)
         _mem.registrations[effective_ip].append(time.time())
 
+    # ── password reset guard (SEC-H3: 5 requests per 15 minutes per IP) ─────
+
+    async def check_password_reset_attempts(self, ip: str) -> bool:
+        """True = allowed. False = rate-limited (5 per 15 min per IP)."""
+        if self._is_exempt_ip(ip):
+            return True
+        effective_ip = self._normalize_ip(ip)
+        max_attempts = int(os.environ.get("MAX_PASSWORD_RESET_PER_IP", 5))
+        window = 900  # 15 minutes
+        r = await _get_async_redis()
+        if r:
+            try:
+                return await _redis_get_count(r, f"pwreset:{effective_ip}", window) < max_attempts
+            except Exception as e:
+                logger.warning("Rate limiter Redis error on password reset check: %s", e)
+        # In-memory fallback uses registrations bucket (same TTL / same shape)
+        now = time.time()
+        _mem.registrations[f"pwreset:{effective_ip}"] = [
+            t for t in _mem.registrations[f"pwreset:{effective_ip}"] if now - t < window
+        ]
+        return len(_mem.registrations[f"pwreset:{effective_ip}"]) < max_attempts
+
+    async def record_password_reset_attempt(self, ip: str) -> None:
+        if self._is_exempt_ip(ip):
+            return
+        effective_ip = self._normalize_ip(ip)
+        r = await _get_async_redis()
+        if r:
+            try:
+                await _redis_incr_window(r, f"pwreset:{effective_ip}", 900)
+                return
+            except Exception as e:
+                logger.warning("Rate limiter Redis error on password reset record: %s", e)
+        _mem.registrations[f"pwreset:{effective_ip}"].append(time.time())
+
     # ── public (unauthenticated) endpoint guard ───────────────────────────────
 
     async def record_public_request(self, ip: str) -> None:

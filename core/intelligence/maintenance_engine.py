@@ -83,7 +83,7 @@ class MaintenanceEngine:
                 org_id=org_id,
             )
         except Exception as exc:
-            logger.debug("MaintenanceEngine.schedule_maintenance audit log failed: %s", exc)
+            logger.warning("MaintenanceEngine.schedule_maintenance audit log failed: %s", exc)
         return {"scheduled": True, "run_id": run_id, "task_type": task_type, "scheduled_at": scheduled_at}
 
     async def health_check_project(self, run_id: str) -> Dict[str, Any]:

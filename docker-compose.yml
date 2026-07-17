@@ -91,7 +91,9 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - aether_os_data:/root/.aether_os
+      # INFRA-H1: container runs as non-root user 'aether'; mount to that user's home dir
+      # so the service can write its data directory on fresh deploys.
+      - aether_os_data:/home/aether/.aether_os
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

@@ -40,7 +40,8 @@ const Sidebar = () => {
       if (payload?.sub) setUserEmail(payload.sub);
     }
 
-    if (['/connectors', '/skills', '/memory', '/costs', '/learning', '/settings/webhooks'].some(p => location.pathname.startsWith(p))) {
+    if (['/connectors', '/skills', '/memory', '/costs', '/learning', '/settings/webhooks',
+         '/frontend-builder', '/backend-builder', '/prompt'].some(p => location.pathname.startsWith(p))) {
       setToolsOpen(true);
     }
     if (['/intelligence', '/health', '/guardian', '/agents', '/compliance'].some(p => location.pathname.startsWith(p))) {
@@ -77,12 +78,16 @@ const Sidebar = () => {
   ];
 
   const toolItems = [
-    { name: 'Connectors', path: '/connectors', icon: Plug },
-    { name: 'Skills',     path: '/skills',     icon: Wrench },
-    { name: 'Memory',     path: '/memory',     icon: Brain },
-    { name: 'Costs',      path: '/costs',      icon: DollarSign },
-    { name: 'Webhooks',   path: '/settings/webhooks', icon: Webhook },
-    { name: 'Learning',   path: '/learning',   icon: GraduationCap },
+    { name: 'Connectors',       path: '/connectors',        icon: Plug },
+    { name: 'Skills',           path: '/skills',            icon: Wrench },
+    { name: 'Memory',           path: '/memory',            icon: Brain },
+    { name: 'Costs',            path: '/costs',             icon: DollarSign },
+    { name: 'Webhooks',         path: '/settings/webhooks', icon: Webhook },
+    { name: 'Learning',         path: '/learning',          icon: GraduationCap },
+    // FE-H5: previously orphan routes — now discoverable via the Tools section
+    { name: 'Frontend Builder', path: '/frontend-builder',  icon: Layout },
+    { name: 'Backend Builder',  path: '/backend-builder',   icon: Database },
+    { name: 'Prompt',           path: '/prompt',            icon: MessageSquare },
   ];
 
   const adminItems = isAdmin ? [
