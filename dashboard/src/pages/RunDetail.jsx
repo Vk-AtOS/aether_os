@@ -198,14 +198,25 @@ const RunDetail = () => {
     }
   }, [runId]);
 
+  // FE-H4: use a ref to hold the interval ID so there is always exactly one active
+  // interval. The previous pattern re-created the interval on every status change
+  // but React's strict-mode / fast re-renders could leave orphan intervals that
+  // fired the stale closure. Now we start once on mount, read run status from a ref
+  // so the callback always sees the latest value, and clear on unmount.
+  const runStatusRef = useRef(run?.status);
+  useEffect(() => {
+    runStatusRef.current = run?.status;
+  }, [run?.status]);
+
   useEffect(() => {
     loadRun();
-    // Poll every 10 s if run is active
     const iv = setInterval(() => {
-      if (run?.status === 'running' || run?.status === 'needs_review') loadRun();
+      const st = runStatusRef.current;
+      if (st === 'running' || st === 'needs_review') loadRun();
     }, 10_000);
     return () => clearInterval(iv);
-  }, [loadRun, run?.status]);
+    // loadRun is stable (useCallback with [runId]) — only restart poll when runId changes
+  }, [loadRun]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDownload = async () => {
     setDownloading(true);
