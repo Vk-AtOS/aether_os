@@ -98,7 +98,9 @@ export const api = {
   // Org settings
   getOrgSettings: () => client.get('/account/settings'),
   updateOrgSettings: (data) => client.post('/account/settings', data),
-  deleteOrg: (orgId) => client.delete(`/account/org/${orgId}`),
+  // FE-C1: corrected URL — backend soft-deletes the current org (no path param).
+  // The caller is identified from the JWT, not from the URL.
+  deleteOrg: () => client.delete('/account/org'),
 
   // SCIM
   getScimConfig: () => client.get('/settings/scim'),
