@@ -2554,12 +2554,16 @@ const ProjectView = () => {
                         try {
                           const res = await api.startRunApp(id);
                           setAppRunning(true);
-                          const email = res.data?.preview_email || 'admin@example.com';
-                          const pw    = res.data?.preview_password || 'Admin1234!';
+                          // FE-H3: do not fall back to a hardcoded credential — show hint instead
+                          const email = res.data?.preview_email || null;
+                          const pw    = res.data?.preview_password || null;
                           setPreviewCreds({ email, password: pw });
+                          const credLine = email
+                            ? `[AetherOS] Demo login → ${email} / ${pw}`
+                            : '[AetherOS] Check your generated app\'s seed data for login credentials';
                           setAppOutput([
                             '[AetherOS] Starting app… (builds frontend + installs deps ~15s)',
-                            `[AetherOS] Demo login → ${email} / ${pw}`,
+                            credLine,
                             '[AetherOS] Preview available at /app-preview/',
                           ]);
                           setToast('App starting — demo credentials shown below.');
