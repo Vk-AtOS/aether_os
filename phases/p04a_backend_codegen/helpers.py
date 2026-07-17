@@ -403,11 +403,49 @@ def _fallback_auth_flow_code() -> str:
 
         import secrets as _secrets
         import time as _time
+        import os as _os
+        import smtplib as _smtplib
+        from email.mime.text import MIMEText as _MIMEText
 
         _reset_tokens: dict = {}   # token -> (user_id, expiry_unix_timestamp)
         _verify_tokens: dict = {}  # token -> user_id
 
         _auth_flow_router = APIRouter(prefix="/auth", tags=["Auth Flow"])
+
+
+        def _send_reset_email(to_email: str, reset_token: str, base_url: str) -> None:
+            \"\"\"Send a password-reset link via SMTP.
+
+            Reads SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS from environment.
+            Raises on misconfiguration so the caller can decide whether to surface
+            the error or swallow it (token remains valid either way).
+            \"\"\"
+            smtp_host = _os.environ.get("SMTP_HOST", "")
+            smtp_port = int(_os.environ.get("SMTP_PORT", "587"))
+            smtp_user = _os.environ.get("SMTP_USER", "")
+            smtp_pass = _os.environ.get("SMTP_PASS", "")
+            from_addr = smtp_user or "noreply@example.com"
+
+            reset_link = f"{base_url.rstrip('/')}/reset-password?token={reset_token}"
+            body = (
+                f"Hello,\\n\\n"
+                f"You requested a password reset. Click the link below (expires in 1 hour):\\n\\n"
+                f"  {reset_link}\\n\\n"
+                f"If you did not request this, please ignore this email.\\n"
+            )
+            msg = _MIMEText(body)
+            msg["Subject"] = "Password Reset Request"
+            msg["From"] = from_addr
+            msg["To"] = to_email
+
+            if not smtp_host:
+                raise RuntimeError("SMTP_HOST not configured — cannot send reset email")
+
+            with _smtplib.SMTP(smtp_host, smtp_port) as server:
+                server.starttls()
+                if smtp_user and smtp_pass:
+                    server.login(smtp_user, smtp_pass)
+                server.sendmail(from_addr, [to_email], msg.as_string())
 
 
         @_auth_flow_router.post("/forgot-password")
@@ -418,7 +456,13 @@ def _fallback_auth_flow_code() -> str:
             if user:
                 token = _secrets.token_urlsafe(32)
                 _reset_tokens[token] = (user.id, _time.time() + 3600)
-                # TODO: deliver reset link via email
+                base_url = _os.environ.get("BASE_URL", "http://localhost:8000")
+                try:
+                    _send_reset_email(email, token, base_url)
+                    logger.info("[auth] password reset email sent to %s", email)
+                except Exception as _email_exc:
+                    # Email failure is non-fatal: token is still valid; log for ops.
+                    logger.warning("[auth] password reset email failed (token still valid): %s", _email_exc)
                 logger.info("[auth] password reset token issued for user_id=%s", user.id)
             return {"message": "If that email exists, a reset link has been sent"}
 
