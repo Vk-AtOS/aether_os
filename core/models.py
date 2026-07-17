@@ -25,7 +25,8 @@ class Organisation(Base):
     storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
     autonomous_mode: Mapped[bool] = mapped_column(Boolean, default=False)
     data_region: Mapped[str] = mapped_column(String(20), default="global")
-    scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated — use scim_token_hash
+    scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
