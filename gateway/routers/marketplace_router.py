@@ -21,6 +21,50 @@ def _current_user():
     return Depends(get_current_user)
 
 
+@router.get("/marketplace/installed")
+async def list_installed_profiles(
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """FE-H2: Return the marketplace profiles installed for the caller's org.
+
+    Reads from InstalledPluginRecord which is written on POST /marketplace/install/{id}.
+    """
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import InstalledPluginRecord, MarketplaceProfile
+    from sqlalchemy import select
+
+    org_id = user["org_id"]
+    sf = get_session_factory()
+    async with sf() as session:
+        rows = (await session.execute(
+            select(InstalledPluginRecord)
+            .where(InstalledPluginRecord.org_id == org_id)
+            .order_by(InstalledPluginRecord.installed_at.desc())
+        )).scalars().all()
+        # Enrich with profile metadata where possible
+        profile_ids = [r.plugin_id for r in rows if r.plugin_id]
+        profiles_map: Dict[str, Any] = {}
+        if profile_ids:
+            profiles = (await session.execute(
+                select(MarketplaceProfile).where(MarketplaceProfile.id.in_(profile_ids))
+            )).scalars().all()
+            profiles_map = {p.id: p for p in profiles}
+
+    items = [
+        {
+            "id": r.id,
+            "plugin_id": r.plugin_id,
+            "name": profiles_map[r.plugin_id].name if r.plugin_id in profiles_map else r.plugin_id,
+            "base_domain": profiles_map[r.plugin_id].base_domain if r.plugin_id in profiles_map else None,
+            "installed_at": r.installed_at,
+            "test_status": r.test_status,
+            "last_tested_at": r.last_tested_at,
+        }
+        for r in rows
+    ]
+    return {"items": items, "total": len(items)}
+
+
 @router.get("/marketplace/profiles")
 async def list_profiles(page: int = 1, limit: int = 20):
     from aether_os.core.db import get_session_factory
