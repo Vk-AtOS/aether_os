@@ -403,3 +403,51 @@ async def branch_factory_run(
         "parent_run_id": run_id,
         "branch_phase": branch_phase,
     }
+
+
+@router.get("/factory/runs/{run_id}/events")
+async def get_run_events(
+    run_id: str,
+    user: Dict[str, Any] = _current_user(),
+) -> Dict[str, Any]:
+    """Return all pipeline events for a run, ordered by created_at.
+
+    M11: RunDetail.jsx calls this route but no handler existed — events tab was always empty.
+    Queries the pipeline_events table (created in DB-C1 migration).
+    """
+    from aether_os.core.audit.ledger import get_ledger
+    from aether_os.core.db import get_session_factory as _gsf_ev
+    from aether_os.core.models import PipelineEvent
+    from sqlalchemy import select as _sel_ev
+
+    # Verify run belongs to this org (IDOR guard)
+    org_id = user.get("org_id")
+    run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+    if not run_detail:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    try:
+        async with _gsf_ev()() as _sess_ev:
+            rows = (
+                await _sess_ev.execute(
+                    _sel_ev(PipelineEvent)
+                    .where(PipelineEvent.run_id == run_id)
+                    .order_by(PipelineEvent.created_at.asc())
+                )
+            ).scalars().all()
+    except Exception as exc:
+        logger.warning("get_run_events: DB query failed for run %s: %s", run_id, exc)
+        rows = []
+
+    events = [
+        {
+            "id": e.id,
+            "run_id": e.run_id,
+            "phase": (e.payload or {}).get("phase") if e.payload else None,
+            "event_type": e.event_type,
+            "payload": e.payload,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in rows
+    ]
+    return {"run_id": run_id, "events": events, "total": len(events)}
