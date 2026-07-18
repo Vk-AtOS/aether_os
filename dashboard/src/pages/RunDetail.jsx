@@ -218,8 +218,9 @@ const RunDetail = () => {
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn('ZIP download failed:', e);
+      setError('Download failed. Please try again.');
     } finally {
       setDownloading(false);
     }
