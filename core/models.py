@@ -180,7 +180,8 @@ class Webhook(Base):
     org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
     events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # deprecated — plaintext, kept for migration period
+    secret_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # M3: bcrypt hash; plaintext only returned at creation time
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
