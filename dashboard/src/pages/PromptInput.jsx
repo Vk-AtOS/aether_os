@@ -140,7 +140,7 @@ const PromptInput = () => {
           </div>
         )}
 
-        {messages.map((m, i) => <Message key={i} msg={m} />)}
+        {messages.map((m, i) => <Message key={m.id || `${m.role}-${i}`} msg={m} />)}
 
         {loading && (
           <div className="flex gap-3">

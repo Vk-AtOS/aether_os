@@ -378,7 +378,7 @@ const ImprovementLoopTool = () => {
                 const priority = imp.priority || 'info';
                 const color = priority === 'high' ? 'text-yellow-400' : 'text-accent';
                 return (
-                  <div key={i} className="flex items-start gap-2.5 py-2 border-b border-border/40 last:border-0">
+                  <div key={imp.id || msg || i} className="flex items-start gap-2.5 py-2 border-b border-border/40 last:border-0">
                     <Sparkles className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${color}`} />
                     <p className="text-xs text-bright/90 leading-relaxed">{msg}</p>
                   </div>
@@ -518,7 +518,7 @@ const IntelligenceHub = () => {
             ? <p className="text-xs text-muted">No insights yet — run a few pipelines to generate data.</p>
             : insightsList.map((ins, i) => (
                 <InsightItem
-                  key={i}
+                  key={ins.id || ins.message || ins.text || i}
                   text={typeof ins === 'string' ? ins : ins.message || ins.text || JSON.stringify(ins)}
                   type={ins.severity || ins.type || 'info'}
                 />
@@ -564,7 +564,7 @@ const IntelligenceHub = () => {
             : archIssues.length === 0
               ? <div className="flex items-center gap-2 text-emerald-400 text-sm"><CheckCircle2 className="w-4 h-4" /> No architectural violations detected</div>
               : archIssues.map((issue, i) => (
-                  <InsightItem key={i}
+                  <InsightItem key={issue.id || issue.message || i}
                     text={typeof issue === 'string' ? issue : issue.message || JSON.stringify(issue)}
                     type={issue.severity === 'critical' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'} />
                 ))}
@@ -579,7 +579,7 @@ const IntelligenceHub = () => {
             : tradeoffs.length === 0
               ? <p className="text-xs text-muted">No tradeoff recommendations available.</p>
               : tradeoffs.map((t, i) => (
-                  <InsightItem key={i}
+                  <InsightItem key={t.id || t.recommendation || t.message || i}
                     text={typeof t === 'string' ? t : t.recommendation || t.message || JSON.stringify(t)}
                     type={t.priority === 'high' ? 'warning' : 'info'} />
                 ))}
