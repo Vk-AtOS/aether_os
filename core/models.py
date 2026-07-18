@@ -236,6 +236,9 @@ class SamlConfig(Base):
     idp_cert: Mapped[Text] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
+    # M5: enforce one SAML config per org at the DB level
+    __table_args__ = (UniqueConstraint('org_id', name='uq_saml_config_org_id'),)
+
 class ArtifactEmbedding(Base):
     __tablename__ = "artifact_embeddings"
 
