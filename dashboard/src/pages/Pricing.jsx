@@ -139,7 +139,8 @@ const PlanCard = ({ plan, current, onUpgrade, upgrading }) => {
 
 const Pricing = () => {
   const navigate = useNavigate();
-  const [plans, setPlans] = useState([]);
+  // null = loading, [] = API failed (show fallback), array = API data
+  const [plans, setPlans] = useState(null);
   const [current, setCurrent] = useState('trial');
   const [upgrading, setUpgrading] = useState('');
   const [success, setSuccess] = useState('');
@@ -147,7 +148,9 @@ const Pricing = () => {
   const isLoggedIn = !!api.getToken();
 
   useEffect(() => {
-    api.client.get('/billing/plans').then(r => setPlans(r.data.plans || [])).catch(() => {});
+    api.client.get('/billing/plans')
+      .then(r => setPlans(r.data.plans || []))
+      .catch(() => setPlans([])); // empty array triggers fallback block below
     if (isLoggedIn) {
       api.client.get('/account/usage').then(r => setCurrent(r.data.plan || 'trial')).catch(() => {});
     }
@@ -377,7 +380,21 @@ const Pricing = () => {
             <div className="mb-8 max-w-md mx-auto bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400 text-sm">{error}</div>
           )}
 
-          {plans.length > 0 ? (
+          {plans === null ? (
+            /* Loading skeleton — avoids flashing wrong prices before API responds */
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start animate-pulse">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 space-y-4">
+                  <div className="h-5 bg-white/[0.06] rounded w-1/3" />
+                  <div className="h-8 bg-white/[0.06] rounded w-1/2" />
+                  <div className="space-y-2">
+                    {[1, 2, 3].map(j => <div key={j} className="h-3 bg-white/[0.04] rounded" />)}
+                  </div>
+                  <div className="h-10 bg-white/[0.06] rounded-xl" />
+                </div>
+              ))}
+            </div>
+          ) : plans.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
               {plans.map(plan => (
                 <PlanCard key={plan.id} plan={plan} current={current}
@@ -385,12 +402,12 @@ const Pricing = () => {
               ))}
             </div>
           ) : (
-            /* Fallback hardcoded plans if API not available */
+            /* Fallback USD prices shown only when API call definitively fails */
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
               {[
-                { name: 'Free', price: '₹0', period: 'forever', features: ['3 factory runs/month', '10 phases per run', 'ZIP download', 'Community support'], cta: 'Start free', highlight: false, link: '/signup' },
-                { name: 'Pro', price: '₹999', period: '/month', features: ['Unlimited runs', 'All 29 phases', 'Priority builds', 'Enterprise deployment', 'Handoff package', 'Email support'], cta: 'Start Pro trial', highlight: true, link: '/signup' },
-                { name: 'Enterprise', price: '₹4,999', period: '/month', features: ['Everything in Pro', 'SAML SSO', 'Custom models', 'SLA guarantee', 'Dedicated support', 'On-premise option'], cta: 'Contact sales', highlight: false, link: 'mailto:sales@aetheros.ai' },
+                { name: 'Free', price: '$0', period: 'forever', features: ['3 factory runs/month', '10 phases per run', 'ZIP download', 'Community support'], cta: 'Start free', highlight: false, link: '/signup' },
+                { name: 'Pro', price: '$49', period: '/month', features: ['Unlimited runs', 'All 29 phases', 'Priority builds', 'Enterprise deployment', 'Handoff package', 'Email support'], cta: 'Start Pro trial', highlight: true, link: '/signup' },
+                { name: 'Enterprise', price: '$199', period: '/month', features: ['Everything in Pro', 'SAML SSO', 'Custom models', 'SLA guarantee', 'Dedicated support', 'On-premise option'], cta: 'Contact sales', highlight: false, link: 'mailto:sales@aetheros.ai' },
               ].map((p) => (
                 <div key={p.name} className={`relative rounded-2xl p-6 ${p.highlight
                   ? 'bg-gradient-to-b from-violet-600/20 to-indigo-600/10 border-2 border-violet-500/40 shadow-xl shadow-violet-500/10 scale-[1.02]'
