@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 
@@ -78,7 +79,9 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
         raise HTTPException(status_code=422, detail="Invalid webhook URL")
 
     events = req.get("events", [])
+    # M3: generate raw secret, return it ONCE, store only the bcrypt hash
     secret = _secrets.token_hex(32)
+    secret_hash = bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
     org_id = user["org_id"]
 
     sf = get_session_factory()
@@ -86,14 +89,16 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
         new_webhook = Webhook(
             url=url,
             events=events,
-            secret=secret,
+            secret=None,       # M3: never store plaintext secret
+            secret_hash=secret_hash,
             org_id=org_id,
         )
         session.add(new_webhook)
         await session.commit()
         await session.refresh(new_webhook)
 
-    return {"id": new_webhook.id, "url": new_webhook.url, "is_active": True}
+    # Return the raw secret exactly once — caller must persist it; it cannot be recovered
+    return {"id": new_webhook.id, "url": new_webhook.url, "is_active": True, "secret": secret}
 
 
 @router.delete("/webhooks/{webhook_id}")
