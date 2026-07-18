@@ -90,7 +90,7 @@ function App() {
       <Route path="/forgot-password" element={<ErrorBoundary><Suspense fallback={null}><ForgotPassword /></Suspense></ErrorBoundary>} />
       <Route path="/pricing" element={<ErrorBoundary><Suspense fallback={null}><Pricing /></Suspense></ErrorBoundary>} />
       <Route path="/legal"   element={<ErrorBoundary><Suspense fallback={null}><Legal /></Suspense></ErrorBoundary>} />
-      <Route path="/auth/callback" element={<OAuthCallback />} />
+      <Route path="/auth/callback" element={<ErrorBoundary><OAuthCallback /></ErrorBoundary>} />
       <Route path="/portal/:id" element={<ErrorBoundary><Suspense fallback={null}><ClientPortal /></Suspense></ErrorBoundary>} />
 
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>

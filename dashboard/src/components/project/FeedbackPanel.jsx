@@ -11,6 +11,7 @@ const FeedbackPanel = ({ run }) => {
   const [feedbackComment, setFeedbackComment]       = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted]   = useState(false);
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError]           = useState(null);
 
   if (run?.status !== 'completed') return null;
 
@@ -90,6 +91,7 @@ const FeedbackPanel = ({ run }) => {
             disabled={feedbackSubmitting}
             onClick={async () => {
               setFeedbackSubmitting(true);
+              setFeedbackError(null);
               try {
                 await api.client.post(`/factory/runs/${run.id}/feedback`, {
                   rating: feedbackRating,
@@ -98,7 +100,8 @@ const FeedbackPanel = ({ run }) => {
                 });
                 setFeedbackSubmitted(true);
               } catch (e) {
-                console.error('feedback error', e);
+                console.warn('Feedback submission failed:', e);
+                setFeedbackError('Could not submit rating. Please try again.');
               } finally {
                 setFeedbackSubmitting(false);
               }
@@ -108,6 +111,9 @@ const FeedbackPanel = ({ run }) => {
             <Star className="w-3.5 h-3.5" />
             {feedbackSubmitting ? 'Saving…' : 'Submit Rating'}
           </button>
+          {feedbackError && (
+            <p className="text-xs text-danger mt-1">{feedbackError}</p>
+          )}
         </>
       )}
     </section>
