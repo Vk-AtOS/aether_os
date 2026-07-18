@@ -330,7 +330,7 @@ const Settings = () => {
           setUsageLoading(false);
         }
       } catch (err) {
-        console.error('Settings fetch error', err);
+        console.warn('Settings fetch error:', err);
       }
     };
     fetchData();
@@ -370,7 +370,7 @@ const Settings = () => {
     try {
       await api.savePhaseConfig(phase, config);
     } catch (err) {
-      console.error('Failed to save phase config', err);
+      console.warn('Failed to save phase config:', err);
     }
   };
 
@@ -574,7 +574,7 @@ const Settings = () => {
       setAuditExportStatus('done');
       setTimeout(() => setAuditExportStatus(null), 3000);
     } catch (err) {
-      console.error('Audit export failed', err);
+      console.warn('Audit export failed:', err);
       setAuditExportStatus('error');
       setTimeout(() => setAuditExportStatus(null), 4000);
     }
