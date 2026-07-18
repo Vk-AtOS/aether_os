@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,17 @@ async def upsert_pattern(
     ).scalar_one_or_none()
 
     if existing:
-        existing.occurrence_count += 1
+        # M1: atomic increment — avoids read-then-write race under concurrent pipeline runs
+        await session.execute(
+            update(UserLearningPattern)
+            .where(
+                UserLearningPattern.org_id == org_id,
+                UserLearningPattern.user_id == user_id,
+                UserLearningPattern.pattern_type == pattern_type,
+                UserLearningPattern.pattern_key == pattern_key,
+            )
+            .values(occurrence_count=UserLearningPattern.occurrence_count + 1)
+        )
         existing.confidence = min(1.0, existing.confidence + 0.1)
         existing.pattern_value = value if isinstance(value, dict) else {"v": value}
         existing.last_updated_at = datetime.now(timezone.utc)
