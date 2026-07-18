@@ -4,6 +4,8 @@ GET  /admin/users
 POST /admin/users/invite
 POST /admin/users/{user_id}/role
 POST /admin/users/{user_id}/deactivate
+POST /admin/users/{user_id}/reactivate
+POST /admin/users/{user_id}/reset-password
 GET  /admin/audit/export.csv
 GET  /admin/error-registry
 GET  /admin/error-registry/summary
@@ -20,7 +22,6 @@ from __future__ import annotations
 import csv
 import io
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -28,6 +29,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.services.admin_service import (
+    invite_user_service,
+    reset_user_password_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["admin"])
@@ -89,66 +94,14 @@ async def invite_user(req: Dict[str, Any], user: Dict[str, Any] = _current_user(
         raise HTTPException(status_code=422, detail="Valid email required")
     if role not in ("owner", "admin", "member", "viewer"):
         raise HTTPException(status_code=422, detail="Invalid role")
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User, Organisation
-    from aether_os.gateway.auth import get_password_hash
-    from sqlalchemy import select as _sel_inv
-    import secrets as _sec
-    sf = get_session_factory()
-    async with sf() as session:
-        existing = (await session.execute(
-            _sel_inv(User).where(User.email == email)
-        )).scalar_one_or_none()
-        if existing:
-            raise HTTPException(status_code=409, detail="User with this email already exists")
-        temp_password = _sec.token_urlsafe(16)
-        new_user = User(
-            org_id=user["org_id"],
-            email=email,
-            password_hash=get_password_hash(temp_password),
-            role=role,
-            is_active=True,
-            must_change_password=True,  # FIX-15: invited users must set own password on first login
-        )
-        session.add(new_user)
-        await session.commit()
-        await session.refresh(new_user)
 
-    # Send invite email with temp credentials
-    email_sent = False
-    try:
-        from aether_os.core.notifications.email import get_email_notifier
-        frontend_url = os.environ.get("FRONTEND_URL", "https://app.aetheros.ai").rstrip("/")
-        login_url = f"{frontend_url}/login"
-        inviter_name = user.get("sub", "Your organisation")
-        notifier = get_email_notifier()
-        body_html = (
-            f"<p>You've been invited to join <strong>AetherOS</strong> by {inviter_name}.</p>"
-            f"<p>Your temporary credentials:</p>"
-            f"<ul><li><strong>Email:</strong> {email}</li>"
-            f"<li><strong>Temporary password:</strong> <code>{temp_password}</code></li></ul>"
-            f"<p><a href='{login_url}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
-            f"border-radius:6px;text-decoration:none;display:inline-block'>Sign in to AetherOS</a></p>"
-            f"<p>Please change your password after your first login.</p>"
-            f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
-        )
-        body_text = (
-            f"You've been invited to join AetherOS by {inviter_name}.\n\n"
-            f"Your temporary credentials:\n  Email: {email}\n  Password: {temp_password}\n\n"
-            f"Sign in at: {login_url}\n\nPlease change your password after your first login."
-        )
-        email_sent = await notifier.send(email, "You've been invited to AetherOS", body_html, body_text)
-    except Exception as exc:
-        logger.warning("Invite email failed for %s: %s", email, exc)
-
-    return {
-        "id": new_user.id,
-        "email": email,
-        "role": role,
-        "email_sent": email_sent,
-        # Only include temp_password when email could not be sent so admin can share it manually
-        **({"temp_password": temp_password} if not email_sent else {}),
-    }
+    # M10/L3: Organisation import removed (was unused); logic moved to admin_service
+    return await invite_user_service(
+        email=email,
+        role=role,
+        org_id=user["org_id"],
+        inviter_name=user.get("sub", "Your organisation"),
+    )
 
 
 @router.post("/admin/users/{user_id}/role")
@@ -178,64 +131,17 @@ async def admin_reset_password(user_id: str, user: Dict[str, Any] = _current_use
     """Reset a user's password to a temporary value.  Admin/owner only.
 
     SEC-H1: temp_password is only included in the response when the email could NOT
-    be sent — so the admin can share it manually.  When email succeeds the plaintext
-    credential is never written to any log or network response.
+    be sent — so the admin can share it manually.
     FIX-15: must_change_password is set to True so the dependency layer enforces a
     password change before the user can call any other endpoint.
     """
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Admin access required")
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User
-    from aether_os.gateway.auth import get_password_hash
-    import secrets as _sec_rp
-    sf = get_session_factory()
-    async with sf() as session:
-        db_user = await session.get(User, user_id)
-        if not db_user or db_user.org_id != user["org_id"]:
-            raise HTTPException(status_code=404, detail="User not found")
-        temp_password = _sec_rp.token_urlsafe(16)
-        db_user.password_hash = get_password_hash(temp_password)
-        db_user.must_change_password = True  # FIX-15: force change on next login
-        await session.commit()
-        target_email = db_user.email
-
-    logger.warning(
-        "admin_reset_password: admin %s reset password for user %s",
-        user.get("sub", "?"), user_id,
+    return await reset_user_password_service(
+        user_id=user_id,
+        org_id=user["org_id"],
+        admin_sub=user.get("sub", "?"),
     )
-
-    # Try to send the new credential by email
-    email_sent = False
-    try:
-        from aether_os.core.notifications.email import get_email_notifier
-        frontend_url = os.environ.get("FRONTEND_URL", "https://app.aetheros.ai").rstrip("/")
-        notifier = get_email_notifier()
-        body_html = (
-            f"<p>An administrator has reset your AetherOS password.</p>"
-            f"<p>Your temporary password is: <code>{temp_password}</code></p>"
-            f"<p>You will be required to change it on your next login.</p>"
-            f"<p><a href='{frontend_url}/login' style='background:#7c3aed;color:#fff;"
-            f"padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block'>Sign In</a></p>"
-            f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
-        )
-        body_text = (
-            f"An administrator has reset your AetherOS password.\n\n"
-            f"Temporary password: {temp_password}\n\n"
-            f"You will be required to change it on your next login.\nSign in at: {frontend_url}/login"
-        )
-        email_sent = await notifier.send(target_email, "AetherOS: Your password has been reset", body_html, body_text)
-    except Exception as exc:
-        logger.warning("admin_reset_password: email send failed for %s: %s", target_email, exc)
-
-    return {
-        "success": True,
-        "user_id": user_id,
-        "email_sent": email_sent,
-        "must_change_password": True,
-        # SEC-H1: only expose temp_password when email could NOT be delivered
-        **({"temp_password": temp_password} if not email_sent else {}),
-    }
 
 
 @router.post("/admin/users/{user_id}/deactivate")
@@ -276,35 +182,6 @@ async def reactivate_user(
         target.is_active = True
         await session.commit()
     return {"success": True, "user_id": user_id}
-
-
-@router.post("/admin/users/{user_id}/reset-password")
-async def reset_user_password(
-    user_id: str,
-    user: Dict[str, Any] = _current_user(),
-):
-    import secrets as _secrets
-    import string as _string
-    if user.get("role") not in ["owner", "admin"]:
-        raise HTTPException(status_code=403)
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User
-    from sqlalchemy import select
-    import bcrypt
-
-    org_id = user["org_id"]
-    temp_password = "Tmp!" + "".join(_secrets.choice(_string.ascii_letters + _string.digits) for _ in range(12))
-    sf = get_session_factory()
-    async with sf() as session:
-        target = (await session.execute(
-            select(User).where(User.id == user_id, User.org_id == org_id)
-        )).scalar_one_or_none()
-        if not target:
-            raise HTTPException(status_code=404, detail="User not found")
-        target.password_hash = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt()).decode()
-        await session.commit()
-    logger.info("admin_router: password reset for user %s by %s", user_id, user.get("sub"))
-    return {"success": True, "temp_password": temp_password, "user_id": user_id}
 
 
 @router.get("/admin/audit/export.csv")
