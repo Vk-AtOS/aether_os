@@ -7,6 +7,7 @@ const AuditLogs = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
   const [search, setSearch] = useState('');
   const [purging, setPurging] = useState(false);
   const [purgeResult, setPurgeResult] = useState(null);
@@ -19,6 +20,7 @@ const AuditLogs = () => {
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const params = { page, limit: LIMIT };
       if (search) params.action = search;
@@ -31,8 +33,10 @@ const AuditLogs = () => {
         setLogs(data.items ?? data.logs ?? []);
         setTotal(data.total ?? 0);
       }
-    } catch {
+    } catch (e) {
+      console.warn('Failed to load audit logs:', e);
       setLogs([]);
+      setFetchError('Failed to load audit logs. Please refresh.');
     } finally {
       setLoading(false);
     }
@@ -168,6 +172,14 @@ const AuditLogs = () => {
               Cancel
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Fetch error */}
+      {fetchError && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border bg-red-500/10 border-red-500/30 text-danger text-sm">
+          {fetchError}
+          <button onClick={() => setFetchError(null)} className="ml-auto text-xs text-muted hover:text-bright">✕</button>
         </div>
       )}
 
