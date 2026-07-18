@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pathlib
 import re
+import secrets
 import textwrap
 from typing import Optional, Tuple
 
@@ -304,7 +306,7 @@ def _spa_catchall(path: str = ""):
             _DIST = _PROJECT_DIR / "p05_frontend" / "frontend" / "dist"
 
             os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{{_PREVIEW_DB}}")
-            os.environ.setdefault("SECRET_KEY", "aetheros-preview-secret-not-for-production")
+            os.environ.setdefault("SECRET_KEY", os.environ.get("PREVIEW_JWT_SECRET") or secrets.token_urlsafe(32))
 
             from main import app  # noqa: E402
 
