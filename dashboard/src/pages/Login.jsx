@@ -265,10 +265,7 @@ const Login = () => {
           Don't have an account?{' '}
           <Link to="/signup" className="text-accent font-semibold hover:underline">Start free trial →</Link>
         </p>
-        <p className="text-center text-[10px] text-muted mt-4 uppercase tracking-[0.2em]">
-          Powered by VKatOS • Secure Enterprise Mesh
-        </p>
-        <div className="flex items-center justify-center gap-4 mt-3">
+        <div className="flex items-center justify-center gap-4 mt-4">
           <a href="/dashboard/legal?doc=tos" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted hover:text-accent transition-colors uppercase tracking-wider">Terms of Service</a>
           <span className="text-muted/30">·</span>
           <a href="/dashboard/legal?doc=privacy" target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted hover:text-accent transition-colors uppercase tracking-wider">Privacy Policy</a>
