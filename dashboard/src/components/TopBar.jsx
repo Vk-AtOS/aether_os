@@ -175,6 +175,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
     critical: { dot: 'bg-red-400 animate-pulse', pill: 'bg-red-500/10 border-red-500/20 text-red-400' },
   }[derivedStatus.level] || { dot: 'bg-slate-400', pill: 'bg-white/[0.04] border-white/[0.08] text-slate-400' } : null;
 
+  // activeProvider is null while settings load — badge is hidden when null via the conditional render below
   const providerStyle = PROVIDER_COLORS[activeProvider] || { text: 'text-slate-400', bg: 'bg-white/[0.04] border-white/[0.08]' };
 
   return (
