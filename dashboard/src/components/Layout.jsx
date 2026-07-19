@@ -67,7 +67,7 @@ function LayoutInner() {
         </main>
         <footer className="shrink-0 py-2 border-t border-white/[0.06] bg-[#050507]/80 text-center">
           <p className="text-xs text-slate-700">
-            © 2026 VKatOS Private Limited — AetherOS Factory v1.0
+            © 2026 AetherOS
           </p>
         </footer>
       </div>
