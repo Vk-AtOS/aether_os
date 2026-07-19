@@ -180,8 +180,8 @@ const Signup = () => {
           </p>
         </form>
 
-        <p className="text-center text-[10px] text-muted/50 mt-6 uppercase tracking-[0.15em]">
-          Powered by VKatOS · Secure Enterprise AI
+        <p className="text-center text-[10px] text-muted/50 mt-6">
+          © 2026 AetherOS
         </p>
       </div>
     </div>
