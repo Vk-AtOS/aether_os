@@ -200,15 +200,25 @@ async def system_health(
         logger.debug("system_health: DB pool size unavailable: %s", exc)
 
     import subprocess as _sp
+    import shutil as _shutil_sb
     _sandbox_status = "not_configured"
     _sandbox_engine = "none"
-    try:
-        _docker_res = _sp.run(["docker", "info"], capture_output=True, timeout=3)
-        if _docker_res.returncode == 0:
-            _sandbox_status = "ok"
+    if _shutil_sb.which("docker"):
+        # Docker binary exists — check whether the daemon is reachable
+        try:
+            _docker_res = _sp.run(["docker", "info"], capture_output=True, timeout=3)
+            if _docker_res.returncode == 0:
+                _sandbox_status = "ok"
+                _sandbox_engine = "docker"
+            else:
+                # Binary present but daemon not running
+                _sandbox_status = "unreachable"
+                _sandbox_engine = "docker"
+        except Exception as exc:
+            logger.debug("system_health: docker check failed: %s", exc)
+            _sandbox_status = "unreachable"
             _sandbox_engine = "docker"
-    except Exception as exc:
-        logger.debug("system_health: docker check failed: %s", exc)
+    # else: docker binary absent → "not_configured" is correct
 
     _workloop_status: dict = {}
     try:
