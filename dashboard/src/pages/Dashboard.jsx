@@ -145,9 +145,13 @@ const GuardianWidget = () => {
   }, []);
 
   if (!data) return null;
-  const level = data.status?.threat_level || 'unknown';
-  const Icon = THREAT_ICONS[level] || Shield;
-  const style = THREAT_STYLES[level] || 'text-slate-400 bg-white/[0.04] border-white/[0.06]';
+  const rawLevel = data.status?.threat_level;
+  // Treat missing/null/unknown threat_level as uninitialised — show "Not configured"
+  // rather than a fake "UNKNOWN" security alert.
+  const isUnconfigured = !rawLevel || rawLevel === 'unknown';
+  const level = isUnconfigured ? null : rawLevel;
+  const Icon = (level && THREAT_ICONS[level]) || Shield;
+  const style = (level && THREAT_STYLES[level]) || 'text-slate-400 bg-white/[0.04] border-white/[0.06]';
   const today = data.stats?.threats_blocked_today ?? 0;
   const total = data.stats?.threats_blocked_total ?? 0;
 
@@ -159,7 +163,9 @@ const GuardianWidget = () => {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-widest">Guardian</span>
-          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${style}`}>{level}</span>
+          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${style}`}>
+            {isUnconfigured ? 'Not configured' : level}
+          </span>
         </div>
         <p className="text-[11px] mt-0.5 opacity-80">
           {today > 0 ? `${today} threat${today !== 1 ? 's' : ''} blocked today` : 'No threats today'}
