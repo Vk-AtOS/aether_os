@@ -259,7 +259,7 @@ const NewProjectWizard = () => {
   return (
     <div className="max-w-3xl mx-auto py-6">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">New Factory Run</h1>
+        <h1 className="text-2xl font-bold text-white">New Project</h1>
         <p className="text-sm text-slate-500 mt-1">AetherOS will generate a complete working application from your requirements.</p>
       </div>
 
