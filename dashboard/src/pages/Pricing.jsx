@@ -483,7 +483,7 @@ const Pricing = () => {
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-slate-500">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md bg-gradient-to-br from-violet-600 to-indigo-500" />
-            <span>© 2026 VKatOS Private Limited — AetherOS Factory</span>
+            <span>© 2026 AetherOS</span>
           </div>
           <div className="flex gap-6">
             <Link to="/legal" className="hover:text-slate-300 transition-colors">Privacy & Terms</Link>
