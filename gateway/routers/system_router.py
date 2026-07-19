@@ -232,8 +232,6 @@ async def system_health(
         "fallback_count_today": routing.get("fallback_count_today", 0),
         "model_availability": routing.get("model_availability", {}),
         "version": "1.0.0",
-        "environment": os.environ.get("ENVIRONMENT", "development"),
-        "env": os.environ.get("ENVIRONMENT", "development"),
         "uptime": _uptime_secs,
         "database": db_status,
         "db_pool_size": _pool_size,
