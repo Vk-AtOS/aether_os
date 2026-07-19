@@ -295,14 +295,16 @@ const Billing = () => {
             </div>
             <div className="p-6 space-y-4">
               {[
-                { label: 'Tokens Today',      value: usage?.tokens_today ?? '—' },
-                { label: 'Tokens This Month', value: usage?.tokens_month ?? '—' },
-                { label: 'Cost This Month',   value: usage?.cost_month_usd != null ? `$${Number(usage.cost_month_usd).toFixed(4)}` : '—' },
-                { label: 'Total Runs',        value: usage?.total_runs ?? '—' },
+                { label: 'Tokens Today',      value: usage?.tokens_today != null ? usage.tokens_today : null },
+                { label: 'Tokens This Month', value: usage?.tokens_month != null ? usage.tokens_month : null },
+                { label: 'Cost This Month',   value: usage?.cost_month_usd != null ? `$${Number(usage.cost_month_usd).toFixed(4)}` : null },
+                { label: 'Total Runs',        value: usage?.total_runs != null ? usage.total_runs : (usage?.runs_used != null ? usage.runs_used : null) },
               ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between items-center py-2 border-b border-border/30 last:border-0">
                   <span className="text-xs font-bold text-muted uppercase tracking-wider">{label}</span>
-                  <span className="text-sm font-mono text-bright">{value}</span>
+                  <span className={`text-sm font-mono ${value != null ? 'text-bright' : 'text-muted/50 italic'}`}>
+                    {value != null ? value : 'No data yet'}
+                  </span>
                 </div>
               ))}
             </div>
