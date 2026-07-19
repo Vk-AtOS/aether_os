@@ -7,12 +7,15 @@ import {
 } from 'lucide-react';
 
 const STATUS = {
-  ok:       { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2, label: 'OK' },
-  healthy:  { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2, label: 'Healthy' },
-  degraded: { color: 'text-yellow-400',  bg: 'bg-yellow-500/10 border-yellow-500/30',   icon: AlertTriangle, label: 'Degraded' },
-  warning:  { color: 'text-yellow-400',  bg: 'bg-yellow-500/10 border-yellow-500/30',   icon: AlertTriangle, label: 'Warning' },
-  error:    { color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30',          icon: XCircle,       label: 'Error' },
-  unknown:  { color: 'text-muted',       bg: 'bg-border/20 border-border',               icon: AlertTriangle, label: 'Unknown' },
+  ok:             { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2,  label: 'OK' },
+  healthy:        { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2,  label: 'Healthy' },
+  degraded:       { color: 'text-yellow-400',  bg: 'bg-yellow-500/10 border-yellow-500/30',   icon: AlertTriangle, label: 'Degraded' },
+  warning:        { color: 'text-yellow-400',  bg: 'bg-yellow-500/10 border-yellow-500/30',   icon: AlertTriangle, label: 'Warning' },
+  error:          { color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30',          icon: XCircle,       label: 'Error' },
+  unavailable:    { color: 'text-muted',       bg: 'bg-border/20 border-border',               icon: AlertTriangle, label: 'Unavailable' },
+  not_configured: { color: 'text-muted',       bg: 'bg-border/20 border-border',               icon: AlertTriangle, label: 'Not Configured' },
+  unreachable:    { color: 'text-yellow-400',  bg: 'bg-yellow-500/10 border-yellow-500/30',   icon: AlertTriangle, label: 'Unreachable' },
+  unknown:        { color: 'text-muted',       bg: 'bg-border/20 border-border',               icon: AlertTriangle, label: 'Unknown' },
 };
 
 const getStatus = (s) => STATUS[s?.toLowerCase()] || STATUS.unknown;
