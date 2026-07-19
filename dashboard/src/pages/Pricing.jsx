@@ -83,17 +83,17 @@ const PlanCard = ({ plan, current, onUpgrade, upgrading }) => {
         </div>
 
         <div className="flex items-end gap-1 mb-1">
-          {plan.price_inr === 0 ? (
+          {plan.price_usd === 0 || plan.price_inr === 0 ? (
             <span className="text-3xl font-bold text-white">Free</span>
           ) : (
             <>
-              <span className="text-sm font-bold text-slate-400 self-start mt-1">₹</span>
-              <span className="text-3xl font-bold text-white">{plan.price_inr.toLocaleString('en-IN')}</span>
+              <span className="text-sm font-bold text-slate-400 self-start mt-1">$</span>
+              <span className="text-3xl font-bold text-white">{plan.price_usd ?? (plan.id === 'pro' ? '49' : '199')}</span>
               <span className="text-sm text-slate-400 mb-1">/{plan.period}</span>
             </>
           )}
         </div>
-        {plan.price_inr > 0 && (
+        {(plan.price_usd > 0 || (plan.price_inr > 0 && !plan.price_usd)) && (
           <p className="text-xs text-slate-500">Billed monthly · Cancel any time</p>
         )}
       </div>
@@ -442,7 +442,7 @@ const Pricing = () => {
             {[
               { q: 'Can I cancel any time?', a: 'Yes. No lock-in. You keep all generated artifacts.' },
               { q: 'Is my code private?', a: 'Completely. All runs are isolated per org. Nothing shared.' },
-              { q: 'What payment methods?', a: 'UPI, cards, netbanking, wallets via Razorpay. INR only.' },
+              { q: 'What payment methods?', a: 'Cards, bank transfers via Stripe. Enterprise pricing available in your local currency — contact sales.' },
             ].map(({ q, a }) => (
               <div key={q}>
                 <p className="text-sm font-bold text-white mb-1">{q}</p>
