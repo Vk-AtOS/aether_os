@@ -72,14 +72,17 @@ async def health_sla(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
         idx = max(0, int(len(data) * pct / 100) - 1)
         return round(data[idx], 1)
 
-    completion_rate = round(completed / max(total, 1), 4)
+    completion_rate = round(completed / total, 4) if total > 0 else None
+    # uptime_sla_met is None when there are no completed runs — callers must
+    # render this as "N/A" rather than "Not Met" to avoid false negatives.
+    uptime_sla_met = (completion_rate >= 0.995) if completion_rate is not None else None
     return {
         "window_days": window_days,
         "total_runs": total,
         "completed_runs": completed,
         "failed_runs": failed,
         "completion_rate": completion_rate,
-        "uptime_sla_met": completion_rate >= 0.995,
+        "uptime_sla_met": uptime_sla_met,
         "duration_p50_s": percentile(durations, 50),
         "duration_p95_s": percentile(durations, 95),
         "sla_tier": user.get("plan", "trial"),
