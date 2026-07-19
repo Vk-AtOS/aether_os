@@ -128,7 +128,7 @@ const Sidebar = () => {
             <h1 className="text-sm font-bold text-white tracking-tight">AetherOS</h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span className="text-[10px] text-slate-500 font-medium">v1.0 · Factory</span>
+              <span className="text-[10px] text-slate-500 font-medium">v1.0</span>
             </div>
           </div>
         </div>
