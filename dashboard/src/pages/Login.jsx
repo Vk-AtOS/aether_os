@@ -184,7 +184,7 @@ const Login = () => {
               disabled={loading}
               className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white font-bold py-3 rounded-lg transition-all transform active:scale-[0.98] flex items-center justify-center"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'START FACTORY'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
             </button>
           </form>
 
