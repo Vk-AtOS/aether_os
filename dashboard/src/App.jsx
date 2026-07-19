@@ -85,6 +85,7 @@ function App() {
   return (
     <Routes>
       <Route path="/signin"  element={<Navigate to="/login" replace />} />
+      <Route path="/dashboard/connector-hub" element={<Navigate to="/connectors" replace />} />
       <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
       <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={null}><Signup /></Suspense></ErrorBoundary>} />
       <Route path="/forgot-password" element={<ErrorBoundary><Suspense fallback={null}><ForgotPassword /></Suspense></ErrorBoundary>} />
