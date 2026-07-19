@@ -196,7 +196,7 @@ export default function CostDashboard() {
           <div className="text-3xl font-bold text-bright mb-1">90%</div>
           <p className="text-xs text-muted">discount on cached system tokens</p>
           <div className="mt-3 text-xs text-muted space-y-1">
-            <div>Anthropic cache_control enabled</div>
+            <div>Prompt caching enabled</div>
             <div>System prompt cached after 1st call</div>
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function CostDashboard() {
           <div className="text-3xl font-bold text-bright mb-1">~70%</div>
           <p className="text-xs text-muted">token reduction when triggered</p>
           <div className="mt-3 text-xs text-muted space-y-1">
-            <div>Haiku-powered summarization</div>
+            <div>AI-powered summarization</div>
             <div>Triggers at 6K+ token context</div>
           </div>
         </div>
