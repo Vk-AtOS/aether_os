@@ -18,6 +18,7 @@ POST /settings/scim/rotate
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -295,7 +296,9 @@ async def get_scim_config(user: Dict[str, Any] = _current_user()) -> Dict[str, A
     configured = bool(
         getattr(org, "scim_token_hash", None) or getattr(org, "scim_token", None)
     )
-    return {"configured": configured, "scim_base_url": "/api/scim/v2"}
+    _public_host = os.environ.get("PUBLIC_HOST", "").rstrip("/")
+    scim_base_url = f"{_public_host}/api/scim/v2" if _public_host else "/api/scim/v2"
+    return {"configured": configured, "scim_base_url": scim_base_url}
 
 
 @router.post("/settings/scim/rotate")
