@@ -10,7 +10,8 @@ const StorageWidget = () => {
       .catch(() => {});
   }, []);
 
-  const pct = Math.min(data.percent_used ?? (data.used_mb / Math.max(data.limit_mb, 1)) * 100, 100);
+  // limit_mb === -1 means unlimited; treat as 0% used for the progress bar
+  const pct = data.limit_mb === -1 ? 0 : Math.min(data.percent_used ?? (data.used_mb / Math.max(data.limit_mb, 1)) * 100, 100);
   const color = pct < 70 ? 'bg-green-500' : pct < 90 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
@@ -23,7 +24,7 @@ const StorageWidget = () => {
         <div className={`${color} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }}></div>
       </div>
       <div className="text-xs text-muted mt-2">
-        {data.used_mb?.toFixed(1) ?? 0}MB used of {data.limit_mb ?? '—'}MB
+        {data.used_mb?.toFixed(1) ?? 0}MB used of {data.limit_mb === -1 ? 'Unlimited' : `${data.limit_mb ?? '—'}MB`}
       </div>
     </div>
   );
