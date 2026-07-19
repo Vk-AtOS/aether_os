@@ -417,7 +417,6 @@ const AdminUsers = () => {
                   </td>
                   <td className="px-4 py-4">
                     <span className="text-sm font-medium text-bright">{u.email}</span>
-                    <div className="text-[10px] text-muted font-mono mt-0.5">{u.id.slice(0, 8)}</div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2">
