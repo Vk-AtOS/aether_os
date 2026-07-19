@@ -227,18 +227,12 @@ const Billing = () => {
         </div>
       </header>
 
-      {/* Payment processor badge */}
+      {/* Payment processor badge — show only the generic Stripe badge; India flow is handled silently */}
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Payment Processor:</span>
-        {india ? (
-          <span className="text-[10px] font-bold text-orange-400 bg-orange-400/10 border border-orange-400/20 px-2 py-0.5 rounded-full">
-            Razorpay (India)
-          </span>
-        ) : (
-          <span className="text-[10px] font-bold text-accent bg-accent/10 border border-accent/20 px-2 py-0.5 rounded-full">
-            Stripe
-          </span>
-        )}
+        <span className="text-[10px] font-bold text-accent bg-accent/10 border border-accent/20 px-2 py-0.5 rounded-full">
+          Secure Payments
+        </span>
       </div>
 
       {success && (
@@ -409,10 +403,7 @@ const Billing = () => {
 
             {/* Payment method note */}
             <p className="text-[10px] text-muted mt-4 text-center">
-              {india
-                ? 'Payments processed securely via Razorpay. Prices in INR inclusive of GST.'
-                : 'Payments processed securely via Stripe. Prices in USD. Cancel anytime from the subscription portal.'
-              }
+              Payments processed securely. Enterprise pricing available in your local currency — contact sales.
             </p>
           </section>
 
