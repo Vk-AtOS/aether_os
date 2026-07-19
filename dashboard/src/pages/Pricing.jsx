@@ -301,6 +301,7 @@ const Pricing = () => {
               </div>
             ))}
           </div>
+          <p className="text-center text-slate-600 text-xs mt-8">(Beta testing statistics — measured across internal pipeline runs)</p>
         </div>
       </section>
 
