@@ -227,6 +227,17 @@ async def system_health(
     except Exception as exc:
         logger.debug("system_health: workloop monitor unavailable: %s", exc)
 
+    # Map internal routing-mode labels to human-readable strings so customers
+    # never see implementation details like "cache" or "fallback" as model names.
+    _ROUTING_MODE_LABELS = {
+        "cache":    "Cached responses",
+        "fallback": "Fallback model",
+        "mock":     "Mock (testing)",
+        "none":     "",
+    }
+    _raw_active_model = routing.get("active_model") or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", "")
+    _active_model_display = _ROUTING_MODE_LABELS.get(_raw_active_model, _raw_active_model)
+
     return {
         "status": health_status,
         "message": message,
@@ -234,7 +245,7 @@ async def system_health(
         "provider": "healthy" if any_llm else "unavailable",
         "llm_provider": llm_display,
         "active_provider": active_provider,
-        "active_model": routing.get("active_model") or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", ""),
+        "active_model": _active_model_display,
         "anthropic_available": anthropic_available,
         "gemini_available": gemini_available,
         "ollama_available": ollama_available,
