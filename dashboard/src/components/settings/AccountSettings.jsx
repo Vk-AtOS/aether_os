@@ -163,7 +163,7 @@ export const LLMStatusPanel = ({ health, bedrockConfig }) => (
     </div>
     <div>
       <StatusRow label="Anthropic API" status={health?.anthropic_available} detail={health?.anthropic_available ? 'Connected' : 'Not Configured'} />
-      <StatusRow label="Gemini API" status={health?.gemini_available} detail="model: gemini-1.5-pro" />
+      <StatusRow label="Gemini API" status={health?.gemini_available} detail={health?.gemini_available ? 'model: gemini-1.5-pro' : 'Not configured'} />
       <StatusRow label="Ollama Local" status={health?.ollama_available} detail="localhost:11434" />
       <StatusRow
         label="AWS Bedrock"
@@ -172,12 +172,30 @@ export const LLMStatusPanel = ({ health, bedrockConfig }) => (
           ? `${bedrockConfig.bedrock_model_heavy} · ${bedrockConfig.aws_region}`
           : bedrockConfig.bedrock_enabled ? 'No credentials' : 'Disabled'}
       />
-      <div className="bg-accent/5 p-4 flex items-center justify-between">
-        <span className="text-sm font-bold text-accent uppercase tracking-tighter">Active Primary Provider</span>
-        <span className="bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">
-          {health?.llm_provider || bedrockConfig.primary_llm || 'openrouter'}
-        </span>
-      </div>
+      {(() => {
+        // Only mark a provider active if its credentials are actually configured.
+        // health.llm_provider comes from the backend and already reflects this, but
+        // bedrockConfig.primary_llm can say 'bedrock' while bedrock is disabled — guard
+        // against that contradiction here.
+        const rawProvider = health?.llm_provider || bedrockConfig.primary_llm || 'openrouter';
+        const bedrockActuallyActive = bedrockConfig.bedrock_enabled && bedrockConfig.aws_key_configured;
+        const activeProvider =
+          rawProvider === 'bedrock' && !bedrockActuallyActive ? null : rawProvider;
+        return (
+          <div className="bg-accent/5 p-4 flex items-center justify-between">
+            <span className="text-sm font-bold text-accent uppercase tracking-tighter">Active Primary Provider</span>
+            {activeProvider ? (
+              <span className="bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+                {activeProvider}
+              </span>
+            ) : (
+              <span className="bg-warning/20 text-warning text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+                No provider configured
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </div>
   </section>
 );
