@@ -92,7 +92,8 @@ const QualityTrendChart = () => {
         ))}
         {[0, Math.floor((trendData.length - 1) / 2), trendData.length - 1].map(i => (
           <text key={i} x={xOf(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#475569">
-            {trendData[i]?.project_name?.slice(0, 10) || ''}
+            {/* Use project_name exactly as returned from API — no case transformation */}
+            {trendData[i]?.project_name?.slice(0, 12) || ''}
           </text>
         ))}
       </svg>
