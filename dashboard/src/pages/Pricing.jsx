@@ -405,7 +405,7 @@ const Pricing = () => {
             /* Fallback USD prices shown only when API call definitively fails */
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
               {[
-                { name: 'Free', price: '$0', period: 'forever', features: ['3 factory runs/month', '10 phases per run', 'ZIP download', 'Community support'], cta: 'Start free', highlight: false, link: '/signup' },
+                { name: 'Free', price: '$0', period: 'forever', features: ['3 pipeline runs/month', 'All phases', 'ZIP download', 'Community support'], cta: 'Start free', highlight: false, link: '/signup' },
                 { name: 'Pro', price: '$49', period: '/month', features: ['Unlimited runs', 'All 29 phases', 'Priority builds', 'Enterprise deployment', 'Handoff package', 'Email support'], cta: 'Start Pro trial', highlight: true, link: '/signup' },
                 { name: 'Enterprise', price: '$199', period: '/month', features: ['Everything in Pro', 'SAML SSO', 'Custom models', 'SLA guarantee', 'Dedicated support', 'On-premise option'], cta: 'Contact sales', highlight: false, link: 'mailto:sales@aetheros.ai' },
               ].map((p) => (

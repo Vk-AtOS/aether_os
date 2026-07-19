@@ -82,7 +82,7 @@ const Signup = () => {
           <HexLogo />
           <div className="text-center">
             <h1 className="text-2xl font-bold text-bright tracking-tight">Create your account</h1>
-            <p className="text-sm text-muted mt-1">Start with 3 free factory runs — no card required</p>
+            <p className="text-sm text-muted mt-1">Start with 3 free pipeline runs — no card required</p>
           </div>
         </div>
 
@@ -90,7 +90,7 @@ const Signup = () => {
         <div className="bg-accent/10 border border-accent/30 rounded-xl p-3 mb-6 flex items-start gap-2.5">
           <Rocket className="w-4 h-4 text-accent mt-0.5 shrink-0" />
           <div className="text-xs text-bright/90">
-            <span className="font-bold text-accent">Free Trial</span> — 3 complete factory runs, all 12 phases, no credit card needed.
+            <span className="font-bold text-accent">Free Trial</span> — 3 pipeline runs/month · All phases · No credit card needed.
             {' '}<Link to="/pricing" className="text-accent underline underline-offset-2">See all plans →</Link>
           </div>
         </div>
