@@ -49,7 +49,9 @@ export const SettingsProvider = ({ children }) => {
 
   // Derived helpers consumed by TopBar, Sidebar, etc.
   // API returns primary_llm (the configured provider) and active_model (last successful call).
-  const activeProvider = llmConfig?.primary_llm || llmConfig?.provider || llmConfig?.active_provider || 'anthropic';
+  // Do NOT fall back to 'anthropic' — show null until the real config is loaded so badges
+  // never display a hardcoded provider name.
+  const activeProvider = llmConfig?.primary_llm || llmConfig?.provider || llmConfig?.active_provider || null;
   const activeModel = llmConfig?.active_model || llmConfig?.primary_model || llmConfig?.model || '—';
   const orgName = orgSettings?.org_name || '';
   const plan = orgSettings?.plan || 'free';

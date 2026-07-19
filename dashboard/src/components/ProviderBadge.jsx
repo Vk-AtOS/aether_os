@@ -10,11 +10,28 @@ const PROVIDER_STYLES = {
 };
 
 const ProviderBadge = () => {
-  const { activeProvider, activeModel } = useSettings();
+  const { activeProvider, activeModel, ready } = useSettings();
+
+  // While settings are loading, show nothing to avoid a hardcoded flash
+  if (!ready) return null;
+
+  // If no provider is configured after load, show a clear unconfigured state
+  if (!activeProvider) {
+    return (
+      <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl border bg-slate-500/10 border-slate-500/20 text-slate-400 transition-all">
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-slate-500" />
+        <div className="min-w-0">
+          <span className="text-[9px] font-bold uppercase tracking-widest opacity-60 block leading-none mb-0.5">Active LLM</span>
+          <span className="font-medium truncate block max-w-[130px] text-[11px]">Not configured</span>
+        </div>
+      </div>
+    );
+  }
+
   const style = PROVIDER_STYLES[activeProvider] || { dot: 'bg-violet-400', pill: 'bg-violet-500/10 border-violet-500/20 text-violet-400' };
-  const label = activeProvider && activeModel && activeModel !== '—'
+  const label = activeModel && activeModel !== '—'
     ? `${activeProvider} · ${activeModel.split('/').pop()?.slice(0, 18) || activeModel.slice(0, 18)}`
-    : activeProvider || 'Checking…';
+    : activeProvider;
 
   return (
     <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-xl border ${style.pill} transition-all`}>
