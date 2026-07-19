@@ -231,6 +231,26 @@ def create_lifespan(background_tasks: Set):
 
         asyncio.create_task(_restore_run_app())
 
+        # ── Purge example.com webhooks left from seed data ───────────────────
+        # An https://example.com/webhook record was seeded and fires POST
+        # requests on every RUN.COMPLETED / RUN.FAILED event (always failing).
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_wh
+            from aether_os.core.models import Webhook as _Webhook
+            from sqlalchemy import delete as _wh_delete
+            async with _gsf_wh()() as _wh_session:
+                _wh_result = await _wh_session.execute(
+                    _wh_delete(_Webhook).where(_Webhook.url.like("%example.com%"))
+                )
+                await _wh_session.commit()
+            if _wh_result.rowcount:
+                logger.info(
+                    "Startup cleanup: deleted %d example.com webhook(s) (leftover seed data)",
+                    _wh_result.rowcount,
+                )
+        except Exception as _wh_exc:
+            logger.warning("example.com webhook cleanup failed (non-fatal): %s", _wh_exc)
+
         # Seed marketplace with built-in skills if empty
         try:
             from aether_os.core.seed import ensure_marketplace
