@@ -26,9 +26,9 @@ export const ApiKeyPanel = ({
           </label>
           <div className="flex space-x-2">
             <input
-              type="password"
+              type={apiKeys[id].length > 0 ? 'password' : 'text'}
               autoComplete="new-password"
-              placeholder="••••••••••••••••"
+              placeholder={id === 'anthropic' ? 'sk-ant-…' : id === 'gemini' ? 'AIza…' : 'sk-or-…'}
               value={apiKeys[id]}
               onChange={(e) => setApiKeys(k => ({ ...k, [id]: e.target.value }))}
               className="flex-1 bg-surface border border-border rounded-lg px-4 py-2 text-sm text-bright focus:outline-none focus:border-accent"
