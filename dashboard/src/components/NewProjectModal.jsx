@@ -139,7 +139,7 @@ const NewProjectModal = ({ open, onClose }) => {
               <Rocket className="w-4 h-4 text-accent" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-bright">New Factory Run</h2>
+              <h2 className="text-base font-bold text-bright">New Project</h2>
               <p className="text-xs text-muted mt-0.5">AetherOS will generate a complete codebase</p>
             </div>
           </div>
