@@ -296,7 +296,41 @@ const Compliance = () => {
         </div>
       )}
 
-      <IndiaCompliancePanel />
+      {/* Global frameworks — shown first so international users see GDPR/SOC2 immediately */}
+      <div className="bg-panel p-4 border border-border rounded shadow space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🌍</span>
+          <div>
+            <h2 className="text-xl font-bold">Global Compliance</h2>
+            <p className="text-xs text-muted">GDPR · SOC 2 · ISO 27001 · HIPAA · PCI-DSS</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {[
+            { name: 'GDPR', label: 'General Data Protection Regulation', region: 'EU / EEA', desc: 'Data subject rights, lawful basis, 72-hour breach notification, DPO for high-risk processing.', risk: 'HIGH' },
+            { name: 'SOC 2 Type II', label: 'Service Organization Control 2', region: 'Global / US', desc: 'Annual audit covering Security, Availability, Confidentiality, Processing Integrity, Privacy trust principles.', risk: 'HIGH' },
+            { name: 'ISO 27001', label: 'Information Security Management', region: 'Global', desc: 'ISMS framework — risk assessment, controls, annual surveillance audits.', risk: 'MEDIUM' },
+            { name: 'HIPAA', label: 'Health Insurance Portability & Accountability Act', region: 'US', desc: 'PHI safeguards, BAA required with cloud providers, breach notification within 60 days.', risk: 'HIGH' },
+            { name: 'PCI-DSS', label: 'Payment Card Industry Data Security Standard', region: 'Global', desc: 'Cardholder data protection, SAQ or QSA audit required for payment processing.', risk: 'CRITICAL' },
+          ].map(fw => (
+            <div key={fw.name} className="border border-border rounded-lg p-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${RISK_STYLES[fw.risk] || ''}`}>{fw.risk}</span>
+                <span className="font-semibold text-sm text-bright">{fw.name}</span>
+                <span className="text-[10px] text-muted ml-auto">{fw.region}</span>
+              </div>
+              <p className="text-xs text-muted">{fw.desc}</p>
+              <p className="text-[10px] text-muted/60 italic">{fw.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Regional — India-specific regulations in a clearly labelled subsection */}
+      <div>
+        <h2 className="text-sm font-bold text-muted uppercase tracking-widest mb-3">Regional Compliance — India</h2>
+        <IndiaCompliancePanel />
+      </div>
 
       <div className="bg-panel p-4 border border-border rounded shadow">
         <h2 className="text-xl font-bold mb-2">EU AI Act Classification</h2>
