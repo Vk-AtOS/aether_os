@@ -297,6 +297,13 @@ class FrontendStageSupervisor(PhaseBase):
                 ],
             )
 
+        # File existence is not enough — the build must have actually succeeded.
+        if not result.success:
+            return GateOutcome(
+                passed=False,
+                issues=["s04_frontend: sentinel files exist but p05 reported build failure — broken frontend not shipped"],
+            )
+
         return GateOutcome(passed=True, confidence=result.confidence)
 
     # ── Internal helpers ────────────────────────────────────────────────────
