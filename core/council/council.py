@@ -107,7 +107,13 @@ def _is_strict() -> bool:
     # Default to strict in production, permissive in dev/staging
     _env = os.environ.get("ENVIRONMENT", "development").lower()
     _default = "true" if _env == "production" else "false"
-    return os.environ.get("COUNCIL_STRICT_MODE", _default).lower() == "true"
+    _strict = os.environ.get("COUNCIL_STRICT_MODE", _default).lower() == "true"
+    if not _strict:
+        logger.warning(
+            "Council running in review-only mode (COUNCIL_STRICT_MODE=false) "
+            "— FAIL verdicts will not block the pipeline"
+        )
+    return _strict
 
 
 def _parse_council_response(raw: str) -> Dict[str, Any]:
