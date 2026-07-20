@@ -77,7 +77,7 @@ Before every VPS deploy:
 3. Commit message explains the why
 
 After every VPS deploy:
-1. Run: `./scripts/smoke_test.sh http://REDACTED_IP`
+1. Run: `./scripts/smoke_test.sh http://<VPS_IP>`
 2. If any test fails: rollback with `git revert`, do not patch forward on a broken deploy
 3. Report smoke test results to the user before closing the session
 
@@ -111,7 +111,7 @@ When the same bug appears twice:
 
 ```bash
 # Run smoke tests
-./scripts/smoke_test.sh http://REDACTED_IP
+./scripts/smoke_test.sh http://<VPS_IP>
 
 # Run smoke tests locally
 ./scripts/smoke_test.sh http://localhost:8000
