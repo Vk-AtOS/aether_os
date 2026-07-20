@@ -114,6 +114,11 @@ class LLMClient:
     def __init__(self) -> None:
         self.last_provider: Optional[str] = None
         self.last_model: Optional[str] = None
+        if os.environ.get("PRIMARY_LLM", "ollama") == "ollama":
+            logger.warning(
+                "PRIMARY_LLM not set (or explicitly 'ollama') — falling back to local Ollama; "
+                "codegen quality will be significantly degraded. Set PRIMARY_LLM=anthropic or gemini."
+            )
 
     async def call(
         self,
