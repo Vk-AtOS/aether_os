@@ -442,16 +442,26 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Step 6: Final Build ──
     import subprocess
     frontend_dir_final = project_dir / 'frontend'
+    build_success = True
     if os.environ.get("ENVIRONMENT") != "test":
         async with get_npm_semaphore():
             try:
                 _hash = pkg_hash(frontend_dir_final)
                 if not node_modules_fresh(frontend_dir_final, _hash):
                     _NPM_SHARED_CACHE.mkdir(parents=True, exist_ok=True)
-                    await asyncio.to_thread(subprocess.run, ["npm", "install", "--cache", str(_NPM_SHARED_CACHE)], cwd=str(frontend_dir_final), timeout=300)
-                    stamp_node_modules(frontend_dir_final, _hash)
-                await asyncio.to_thread(subprocess.run, ["npm", "run", "build"], cwd=str(frontend_dir_final), timeout=600)
+                    install_result = await asyncio.to_thread(subprocess.run, ["npm", "install", "--cache", str(_NPM_SHARED_CACHE)], cwd=str(frontend_dir_final), timeout=300)
+                    if install_result.returncode != 0:
+                        logger.error("p05: npm install failed (exit %s)", install_result.returncode)
+                        build_success = False
+                    else:
+                        stamp_node_modules(frontend_dir_final, _hash)
+                if build_success:
+                    build_result = await asyncio.to_thread(subprocess.run, ["npm", "run", "build"], cwd=str(frontend_dir_final), timeout=600)
+                    if build_result.returncode != 0:
+                        logger.error("p05: npm build failed (exit %s)", build_result.returncode)
+                        build_success = False
             except Exception as e:
                 logger.error("p05: Build failed: %s", e)
+                build_success = False
 
-    return TaskResult(output_path=str(frontend_dir_final), confidence=1.0, success=True, metadata=meta)
+    return TaskResult(output_path=str(frontend_dir_final), confidence=1.0 if build_success else 0.0, success=build_success, metadata=meta)
