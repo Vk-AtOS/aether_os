@@ -9,10 +9,10 @@ Items are ordered by priority within each category. Nothing omitted.
 
 | ID | Item | File / Location | Action | STATUS |
 |----|------|----------------|--------|--------|
-| S1 | **JWT in git history** | `auth_res.json` in commit `cf06c57` (May 8 2026) | Run `git filter-repo --path auth_res.json --invert-paths` — purges it from all history. Force-push after. Anyone with the repo can extract this token today. | ⬜ TODO |
+| S1 | **JWT in git history** | `auth_res.json` in commit `cf06c57` (May 8 2026) | Run `git filter-repo --path auth_res.json --invert-paths` — purges it from all history. Force-push after. Anyone with the repo can extract this token today. | ✅ DONE (history rewritten; force-push pending human confirmation) |
 | S2 | **Rotate all secrets** | `.env` on disk | AWS keys (`AKIAV7DCRLLWRKABRC7Q` + secret), admin password, `AETHER_SECRET_KEY`, `AETHER_ONE_ZT_SECRET`, `SCIM_BEARER_TOKEN` are all present in plaintext `.env`. Rotate every one before any handoff or code-room access. | ⏳ WAITING ON HUMAN |
-| S3 | **Scrub the DD document** | `AETHEROS_ACQUISITION_DUE_DILIGENCE.md` | Contains demo credentials and VPS IP in its header. Cannot be handed to a buyer as-is. Regenerate from measured numbers (see S4), remove all credentials. | ⬜ TODO |
-| S4 | **CLAUDE.md embeds VPS IP and password** | `CLAUDE.md` root | VPS IP `139.59.87.218` and password `Shadow@317!` are in the file. Remove before any repo is shared. | ⬜ TODO |
+| S3 | **Scrub the DD document** | `AETHEROS_ACQUISITION_DUE_DILIGENCE.md` | Contains demo credentials and VPS IP in its header. Cannot be handed to a buyer as-is. Regenerate from measured numbers (see S4), remove all credentials. | ✅ DONE 4cadf4e |
+| S4 | **CLAUDE.md embeds VPS IP and password** | `CLAUDE.md` root | VPS IP `139.59.87.218` and password `Shadow@317!` are in the file. Remove before any repo is shared. | ✅ DONE 98c12b1 |
 
 ---
 
@@ -32,12 +32,12 @@ Items are ordered by priority within each category. Nothing omitted.
 
 | ID | Item | File / Location | Action | STATUS |
 |----|------|----------------|--------|--------|
-| C1 | **npm build failure returns `success=True, confidence=1.0`** | `phases/p05_frontend/task_agent.py:455–459` | Catch the build exception, set `success=False`, propagate to s04 gate. This means a broken frontend currently ships as "complete." | ⬜ TODO |
-| C2 | **s04 frontend gate only checks file existence** | `stages/s04_frontend/supervisor.py:264` — gate passes if `index.html` or `App.tsx` exists | Add: gate must require a passing `npm run build`. File existence is not a passing build. | ⬜ TODO |
+| C1 | **npm build failure returns `success=True, confidence=1.0`** | `phases/p05_frontend/task_agent.py:455–459` | Catch the build exception, set `success=False`, propagate to s04 gate. This means a broken frontend currently ships as "complete." | ✅ DONE 8c48435 |
+| C2 | **s04 frontend gate only checks file existence** | `stages/s04_frontend/supervisor.py:264` — gate passes if `index.html` or `App.tsx` exists | Add: gate must require a passing `npm run build`. File existence is not a passing build. | ✅ DONE 01ee4e3 |
 | C3 | **Circular import: `core` → `gateway`** | `core/services/run_app_service.py:53` — `from aether_os.gateway.routers.run_app_router import start_run_app` | Deferred import hides it now. Will crash in any worker or test that imports this service before gateway init. Inline the function or pass as a callable argument. | ⬜ TODO |
-| C4 | **`main.py` startup banner hardcodes "153 passing"** | `main.py:110` | Update to current count (639) or derive it dynamically. Misleading to any technical evaluator who runs the server. | ⬜ TODO |
-| C5 | **`PRIMARY_LLM` defaults to `"ollama"` silently** | `core/llm/client.py:87` — `os.environ.get("PRIMARY_LLM", "ollama")` | If codegen falls back to Ollama, log a WARNING at run start that output quality will be degraded. Currently completely silent. | ⬜ TODO |
-| C6 | **`COUNCIL_STRICT_MODE=false` — council verdicts never block** | `.env:38` + `core/council/council.py` | Council reviews run but their FAIL verdict is non-blocking. Either set `COUNCIL_STRICT_MODE=true` in production or document explicitly that it is review-only. As-is it implies quality enforcement that doesn't exist. | ⬜ TODO |
+| C4 | **`main.py` startup banner hardcodes "153 passing"** | `main.py:110` | Update to current count (639) or derive it dynamically. Misleading to any technical evaluator who runs the server. | ✅ DONE e3a87d0 |
+| C5 | **`PRIMARY_LLM` defaults to `"ollama"` silently** | `core/llm/client.py:87` — `os.environ.get("PRIMARY_LLM", "ollama")` | If codegen falls back to Ollama, log a WARNING at run start that output quality will be degraded. Currently completely silent. | ✅ DONE adb242d |
+| C6 | **`COUNCIL_STRICT_MODE=false` — council verdicts never block** | `.env:38` + `core/council/council.py` | Council reviews run but their FAIL verdict is non-blocking. Either set `COUNCIL_STRICT_MODE=true` in production or document explicitly that it is review-only. As-is it implies quality enforcement that doesn't exist. | ✅ DONE 6cde4c8 |
 | C7 | **3 failing model-router tests** | `tests/test_model_router.py` — provider-selection and fallback-logic tests | Fix root cause in `core/model_router.py`. These are the exact tests covering the subsystem that decides which LLM generates code — failing tests here are a red flag in any technical review. | ⬜ TODO |
 | C8 | **Circular import: `core/model_router.py` → `orchestrator`** | `core/model_router.py:57` — lazy import of `orchestrator.routing.ahm` | Same pattern as C3. Will surface if load order changes. Extract shared piece or pass as argument. | ⬜ TODO |
 
@@ -71,7 +71,7 @@ Items in priority order from AUDIT_OUTPUT_QUALITY.md P0 → P2.
 | A1 | **`core/services/run_app_service.py:53`** — `core` imports `gateway` | See C3 | Fix the inversion. `core` must not depend on `gateway`. | ⬜ TODO |
 | A2 | **1,028 function-scoped imports** | Concentrated in `phases/` task agents | Incremental cleanup. Not circular-import-forced — just a habit. Move to module top. 1,028 instances remain (down from 1,694). | ⬜ TODO |
 | A3 | **5 files at the 600-line limit** | `p07b_self_healing/task_agent.py` (600 exact), `p05_frontend/helpers.py` (599), `core/sandbox/manager.py` (599), `p08_cicd/task_agent.py` (598), `p02b_domain_ir/ir_extractor.py` (593) | Any addition to these files will violate CLAUDE.md. Flag before next touch; split if any new code is needed. | ⬜ TODO |
-| A4 | **`tests/test_integration_pipeline.py` (661 lines) and `tests/test_factory.py` (653 lines)** | `tests/` | Both exceed 600-line rule without pre-approval. Split into focused test modules. | ⬜ TODO |
+| A4 | **`tests/test_integration_pipeline.py` (661 lines) and `tests/test_factory.py` (653 lines)** | `tests/` | Both exceed 600-line rule without pre-approval. Split into focused test modules. | ✅ DONE 2eb4b51 |
 | A5 | **pgvector (M6)** | `core/models.py:244–253` — `ArtifactEmbedding.embedding` stored as JSON | `CREATE EXTENSION vector` on Postgres + migration to alter column to `VECTOR(1536)` + pgvector SQLAlchemy adapter. Semantic retrieval is currently O(n) cosine scan in Python. | ⬜ TODO |
 | A6 | **`billing/` is 21 lines, `billing_impl.py` is elsewhere** | `core/billing/` (21 lines) vs `core/billing_impl.py` | Confusing split. Consolidate or make the separation explicit. | ⬜ TODO |
 | A7 | **`pipeline.py` alongside `factory_pipeline.py`** | `orchestrator/` | Naming creates ambiguity. Clarify which is canonical or remove the other. | ⬜ TODO |
@@ -83,11 +83,11 @@ Items in priority order from AUDIT_OUTPUT_QUALITY.md P0 → P2.
 
 | ID | Item | File / Location | Action | STATUS |
 |----|------|----------------|--------|--------|
-| H1 | **106 PNGs at repo root** | `/Users/apple/Desktop/aether_os/*.png` | Move to `docs/assets/` or delete working screenshots. First thing anyone opening the repo sees. | ⬜ TODO |
-| H2 | **`graphify-out/` at root** | `/Users/apple/Desktop/aether_os/graphify-out/` | Move or delete. | ⬜ TODO |
-| H3 | **`vkatos_deploy/` at root** | `/Users/apple/Desktop/aether_os/vkatos_deploy/` | Move or delete. | ⬜ TODO |
-| H4 | **21 stale Claude worktrees** | `/Users/apple/Desktop/aether_os/.claude/worktrees/` | `git worktree prune` — removes them. Each is a full codebase copy (~150–200 MB total wasted). Do before VPS deploy. | ⬜ TODO |
-| H5 | **DD document is 6 weeks stale** | `AETHEROS_ACQUISITION_DUE_DILIGENCE.md` | Regenerate from measured numbers: 808 Python files, 639 test functions, 852 commits, 12 stages, 53 routers, 88 components, 808 source files. Remove credentials (see S3). | ⬜ TODO |
+| H1 | **106 PNGs at repo root** | `/Users/apple/Desktop/aether_os/*.png` | Move to `docs/assets/` or delete working screenshots. First thing anyone opening the repo sees. | ✅ DONE 86754de |
+| H2 | **`graphify-out/` at root** | `/Users/apple/Desktop/aether_os/graphify-out/` | Move or delete. | ✅ DONE 7998f09 |
+| H3 | **`vkatos_deploy/` at root** | `/Users/apple/Desktop/aether_os/vkatos_deploy/` | Move or delete. | ✅ DONE 7321902 |
+| H4 | **21 stale Claude worktrees** | `/Users/apple/Desktop/aether_os/.claude/worktrees/` | `git worktree prune` — removes them. Each is a full codebase copy (~150–200 MB total wasted). Do before VPS deploy. | ✅ DONE 229169c |
+| H5 | **DD document is 6 weeks stale** | `AETHEROS_ACQUISITION_DUE_DILIGENCE.md` | Regenerate from measured numbers: 808 Python files, 639 test functions, 852 commits, 12 stages, 53 routers, 88 components, 808 source files. Remove credentials (see S3). | ✅ DONE 4cadf4e |
 
 ---
 
@@ -95,9 +95,9 @@ Items in priority order from AUDIT_OUTPUT_QUALITY.md P0 → P2.
 
 | ID | Item | Location | Action | STATUS |
 |----|------|----------|--------|--------|
-| D1 | **DD doc claims "20-phase pipeline"** | `AETHEROS_ACQUISITION_DUE_DILIGENCE.md` | Correct to "12 stages wrapping ~50 phase agent libraries." | ⬜ TODO |
-| D2 | **DD doc claims 392 Python files, ~65k lines, 258 tests, 240 commits** | Same doc | All materially understated. Update to measured values. | ⬜ TODO |
-| D3 | **`main.py` banner: "Tests: 153 passing"** | `main.py:110` | Update (same as C4 above). | ⬜ TODO |
+| D1 | **DD doc claims "20-phase pipeline"** | `AETHEROS_ACQUISITION_DUE_DILIGENCE.md` | Correct to "12 stages wrapping ~50 phase agent libraries." | ✅ DONE 4cadf4e |
+| D2 | **DD doc claims 392 Python files, ~65k lines, 258 tests, 240 commits** | Same doc | All materially understated. Update to measured values. | ✅ DONE 4cadf4e |
+| D3 | **`main.py` banner: "Tests: 153 passing"** | `main.py:110` | Update (same as C4 above). | ✅ DONE e3a87d0 |
 | D4 | **AUDIT_OUTPUT_QUALITY.md: "30s router timeout" claim** | Doc only | No 30s timeout exists in `core/llm/client.py`. Remove or correct. | ⬜ TODO |
 | D5 | **AUDIT_OUTPUT_QUALITY.md: "~100 PNGs at repo root"** | Doc only | Correct — there are 106 PNGs. Minor. | ⬜ TODO |
 
