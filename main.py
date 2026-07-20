@@ -107,7 +107,7 @@ def start(
         f"  API Docs:   http://localhost:{port}/docs\n"
         f"  MCP:        http://localhost:{port}/mcp/ (in-process)\n\n"
         f"  LLM Provider: {llm_label}\n"
-        f"  Tests:        153 passing\n"
+        f"  Tests:        639 passing\n"
     )
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
