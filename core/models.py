@@ -241,6 +241,12 @@ class SamlConfig(Base):
     # M5: enforce one SAML config per org at the DB level
     __table_args__ = (UniqueConstraint('org_id', name='uq_saml_config_org_id'),)
 
+try:
+    from pgvector.sqlalchemy import Vector as _PgVector
+    _HAS_PGVECTOR = True
+except ImportError:
+    _HAS_PGVECTOR = False
+
 class ArtifactEmbedding(Base):
     __tablename__ = "artifact_embeddings"
 
@@ -249,7 +255,9 @@ class ArtifactEmbedding(Base):
     org_id: Mapped[str] = mapped_column(String(50), nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    embedding: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    embedding: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # JSON fallback
+    if _HAS_PGVECTOR:
+        embedding_vector = mapped_column(_PgVector(1536), nullable=True)  # pgvector native column
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 class MarketplaceProfile(Base):
