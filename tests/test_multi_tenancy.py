@@ -56,7 +56,7 @@ async def test_multi_tenancy_workflow(tmp_path):
 
     try:
         with patch.object(FactoryPipeline, "run", _fake_pipeline_run), \
-             patch("aether_os.core.guardian.password_shield.check_password_safety",
+             patch("aether_os.gateway.routers.auth_router.check_password_safety",
                    new_callable=AsyncMock, return_value=(True, "")), \
              TestClient(create_app()) as client:
 

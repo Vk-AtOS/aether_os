@@ -58,7 +58,7 @@ def client(tmp_path):
     app = _make_app(tmp_path)
     with TestClient(app, raise_server_exceptions=False) as c:
         # Mock HIBP password check so common test passwords are accepted
-        with patch("aether_os.core.guardian.password_shield.check_password_safety",
+        with patch("aether_os.gateway.routers.auth_router.check_password_safety",
                    new_callable=AsyncMock, return_value=(True, "")):
             c.post("/auth/register", json={
                 "email": "testadmin@example.com",

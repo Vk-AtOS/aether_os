@@ -4,29 +4,6 @@ GET /factory/runs, GET/POST /factory/runs/{run_id} (detail, quality, priority, r
 Files/snapshots → factory_run_files_router
 Streaming/SSE  → factory_run_streaming_router
 Compliance     → factory_run_compliance_router
-import uuid as _uuid2
-import uuid as _uuid
-from sqlalchemy import select, update as _sa_upd
-from sqlalchemy import select as _sel_ev
-from sqlalchemy import select as _sel_b
-from dataclasses import asdict as _asdict
-from dataclasses import asdict
-from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory2
-from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
-from aether_os.gateway import api as _api
-from aether_os.core.quality.metrics import score_project
-from aether_os.core.projects import get_project_manager
-from aether_os.core.models import RunMetadata as _RM_pri
-from aether_os.core.models import Run as _RunB
-from aether_os.core.models import PipelineEvent
-from aether_os.core.models import Organisation
-from aether_os.core.db import get_session_factory as _gsf_pri
-from aether_os.core.db import get_session_factory as _gsf_ev
-from aether_os.core.db import get_session_factory as _gsf_b
-from aether_os.core.db import get_session_factory as _gsf3
-from aether_os.core.db import get_session_factory as _gsf
-from aether_os.core.db import get_session_factory
-from aether_os.core.audit.ledger import get_ledger
 """
 from __future__ import annotations
 
@@ -51,6 +28,28 @@ from aether_os.core.services.run_service import (
     get_explicit_events,
     get_run_priority_and_live_url,
 )
+import uuid as _uuid
+import uuid as _uuid2
+from dataclasses import asdict
+from dataclasses import asdict as _asdict
+from sqlalchemy import select, update as _sa_upd
+from sqlalchemy import select as _sel_ev
+from sqlalchemy import select as _sel_b
+from aether_os.gateway import api as _api
+from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
+from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory2
+from aether_os.core.quality.metrics import score_project
+from aether_os.core.projects import get_project_manager
+from aether_os.core.models import RunMetadata as _RM_pri
+from aether_os.core.models import Run as _RunB
+from aether_os.core.models import PipelineEvent, Organisation
+from aether_os.core.db import get_session_factory
+from aether_os.core.db import get_session_factory as _gsf
+from aether_os.core.db import get_session_factory as _gsf_pri
+from aether_os.core.db import get_session_factory as _gsf_ev
+from aether_os.core.db import get_session_factory as _gsf_b
+from aether_os.core.db import get_session_factory as _gsf3
+from aether_os.core.audit.ledger import get_ledger
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
