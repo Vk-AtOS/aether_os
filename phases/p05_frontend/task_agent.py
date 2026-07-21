@@ -450,10 +450,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         apply_revisions_fn=apply_gate2_revisions,
     )
 
-    # ── Step 6: Final Build ──
+    # ── Step 6: Final Build (with compile-error feedback loop) ──
     import subprocess
+    from aether_os.phases.p05_frontend.build_loop import run_build_loop
     frontend_dir_final = project_dir / 'frontend'
     build_success = True
+    tsc_errors: int = 0
     if os.environ.get("ENVIRONMENT") != "test":
         async with get_npm_semaphore():
             try:
@@ -466,17 +468,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                         build_success = False
                     else:
                         stamp_node_modules(frontend_dir_final, _hash)
-                if build_success:
-                    build_result = await asyncio.to_thread(subprocess.run, ["npm", "run", "build"], cwd=str(frontend_dir_final), timeout=600)
-                    if build_result.returncode != 0:
-                        logger.error("p05: npm build failed (exit %s)", build_result.returncode)
-                        build_success = False
-            except Exception as e:
-                logger.error("p05: Build failed: %s", e)
+            except Exception as exc:
+                logger.error("p05: npm install raised: %s", exc)
                 build_success = False
 
+            if build_success:
+                _loop_result = await run_build_loop(frontend_dir_final, max_rounds=3)
+                build_success = _loop_result["success"]
+                tsc_errors = _loop_result["tsc_errors"]
+                logger.info(
+                    "p05 build_loop: success=%s tsc_errors=%d rounds=%d",
+                    build_success, tsc_errors, _loop_result["rounds"],
+                )
+
     # confidence: build_pass * 0.6 + (1 if tsc_errors==0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
-    tsc_errors: int = 0  # tsc not run in this phase; 0 = assume clean
     template_debt_pct: float = meta.get("template_debt_pct", 1.0)
     _confidence = build_success * 0.6 + (1 if tsc_errors == 0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
     _confidence = max(0.0, min(1.0, _confidence))
