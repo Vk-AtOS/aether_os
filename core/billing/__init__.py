@@ -1,5 +1,5 @@
 # AetherOS — core.billing package
-from aether_os.core.billing_impl import (  # noqa: F401
+from aether_os.core.billing.impl import (  # noqa: F401
     CostSummary,
     UsageTracker,
     get_billing_tracker,
