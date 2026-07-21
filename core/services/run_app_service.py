@@ -46,9 +46,9 @@ async def acquire_free_port() -> int:
 async def _launch_generated_app(run_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     """Launch a generated app subprocess.
 
-    Delegates to the router's start_run_app function which contains the full
-    business logic (vite build, SQLite swap, uvicorn start).  This indirection
-    keeps the orchestrator layer from importing the HTTP router layer directly.
+    Contains the full business logic (vite build, SQLite swap, uvicorn start).
+    Inlined to avoid circular import: core must not depend on gateway.
     """
-    from aether_os.gateway.routers.run_app_router import start_run_app
-    return await start_run_app(run_id=run_id, user=user)
+    from aether_os.core.run_app.process_manager import RunAppManager
+    org_id = user.get("org_id")
+    return await RunAppManager().start(run_id=run_id, org_id=org_id, user=user)

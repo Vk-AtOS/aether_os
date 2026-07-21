@@ -91,9 +91,8 @@ async def start_run_app(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Start the generated app with uvicorn. Installs deps and builds frontend."""
-    from aether_os.core.run_app.process_manager import RunAppManager
-    org_id = user.get("org_id")
-    return await RunAppManager().start(run_id=run_id, org_id=org_id, user=user)
+    from aether_os.core.services.run_app_service import _launch_generated_app
+    return await _launch_generated_app(run_id=run_id, user=user)
 
 
 @router.delete("/factory/runs/{run_id}/run-app")
