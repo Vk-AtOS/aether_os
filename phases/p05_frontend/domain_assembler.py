@@ -506,8 +506,27 @@ async def run_gate2_preview(
     """
     screenshot_path = ""
     preview_path = output_dir / "customer_portal_preview.png"
-    if not is_autonomous and await take_screenshot_fn(frontend_dir, preview_path):
+    _shot_ok = await take_screenshot_fn(frontend_dir, preview_path)
+    if _shot_ok:
         screenshot_path = str(preview_path)
+
+    # Autonomous 2-round critique: run apply_revisions with a generic
+    # "improve visual polish" instruction, re-screenshot, then run again.
+    # Human-review path (non-autonomous) still runs at most one round below.
+    if is_autonomous and _shot_ok:
+        _critique = (
+            "Improve visual polish: tighten spacing, ensure consistent rounded corners, "
+            "add subtle shadows on cards, and verify Tailwind color contrast (WCAG AA)."
+        )
+        for _round in (1, 2):
+            try:
+                await apply_revisions_fn(_critique, frontend_dir, domain, project_name)
+                # Re-screenshot before the next round so a second pass sees the delta.
+                if _round == 1:
+                    await take_screenshot_fn(frontend_dir, preview_path)
+            except Exception as _auto_exc:
+                logger.warning("p05: autonomous critique round %d failed: %s", _round, _auto_exc)
+                break
 
     try:
         if run_id and not is_autonomous:
