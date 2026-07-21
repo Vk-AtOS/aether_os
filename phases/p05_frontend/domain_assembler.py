@@ -318,15 +318,26 @@ async def assemble_domain_pages(
     pluralise_fn: Any,
     run_frontend_governor_fn: Any,
     write_domain_pages_fn: Any,
-) -> None:
+) -> dict:
     """Generate Phase 6 entity CRUD pages and domain-specific pages.
 
     When domain_ir is present, uses IR-typed generators for Dashboard and
     entity pages.  Falls back to the generic domain-dashboard + entity-page
     generators otherwise.  Also calls write_domain_pages for IoT/ERP/Social/etc.
     pages and run_frontend_governor for completeness checking.
+
+    Returns {"llm_count": N, "template_count": M} for template_debt_pct.
     """
+    from aether_os.phases.p05_frontend.llm_page_writer import (
+        write_entity_page_llm,
+        get_design_tokens,
+    )
+
     logger.info("p05: Generating entity CRUD pages...")
+    llm_count = 0
+    template_count = 0
+    _tokens = get_design_tokens(domain)
+    _raw_input = (data or {}).get("raw_input", "")
 
     if domain_ir and domain_ir.entities:
         from aether_os.phases.p05_frontend.ir_generators import (
@@ -339,21 +350,34 @@ async def assemble_domain_pages(
         )
         for ir_entity in domain_ir.entities:
             pascal_name = ir_entity.name
+            _ir_ent_dict = {
+                "table": ir_entity.table,
+                "name": ir_entity.name,
+                "fields": [{"name": f.name, "type": str(getattr(f, "type", "string"))} for f in ir_entity.fields],
+                "columns": [f.name for f in ir_entity.fields],
+            }
             if layout_mode == "storefront" and is_product_entity_fn(ir_entity.table):
-                _ir_ent_dict = {
-                    "table": ir_entity.table,
-                    "name": ir_entity.name,
-                    "columns": [f.name for f in ir_entity.fields],
-                }
                 write_with_guard_fn(
                     src_dir / "pages" / f"{pascal_name}Page.tsx",
                     generate_product_grid_fn(_ir_ent_dict, route_map),
                 )
+                template_count += 1
             else:
-                write_with_guard_fn(
-                    src_dir / "pages" / f"{pascal_name}Page.tsx",
-                    _gen_ent_page(ir_entity),
+                _llm_code = await write_entity_page_llm(
+                    entity=_ir_ent_dict, route_map=route_map,
+                    project_name=project_name, domain=domain,
+                    raw_input=_raw_input, domain_ir=domain_ir,
+                    design_tokens=_tokens,
                 )
+                if _llm_code:
+                    write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _llm_code)
+                    llm_count += 1
+                else:
+                    write_with_guard_fn(
+                        src_dir / "pages" / f"{pascal_name}Page.tsx",
+                        _gen_ent_page(ir_entity),
+                    )
+                    template_count += 1
         (src_dir / "types" / "index.ts").write_text(_gen_types(domain_ir))
     else:
         # Non-IR path: premium domain dashboard + per-entity pages
@@ -384,8 +408,20 @@ async def assemble_domain_pages(
             pascal = ent.get("name") or to_pascal_case_fn(ent["table"])
             if layout_mode == "storefront" and is_product_entity_fn(ent["table"]):
                 code = generate_product_grid_fn(ent, route_map)
+                template_count += 1
             else:
-                code = generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None)
+                _llm_code = await write_entity_page_llm(
+                    entity=ent, route_map=route_map,
+                    project_name=project_name, domain=domain,
+                    raw_input=_raw_input, domain_ir=domain_ir,
+                    design_tokens=_tokens,
+                )
+                if _llm_code:
+                    code = _llm_code
+                    llm_count += 1
+                else:
+                    code = generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None)
+                    template_count += 1
             write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx", code)
             await asyncio.sleep(0.01)
 
@@ -395,6 +431,7 @@ async def assemble_domain_pages(
         output_dir,
     )
     write_domain_pages_fn(src_dir, domain, build_types)
+    return {"llm_count": llm_count, "template_count": template_count}
 
 
 async def run_gate3_approval(

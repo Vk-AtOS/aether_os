@@ -329,7 +329,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Phase 6: Entity CRUD Pages ──
     # Delegated to domain_assembler.assemble_domain_pages to keep task_agent
     # under 450 lines.
-    await assemble_domain_pages(
+    _page_stats = await assemble_domain_pages(
         src_dir=src_dir,
         domain=domain,
         domain_ir=_domain_ir,
@@ -352,6 +352,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         run_frontend_governor_fn=run_frontend_governor,
         write_domain_pages_fn=write_domain_pages,
     )
+    _llm_count = (_page_stats or {}).get("llm_count", 0)
+    _template_count = (_page_stats or {}).get("template_count", 0)
     # ── Phase 7: Optional LLM Component (DomainWidget) ──
     # Delegated to domain_assembler.generate_domain_widget to reduce task_agent lines.
     domain_widget_generated = await generate_domain_widget(
@@ -418,8 +420,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # 5. Write metadata
     generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
-    # template_debt_pct: fraction of generated files that fell back to static templates (0.0 = all LLM, 1.0 = all template)
-    # ponytail: set to 0.0 until Q1 wires per-file LLM/template tracking through assemble_domain_pages
+    # template_debt_pct: fraction of entity pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
+    from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
     # model_used: resolved provider string; degraded when not a frontier tier (anthropic/gemini)
     _model_used = _primary_llm if _primary_llm else "ollama"
@@ -428,7 +430,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "project_name": project_name, "project_slug": project_slug, "domain": domain,
         "entities": [e["table"] for e in entities], "used_llm": domain_widget_generated,
         "files_generated": generated_files,
-        "template_debt_pct": 0.0,
+        "template_debt_pct": compute_template_debt(_llm_count, _template_count),
         "model_used": _model_used,
         "degraded": _degraded,
     }
