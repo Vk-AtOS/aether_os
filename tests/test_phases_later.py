@@ -56,7 +56,7 @@ def test_p05f_architecture_reader_default():
 async def test_p05f_full_run_writes_vite_project(tmp_path):
     """Full run generates a React/Vite frontend project directory."""
     import json
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
     from aether_os.phases.p05_frontend.task_agent import run
     from aether_os.phases.p05_frontend.gate import validate
 
@@ -76,8 +76,12 @@ async def test_p05f_full_run_writes_vite_project(tmp_path):
 
     mock_client = AsyncMock()
     mock_client.call = AsyncMock(return_value="")  # LLM returns empty → skip optional domain component
-    with patch("aether_os.core.llm.client.get_llm_client",
-               return_value=mock_client):
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = b""
+    mock_proc.stderr = b""
+    with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_client), \
+         patch("subprocess.run", return_value=mock_proc):
         out_dir = tmp_path / "output"
         result = await run(PhaseInput(), [], out_dir)
 
