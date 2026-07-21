@@ -420,11 +420,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
     # template_debt_pct: fraction of generated files that fell back to static templates (0.0 = all LLM, 1.0 = all template)
     # ponytail: set to 0.0 until Q1 wires per-file LLM/template tracking through assemble_domain_pages
+    _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
+    # model_used: resolved provider string; degraded when not a frontier tier (anthropic/gemini)
+    _model_used = _primary_llm if _primary_llm else "ollama"
+    _degraded = _model_used not in ("anthropic", "gemini", "bedrock")
     meta = {
         "project_name": project_name, "project_slug": project_slug, "domain": domain,
         "entities": [e["table"] for e in entities], "used_llm": domain_widget_generated,
         "files_generated": generated_files,
         "template_debt_pct": 0.0,
+        "model_used": _model_used,
+        "degraded": _degraded,
     }
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
 
