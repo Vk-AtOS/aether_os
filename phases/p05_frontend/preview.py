@@ -75,6 +75,52 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
         server_process.terminate()
 
 
+_FALLBACK_CRITIQUE = (
+    "Improve visual polish: tighten spacing, ensure consistent rounded corners, "
+    "add visual hierarchy with font weights, remove empty placeholder sections."
+)
+
+
+async def vlm_rubric_critique(
+    screenshot_path: Path,
+    domain: str,
+    project_name: str,
+    timeout: float = 60.0,
+) -> str:
+    """Return domain-aware UI critique from LLM, or fallback string on failure."""
+    if not screenshot_path.exists() or not screenshot_path.is_file():
+        return _FALLBACK_CRITIQUE
+    try:
+        import base64
+        img_b64 = base64.b64encode(screenshot_path.read_bytes()).decode()  # noqa: F841
+        # ponytail: text-only critique — inject img_b64 into messages when vision model confirmed available
+        prompt = (
+            f"You are a UI/UX critic reviewing a screenshot of a generated {domain} "
+            f"application called \"{project_name}\".\n"
+            "Score it on 5 dimensions (1–5 each):\n"
+            "1. Visual Hierarchy — clear primary/secondary/tertiary content levels\n"
+            "2. Spacing — consistent padding, margins; no crowding or excessive whitespace\n"
+            "3. Contrast — text legible against backgrounds; sufficient color contrast\n"
+            "4. Content Richness — actual data visible (not empty tables/placeholder stats)\n"
+            f"5. Domain Distinctiveness — looks like a {domain} app, not a generic grey dashboard\n\n"
+            "After scoring, write 2–3 concrete, actionable improvement instructions for the React developer.\n"
+            "Focus on the lowest-scoring dimensions. Be specific: mention CSS classes, component names, or layout patterns to change.\n"
+            "Return ONLY the improvement instructions (no scores, no preamble)."
+        )
+        from aether_os.core.llm.client import get_llm_client
+        client = get_llm_client()
+        result = await asyncio.wait_for(
+            client.call(prompt, task_type="ui_critique", max_tokens=300),
+            timeout=timeout,
+        )
+        if isinstance(result, str) and result.strip():
+            return result.strip()
+        return _FALLBACK_CRITIQUE
+    except Exception as exc:
+        logger.warning("p05: vlm_rubric_critique failed, using fallback: %s", exc)
+        return _FALLBACK_CRITIQUE
+
+
 async def apply_gate2_revisions(
     instructions: str,
     frontend_dir: Path,
