@@ -13,8 +13,9 @@ Key properties:
   - ModelRouter calls record_success/record_failure after every attempt;
     calls reorder_chain before iterating providers
 
-Integration point: core/model_router.py imports default_ahm at call time
-(lazy import to avoid circular deps at module load).
+Integration point: core/model_router.py imports default_ahm directly.
+Lives in core/llm/ (not orchestrator/routing/) so the router doesn't need
+to import from orchestrator — avoids the previous circular dependency.
 """
 from __future__ import annotations
 
@@ -162,5 +163,5 @@ class AdaptiveHybridMesh:
             logger.info("[AHM] Reset health for all providers")
 
 
-# Process-level singleton — imported lazily by core/model_router.py
+# Process-level singleton — imported directly by core/model_router.py
 default_ahm = AdaptiveHybridMesh()

@@ -22,21 +22,19 @@ def reset_router_state():
     """Reset ModelRouter singleton and module stats between tests.
 
     Also resets AHM (Adaptive Hybrid Mesh) health scores — the AHM singleton
-    lives in orchestrator.routing.ahm and persists across tests, causing
+    lives in core.llm.ahm and persists across tests, causing
     provider-degradation state to leak between tests and reorder the chain
     unexpectedly (e.g. failed 'anthropic' in test 1 → chain reordered in test 2).
     """
     import aether_os.core.model_router as _mod
+    from aether_os.core.llm.ahm import default_ahm
     _mod._router_instance = None
     _mod._active_model = None
     _mod._fallback_count_today = 0
     _mod._fallback_date = ""
     _mod._DEAD_PROVIDERS.clear()
     _mod._DEAD_MODELS.clear()
-    # Reset lazy-imported AHM state (or the singleton directly if already imported)
-    from aether_os.orchestrator.routing.ahm import default_ahm
     default_ahm.reset()
-    _mod._ahm = None  # force lazy re-import next call
     yield
     _mod._router_instance = None
     _mod._active_model = None
@@ -45,7 +43,6 @@ def reset_router_state():
     _mod._DEAD_PROVIDERS.clear()
     _mod._DEAD_MODELS.clear()
     default_ahm.reset()
-    _mod._ahm = None
 
 
 @pytest.fixture(autouse=True)

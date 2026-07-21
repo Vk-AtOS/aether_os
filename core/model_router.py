@@ -34,6 +34,7 @@ from aether_os.core.model_router_providers import (
     _DEAD_MODELS,
     FALLBACK_CHAIN,
 )
+from aether_os.core.llm.ahm import default_ahm as _ahm
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +46,11 @@ _active_model: Optional[str] = None        # e.g. "anthropic/claude-sonnet-4-6"
 _fallback_count_today: int = 0
 _fallback_date: str = ""
 
-# ── Adaptive Hybrid Mesh (lazy import — avoids circular deps at module load) ───
-_ahm = None
-
 
 def _get_ahm():
-    """Return the AHM singleton, importing it lazily on first call."""
-    global _ahm
-    if _ahm is None:
-        try:
-            from aether_os.orchestrator.routing.ahm import default_ahm
-            _ahm = default_ahm
-        except Exception as _ahm_import_exc:
-            logger.debug("AHM import failed (non-fatal, routing continues): %s", _ahm_import_exc)
-            _ahm = False   # sentinel: don't retry broken import every call
-    return _ahm if _ahm is not False else None
+    """Return the AHM singleton. Kept as a function so tests can patch it and
+    call sites don't need to change if the import ever needs to become lazy again."""
+    return _ahm
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
