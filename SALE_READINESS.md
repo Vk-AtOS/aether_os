@@ -20,7 +20,7 @@ AetherOS is a 12-stage agentic pipeline that takes a natural-language requiremen
 | Phase agent directories | 55 | `ls phases/ \| wc -l` |
 | Phase agent Python files | 370 | `find phases/ -name "*.py" …` |
 | Alembic migrations | 56 | `ls alembic/versions/ \| wc -l` |
-| Test functions passing | **651** (0 failed, 3 skipped) | `uv run pytest tests/ -q` |
+| Test functions passing | **647** (0 failed, 3 skipped) | `uv run pytest tests/ -q` |
 | Benchmark golden prompts | 10 (across 5 domains) | `ls benchmarks/prompts/` |
 | Router files (gateway) | 14 | `ls gateway/routers/*.py \| wc -l` |
 | Multi-tenant isolation test | PASS | `pytest tests/test_multi_tenancy.py -v` |
@@ -98,7 +98,7 @@ Current production runs on **Amazon Bedrock** (Nova Pro / Nova Lite) due to an A
 ## Test suite status
 
 ```
-651 passed, 0 failed, 3 skipped   ← verified 2026-07-22, HEAD 4ff0e95
+647 passed, 0 failed, 3 skipped   ← verified 2026-07-22, HEAD 6b36410, 924s
 ```
 
 All 4 tests that were failing at session start (auth regression from A2 import reorganization) are now fixed.
