@@ -3,85 +3,76 @@ AetherOS — Pipeline Phase Helpers
 ===================================
 Phase implementation methods extracted from Pipeline to keep pipeline.py
 under the 600-line limit.
-
 Each function is an async implementation for one pipeline phase.
 They are bound to Pipeline as methods via import in pipeline.py.
 """
 from __future__ import annotations
-
 import asyncio
 import json
 import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
-
+from aether_os.core.approval.workflow import decide_for_risk
+from aether_os.core.config.loader import get_config
+from aether_os.core.memory.fingerprinter import fingerprint
+from aether_os.core.memory.store import get_memory_store
+from aether_os.core.projects import get_project_manager
+from aether_os.orchestrator.context import PhaseOutput
+from aether_os.orchestrator.messages import PhaseInput
+from aether_os.phases.p07_testing.task_agent import run as _test_run
+from aether_os.phases.p08_cicd.pipeline import run_repair
+import tarfile
+import tempfile
 logger = logging.getLogger(__name__)
-
-
 async def write_output_to_disk(ctx: Any) -> str:
     """
     BUG 9 FIX: Write all pipeline artifacts to ctx.output_dir.
-
     Creates directory structure:
       <output_dir>/<project_name>/
         main.py (or generated code)
         requirements.txt
         README.md (docs)
         tests/test_main.py
-
     Returns the output directory path.
     """
-    from aether_os.core.config.loader import get_config
     cfg = get_config()
-
     base_dir = ctx.output_dir or cfg.get(
         "pipeline.output_dir",
         str(Path.home() / ".aether_os" / "outputs"),
     )
     project_dir = Path(base_dir) / ctx.project_name / ctx.run_id[:8]
     project_dir.mkdir(parents=True, exist_ok=True)
-
     written: list[str] = []
-
     if ctx.generated_code:
         code_file = project_dir / "main.py"
         code_file.write_text(ctx.generated_code, encoding="utf-8")
         written.append(str(code_file))
-
     if ctx.docs:
         docs_file = project_dir / "README.md"
         docs_file.write_text(ctx.docs, encoding="utf-8")
         written.append(str(docs_file))
-
     if ctx.test_results and ctx.test_results.get("test_code"):
         test_dir = project_dir / "tests"
         test_dir.mkdir(exist_ok=True)
         test_file = test_dir / "test_main.py"
         test_file.write_text(ctx.test_results["test_code"], encoding="utf-8")
         written.append(str(test_file))
-
     if ctx.requirements_doc:
         req_file = project_dir / "REQUIREMENTS.md"
         req_file.write_text(ctx.requirements_doc, encoding="utf-8")
         written.append(str(req_file))
-
     if ctx.architecture_doc:
         arch_file = project_dir / "ARCHITECTURE.md"
         arch_file.write_text(ctx.architecture_doc, encoding="utf-8")
         written.append(str(arch_file))
-
     ctx.metadata["output_dir"] = str(project_dir)
     ctx.metadata["written_files"] = written
     logger.info("Output written to %s (%d files)", project_dir, len(written))
     return str(project_dir)
-
-
 # ── Phase implementations ───────────────────────────────────────────────────
 # These are standalone async functions; Pipeline binds them as instance methods.
-
 async def phase_requirements(self: Any, ctx: Any, sm: Any) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     prompt = (
         f"Parse the following requirement into structured goals, constraints, "
@@ -97,10 +88,7 @@ async def phase_requirements(self: Any, ctx: Any, sm: Any) -> None:
         confidence=0.9 if result else 0.0,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_architecture(self: Any, ctx: Any, sm: Any) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     prompt = (
         f"Propose a software architecture for the following requirements. "
@@ -116,10 +104,7 @@ async def phase_architecture(self: Any, ctx: Any, sm: Any) -> None:
         confidence=0.85 if result else 0.0,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_scaffolding(self: Any, ctx: Any, sm: Any) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     prompt = (
         f"Based on the architecture below, list the files and directories to scaffold "
@@ -137,10 +122,7 @@ async def phase_scaffolding(self: Any, ctx: Any, sm: Any) -> None:
         artifacts=result,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_codegen(self: Any, ctx: Any, sm: Any, retries: int = 0) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     feedback_section = ""
     if retries > 0:
@@ -155,11 +137,8 @@ async def phase_codegen(self: Any, ctx: Any, sm: Any, retries: int = 0) -> None:
                 + "\n".join(parts)
                 + "\n\nPlease fix ALL issues in the regenerated code."
             )
-
     memory_context = ""
     try:
-        from aether_os.core.memory.store import get_memory_store
-        from aether_os.core.memory.fingerprinter import fingerprint
         req_hash = fingerprint(ctx.requirement)
         similar = await get_memory_store().retrieve(req_hash, k=3)
         if similar:
@@ -170,7 +149,6 @@ async def phase_codegen(self: Any, ctx: Any, sm: Any, retries: int = 0) -> None:
             memory_context = f"\n\nRELEVANT PAST SOLUTIONS:\n{examples}"
     except Exception as exc:
         logger.debug("Memory retrieval skipped: %s", exc)
-
     prompt = (
         f"Generate complete, production-quality {ctx.language} code for:\n\n"
         f"Requirements:\n{ctx.requirements_doc or ctx.requirement}\n\n"
@@ -188,10 +166,7 @@ async def phase_codegen(self: Any, ctx: Any, sm: Any, retries: int = 0) -> None:
         confidence=0.85 if result else 0.0,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_review(self: Any, ctx: Any, sm: Any) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     code = ctx.generated_code or ""
     prompt = (
@@ -212,16 +187,12 @@ async def phase_review(self: Any, ctx: Any, sm: Any) -> None:
         artifacts=result,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_security(self: Any, ctx: Any, sm: Any) -> bool:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     code = ctx.generated_code or ""
     if not code:
         ctx.security_report = {"issues": [], "status": "no_code"}
         return True
-
     prompt = (
         f"Perform a security analysis of this code. "
         f"Check for: SQL injection, hardcoded secrets, unsafe eval/exec, "
@@ -234,10 +205,8 @@ async def phase_security(self: Any, ctx: Any, sm: Any) -> bool:
     issues = result.get("issues", [])
     ctx.security_report = result
     ctx.security_issues = issues if issues else None
-
     has_critical = any(i.get("severity") in ("CRITICAL", "HIGH") for i in issues)
     passed = not has_critical
-
     ctx.record_phase(PhaseOutput(
         phase_id="p06_review_security",
         phase_name="security",
@@ -248,21 +217,14 @@ async def phase_security(self: Any, ctx: Any, sm: Any) -> bool:
         duration_seconds=time.time() - t0,
     ))
     return passed
-
-
 async def phase_testing(self: Any, ctx: Any, sm: Any) -> bool:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     code = ctx.generated_code or ""
     if not code:
         ctx.test_results = {"test_code": "", "passed": True, "note": "no_code"}
         return True
-
     passed = False
     try:
-        from aether_os.phases.p07_testing.task_agent import run as _test_run
-        from aether_os.orchestrator.messages import PhaseInput
-        from aether_os.core.projects import get_project_manager
         phase_input = PhaseInput(
             run_id=ctx.run_id,
             project_id=ctx.run_id,
@@ -294,7 +256,6 @@ async def phase_testing(self: Any, ctx: Any, sm: Any) -> bool:
         logger.warning("p07_testing runner failed (%s) — marking as failed", exc)
         ctx.test_results = {"passed": False, "note": f"runner_error:{exc}"}
         passed = False
-
     ctx.record_phase(PhaseOutput(
         phase_id="p07_testing",
         phase_name="testing",
@@ -303,21 +264,13 @@ async def phase_testing(self: Any, ctx: Any, sm: Any) -> bool:
         duration_seconds=time.time() - t0,
     ))
     return passed
-
-
 async def phase_cicd(self: Any, ctx: Any, sm: Any) -> None:
-    import tempfile
-    from aether_os.orchestrator.context import PhaseOutput
-    from aether_os.phases.p08_cicd.pipeline import run_repair
-    from aether_os.core.approval.workflow import decide_for_risk
     t0 = time.time()
-
     log_content = ""
     if ctx.test_failures:
         log_content = ctx.test_failures
     elif ctx.test_results and not ctx.test_results.get("passed", True):
         log_content = str(ctx.test_results)
-
     if not log_content or not ctx.generated_code:
         ctx.ci_result = {"status": "skipped", "reason": "no CI failure detected"}
         ctx.record_phase(PhaseOutput(
@@ -328,7 +281,6 @@ async def phase_cicd(self: Any, ctx: Any, sm: Any) -> None:
             duration_seconds=time.time() - t0,
         ))
         return
-
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         (tmp_path / "main.py").write_text(ctx.generated_code or "", encoding="utf-8")
@@ -338,7 +290,6 @@ async def phase_cicd(self: Any, ctx: Any, sm: Any) -> None:
             historical_records=[],
             ast_index=None,
         )
-
     if repair_result.escalated:
         approval = decide_for_risk("HIGH", risk_score=repair_result.confidence)
         ctx.approval_ticket_id = f"cicd-escalation-{ctx.run_id[:8]}"
@@ -360,11 +311,9 @@ async def phase_cicd(self: Any, ctx: Any, sm: Any) -> None:
             duration_seconds=time.time() - t0,
         ))
         return
-
     patch_path: Optional[str] = None
     if repair_result.success and repair_result.patch_diff:
         try:
-            from aether_os.core.config.loader import get_config
             cfg = get_config()
             base_dir = ctx.output_dir or cfg.get(
                 "pipeline.output_dir",
@@ -378,7 +327,6 @@ async def phase_cicd(self: Any, ctx: Any, sm: Any) -> None:
             logger.info("CI/CD patch written to %s", patch_path)
         except Exception as exc:
             logger.warning("Failed to write patch file: %s", exc)
-
     ctx.ci_result = {
         "status": "repaired" if repair_result.success else "failed",
         "explanation": repair_result.explanation,
@@ -397,10 +345,7 @@ async def phase_cicd(self: Any, ctx: Any, sm: Any) -> None:
         artifacts={"patch_path": patch_path, "source": repair_result.source},
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_docs(self: Any, ctx: Any, sm: Any) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     code = ctx.generated_code or ""
     prompt = (
@@ -419,10 +364,7 @@ async def phase_docs(self: Any, ctx: Any, sm: Any) -> None:
         confidence=0.9,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_observability(self: Any, ctx: Any, sm: Any) -> None:
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     code = ctx.generated_code or ""
     prompt = (
@@ -456,19 +398,13 @@ async def phase_observability(self: Any, ctx: Any, sm: Any) -> None:
         artifacts=result,
         duration_seconds=time.time() - t0,
     ))
-
-
 async def phase_packaging(self: Any, ctx: Any, sm: Any) -> None:
-    import tarfile
-    from aether_os.orchestrator.context import PhaseOutput
     t0 = time.time()
     artifact_name = f"{ctx.project_name}-{ctx.run_id[:8]}.tar.gz"
     ctx.packaging_artifact = artifact_name
     artifact_path: Optional[str] = None
     issues: list = []
-
     try:
-        from aether_os.core.config.loader import get_config
         cfg = get_config()
         base_dir = ctx.output_dir or cfg.get(
             "pipeline.output_dir",
@@ -490,7 +426,6 @@ async def phase_packaging(self: Any, ctx: Any, sm: Any) -> None:
     except Exception as exc:
         issues.append(f"Packaging failed: {exc}")
         logger.warning("Packaging: tar.gz creation failed: %s", exc)
-
     ctx.record_phase(PhaseOutput(
         phase_id="p11_deployment",
         phase_name="packaging",

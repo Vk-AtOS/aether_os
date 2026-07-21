@@ -7,6 +7,32 @@ The orchestrator routes messages; it never calls phase logic directly.
 
 Phase registry data lives in orchestrator/phase_sequence.py.
 Run-state helpers live in orchestrator/run_state.py.
+import secrets
+import json as _json
+from sqlalchemy import update as _sa_update
+from sqlalchemy import select as _sel, update as _upd
+from sqlalchemy import select as _sel
+from aether_os.integrations.aether2_bridge import ExternalMonitorBridge
+from aether_os.core.services.learning_service import get_user_context
+from aether_os.core.questionnaire.stage_questions import get_stage_questions
+from aether_os.core.models import Run as _Run_fb
+from aether_os.core.models import Run as _Run_fa
+from aether_os.core.models import Run as _Run_canc
+from aether_os.core.models import Run as _Run
+from aether_os.core.models import QuestionnaireSession, Run
+from aether_os.core.models import Organisation
+from aether_os.core.models import Notification as _Notif_esc, Run as _Run_esc
+from aether_os.core.llm.client import init_org_llm_context
+from aether_os.core.identity.zero_trust import issue_ticket as _zt_issue
+from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+from aether_os.core.db_utils import create_run as _create_run
+from aether_os.core.db import get_session_factory as _gsf_q
+from aether_os.core.db import get_session_factory as _gsf_fb
+from aether_os.core.db import get_session_factory as _gsf_fa
+from aether_os.core.db import get_session_factory as _gsf_esc
+from aether_os.core.db import get_session_factory as _gsf_canc
+from aether_os.core.db import get_session_factory as _gsf
+from aether_os.core.db import get_session_factory
 """
 from __future__ import annotations
 import asyncio
@@ -70,7 +96,6 @@ from aether_os.orchestrator.pipeline_completion import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class FactoryPipeline:
     """
@@ -185,7 +210,7 @@ class FactoryPipeline:
         # can resolve org-specific keys without an await.
         if org_id:
             try:
-                from aether_os.core.llm.client import init_org_llm_context
+
                 await init_org_llm_context(org_id)
             except Exception as _key_exc:
                 logger.debug("init_org_llm_context non-fatal: %s", _key_exc)
@@ -208,7 +233,7 @@ class FactoryPipeline:
             raise ValueError("org_id is required: runs without an org bypass quota tracking and billing")
 
         try:
-            from aether_os.core.db_utils import create_run as _create_run
+
             await _create_run(
                 run_id=run_id,
                 command=f"factory: {raw_input[:60]}",
@@ -225,9 +250,7 @@ class FactoryPipeline:
         # Persist pre-flight council result to the run record
         if council_preflight:
             try:
-                from aether_os.core.db import get_session_factory as _gsf
-                from aether_os.core.models import Run as _Run
-                from sqlalchemy import update as _sa_update
+
                 _sf = _gsf()
                 async with _sf() as _s:
                     await _s.execute(
@@ -243,9 +266,7 @@ class FactoryPipeline:
         _org_autonomous = False
         if org_id:
             try:
-                from aether_os.core.db import get_session_factory
-                from aether_os.core.models import Organisation
-                from sqlalchemy import select as _sel
+
                 async with get_session_factory()() as _os:
                     _org = (await _os.execute(_sel(Organisation).where(Organisation.id == org_id))).scalar_one_or_none()
                     if _org:
@@ -329,8 +350,7 @@ class FactoryPipeline:
         # Inject per-user learning patterns so every phase can tailor its prompts
         if org_id and client_id:
             try:
-                from aether_os.core.services.learning_service import get_user_context
-                from aether_os.core.db import get_session_factory
+
                 _sf = get_session_factory()
                 async with _sf() as _sess:
                     _learned = await get_user_context(org_id, client_id, _sess)
@@ -340,7 +360,7 @@ class FactoryPipeline:
                                 len(_learned), client_id)
             except Exception as _le:
                 logger.warning("Learning context unavailable — phases will run without personalisation (run=%s): %s", run_id, _le)
-        
+
         # Phase selection: honour start_phase override, then restore from checkpoint.
         phases_to_run = select_phases(PHASE_SEQUENCE, start_phase)
         phases_to_run, accumulated_context = await restore_from_checkpoint(
@@ -356,7 +376,7 @@ class FactoryPipeline:
         _monitor_url = os.environ.get("MONITOR_URL", "")
         if _monitor_url:
             try:
-                from aether_os.integrations.aether2_bridge import ExternalMonitorBridge
+
                 _bridge = ExternalMonitorBridge()
                 _bridge.connect(_monitor_url, os.environ.get("MONITOR_API_KEY", ""))
                 _bridge.register_pipeline(run_id, list(phases_to_run))
@@ -467,7 +487,7 @@ class FactoryPipeline:
                     domain=domain,
                     client_id=client_id
                 )
-                
+
                 # Run phase with timeout (configurable per phase)
                 # Look for PHASE_TIMEOUT_<PHASE_NAME> or fallback to PHASE_TIMEOUT_SECONDS/600
                 _env_key = f"PHASE_TIMEOUT_{phase_name.upper()}"
@@ -518,7 +538,7 @@ class FactoryPipeline:
                 phase_result = await asyncio.wait_for(
                     self._run_phase(phase_name, phase_input),
                     timeout=_phase_timeout)
-                
+
                 results[phase_name] = phase_result
 
                 # ── Guided mode: pause and wait for questionnaire answers ──
@@ -545,8 +565,7 @@ class FactoryPipeline:
                     if org_id:
                         async def _notify_escalation(_rid=run_id, _oid=org_id, _pn=phase_name, _reason=_escalation_reason, _pname=accumulated_context.get("project_name") or f"run-{run_id[:8]}"):
                             try:
-                                from aether_os.core.db import get_session_factory as _gsf_esc
-                                from aether_os.core.models import Notification as _Notif_esc, Run as _Run_esc
+
                                 _notif_esc = _Notif_esc(
                                     org_id=_oid,
                                     type="phase_escalation_required",
@@ -581,11 +600,11 @@ class FactoryPipeline:
                         "**/node_modules/**", "**/dist/**", "**/.git/**", 
                         "**/__pycache__/**", "**/*.pyc",
                     ]
-                    
+
                     for _f in _phase_dir.rglob("*"):
                         if _f.is_file():
                             rel_path = str(_f.relative_to(project_dir))
-                            
+
                             # Simple filter
                             if any(p in rel_path for p in ["node_modules/", ".git/", "dist/", "__pycache__/"]) or rel_path.endswith(".pyc"):
                                 continue
@@ -724,8 +743,7 @@ class FactoryPipeline:
                     await self.ledger.async_update_run_status(run_id, "failed")
                     # Fix 62: persist finished_at on pipeline abort
                     try:
-                        from aether_os.core.db import get_session_factory as _gsf_fa
-                        from aether_os.core.models import Run as _Run_fa
+
                         async with _gsf_fa()() as _s_fa:
                             _r_fa = await _s_fa.get(_Run_fa, run_id)
                             if _r_fa:
@@ -755,8 +773,7 @@ class FactoryPipeline:
                     await self.ledger.async_update_run_status(run_id, "failed")
                     # Fix 62: persist finished_at on pipeline abort
                     try:
-                        from aether_os.core.db import get_session_factory as _gsf_fb
-                        from aether_os.core.models import Run as _Run_fb
+
                         async with _gsf_fb()() as _s_fb:
                             _r_fb = await _s_fb.get(_Run_fb, run_id)
                             if _r_fb:
@@ -783,8 +800,7 @@ class FactoryPipeline:
                 await self.ledger.async_update_run_status(run_id, "cancelled")
                 # Fix 62: persist finished_at on cancel (ORM, SQLite-safe)
                 try:
-                    from aether_os.core.db import get_session_factory as _gsf_canc
-                    from aether_os.core.models import Run as _Run_canc
+
                     async with _gsf_canc()() as _s_canc:
                         _r_canc = await _s_canc.get(_Run_canc, run_id)
                         if _r_canc:
@@ -886,7 +902,7 @@ class FactoryPipeline:
         # embedded in phase_input so the supervisor can verify it before
         # executing privileged operations.
         try:
-            from aether_os.core.identity.zero_trust import issue_ticket as _zt_issue
+
             _zt_ticket = _zt_issue(
                 project_path=phase_input.run_id,
                 resource_path=phase_input.output_dir,
@@ -942,7 +958,7 @@ class FactoryPipeline:
     ) -> None:
         """Register a decision ticket and block until approved/denied or timeout."""
         try:
-            from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+
             engine = get_decision_engine()
             decision = Decision(
                 run_id=run_id,
@@ -1006,7 +1022,7 @@ class FactoryPipeline:
         try:
             original_dir = Path.home() / ".aether_os" / "projects" / project_id
             if original_dir.exists():
-                import json as _json
+
                 mem_path = original_dir / "project_memory.json"
                 if mem_path.exists():
                     original_context = _json.loads(mem_path.read_text())
@@ -1033,7 +1049,6 @@ class FactoryPipeline:
             memory_context=json.dumps(original_context) if original_context else None,
         )
 
-
 # ── Guided-mode questionnaire pause / poll ────────────────────────────────────
 
 async def _pause_for_questionnaire(
@@ -1056,11 +1071,6 @@ async def _pause_for_questionnaire(
     up to 7 days and starving all other pipeline users.
     """
     try:
-        import secrets
-        from aether_os.core.db import get_session_factory as _gsf_q
-        from aether_os.core.models import QuestionnaireSession, Run
-        from aether_os.core.questionnaire.stage_questions import get_stage_questions
-        from sqlalchemy import select as _sel, update as _upd
 
         _TOKEN_TTL_DAYS = 7
         _POLL_INTERVAL = 30          # seconds between DB polls
@@ -1210,11 +1220,9 @@ async def _pause_for_questionnaire(
             run_id, stage_id, e,
         )
 
-
 # B5: Strong references to background tasks prevent GC from silently killing them.
 
 _factory: Optional[FactoryPipeline] = None
-
 
 def get_factory() -> FactoryPipeline:
     global _factory

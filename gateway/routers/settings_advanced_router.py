@@ -17,12 +17,19 @@ POST /settings/scim/rotate
 """
 from __future__ import annotations
 
+import bcrypt
 import logging
 import os
+import secrets
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
+
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import LlmConfig, Organisation, PhaseConfig, SamlConfig
+from aether_os.core.services.memory_service import get_memory_service
 from aether_os.gateway.dependencies import get_current_user
 
 router = APIRouter(tags=["settings"])
@@ -53,12 +60,9 @@ async def get_llm_config(
 ) -> Dict[str, Any]:
     """Return LLM config for the current organisation."""
     org_id = user.get("org_id", "")
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
 
-    async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        db_cfg = (await session.execute(select(LlmConfig).where(LlmConfig.org_id == org_id))).scalar_one_or_none()
 
     if not db_cfg:
         return {
@@ -95,14 +99,11 @@ async def update_llm_config(
         raise HTTPException(status_code=403, detail="Only org owners/admins may update LLM config.")
 
     org_id = user.get("org_id", "")
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
 
-    async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        db_cfg = (await session.execute(select(LlmConfig).where(LlmConfig.org_id == org_id))).scalar_one_or_none()
         if not db_cfg:
-            db_cfg = _LC(org_id=org_id)
+            db_cfg = LlmConfig(org_id=org_id)
             session.add(db_cfg)
 
         if "primary_llm" in req: db_cfg.provider = req["primary_llm"]
@@ -125,11 +126,8 @@ async def get_council_config(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     org_id = user.get("org_id", "")
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
-    async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        db_cfg = (await session.execute(select(LlmConfig).where(LlmConfig.org_id == org_id))).scalar_one_or_none()
 
     return {
         "council_enabled": db_cfg.council_enabled if db_cfg else True,
@@ -146,14 +144,11 @@ async def update_council_config(
         raise HTTPException(status_code=403, detail="Only org owners/admins may update council config.")
 
     org_id = user.get("org_id", "")
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import LlmConfig as _LC
-    from sqlalchemy import select as _sel
 
-    async with _gsf()() as session:
-        db_cfg = (await session.execute(_sel(_LC).where(_LC.org_id == org_id))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        db_cfg = (await session.execute(select(LlmConfig).where(LlmConfig.org_id == org_id))).scalar_one_or_none()
         if not db_cfg:
-            db_cfg = _LC(org_id=org_id)
+            db_cfg = LlmConfig(org_id=org_id)
             session.add(db_cfg)
 
         db_cfg.council_enabled = bool(req.get("council_enabled", True))
@@ -172,16 +167,13 @@ async def update_phase_config(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import PhaseConfig as _PhCfg
-    from sqlalchemy import select as _sel
-    async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_PhCfg).where(_PhCfg.org_id == org_id, _PhCfg.phase_name == phase_name))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        cfg = (await session.execute(select(PhaseConfig).where(PhaseConfig.org_id == org_id, PhaseConfig.phase_name == phase_name))).scalar_one_or_none()
         if cfg:
             cfg.enabled = 1 if req.enabled else 0
             cfg.priority = req.priority
         else:
-            session.add(_PhCfg(org_id=org_id, phase_name=phase_name, enabled=1 if req.enabled else 0, priority=req.priority))
+            session.add(PhaseConfig(org_id=org_id, phase_name=phase_name, enabled=1 if req.enabled else 0, priority=req.priority))
         await session.commit()
     return {"success": True}
 
@@ -191,11 +183,8 @@ async def get_all_phase_configs(
     user: Dict[str, Any] = _current_user(),
 ) -> List[Dict[str, Any]]:
     org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import PhaseConfig as _PhCfg
-    from sqlalchemy import select as _sel
-    async with _gsf()() as session:
-        rows = (await session.execute(_sel(_PhCfg).where(_PhCfg.org_id == org_id))).scalars().all()
+    async with get_session_factory()() as session:
+        rows = (await session.execute(select(PhaseConfig).where(PhaseConfig.org_id == org_id))).scalars().all()
 
     return [{"phase_name": r.phase_name, "enabled": bool(r.enabled), "priority": r.priority} for r in rows]
 
@@ -207,7 +196,6 @@ async def get_preferences(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     user_id = user.get("user_id") or user.get("sub", "")
-    from aether_os.core.services.memory_service import get_memory_service
     ms = get_memory_service()
     return await ms.get_user_preferences(user_id)
 
@@ -218,7 +206,6 @@ async def update_preferences(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     user_id = user.get("user_id") or user.get("sub", "")
-    from aether_os.core.services.memory_service import get_memory_service
     ms = get_memory_service()
     await ms.set_user_preferences(user_id, req)
     return await ms.get_user_preferences(user_id)
@@ -232,11 +219,8 @@ async def get_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, An
     if not org_id:
         return {"enabled": False, "provider": None, "configured": False}
     try:
-        from aether_os.core.db import get_session_factory as _gsf
-        from aether_os.core.models import SamlConfig as _SC
-        from sqlalchemy import select as _sel
-        async with _gsf()() as session:
-            cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
+        async with get_session_factory()() as session:
+            cfg = (await session.execute(select(SamlConfig).where(SamlConfig.org_id == org_id))).scalar_one_or_none()
         if not cfg:
             return {"enabled": False, "provider": None, "configured": False}
         return {
@@ -254,17 +238,14 @@ async def get_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, An
 @router.put("/settings/sso")
 async def upsert_sso_config(req: SamlConfigRequest, user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
     org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import SamlConfig as _SC
-    from sqlalchemy import select as _sel
-    async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        cfg = (await session.execute(select(SamlConfig).where(SamlConfig.org_id == org_id))).scalar_one_or_none()
         if cfg:
             cfg.idp_entity_id = req.idp_entity_id
             cfg.idp_sso_url = req.idp_sso_url
             cfg.idp_cert = req.idp_cert
         else:
-            session.add(_SC(org_id=org_id, idp_entity_id=req.idp_entity_id, idp_sso_url=req.idp_sso_url, idp_cert=req.idp_cert))
+            session.add(SamlConfig(org_id=org_id, idp_entity_id=req.idp_entity_id, idp_sso_url=req.idp_sso_url, idp_cert=req.idp_cert))
         await session.commit()
     return {"success": True}
 
@@ -272,11 +253,8 @@ async def upsert_sso_config(req: SamlConfigRequest, user: Dict[str, Any] = _curr
 @router.delete("/settings/sso")
 async def delete_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, str]:
     org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import SamlConfig as _SC
-    from sqlalchemy import select as _sel
-    async with _gsf()() as session:
-        cfg = (await session.execute(_sel(_SC).where(_SC.org_id == org_id))).scalar_one_or_none()
+    async with get_session_factory()() as session:
+        cfg = (await session.execute(select(SamlConfig).where(SamlConfig.org_id == org_id))).scalar_one_or_none()
         if cfg:
             await session.delete(cfg)
             await session.commit()
@@ -288,10 +266,8 @@ async def delete_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str,
 @router.get("/settings/scim")
 async def get_scim_config(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
     org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import Organisation as _Org
-    async with _gsf()() as session:
-        org = await session.get(_Org, org_id)
+    async with get_session_factory()() as session:
+        org = await session.get(Organisation, org_id)
     # DB-H1: never return plaintext token — only report whether one is configured
     configured = bool(
         getattr(org, "scim_token_hash", None) or getattr(org, "scim_token", None)
@@ -307,15 +283,11 @@ async def rotate_scim_token(user: Dict[str, Any] = _current_user()) -> Dict[str,
     returned to the caller exactly once and never persisted."""
     if user.get("role") != "owner":
         raise HTTPException(status_code=403)
-    import secrets as _scim_sec
-    import bcrypt as _bcrypt
-    new_token = _scim_sec.token_urlsafe(32)
-    token_hash = _bcrypt.hashpw(new_token.encode(), _bcrypt.gensalt()).decode()
+    new_token = secrets.token_urlsafe(32)
+    token_hash = bcrypt.hashpw(new_token.encode(), bcrypt.gensalt()).decode()
     org_id = user["org_id"]
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import Organisation as _Org
-    async with _gsf()() as session:
-        org = await session.get(_Org, org_id)
+    async with get_session_factory()() as session:
+        org = await session.get(Organisation, org_id)
         if org:
             # DB-H1: store only the hash; clear legacy plaintext column
             org.scim_token_hash = token_hash

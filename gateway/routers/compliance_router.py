@@ -7,28 +7,39 @@ GET    /audit/logs/export
 DELETE /audit/logs/purge
 """
 from __future__ import annotations
-
 import logging
 import os
 import pathlib
 from typing import Any, Dict, Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from aether_os.gateway.dependencies import get_current_user
-
+from aether_os.core.audit.ledger import get_ledger
+from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
+from aether_os.core.db import get_session_factory
+from aether_os.core.db import get_session_factory as _gsf_ca
+from aether_os.core.db import get_session_factory as _gsf_purge
+from aether_os.core.models import AuditLog as _AL
+from aether_os.core.models import Organisation as _Org
+from aether_os.core.models import Run as _Run_ca
+from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
+from fastapi.responses import StreamingResponse
+from sqlalchemy import delete as _delete
+from sqlalchemy import select as _sel_ca
+from sqlalchemy import text as _ct
+from sqlalchemy import text as _ct2
+import csv, io as _io
+import io, zipfile
+import json as _json_exp
+import time as _time_export
+import time as _time_purge
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["compliance", "audit"])
-
-
 def _current_user():
     return Depends(get_current_user)
-
-
 async def _count_security_decisions(sf, org_id: str) -> int:
     """T5-06: Count security-phase escalations as proxy for issues_found."""
     try:
-        from sqlalchemy import text as _ct2
         async with sf() as _sess2:
             return (await _sess2.execute(
                 _ct2(
@@ -40,8 +51,6 @@ async def _count_security_decisions(sf, org_id: str) -> int:
     except Exception as exc:
         logger.debug("Failed to count security decisions for org %s: %s", org_id, exc)
         return 0
-
-
 @router.get("/audit/logs")
 async def get_audit_logs(
     page: int = 1,
@@ -52,10 +61,7 @@ async def get_audit_logs(
 ):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Admin access required")
-    from aether_os.core.audit.ledger import get_ledger
     return await get_ledger().async_get_audit_logs(org_id=user["org_id"], page=page, limit=limit, action=action, from_ts=from_ts)
-
-
 @router.get("/audit/logs/export")
 async def export_audit_logs(
     format: str = "json",
@@ -69,18 +75,13 @@ async def export_audit_logs(
         raise HTTPException(status_code=400, detail="format must be json or csv")
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="days must be between 1 and 365")
-
-    import time as _time_export
     from_ts = _time_export.time() - days * 86400
-    from aether_os.core.audit.ledger import get_ledger
     # Fetch up to 10k rows for export
     result = await get_ledger().async_get_audit_logs(
         org_id=user["org_id"], page=1, limit=10000, from_ts=from_ts
     )
     logs = result.get("logs", [])
-
     if format == "json":
-        import json as _json_exp
         content = _json_exp.dumps({"logs": logs, "exported_at": _time_export.time(), "days": days})
         return Response(
             content=content,
@@ -88,7 +89,6 @@ async def export_audit_logs(
             headers={"Content-Disposition": f"attachment; filename=audit_logs_{days}d.json"},
         )
     else:
-        import csv, io as _io
         buf = _io.StringIO()
         fields = ["id", "org_id", "user_id", "action", "resource_type", "resource_id", "ip_address", "created_at"]
         writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
@@ -99,8 +99,6 @@ async def export_audit_logs(
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=audit_logs_{days}d.csv"},
         )
-
-
 @router.delete("/audit/logs/purge")
 async def purge_audit_logs(
     days_to_keep: int = 90,
@@ -111,12 +109,8 @@ async def purge_audit_logs(
         raise HTTPException(status_code=403, detail="Admin access required")
     if days_to_keep < 30:
         raise HTTPException(status_code=400, detail="Minimum retention is 30 days")
-    import time as _time_purge
     cutoff = _time_purge.time() - days_to_keep * 86400
     try:
-        from aether_os.core.db import get_session_factory as _gsf_purge
-        from aether_os.core.models import AuditLog as _AL
-        from sqlalchemy import delete as _delete
         async with _gsf_purge()() as _sess:
             result = await _sess.execute(
                 _delete(_AL).where(_AL.org_id == user["org_id"]).where(_AL.created_at <= cutoff)
@@ -126,8 +120,6 @@ async def purge_audit_logs(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Purge failed: {exc}")
     return {"deleted": deleted, "cutoff_days": days_to_keep}
-
-
 @router.get("/compliance/artifacts/{run_id}")
 async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_user()):
     """
@@ -135,10 +127,6 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_
     Runs the real code scanner on the generated src/main.py if it exists,
     otherwise returns a lightweight placeholder.
     """
-    from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
-    from fastapi.responses import StreamingResponse
-    import io, zipfile
-
     # Try to locate the generated src/main.py for this run
     project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
     main_py_path: Optional[str] = None
@@ -149,14 +137,10 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_
         if candidate.exists():
             main_py_path = str(candidate)
             break
-
     # Pull project_name / domain from the run DB record (best-effort)
     _project_name = ""
     _domain = "general"
     try:
-        from aether_os.core.db import get_session_factory as _gsf_ca
-        from aether_os.core.models import Run as _Run_ca
-        from sqlalchemy import select as _sel_ca
         _sf_ca = _gsf_ca()
         async with _sf_ca() as _sess_ca:
             _run_ca = (await _sess_ca.execute(
@@ -167,7 +151,6 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_
                 _domain = getattr(_run_ca, "domain", "general") or "general"
     except Exception as exc:
         logger.debug("DB lookup for compliance project_name/domain failed (run %s): %s", run_id, exc)
-
     gen = ComplianceArtifactGenerator()
     artifact = await gen.generate_artifact(
         run_id,
@@ -176,7 +159,6 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_
         project_name=_project_name,
         domain=_domain,
     )
-
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zf:
         zf.writestr("compliance_scan.json", artifact.content)
@@ -188,12 +170,8 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=compliance_{run_id}.zip"},
     )
-
-
 @router.get("/compliance/org-report")
 async def get_compliance_report(user: Dict[str, Any] = _current_user()):
-    from aether_os.core.db import get_session_factory
-    from sqlalchemy import text as _ct
     org_id = user["org_id"]
     sf = get_session_factory()
     async with sf() as session:
@@ -226,10 +204,8 @@ async def get_compliance_report(user: Dict[str, Any] = _current_user()):
     _eu_ai_risk = "MINIMAL"
     _org_settings: dict = {}
     try:
-        from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
         try:
             async with sf() as _s2:
-                from aether_os.core.models import Organisation as _Org
                 _org = await _s2.get(_Org, org_id)
                 if _org and _org.data_region:
                     _org_settings["data_region"] = _org.data_region

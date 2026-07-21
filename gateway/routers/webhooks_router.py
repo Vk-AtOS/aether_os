@@ -5,28 +5,25 @@ POST /webhooks
 DELETE /webhooks/{webhook_id}
 """
 from __future__ import annotations
-
 import logging
 from typing import Any, Dict
-
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
-
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import Webhook
+from sqlalchemy import select
+import httpx
+import ipaddress as _ip
+import secrets as _secrets
+import time
+import urllib.parse as _urlparse
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["webhooks"])
-
-
 def _current_user():
     return Depends(get_current_user)
-
-
 @router.get("/webhooks")
 async def list_webhooks(user: Dict[str, Any] = _current_user()):
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Webhook
-    from sqlalchemy import select
-
     org_id = user["org_id"]
     sf = get_session_factory()
     async with sf() as session:
@@ -43,20 +40,11 @@ async def list_webhooks(user: Dict[str, Any] = _current_user()):
         }
         for w in rows
     ]
-
-
 @router.post("/webhooks")
 async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
-    import secrets as _secrets
-    import ipaddress as _ip
-    import urllib.parse as _urlparse
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Webhook
-
     url = req.get("url", "").strip()
     if not url:
         raise HTTPException(status_code=422, detail="url is required")
-
     # T2-11: SSRF allowlist — block private/internal networks and metadata endpoints
     try:
         _parsed = _urlparse.urlparse(url)
@@ -77,13 +65,11 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     except Exception as e:
         logger.warning("webhooks_router: invalid webhook URL rejected: %s", e)
         raise HTTPException(status_code=422, detail="Invalid webhook URL")
-
     events = req.get("events", [])
     # M3: generate raw secret, return it ONCE, store only the bcrypt hash
     secret = _secrets.token_hex(32)
     secret_hash = bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
     org_id = user["org_id"]
-
     sf = get_session_factory()
     async with sf() as session:
         new_webhook = Webhook(
@@ -96,17 +82,10 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
         session.add(new_webhook)
         await session.commit()
         await session.refresh(new_webhook)
-
     # Return the raw secret exactly once — caller must persist it; it cannot be recovered
     return {"id": new_webhook.id, "url": new_webhook.url, "is_active": True, "secret": secret}
-
-
 @router.delete("/webhooks/{webhook_id}")
 async def delete_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()):
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Webhook
-    from sqlalchemy import select
-
     org_id = user["org_id"]
     sf = get_session_factory()
     async with sf() as session:
@@ -118,18 +97,11 @@ async def delete_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()
         await session.delete(wh)
         await session.commit()
     return {"success": True}
-
-
 @router.put("/webhooks/{webhook_id}")
 async def update_webhook(webhook_id: str, req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Webhook
-    from sqlalchemy import select
-
     org_id = user["org_id"]
     url = req.get("url", "").strip()
     events = req.get("events")
-
     sf = get_session_factory()
     async with sf() as session:
         wh = (await session.execute(
@@ -144,16 +116,8 @@ async def update_webhook(webhook_id: str, req: Dict[str, Any], user: Dict[str, A
         await session.commit()
         await session.refresh(wh)
     return {"id": wh.id, "url": wh.url, "events": wh.events, "is_active": wh.is_active}
-
-
 @router.post("/webhooks/{webhook_id}/test")
 async def test_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()):
-    import httpx
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Webhook
-    from sqlalchemy import select
-    import time
-
     org_id = user["org_id"]
     sf = get_session_factory()
     async with sf() as session:
@@ -162,7 +126,6 @@ async def test_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()):
         )).scalar_one_or_none()
         if not wh:
             raise HTTPException(status_code=404, detail="Webhook not found")
-
     payload = {"event": "webhook.test", "timestamp": time.time(), "message": "AetherOS test ping"}
     try:
         async with httpx.AsyncClient(timeout=10) as client:
