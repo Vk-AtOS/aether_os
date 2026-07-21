@@ -4,6 +4,29 @@ GET /factory/runs, GET/POST /factory/runs/{run_id} (detail, quality, priority, r
 Files/snapshots → factory_run_files_router
 Streaming/SSE  → factory_run_streaming_router
 Compliance     → factory_run_compliance_router
+import uuid as _uuid2
+import uuid as _uuid
+from sqlalchemy import select, update as _sa_upd
+from sqlalchemy import select as _sel_ev
+from sqlalchemy import select as _sel_b
+from dataclasses import asdict as _asdict
+from dataclasses import asdict
+from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory2
+from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
+from aether_os.gateway import api as _api
+from aether_os.core.quality.metrics import score_project
+from aether_os.core.projects import get_project_manager
+from aether_os.core.models import RunMetadata as _RM_pri
+from aether_os.core.models import Run as _RunB
+from aether_os.core.models import PipelineEvent
+from aether_os.core.models import Organisation
+from aether_os.core.db import get_session_factory as _gsf_pri
+from aether_os.core.db import get_session_factory as _gsf_ev
+from aether_os.core.db import get_session_factory as _gsf_b
+from aether_os.core.db import get_session_factory as _gsf3
+from aether_os.core.db import get_session_factory as _gsf
+from aether_os.core.db import get_session_factory
+from aether_os.core.audit.ledger import get_ledger
 """
 from __future__ import annotations
 
@@ -32,29 +55,24 @@ from aether_os.core.services.run_service import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
 
-
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
 class PriorityRequest(BaseModel):
     priority: str  # "high" | "normal" | "low"
 
-
 class RerunRequest(BaseModel):
     from_phase: str
-
 
 # ── Auth helper ────────────────────────────────────────────────────────────────
 
 def _current_user():
     return Depends(get_current_user)
 
-
 # ── Module-level shared state (mirrors api.py globals) ────────────────────────
 
 def _get_background_tasks() -> set:
-    from aether_os.gateway import api as _api
-    return _api._background_tasks
 
+    return _api._background_tasks
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +82,6 @@ async def get_test_report(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Get the self-test report for a run."""
-    from aether_os.core.db import get_session_factory
 
     async with get_session_factory()() as session:
         report_str = await svc_get_test_report(session, run_id, user["org_id"])
@@ -73,7 +90,6 @@ async def get_test_report(
         raise HTTPException(status_code=404, detail="Report not found")
 
     return json.loads(report_str)
-
 
 @router.get("/factory/runs")
 async def list_factory_runs(
@@ -96,7 +112,7 @@ async def list_factory_runs(
     # Only compute offset for legacy callers that pass page > 1 without a cursor
     offset = 0 if cursor is not None else (page - 1) * limit
     try:
-        from aether_os.core.audit.ledger import get_ledger
+
         org_id = user.get("org_id")
         result = await get_ledger().async_get_run_history(
             org_id=org_id, limit=limit, offset=offset, cursor=cursor
@@ -108,7 +124,7 @@ async def list_factory_runs(
         # Enrich with quality_score from Run table
         if items:
             try:
-                from aether_os.core.db import get_session_factory as _gsf
+
                 async with _gsf()() as _sess:
                     await enrich_runs_with_quality(_sess, items)
             except Exception as _e:
@@ -125,14 +141,13 @@ async def list_factory_runs(
         logger.warning("Could not fetch run history: %s", exc)
         return {"items": [], "page": page, "limit": limit, "total": 0, "next_cursor": None}
 
-
 @router.get("/factory/runs/{run_id}")
 async def get_factory_run(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Get detail for a single pipeline run."""
-    from aether_os.core.audit.ledger import get_ledger
+
     org_id = user.get("org_id")
     detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
     if not detail:
@@ -181,7 +196,7 @@ async def get_factory_run(
     # Load priority and live_url via ORM (FIX-017)
     detail.setdefault("live_url", None)
     try:
-        from aether_os.core.db import get_session_factory as _gsf3
+
         _sf3 = _gsf3()
         async with _sf3() as _sess3:
             priority, live_url = await get_run_priority_and_live_url(_sess3, run_id, org_id)
@@ -194,8 +209,7 @@ async def get_factory_run(
 
     # Enrich with quality score if project output exists (best-effort, non-blocking)
     try:
-        from aether_os.core.quality.metrics import score_project
-        from dataclasses import asdict as _asdict
+
         _qdir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
         if _qdir.exists():
             _qscore = score_project(_qdir)
@@ -205,17 +219,12 @@ async def get_factory_run(
 
     return detail
 
-
 @router.get("/factory/runs/{run_id}/quality")
 async def get_run_quality(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Get quality score for a completed run's generated output."""
-    from aether_os.core.audit.ledger import get_ledger
-    from aether_os.core.projects import get_project_manager
-    from aether_os.core.quality.metrics import score_project
-    from dataclasses import asdict
 
     # B2: verify run belongs to this org before touching the filesystem (IDOR fix)
     org_id = user.get("org_id")
@@ -235,7 +244,6 @@ async def get_run_quality(
 
     return {"run_id": run_id, "quality": asdict(score)}
 
-
 @router.post("/factory/runs/{run_id}/priority")
 async def set_factory_run_priority(
     run_id: str,
@@ -243,7 +251,7 @@ async def set_factory_run_priority(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Set the priority label for a run."""
-    from aether_os.core.audit.ledger import get_ledger
+
     org_id = user.get("org_id")
     detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
     if not detail:
@@ -253,8 +261,6 @@ async def set_factory_run_priority(
         raise HTTPException(status_code=400, detail="priority must be high | normal | low")
 
     # Upsert priority via ORM (FIX-017)
-    from aether_os.core.db import get_session_factory as _gsf_pri
-    from aether_os.core.models import RunMetadata as _RM_pri
 
     _sf_pri = _gsf_pri()
     async with _sf_pri() as _sess_pri:
@@ -269,7 +275,6 @@ async def set_factory_run_priority(
         await _sess_pri.commit()
     return {"run_id": run_id, "priority": req.priority}
 
-
 @router.post("/factory/runs/{run_id}/rerun")
 async def rerun_factory_run(
     run_id: str,
@@ -277,18 +282,11 @@ async def rerun_factory_run(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Create a new run starting from a given phase."""
-    import uuid as _uuid
-    from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
-    from aether_os.core.audit.ledger import get_ledger
 
     org_id = user.get("org_id")
     detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
     if not detail:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-    from sqlalchemy import select, update as _sa_upd
 
     session_factory = get_session_factory()
     async with session_factory() as session:
@@ -335,7 +333,6 @@ async def rerun_factory_run(
     _t.add_done_callback(_background_tasks.discard)
     return {"run_id": new_run_id, "status": "started", "from_phase": req.from_phase}
 
-
 @router.post("/factory/runs/{run_id}/branch")
 async def branch_factory_run(
     run_id: str,
@@ -343,11 +340,6 @@ async def branch_factory_run(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Fork a run at a given phase — creates a new run with the same context."""
-    import uuid as _uuid2
-    from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory2
-    from aether_os.core.db import get_session_factory as _gsf_b
-    from aether_os.core.models import Run as _RunB
-    from sqlalchemy import select as _sel_b
 
     branch_phase = req.get("branch_phase", "p04_backend")
     extra_input = req.get("extra_input", "")
@@ -404,7 +396,6 @@ async def branch_factory_run(
         "branch_phase": branch_phase,
     }
 
-
 @router.get("/factory/runs/{run_id}/events")
 async def get_run_events(
     run_id: str,
@@ -415,10 +406,6 @@ async def get_run_events(
     M11: RunDetail.jsx calls this route but no handler existed — events tab was always empty.
     Queries the pipeline_events table (created in DB-C1 migration).
     """
-    from aether_os.core.audit.ledger import get_ledger
-    from aether_os.core.db import get_session_factory as _gsf_ev
-    from aether_os.core.models import PipelineEvent
-    from sqlalchemy import select as _sel_ev
 
     # Verify run belongs to this org (IDOR guard)
     org_id = user.get("org_id")

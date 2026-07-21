@@ -1,9 +1,7 @@
 """
 AetherOS — Async DB Utilities
-
 Replaces all raw sqlite3.connect() calls that were blocking the FastAPI event loop.
 These functions use SQLAlchemy async ORM exclusively.
-
 All functions are safe to await from async FastAPI route handlers.
 """
 from __future__ import annotations
@@ -12,17 +10,25 @@ import logging
 import time
 import uuid
 from typing import Any, Dict, List, Optional
-
 from sqlalchemy import select, text, update, delete, func
-
+from .db import get_session_factory
+from .db import get_session_factory as _gsf
+from .models import Notification, User
+from .models import PhaseCompletion
+from .models import PhaseConfig
+from .models import Run
+from .models import Run, PhaseCompletion, RunMetadata
+from .models import Run, RunMetadata
+from .notifications.email import get_email_notifier
+from sqlalchemy import select as _sel
+from sqlalchemy import update as sa_update
+from sqlalchemy.orm import selectinload
+import os
+import time as _t
 logger = logging.getLogger(__name__)
-
 # Strong reference set so background notification tasks are not garbage collected
 _background_notify_tasks: set = set()
-
-
 # ── Run queries ───────────────────────────────────────────────────────────────
-
 async def get_run_list(
     org_id: str,
     limit: int = 100,
@@ -30,27 +36,20 @@ async def get_run_list(
     cursor: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Return paginated run history for an org.
-
     Supports two pagination modes:
     - Cursor-based (preferred): pass cursor=<started_at float> to get the next page.
       Returns {"items": [...], "total": int, "next_cursor": float|None}.
     - Offset-based (legacy): pass offset=N. Slower at high page numbers but kept for
       backward compatibility with callers that haven't migrated yet.
-
     Returns {"items": [...], "total": int, "next_cursor": float|None}.
     """
-    from .db import get_session_factory
-    from .models import Run, PhaseCompletion, RunMetadata
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         # Total count (separate query, cheap with index on org_id)
         count_stmt = select(func.count()).select_from(Run).where(Run.org_id == org_id)
         total: int = (await session.execute(count_stmt)).scalar_one()
-
         if total == 0:
             return {"items": [], "total": 0, "next_cursor": None}
-
         # Cursor-based pagination: seek rows older than cursor timestamp
         # (started_at DESC ordering — cursor is the started_at of the last seen row)
         base_filter = Run.org_id == org_id
@@ -75,12 +74,9 @@ async def get_run_list(
         all_rows = result.scalars().all()
         has_more = len(all_rows) > limit
         runs = all_rows[:limit]
-
         if not runs:
             return {"items": [], "total": total, "next_cursor": None}
-
         run_ids = [r.id for r in runs]
-
         # Latest phase per run (one query for all runs)
         phase_stmt = (
             select(PhaseCompletion.run_id, PhaseCompletion.phase_name)
@@ -95,14 +91,12 @@ async def get_run_list(
         for rid, pname in phase_rows:
             if rid not in phase_map:
                 phase_map[rid] = pname
-
         # Priorities
         prio_stmt = select(RunMetadata.run_id, RunMetadata.priority).where(
             RunMetadata.run_id.in_(run_ids)
         )
         prio_rows = (await session.execute(prio_stmt)).all()
         prio_map: Dict[str, str] = {rid: prio for rid, prio in prio_rows}
-
     formatted = []
     for run in runs:
         cmd = run.command or "Untitled Project"
@@ -125,19 +119,12 @@ async def get_run_list(
             "client_id":     run.client_id,
         }
         formatted.append(d)
-
     # Provide next_cursor so callers can avoid OFFSET on subsequent pages.
     # next_cursor is the started_at float of the oldest item in this page.
     next_cursor: Optional[float] = runs[-1].started_at if has_more and runs else None
     return {"items": formatted, "total": total, "next_cursor": next_cursor}
-
-
 async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
     """Return full run detail with phase_completions and events."""
-    from .db import get_session_factory
-    from .models import Run, PhaseCompletion, RunMetadata
-    from sqlalchemy.orm import selectinload
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         stmt = (
@@ -152,14 +139,11 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
             stmt = stmt.where(Run.org_id == org_id)
         result = await session.execute(stmt)
         run = result.scalar_one_or_none()
-
         if not run:
             return {}
-
         # Priority
         pm = await session.get(RunMetadata, run_id)
         priority = pm.priority if pm else "normal"
-
     phases: Dict[str, Any] = {}
     for pc in (run.phase_completions or []):
         phases[pc.phase_name] = {
@@ -167,7 +151,6 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
             "duration_s": pc.duration_s,
             "updated_at": pc.updated_at,
         }
-
     events = [
         {
             "id":        ev.id,
@@ -178,7 +161,6 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
         }
         for ev in sorted(run.events or [], key=lambda e: e.timestamp or 0)
     ]
-
     cmd = run.command or "Untitled Project"
     return {
         "id":           run.id,
@@ -201,20 +183,14 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
         "message":      run.message,
         "self_test_report": run.self_test_report,
     }
-
-
 async def set_run_priority(run_id: str, org_id: str, priority: str) -> bool:
     """Upsert priority for a run. Returns False if run not found or org mismatch."""
-    from .db import get_session_factory
-    from .models import Run, RunMetadata
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         # Verify org ownership
         run = await session.get(Run, run_id)
         if not run or run.org_id != org_id:
             return False
-
         pm = await session.get(RunMetadata, run_id)
         if pm:
             pm.priority = priority
@@ -223,8 +199,6 @@ async def set_run_priority(run_id: str, org_id: str, priority: str) -> bool:
             session.add(RunMetadata(run_id=run_id, priority=priority, updated_at=time.time()))
         await session.commit()
     return True
-
-
 async def record_phase_completion(
     run_id: str,
     phase_name: str,
@@ -232,9 +206,6 @@ async def record_phase_completion(
     duration_s: Optional[float] = None,
 ) -> None:
     """Upsert a phase completion record."""
-    from .db import get_session_factory
-    from .models import PhaseCompletion
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         pc = await session.get(PhaseCompletion, (run_id, phase_name))
@@ -251,8 +222,6 @@ async def record_phase_completion(
                 updated_at=time.time(),
             ))
         await session.commit()
-
-
 async def update_run_status(
     run_id: str,
     status: str,
@@ -260,9 +229,6 @@ async def update_run_status(
     current_phase: Optional[str] = None,
 ) -> bool:
     """Update run status (and optionally current_phase). Returns False if not found."""
-    from .db import get_session_factory
-    from .models import Run
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         run = await session.get(Run, run_id)
@@ -279,17 +245,10 @@ async def update_run_status(
         if status in ("completed", "failed") and run.org_id:
             _emit_run_notification(run, status)
     return True
-
-
 def _emit_run_notification(run, status: str) -> None:
     """Fire-and-forget task to create an in-app notification and send email on run completion/failure."""
-    import asyncio
     async def _create():
         try:
-            from .db import get_session_factory as _gsf
-            from .models import Notification, User
-            import time as _t
-            from sqlalchemy import select as _sel
             title = (
                 f"Run completed: {run.project_name or run.id[:8]}"
                 if status == "completed"
@@ -311,8 +270,6 @@ def _emit_run_notification(run, status: str) -> None:
                 if run.user_id:
                     db_user = await sess.get(User, run.user_id)
                     if db_user and db_user.email and not db_user.email.endswith("@deleted.invalid"):
-                        from .notifications.email import get_email_notifier
-                        import os
                         notifier = get_email_notifier()
                         frontend_url = os.getenv("FRONTEND_URL", "")
                         if status == "completed":
@@ -333,8 +290,6 @@ def _emit_run_notification(run, status: str) -> None:
         _t.add_done_callback(_background_notify_tasks.discard)
     except RuntimeError as e:
         logger.warning("db_utils: no running event loop — background notification skipped: %s", e)
-
-
 async def create_run(
     run_id: str,
     command: str,
@@ -345,9 +300,6 @@ async def create_run(
     raw_input: Optional[str] = None,
 ) -> None:
     """Insert a new run record, or update status/command if it already exists."""
-    from .db import get_session_factory
-    from .models import Run
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         existing = await session.get(Run, run_id)
@@ -371,13 +323,8 @@ async def create_run(
                 raw_input=raw_input,
             ))
         await session.commit()
-
-
 async def set_run_live_url(run_id: str, org_id: str, live_url: Optional[str]) -> bool:
     """Set (or clear) the live deployment URL for a run."""
-    from .db import get_session_factory
-    from .models import Run
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         run = await session.get(Run, run_id)
@@ -386,15 +333,9 @@ async def set_run_live_url(run_id: str, org_id: str, live_url: Optional[str]) ->
         run.live_url = live_url
         await session.commit()
     return True
-
-
 # ── Phase config queries ──────────────────────────────────────────────────────
-
 async def get_phase_configs(org_id: str) -> List[Dict[str, Any]]:
     """Return all phase config rows."""
-    from .db import get_session_factory
-    from .models import PhaseConfig
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         result = await session.execute(select(PhaseConfig))
@@ -403,13 +344,8 @@ async def get_phase_configs(org_id: str) -> List[Dict[str, Any]]:
         {"phase_name": r.phase_name, "enabled": bool(r.enabled), "priority": r.priority}
         for r in rows
     ]
-
-
 async def upsert_phase_config(phase_name: str, enabled: bool, priority: str) -> None:
     """Upsert a phase config row."""
-    from .db import get_session_factory
-    from .models import PhaseConfig
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         pc = await session.get(PhaseConfig, phase_name)
@@ -425,14 +361,8 @@ async def upsert_phase_config(phase_name: str, enabled: bool, priority: str) -> 
                 updated_at=time.time(),
             ))
         await session.commit()
-
-
 async def async_update_run_live_url(run_id: str, live_url) -> None:
     """Persist or clear the live_url for a deployed run using async ORM (no raw sqlite3)."""
-    from .db import get_session_factory
-    from .models import Run
-    from sqlalchemy import update as sa_update
-
     session_factory = get_session_factory()
     async with session_factory() as session:
         await session.execute(

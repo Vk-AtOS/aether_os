@@ -1,0 +1,149 @@
+{
+  "nodes": [
+    {
+      "id": "relative_import_bug",
+      "type": "fix",
+      "label": "Relative import inside phase agent causes ImportError at runtime",
+      "properties": {
+        "symptom": "ImportError: attempted relative import beyond top-level package",
+        "phase": "p04a, p04b, p05",
+        "first_seen": "Session-AY"
+      }
+    },
+    {
+      "id": "absolute_imports_constraint",
+      "type": "constraint",
+      "label": "Always use absolute imports (aether_os.core.x) inside phase agents",
+      "properties": {
+        "rule": "from aether_os.X import Y \u2014 never from ..X import Y",
+        "reason": "Phase agents are loaded dynamically; relative imports fail"
+      }
+    },
+    {
+      "id": "missing_all_routers",
+      "type": "fix",
+      "label": "Generated app has no routers/__init__.py \u2014 imports fail at startup",
+      "properties": {
+        "symptom": "ModuleNotFoundError: No module named 'src.routers'",
+        "phase": "p04a",
+        "first_seen": "Session-AN"
+      }
+    },
+    {
+      "id": "all_routers_export_rule",
+      "type": "constraint",
+      "label": "Every generated routers/ directory must have __init__.py exporting all routers",
+      "properties": {
+        "rule": "p04a must write routers/__init__.py with from .X import router",
+        "reason": "FastAPI app.include_router requires importable router objects"
+      }
+    },
+    {
+      "id": "seed_unique_violation",
+      "type": "fix",
+      "label": "Seed data hits UNIQUE constraint because email/username not unique per row",
+      "properties": {
+        "symptom": "sqlalchemy.exc.IntegrityError: UNIQUE constraint failed: users.email",
+        "phase": "p04a seed.py",
+        "first_seen": "Session-BF"
+      }
+    },
+    {
+      "id": "unique_field_pattern_constraint",
+      "type": "constraint",
+      "label": "Seed generator must use unique values for email/username fields",
+      "properties": {
+        "rule": "For each entity row i, use email=f'user{i}@example.com'",
+        "reason": "Duplicate emails in seed data cause IntegrityError on first run"
+      }
+    },
+    {
+      "id": "circular_fk_deadlock",
+      "type": "fix",
+      "label": "Circular FK reference causes seed data deadlock",
+      "properties": {
+        "symptom": "Cannot insert row: FK constraint fails in both directions",
+        "phase": "p02b, p04a seed.py",
+        "first_seen": "Item 1 \u2014 domain IR validator"
+      }
+    },
+    {
+      "id": "nullable_fk_break_cycle",
+      "type": "constraint",
+      "label": "Break circular FK cycles by making one side nullable",
+      "properties": {
+        "rule": "If A\u2192B and B\u2192A, make B.a_id nullable=True so A can be inserted first",
+        "reason": "Nullable FK allows deferred insertion order resolution"
+      }
+    },
+    {
+      "id": "sqlalchemy_reserved_name",
+      "type": "fix",
+      "label": "Entity named Base/Session/Model conflicts with SQLAlchemy internals",
+      "properties": {
+        "symptom": "AttributeError or mysterious ORM behaviour at startup",
+        "phase": "p02b, p04a models.py",
+        "first_seen": "Item 1 \u2014 domain IR validator D4"
+      }
+    },
+    {
+      "id": "rename_reserved_entity",
+      "type": "constraint",
+      "label": "Rename entities that conflict with SQLAlchemy reserved names",
+      "properties": {
+        "rule": "Never name an entity Base, Session, Model, Query, or metadata",
+        "reason": "SQLAlchemy imports these names into the ORM namespace"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from_id": "relative_import_bug",
+      "to_id": "absolute_imports_constraint",
+      "type": "fixes",
+      "weight": 1.0
+    },
+    {
+      "from_id": "missing_all_routers",
+      "to_id": "all_routers_export_rule",
+      "type": "fixes",
+      "weight": 1.0
+    },
+    {
+      "from_id": "seed_unique_violation",
+      "to_id": "unique_field_pattern_constraint",
+      "type": "fixes",
+      "weight": 1.0
+    },
+    {
+      "from_id": "circular_fk_deadlock",
+      "to_id": "nullable_fk_break_cycle",
+      "type": "fixes",
+      "weight": 1.0
+    },
+    {
+      "from_id": "sqlalchemy_reserved_name",
+      "to_id": "rename_reserved_entity",
+      "type": "fixes",
+      "weight": 1.0
+    },
+    {
+      "from_id": "seed_unique_violation",
+      "to_id": "circular_fk_deadlock",
+      "type": "related_to",
+      "weight": 1.0
+    },
+    {
+      "from_id": "circular_fk_deadlock",
+      "to_id": "seed_unique_violation",
+      "type": "related_to",
+      "weight": 1.0
+    },
+    {
+      "from_id": "absolute_imports_constraint",
+      "to_id": "all_routers_export_rule",
+      "type": "related_to",
+      "weight": 1.0
+    }
+  ]
+}

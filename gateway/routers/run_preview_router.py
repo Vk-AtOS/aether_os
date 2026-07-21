@@ -2,7 +2,6 @@
 AetherOS — Run Preview Router
 ================================
 Handles GitHub push, LLM traces, spec management, and project chat.
-
 Routes
 ------
   POST /factory/runs/{run_id}/push-github
@@ -13,31 +12,30 @@ Routes
   GET  /factory/runs/{run_id}/backend-spec
   POST /factory/runs/{run_id}/backend-spec
   POST /factory/runs/{run_id}/chat
-
 Split from run_deploy_router.py to keep both files under 400 lines.
 Independently importable — no imports from run_deploy_router.
 """
 from __future__ import annotations
-
 import logging
 from typing import Any, Dict, Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query
-
 from aether_os.gateway.dependencies import get_current_user
-
+from aether_os.core.db import get_session_factory
+from aether_os.core.llm.client import LLMClient
+from aether_os.core.models import LLMTrace
+from aether_os.core.models import Run
+from aether_os.core.models import RunSpec, Run
+from aether_os.core.services import learning_service
+from pathlib import Path
+from sqlalchemy import select
+import base64
+import httpx
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
-
-
 # ── Auth helper ────────────────────────────────────────────────────────────────
-
 def _current_user():
     return Depends(get_current_user)
-
-
 # ── Routes ─────────────────────────────────────────────────────────────────────
-
 @router.post("/factory/runs/{run_id}/push-github")
 async def push_run_to_github(
     run_id: str,
@@ -45,18 +43,10 @@ async def push_run_to_github(
     user: Dict[str, Any] = _current_user(),
 ):
     """Push the generated project to a new GitHub repository."""
-    import base64
-    import httpx
-    from pathlib import Path
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run
-    from sqlalchemy import select
-
     github_token = req.get("github_token", "")
     repo_name = req.get("repo_name", "")
     if not github_token or not repo_name:
         raise HTTPException(status_code=422, detail="github_token and repo_name are required")
-
     sf = get_session_factory()
     async with sf() as session:
         run = (await session.execute(
@@ -64,11 +54,9 @@ async def push_run_to_github(
         )).scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-
     project_dir = Path.home() / ".aether_os" / "projects" / run_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project files not found")
-
     headers = {
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github.v3+json",
@@ -79,7 +67,6 @@ async def push_run_to_github(
         ".prettierrc", ".editorconfig", ".nvmrc",
     }
     _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
-
     async with httpx.AsyncClient(timeout=30) as gh:
         create_res = await gh.post(
             "https://api.github.com/user/repos",
@@ -100,7 +87,6 @@ async def push_run_to_github(
         html_url = repo_data.get("html_url", f"https://github.com/user/{repo_name}")
         user_res = await gh.get("https://api.github.com/user", headers=headers)
         gh_user = user_res.json().get("login", "aetheros")
-
         files_pushed = 0
         for fpath in sorted(project_dir.rglob("*")):
             if not fpath.is_file() or files_pushed >= 50:
@@ -127,10 +113,7 @@ async def push_run_to_github(
             except Exception as _push_exc:
                 logger.warning("Failed to push file %s to GitHub: %s", rel, _push_exc)
                 continue
-
     return {"html_url": html_url, "files_pushed": files_pushed}
-
-
 @router.get("/factory/runs/{run_id}/traces")
 async def get_run_traces(
     run_id: str,
@@ -139,10 +122,6 @@ async def get_run_traces(
     user: Dict[str, Any] = _current_user(),
 ):
     """Return LLM call traces for a pipeline run."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import LLMTrace
-    from sqlalchemy import select
-
     sf = get_session_factory()
     async with sf() as db:
         q = select(LLMTrace).where(LLMTrace.run_id == run_id)
@@ -151,7 +130,6 @@ async def get_run_traces(
         q = q.order_by(LLMTrace.created_at.asc()).limit(limit)
         result = await db.execute(q)
         traces = result.scalars().all()
-
     return [
         {
             "id": t.id,
@@ -170,8 +148,6 @@ async def get_run_traces(
         }
         for t in traces
     ]
-
-
 @router.get("/factory/runs/{run_id}/traces/{trace_id}")
 async def get_trace_detail(
     run_id: str,
@@ -179,10 +155,6 @@ async def get_trace_detail(
     user: Dict[str, Any] = _current_user(),
 ):
     """Return full prompt and response for a single trace."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import LLMTrace
-    from sqlalchemy import select
-
     sf = get_session_factory()
     async with sf() as db:
         result = await db.execute(
@@ -194,7 +166,6 @@ async def get_trace_detail(
         trace = result.scalar_one_or_none()
         if not trace:
             raise HTTPException(status_code=404, detail="Trace not found")
-
     return {
         "id": trace.id,
         "phase": trace.phase,
@@ -210,16 +181,12 @@ async def get_trace_detail(
         "tokens_out": trace.tokens_out,
         "created_at": trace.created_at.isoformat() if trace.created_at else None,
     }
-
-
 @router.get("/factory/runs/{run_id}/frontend-spec")
 async def get_frontend_spec(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
 ):
     """Retrieve the frontend spec attached to a run."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import RunSpec, Run
     sf = get_session_factory()
     async with sf() as session:
         run = await session.get(Run, run_id)
@@ -227,8 +194,6 @@ async def get_frontend_spec(
             raise HTTPException(status_code=404, detail="Run not found")
         row = await session.get(RunSpec, (run_id, "frontend"))
     return {"spec": row.spec if row else {}}
-
-
 @router.post("/factory/runs/{run_id}/frontend-spec")
 async def save_frontend_spec(
     run_id: str,
@@ -236,8 +201,6 @@ async def save_frontend_spec(
     user: Dict[str, Any] = _current_user(),
 ):
     """Save / overwrite the frontend spec for a run."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import RunSpec, Run
     spec = body.get("spec") or body
     sf = get_session_factory()
     async with sf() as session:
@@ -254,16 +217,12 @@ async def save_frontend_spec(
             session.add(RunSpec(run_id=run_id, spec_type="frontend", spec=spec))
         await session.commit()
     return {"status": "saved"}
-
-
 @router.get("/factory/runs/{run_id}/backend-spec")
 async def get_backend_spec(
     run_id: str,
     user: Dict[str, Any] = _current_user(),
 ):
     """Retrieve the backend spec attached to a run."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import RunSpec, Run
     sf = get_session_factory()
     async with sf() as session:
         run = await session.get(Run, run_id)
@@ -271,8 +230,6 @@ async def get_backend_spec(
             raise HTTPException(status_code=404, detail="Run not found")
         row = await session.get(RunSpec, (run_id, "backend"))
     return {"spec": row.spec if row else {}}
-
-
 @router.post("/factory/runs/{run_id}/backend-spec")
 async def save_backend_spec(
     run_id: str,
@@ -280,8 +237,6 @@ async def save_backend_spec(
     user: Dict[str, Any] = _current_user(),
 ):
     """Save / overwrite the backend spec for a run."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import RunSpec, Run
     spec = body.get("spec") or body
     sf = get_session_factory()
     async with sf() as session:
@@ -298,8 +253,6 @@ async def save_backend_spec(
             session.add(RunSpec(run_id=run_id, spec_type="backend", spec=spec))
         await session.commit()
     return {"status": "saved"}
-
-
 @router.post("/factory/runs/{run_id}/chat")
 async def project_chat(
     run_id: str,
@@ -307,16 +260,10 @@ async def project_chat(
     user: Dict[str, Any] = _current_user(),
 ):
     """Project-scoped conversational AI endpoint."""
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Run
-    from aether_os.core.services import learning_service
-    from aether_os.core.llm.client import LLMClient
-
     message = (body.get("message") or "").strip()
     history = body.get("history", [])
     if not message:
         raise HTTPException(status_code=400, detail="message required")
-
     sf = get_session_factory()
     async with sf() as session:
         run = await session.get(Run, run_id)
@@ -326,7 +273,6 @@ async def project_chat(
             org_id=user["org_id"], user_id=user["user_id"], session=session
         )
         project_name = run.project_name or run_id
-
     system_prompt = (
         "You are AetherOS, an autonomous software development assistant.\n\n"
         "SCOPE RESTRICTION — ABSOLUTE:\n"
@@ -347,13 +293,11 @@ async def project_chat(
         f"Current project: {project_name}\n"
         f"User's learned preferences: {user_ctx}"
     )
-
     conversation = []
     for h in history[-10:]:
         if h.get("role") in ("user", "assistant") and h.get("content"):
             conversation.append({"role": h["role"], "content": h["content"]})
     conversation.append({"role": "user", "content": message})
-
     try:
         client = LLMClient()
         reply = await client.call(
@@ -365,5 +309,4 @@ async def project_chat(
     except Exception as e:
         logger.warning("Chat LLM call failed: %s", e)
         reply = "I'm having trouble connecting right now. Please try again shortly."
-
     return {"reply": reply, "run_id": run_id, "project": project_name}

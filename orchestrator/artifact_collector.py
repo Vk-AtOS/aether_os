@@ -1,20 +1,41 @@
 """
 AetherOS — Post-pipeline artifact collection helpers.
-
 Extracted from factory_pipeline.py. These are free async functions that
 accept all needed context as arguments so they can be scheduled as
 asyncio tasks by the pipeline after all phases complete.
 """
 from __future__ import annotations
-
 import logging
 import os
 from pathlib import Path
 from typing import Dict, Optional
-
+from aether_os.core.artifact_store import get_artifact_store
+from aether_os.core.artifact_store import get_artifact_store as _gas_s3
+from aether_os.core.council import DeliveryCouncil
+from aether_os.core.db import get_session_factory as _gsf
+from aether_os.core.db import get_session_factory as _gsf2
+from aether_os.core.db import get_session_factory as _gsf2t
+from aether_os.core.db import get_session_factory as _gsf_cn
+from aether_os.core.db import get_session_factory as _gsf_l
+from aether_os.core.models import GlobalPattern as _GP
+from aether_os.core.models import Notification as _Notif_cn
+from aether_os.core.models import Run as _Run
+from aether_os.core.models import Run as _Run2
+from aether_os.core.models import Run as _Run2t
+from aether_os.core.pipeline_state import get_control, publish_event
+from aether_os.core.pipeline_state import publish_event
+from aether_os.core.services import learning_service as _ls
+from aether_os.core.services.memory_service import get_memory_service
+from aether_os.orchestrator.messages import PhaseInput
+from aether_os.orchestrator.phase_sequence import _load_supervisor
+from aether_os.orchestrator.run_state import _extract_project_name
+from sqlalchemy import select as _sel_l
+from sqlalchemy import update as _sa_update
+from sqlalchemy import update as _sa_update2
+from sqlalchemy import update as _sa_update2t
+import asyncio
+import time
 logger = logging.getLogger(__name__)
-
-
 async def embed_artifacts(
     run_id: str,
     project_dir: Path,
@@ -22,12 +43,9 @@ async def embed_artifacts(
     org_id: Optional[str],
 ) -> None:
     """Embed produced source files into the artifact store for semantic search."""
-    from aether_os.core.pipeline_state import get_control, publish_event
-
     if await get_control(run_id) == "cancel":
         return
     try:
-        from aether_os.core.artifact_store import get_artifact_store
         store = get_artifact_store()
         _extensions = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}
         _count = 0
@@ -74,19 +92,14 @@ async def embed_artifacts(
             logger.info("[pipeline] Embedded %d artifacts for run %s", _count, run_id)
     except Exception as e:
         logger.warning("[pipeline] Artifact embedding skipped: %s", e)
-
-
 async def upload_to_s3(
     run_id: str,
     project_dir: Path,
 ) -> None:
     """Upload all run artifacts to S3 for durable storage."""
-    from aether_os.core.pipeline_state import get_control, publish_event
-
     if await get_control(run_id) == "cancel":
         return
     try:
-        from aether_os.core.artifact_store import get_artifact_store as _gas_s3
         _s3_count = await _gas_s3().upload_run_to_s3(run_id, project_dir)
         if _s3_count:
             await publish_event(run_id, {
@@ -96,8 +109,6 @@ async def upload_to_s3(
             })
     except Exception as _s3_exc:
         logger.warning("[pipeline] S3 upload skipped: %s", _s3_exc)
-
-
 # Mapping from DeliveryCouncil criterion name → phase(s) to re-run.
 # When a criterion fails, we re-run these phases once to attempt auto-remediation.
 _CRITERION_TO_PHASES = {
@@ -108,8 +119,6 @@ _CRITERION_TO_PHASES = {
     "completeness": ["p05_frontend", "p10_docs_delivery"],
     "docs":         ["p10_docs_delivery"],
 }
-
-
 async def _run_council_remediation_phases(
     run_id: str,
     failing_criteria: list,
@@ -118,16 +127,10 @@ async def _run_council_remediation_phases(
 ) -> None:
     """
     Re-run only the phases that own the failing council criteria.
-
     This is called at most once per pipeline run (guarded by _council_retry_count
     in accumulated_context).  Injects the council critique as context so each
     re-run phase knows what to fix.
     """
-    import asyncio
-    from aether_os.orchestrator.messages import PhaseInput
-    from aether_os.orchestrator.phase_sequence import _load_supervisor
-    import time
-
     run_id_str = run_id
     # Deduplicate phases while preserving dependency order
     seen: set = set()
@@ -137,16 +140,13 @@ async def _run_council_remediation_phases(
             if phase not in seen:
                 seen.add(phase)
                 phases_to_rerun.append(phase)
-
     if not phases_to_rerun:
         logger.info("[council_remediation] No remediable phases for criteria: %s", failing_criteria)
         return
-
     logger.info(
         "[council_remediation] Re-running %d phase(s) for failing criteria %s: %s",
         len(phases_to_rerun), failing_criteria, phases_to_rerun,
     )
-
     # Inject council critique so re-run phases know what to fix
     remediation_context = dict(accumulated_context)
     remediation_context["council_critique"] = (
@@ -155,17 +155,14 @@ async def _run_council_remediation_phases(
         "Please address the above issues in this re-run."
     )
     remediation_context["is_council_remediation"] = True
-
     project_dir_str = accumulated_context.get("project_dir", "")
     domain = accumulated_context.get("domain", "general")
     client_id = accumulated_context.get("client_id", "system")
-
     for phase_name in phases_to_rerun:
         supervisor = _load_supervisor(phase_name)
         if not supervisor:
             logger.warning("[council_remediation] No supervisor for phase %r — skipping", phase_name)
             continue
-
         phase_input = PhaseInput(
             run_id=run_id_str,
             project_id=run_id_str,
@@ -190,13 +187,8 @@ async def _run_council_remediation_phases(
             logger.warning("[council_remediation] %s re-run timed out after 600s", phase_name)
         except Exception as _re_exc:
             logger.warning("[council_remediation] %s re-run failed: %s", phase_name, _re_exc)
-
-
 async def _persist_run_status(run_id: str, delivery: Dict, council_passed: bool) -> None:
     """Persist council_delivery and final status to the Run record."""
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import Run as _Run
-    from sqlalchemy import update as _sa_update
     _council_score = delivery.get("score", 1.0)
     _final_status = "completed" if council_passed else "needs_review"
     try:
@@ -218,8 +210,6 @@ async def _persist_run_status(run_id: str, delivery: Dict, council_passed: bool)
             await _s.commit()
     except Exception as _db_exc:
         logger.warning("[council] Failed to persist run status for %s: %s", run_id, _db_exc)
-
-
 async def delivery_council_check(
     run_id: str,
     project_name: Optional[str],
@@ -231,19 +221,13 @@ async def delivery_council_check(
 ) -> None:
     """
     Run the DeliveryCouncil check and persist the final run status.
-
     If score < 0.5 on the first evaluation AND this is the first council
     check (guard: _council_retry_count not set), we:
       1. Identify which criteria failed (from criteria_failures in the response)
       2. Re-run the phases that own those criteria (once, max 1 cycle)
       3. Run the council again — if it still fails, mark as needs_review
     """
-    import asyncio
-    from aether_os.core.pipeline_state import publish_event
-    from aether_os.orchestrator.run_state import _extract_project_name
-
     async def _run_council(phases_results: Dict) -> Dict:
-        from aether_os.core.council import DeliveryCouncil
         _dc = DeliveryCouncil()
         return await asyncio.wait_for(
             _dc.run(
@@ -255,14 +239,11 @@ async def delivery_council_check(
             ),
             timeout=120,
         )
-
     async def _send_council_fail_notification(score: float, reason: str) -> None:
         """Fire in-app notification on council_score < 0.5 — non-blocking."""
         if not (score < 0.5 and org_id):
             return
         try:
-            from aether_os.core.db import get_session_factory as _gsf_cn
-            from aether_os.core.models import Notification as _Notif_cn
             _pname_cn = project_name or f"run-{run_id[:8]}"
             _notif_cn = _Notif_cn(
                 org_id=org_id,
@@ -276,19 +257,16 @@ async def delivery_council_check(
                 await _s_cn.commit()
         except Exception as _ne_cn:
             logger.debug("[pipeline] council_fail notification failed: %s", _ne_cn)
-
     try:
         # ── First council evaluation ──────────────────────────────────────────
         _delivery = await _run_council(results)
         _council_passed = _delivery.get("passed", False)
         _council_score = _delivery.get("score", 1.0)
         _criteria_failures = _delivery.get("criteria_failures") or []
-
         logger.info(
             "DeliveryCouncil [pass 1]: run=%s passed=%s score=%.2f criteria_failures=%s reason=%s",
             run_id, _council_passed, _council_score, _criteria_failures, _delivery.get("reason", ""),
         )
-
         # ── Targeted phase re-runs when score < 0.5 (first evaluation only) ──
         # Guard: _council_retry_count prevents re-entering this block on the
         # second council evaluation triggered by our own remediation re-runs.
@@ -305,10 +283,8 @@ async def delivery_council_check(
                 "criteria_failures": _criteria_failures,
                 "score": _council_score,
             })
-
             # Mark that we have started remediation (guard against infinite loop)
             accumulated_context["_council_retry_count"] = 1
-
             # Re-run phases that own the failing criteria
             await _run_council_remediation_phases(
                 run_id=run_id,
@@ -316,7 +292,6 @@ async def delivery_council_check(
                 accumulated_context=accumulated_context,
                 council_reason=_delivery.get("reason", ""),
             )
-
             # ── Second council evaluation (post-remediation) ──────────────────
             logger.info("DeliveryCouncil [pass 2]: evaluating post-remediation results for run %s", run_id)
             try:
@@ -333,17 +308,14 @@ async def delivery_council_check(
                     "DeliveryCouncil [pass 2] failed for run %s — using pass-1 result: %s",
                     run_id, _dc2_exc,
                 )
-
             await publish_event(run_id, {
                 "type": "council_remediation_complete",
                 "run_id": run_id,
                 "score_after": _council_score,
                 "passed": _council_passed,
             })
-
         # ── Persist final status ──────────────────────────────────────────────
         await _persist_run_status(run_id, _delivery, _council_passed)
-
         if not _council_passed:
             logger.warning(
                 "DeliveryCouncil: run %s flagged as needs_review (score=%.2f): %s | suggestions: %s",
@@ -366,13 +338,9 @@ async def delivery_council_check(
                 "score": _council_score,
                 "status": "completed",
             })
-
     except asyncio.TimeoutError:
         logger.warning("DeliveryCouncil timed out after 120s for run %s — marking completed", run_id)
         try:
-            from aether_os.core.db import get_session_factory as _gsf2t
-            from aether_os.core.models import Run as _Run2t
-            from sqlalchemy import update as _sa_update2t
             async with _gsf2t()() as _s2t:
                 await _s2t.execute(
                     _sa_update2t(_Run2t).where(_Run2t.id == run_id).values(status="completed")
@@ -390,9 +358,6 @@ async def delivery_council_check(
     except Exception as _exc:
         logger.warning("DeliveryCouncil check failed: %s", _exc)
         try:
-            from aether_os.core.db import get_session_factory as _gsf2
-            from aether_os.core.models import Run as _Run2
-            from sqlalchemy import update as _sa_update2
             async with _gsf2()() as _s2:
                 await _s2.execute(
                     _sa_update2(_Run2).where(_Run2.id == run_id).values(status="completed")
@@ -407,8 +372,6 @@ async def delivery_council_check(
             "status": "completed",
             "note": "council_error",
         })
-
-
 async def store_run_memory(
     run_id: str,
     org_id: Optional[str],
@@ -420,7 +383,6 @@ async def store_run_memory(
     if not org_id:
         return
     try:
-        from aether_os.core.services.memory_service import get_memory_service
         ms = get_memory_service()
         await ms.store_run_outcome(
             org_id=org_id,
@@ -432,8 +394,6 @@ async def store_run_memory(
         )
     except Exception as _me:
         logger.debug("[pipeline] Memory store skipped: %s", _me)
-
-
 async def extract_learning(
     run_id: str,
     org_id: Optional[str],
@@ -446,10 +406,6 @@ async def extract_learning(
     if not org_id or not client_id:
         return
     try:
-        from aether_os.core.db import get_session_factory as _gsf_l
-        from aether_os.core.services import learning_service as _ls
-        from aether_os.core.models import GlobalPattern as _GP
-        from sqlalchemy import select as _sel_l
         async with _gsf_l()() as _sl:
             _run_tech = accumulated_context.get("architecture_json", {}).get("tech_stack", {})
             if _run_tech:
