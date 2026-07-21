@@ -1,9 +1,13 @@
 """Fallback seed generator — split from crud_generator.py to keep it under 600 lines.
 
 Provides _fallback_seed() which produces a minimal seed.py for the generated app.
+Also provides generate_llm_seed() for LLM-powered domain-plausible seed data
+and get_seed_py() which uses LLM-first with _fallback_seed() as fallback.
 """
 from __future__ import annotations
 
+import ast
+import asyncio
 import logging
 import textwrap
 from typing import Dict, List
@@ -142,3 +146,84 @@ def _fallback_seed(
                 await db.commit()
                 _logger.info("Seeded admin user: admin@example.com / %s", _ADMIN_PASSWORD)
     """)
+
+
+async def generate_llm_seed(
+    project_name: str,
+    entities: list,
+    domain: str = "general",
+) -> str | None:
+    """Ask the LLM to produce a realistic seed.py for the generated app.
+
+    Returns the generated code string if it parses as valid Python, else None.
+    Callers should fall back to _fallback_seed() on None.
+    """
+    from aether_os.core.llm.client import get_llm_client
+
+    entity_summaries = []
+    for ent in entities[:8]:
+        name = ent.get("name", "Item")
+        fields = [
+            f.get("name", str(f)) if isinstance(f, dict) else str(f)
+            for f in (ent.get("fields") or [])[:10]
+        ]
+        entity_summaries.append(f"  - {name}: fields={fields}")
+    entities_block = "\n".join(entity_summaries) or "  (none)"
+
+    prompt = (
+        f'Generate a Python seed.py file for a {domain} application called "{project_name}".\n\n'
+        f"Entities:\n{entities_block}\n\n"
+        "Requirements:\n"
+        "- Import everything from models and database as the generated app does.\n"
+        "- Define async def seed_database() -> None: that uses AsyncSessionLocal.\n"
+        "- Create exactly 5 realistic, domain-plausible records per entity "
+        f"(real names, realistic prices, real dates appropriate for the {domain} domain).\n"
+        "- Also create one admin User (email='admin@example.com', role='admin').\n"
+        "- Guard with: if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0: return\n"
+        "- Wrap each entity block in try/except Exception as _e: _logger.warning(..., _e)\n"
+        "- Return ONLY valid Python code — no markdown fences, no explanation.\n"
+    )
+
+    client = get_llm_client()
+    try:
+        result = await asyncio.wait_for(
+            client.call(prompt, task_type="code_generation", max_tokens=4096),
+            timeout=90.0,
+        )
+    except Exception as exc:
+        logger.warning("p04a: generate_llm_seed LLM call failed: %s", exc)
+        return None
+
+    if not result:
+        return None
+
+    # Strip accidental markdown fences
+    code = result.strip()
+    if code.startswith("```"):
+        code = code.split("\n", 1)[-1]
+    if code.endswith("```"):
+        code = code.rsplit("```", 1)[0]
+    code = code.strip()
+
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        logger.warning("p04a: generate_llm_seed produced invalid Python: %s", exc)
+        return None
+
+    return code
+
+
+async def get_seed_py(
+    project_name: str,
+    entities: list,
+    domain: str = "general",
+) -> str:
+    """LLM-first seed generation with _fallback_seed() fallback."""
+    try:
+        result = await generate_llm_seed(project_name, entities, domain)
+        if result:
+            return result
+    except Exception as exc:
+        logger.warning("p04a: LLM seed failed, using fallback: %s", exc)
+    return _fallback_seed(project_name, entities, domain=domain)
