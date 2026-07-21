@@ -37,6 +37,11 @@ from aether_os.core.quality.dimension_scorer import (
     score_security,
     score_testing,
 )
+from aether_os.core.quality.dimension_scorer_frontend import (
+    score_frontend_a11y,
+    score_frontend_correctness,
+    score_typescript_types,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +55,8 @@ __all__ = [
     "CRITICAL_THRESHOLD",
 ]
 
-# Ordered list of all scorers — order affects log output only (scores are weighted by name)
-_SCORERS = [
+# Ordered list of Python scorers — order affects log output only (scores are weighted by name)
+_PYTHON_SCORERS = [
     score_correctness,
     score_security,
     score_performance,
@@ -61,6 +66,15 @@ _SCORERS = [
     score_observability,
     score_testing,
 ]
+
+# Frontend scorers for .ts/.tsx/.js/.jsx files
+_FRONTEND_SCORERS = [
+    score_typescript_types,
+    score_frontend_a11y,
+    score_frontend_correctness,
+]
+
+_FRONTEND_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
 
 # ---------------------------------------------------------------------------
 # Artifact type detection
@@ -122,10 +136,13 @@ def critique_artifact(file_path: str, artifact_type: str = "") -> CritiqueReport
     if not artifact_type:
         artifact_type = _detect_artifact_type(file_path, content)
 
+    is_frontend = file_path.endswith(_FRONTEND_EXTENSIONS)
+    scorers = _FRONTEND_SCORERS if is_frontend else _PYTHON_SCORERS
+
     dimension_scores: list[DimensionScore] = []
-    for scorer in _SCORERS:
+    for scorer in scorers:
         try:
-            ds = scorer(content)
+            ds = scorer(content, file_path) if is_frontend else scorer(content)
         except Exception as e:
             logger.warning(
                 "[dimension_critic] scorer %s crashed on %s: %s",
@@ -186,25 +203,31 @@ def critique_directory(output_dir: str) -> list[CritiqueReport]:
         logger.warning("[dimension_critic] critique_directory: path does not exist: %s", output_dir)
         return reports
 
-    py_files = [
-        p for p in base.rglob("*.py")
-        if "__pycache__" not in str(p)
-        and ".venv" not in str(p)
-        and "node_modules" not in str(p)
+    _exclude_dirs = {"__pycache__", ".venv", "node_modules"}
+
+    def _should_include(p: Path) -> bool:
+        return not any(part in _exclude_dirs for part in p.parts)
+
+    py_files = [p for p in base.rglob("*.py") if _should_include(p)]
+    fe_files = [
+        p for ext in _FRONTEND_EXTENSIONS
+        for p in base.rglob(f"*{ext}")
+        if _should_include(p)
     ]
+    all_files = sorted(set(py_files + fe_files))
 
     logger.info(
-        "[dimension_critic] Critiquing %d Python files in %s", len(py_files), output_dir
+        "[dimension_critic] Critiquing %d files (%d py, %d frontend) in %s",
+        len(all_files), len(py_files), len(fe_files), output_dir,
     )
 
-    for py_file in sorted(py_files):
+    for source_file in all_files:
         try:
-            report = critique_artifact(str(py_file))
+            report = critique_artifact(str(source_file))
             reports.append(report)
         except Exception as e:
-            logger.warning("[dimension_critic] Failed to critique %s: %s", py_file, e)
+            logger.warning("[dimension_critic] Failed to critique %s: %s", source_file, e)
 
-    # Summary log
     passed_count = sum(1 for r in reports if r.passed)
     logger.info(
         "[dimension_critic] Critique complete: %d/%d artifacts passed (threshold=%.0f%%)",
