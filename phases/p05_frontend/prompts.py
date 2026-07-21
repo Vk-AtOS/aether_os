@@ -7,6 +7,25 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from aether_os.phases.p05_frontend.design_system import get_design_tokens
+
+
+def get_domain_color_hint(domain: str) -> str:
+    """Convert the structured token dict for *domain* into the color-hint string
+    format used in LLM prompts.  Existing callers in helpers.py can call this
+    instead of reading DOMAIN_COLOR_HINTS directly.
+    """
+    t = get_design_tokens(domain)
+    accent = t["accent"]
+    bg_page = t["bg_page"].replace("bg-", "")
+    text_p = t["text_primary"].replace("text-", "")
+    bg_card = t["bg_card"].replace("bg-", "")
+    border = t["border"].replace("border-", "")
+    return (
+        f"{accent} palette: bg-{bg_page}, text-{text_p}, "
+        f"cards bg-{bg_card} border-{border}, accents {accent}"
+    )
+
 # ── Domain-specific stat-card labels ─────────────────────────────────────────
 DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
     "security":           ["Cameras Online", "Active Alerts", "Zones Monitored", "Incidents Today"],
