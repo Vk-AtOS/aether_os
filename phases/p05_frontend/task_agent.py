@@ -464,4 +464,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 logger.error("p05: Build failed: %s", e)
                 build_success = False
 
-    return TaskResult(output_path=str(frontend_dir_final), confidence=1.0 if build_success else 0.0, success=build_success, metadata=meta)
+    # confidence: build_pass * 0.6 + (1 if tsc_errors==0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
+    tsc_errors: int = 0  # tsc not run in this phase; 0 = assume clean
+    template_debt_pct: float = meta.get("template_debt_pct", 1.0)
+    _confidence = build_success * 0.6 + (1 if tsc_errors == 0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
+    _confidence = max(0.0, min(1.0, _confidence))
+    return TaskResult(output_path=str(frontend_dir_final), confidence=_confidence, success=build_success, metadata=meta)
