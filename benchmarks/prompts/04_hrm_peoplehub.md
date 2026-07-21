@@ -1,0 +1,1 @@
+Build an HR management system called PeopleHub. Entities: Employee (name, email, department, role, salary, start_date, status), Department (name, head_id, budget), Leave (employee_id, type, start_date, end_date, status, approver_id), Payroll (employee_id, month, gross, deductions, net). Managers approve leave requests.

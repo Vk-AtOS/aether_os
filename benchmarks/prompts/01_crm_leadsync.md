@@ -1,0 +1,1 @@
+Build a CRM called LeadSync for a B2B sales team. Entities: Lead (name, email, company, stage, value, assigned_to), Deal (lead_id, title, amount, close_date, status), Contact (lead_id, name, phone, role), Activity (lead_id, type, notes, date). Include a pipeline dashboard with deal values per stage.

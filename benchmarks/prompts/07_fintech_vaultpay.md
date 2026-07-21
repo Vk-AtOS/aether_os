@@ -1,0 +1,1 @@
+Build a fintech platform called VaultPay for expense management. Entities: Account (name, type, balance, currency), Transaction (account_id, amount, category, merchant, date, status), Budget (account_id, category, limit, period), Card (account_id, last4, type, status, limit). Dashboard shows spend by category with trend charts.

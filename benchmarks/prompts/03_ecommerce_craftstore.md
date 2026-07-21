@@ -1,0 +1,1 @@
+Build an e-commerce store called CraftStore for handmade goods. Entities: Product (name, description, price, category, stock, images), Order (customer_id, total, status, shipping_address), OrderItem (order_id, product_id, quantity, price), Review (product_id, user_id, rating, body). Storefront with product grid, cart, checkout.
