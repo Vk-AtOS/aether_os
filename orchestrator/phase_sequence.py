@@ -25,8 +25,24 @@ CRITICAL_PHASES = frozenset({
     "s03_backend",      # no backend → frontend integration fails completely
 })
 
-# Legacy phase directories that exist on disk but are now managed internally
-# by their parent stage supervisor. Never add these directly to PHASE_SEQUENCE.
+# ── PHASE AGENT LIBRARY — Not a pipeline sequence ───────────────────────────
+#
+# INACTIVE_PHASE_DIRS is NOT dead code. It is a reference library of phase
+# agent implementations available to stage supervisors (s01–s12 above).
+#
+# "INACTIVE" means these phases are NOT executed in a fixed sequence by the
+# pipeline orchestrator. Instead, each stage supervisor (e.g., s03_backend)
+# selects from this library and invokes phases conditionally or in parallel:
+#   - s03_backend may call p04_backend, p04a_backend_codegen, p04b_business_logic
+#   - s04_frontend may call p05_frontend, p05b_mobile, p05c_desktop, etc.
+#
+# To verify usage: grep the stages/ directory for imports of phase agents.
+# Do NOT delete these entries without checking if a stage supervisor uses them.
+#
+# Supervisor invocation paths (not orchestrator):
+#   stages/s03_backend/supervisor.py → imports phases from phases/p04*/task_agent.py
+#   stages/s04_frontend/supervisor.py → imports phases from phases/p05*/task_agent.py
+#   ... (one supervisor per stage, each manages its own phase subset)
 INACTIVE_PHASE_DIRS = frozenset({
     # dead (no task_agent, never called) — deleted in stage consolidation
     # kept here so any stale code that checks this set doesn't crash
