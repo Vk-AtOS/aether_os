@@ -1,0 +1,1 @@
+Build a clinic management system called ClinicPro. Entities: Patient (name, dob, mrn, phone, insurance), Appointment (patient_id, doctor, datetime, type, status, notes), Prescription (patient_id, medication, dosage, frequency, start_date, end_date), Bill (patient_id, amount, paid, date). Admin can manage all; patients see their own records.

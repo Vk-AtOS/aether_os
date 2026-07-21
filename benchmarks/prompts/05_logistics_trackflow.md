@@ -1,0 +1,1 @@
+Build a logistics tracking platform called TrackFlow. Entities: Shipment (tracking_number, origin, destination, status, weight, carrier), Delivery (shipment_id, driver_id, eta, actual_delivery, signature), Driver (name, license, phone, vehicle, status), Warehouse (name, city, capacity, manager). Real-time status updates via dashboard.

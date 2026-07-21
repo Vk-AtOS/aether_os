@@ -1,0 +1,1 @@
+Build an LMS called LearnHub. Entities: Course (title, description, instructor_id, price, category, status), Enrollment (student_id, course_id, progress, enrolled_at, completed_at), Lesson (course_id, title, content, duration, order), Assignment (course_id, title, due_date, max_score), Submission (assignment_id, student_id, score, feedback). Students track their own progress.

@@ -1,0 +1,1 @@
+Build a project management SaaS called TaskFlow. Entities: Project (name, description, owner_id, status, deadline), Task (project_id, title, assignee_id, status, priority, due_date), Comment (task_id, author_id, body, created_at), TimeEntry (task_id, user_id, hours, date, description). Kanban board for tasks, time tracking per user.

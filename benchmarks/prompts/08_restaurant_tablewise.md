@@ -1,0 +1,1 @@
+Build a restaurant management system called TableWise. Entities: Table (number, capacity, status, section), Reservation (table_id, guest_name, party_size, datetime, status, notes), MenuItem (name, category, price, available), Order (table_id, waiter_id, status, total), OrderItem (order_id, menu_item_id, quantity, special_instructions). Kitchen view for order queue.
