@@ -35,6 +35,7 @@ from aether_os.core.model_router_providers import (
     FALLBACK_CHAIN,
 )
 from aether_os.core.llm.ahm import default_ahm as _ahm
+from aether_os.orchestrator.events import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,6 @@ class ModelRouter:
         # Build trace name from pipeline context vars if not supplied
         if trace_name is None:
             try:
-                from aether_os.orchestrator.events import ACTIVE_PHASE, ACTIVE_RUN_ID
                 phase = ACTIVE_PHASE.get() or "unknown_phase"
                 run_id = (ACTIVE_RUN_ID.get() or "no-run")[:8]
                 trace_name = f"{phase}_{run_id}_{task_type}"
@@ -293,7 +293,6 @@ class ModelRouter:
                             logger.debug("Budget token record failed (non-fatal): %s", exc)
                     # Record cost to billing ledger using active run context vars
                     try:
-                        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID
                         _run_id = ACTIVE_RUN_ID.get(None)
                         _phase = ACTIVE_PHASE.get("unknown")
                         if _run_id:

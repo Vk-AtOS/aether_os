@@ -125,10 +125,16 @@ def _generate_vite_config() -> str:
     return """\
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 export default defineConfig({
   base: '/app-preview/',
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
+  },
   server: {
     port: 3000,
     proxy: {
@@ -166,7 +172,9 @@ def _generate_tsconfig() -> str:
             "noUnusedLocals": False,
             "noUnusedParameters": False,
             "noFallthroughCasesInSwitch": True,
-            "types": ["vite/client"]
+            "types": ["vite/client"],
+            "baseUrl": ".",
+            "paths": {"@/*": ["./src/*"]}
         },
         "include": ["src"],
         "exclude": ["src/__tests__"]

@@ -348,7 +348,9 @@ async def assemble_domain_pages(
         (src_dir / "pages" / "Dashboard.tsx").write_text(
             _gen_dash(domain_ir, entities, project_name, domain=domain)
         )
-        for ir_entity in domain_ir.entities:
+        _ir_sem = asyncio.Semaphore(4)
+
+        async def _write_ir_entity(ir_entity):
             pascal_name = ir_entity.name
             _ir_ent_dict = {
                 "table": ir_entity.table,
@@ -361,23 +363,24 @@ async def assemble_domain_pages(
                     src_dir / "pages" / f"{pascal_name}Page.tsx",
                     generate_product_grid_fn(_ir_ent_dict, route_map),
                 )
-                template_count += 1
-            else:
+                return 0, 1
+            async with _ir_sem:
                 _llm_code = await write_entity_page_llm(
                     entity=_ir_ent_dict, route_map=route_map,
                     project_name=project_name, domain=domain,
                     raw_input=_raw_input, domain_ir=domain_ir,
                     design_tokens=_tokens,
                 )
-                if _llm_code:
-                    write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _llm_code)
-                    llm_count += 1
-                else:
-                    write_with_guard_fn(
-                        src_dir / "pages" / f"{pascal_name}Page.tsx",
-                        _gen_ent_page(ir_entity),
-                    )
-                    template_count += 1
+            if _llm_code:
+                write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _llm_code)
+                return 1, 0
+            write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _gen_ent_page(ir_entity))
+            return 0, 1
+
+        _ir_results = await asyncio.gather(*[_write_ir_entity(e) for e in domain_ir.entities])
+        for _ld, _td in _ir_results:
+            llm_count += _ld
+            template_count += _td
         (src_dir / "types" / "index.ts").write_text(_gen_types(domain_ir))
     else:
         # Non-IR path: premium domain dashboard + per-entity pages
@@ -399,31 +402,31 @@ async def assemble_domain_pages(
             except Exception as _fk_exc:
                 logger.warning("p05: FK refs extraction failed: %s", _fk_exc)
 
-        for ent in entities:
+        _ent_sem = asyncio.Semaphore(4)
+
+        async def _write_non_ir_entity(ent):
             if asyncio.get_event_loop().time() - phase_start > phase_timeout:
-                logger.warning(
-                    "p05: phase watchdog triggered (25m) — skipping remaining entity pages"
-                )
-                break
+                logger.warning("p05: phase watchdog triggered (25m) — skipping entity page")
+                return 0, 0
             pascal = ent.get("name") or to_pascal_case_fn(ent["table"])
             if layout_mode == "storefront" and is_product_entity_fn(ent["table"]):
-                code = generate_product_grid_fn(ent, route_map)
-                template_count += 1
-            else:
+                write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx", generate_product_grid_fn(ent, route_map))
+                return 0, 1
+            async with _ent_sem:
                 _llm_code = await write_entity_page_llm(
                     entity=ent, route_map=route_map,
                     project_name=project_name, domain=domain,
                     raw_input=_raw_input, domain_ir=domain_ir,
                     design_tokens=_tokens,
                 )
-                if _llm_code:
-                    code = _llm_code
-                    llm_count += 1
-                else:
-                    code = generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None)
-                    template_count += 1
+            code = _llm_code if _llm_code else generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None)
             write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx", code)
-            await asyncio.sleep(0.01)
+            return (1, 0) if _llm_code else (0, 1)
+
+        _ent_results = await asyncio.gather(*[_write_non_ir_entity(e) for e in entities])
+        for _ld, _td in _ent_results:
+            llm_count += _ld
+            template_count += _td
 
     run_frontend_governor_fn(
         data,

@@ -91,9 +91,7 @@ async def vlm_rubric_critique(
     if not screenshot_path.exists() or not screenshot_path.is_file():
         return _FALLBACK_CRITIQUE
     try:
-        import base64
-        img_b64 = base64.b64encode(screenshot_path.read_bytes()).decode()  # noqa: F841
-        # ponytail: text-only critique — inject img_b64 into messages when vision model confirmed available
+        img_bytes = screenshot_path.read_bytes()
         prompt = (
             f"You are a UI/UX critic reviewing a screenshot of a generated {domain} "
             f"application called \"{project_name}\".\n"
@@ -110,7 +108,7 @@ async def vlm_rubric_critique(
         from aether_os.core.llm.client import get_llm_client
         client = get_llm_client()
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="ui_critique", max_tokens=300),
+            client.call_vision(prompt, img_bytes, task_type="ui_critique", max_tokens=300),
             timeout=timeout,
         )
         if isinstance(result, str) and result.strip():

@@ -436,21 +436,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     }
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
 
-    # ── Gate 2: Preview ──
-    # Delegated to domain_assembler.run_gate2_preview to reduce task_agent lines.
-    await run_gate2_preview(
-        run_id=run_id,
-        frontend_dir=frontend_dir,
-        output_dir=output_dir,
-        domain=domain,
-        project_name=project_name,
-        data=data,
-        is_autonomous=is_autonomous,
-        take_screenshot_fn=take_preview_screenshot,
-        apply_revisions_fn=apply_gate2_revisions,
-    )
-
     # ── Step 6: Final Build (with compile-error feedback loop) ──
+    # Runs before Gate-2 so the screenshot shows the compiled artifact.
     import subprocess
     from aether_os.phases.p05_frontend.build_loop import run_build_loop
     frontend_dir_final = project_dir / 'frontend'
@@ -480,6 +467,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     "p05 build_loop: success=%s tsc_errors=%d rounds=%d",
                     build_success, tsc_errors, _loop_result["rounds"],
                 )
+
+    # ── Gate 2: Preview (screenshots the built artifact) ──
+    # Delegated to domain_assembler.run_gate2_preview to reduce task_agent lines.
+    await run_gate2_preview(
+        run_id=run_id,
+        frontend_dir=frontend_dir,
+        output_dir=output_dir,
+        domain=domain,
+        project_name=project_name,
+        data=data,
+        is_autonomous=is_autonomous,
+        take_screenshot_fn=take_preview_screenshot,
+        apply_revisions_fn=apply_gate2_revisions,
+    )
 
     # confidence: build_pass * 0.6 + (1 if tsc_errors==0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
     template_debt_pct: float = meta.get("template_debt_pct", 1.0)
