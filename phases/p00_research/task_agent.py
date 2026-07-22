@@ -52,7 +52,6 @@ async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
 
     # 2. Fallback: Playwright (if installed and available)
     try:
-        from playwright.async_api import async_playwright
         logger.info(f"p00: Capturing {url} via Playwright fallback")
         async with async_playwright() as p:
             browser = await p.chromium.launch()
@@ -159,7 +158,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             competitor_sites=", ".join(sites),
         )
         try:
-            from aether_os.core.llm.client import get_llm_client
             llm = get_llm_client()
             analysis = await llm.call_json(analysis_prompt, task_type="analysis")
             design_brief["layout_patterns"] = analysis.get("layout_patterns", {"navigation": "sticky top nav"})

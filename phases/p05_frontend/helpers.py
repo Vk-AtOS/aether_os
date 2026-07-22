@@ -74,7 +74,6 @@ async def _generate_file(
     timeout: float = 90.0,
 ) -> Optional[str]:
     """Single LLM call with hard per-file timeout — returns None on timeout/error so callers skip gracefully."""
-    from aether_os.core.llm.client import get_llm_client
     client = get_llm_client()
     try:
         return await asyncio.wait_for(
@@ -117,7 +116,6 @@ async def _generate_domain_component(
     accumulated_context: Optional[dict] = None,
 ) -> Optional[str]:
     """Generate a domain-specific React component via one LLM call with hardcoded fallback."""
-    from aether_os.core.llm.client import get_llm_client
 
     # Check fallback first to ensure we have one
     fallback = DOMAIN_FALLBACK_WIDGETS.get(domain, "export default function DomainWidget() { return <div>Domain Overview</div> }")

@@ -1,6 +1,7 @@
 """AetherOS — Shared base classes for the 4-agent phase pattern."""
 from __future__ import annotations
 import asyncio
+import httpx
 import json
 import logging
 import os
@@ -8,6 +9,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from aether_os.core.identity.zero_trust import verify_ticket
+from aether_os.core.memory.fingerprinter import fingerprint
+from aether_os.core.memory.store import MemoryRecord, get_memory_store
+from aether_os.core.memory.vector_store import ChromaProjectMemory
+from aether_os.orchestrator.bus import get_bus
+from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +56,6 @@ class PhaseBase:
                             limit: int = 5) -> List[Dict[str, Any]]:
         """Retrieve relevant memories before the task."""
         try:
-            from aether_os.core.memory.store import get_memory_store
             records = await get_memory_store().retrieve(input_hash, k=limit)
             return [
                 {"output_text": r.output_text, "confidence": r.confidence,
@@ -65,7 +72,6 @@ class PhaseBase:
                            result_metadata: Optional[Dict] = None) -> None:
         """Store successful outcome with rich metadata for future cross-run injection."""
         try:
-            from aether_os.core.memory.store import get_memory_store
 
             # Build a meaningful summary that downstream phases can actually use
             meta = result_metadata or {}
@@ -99,7 +105,6 @@ class PhaseBase:
                                         and k not in ("files", "files_written")}, ensure_ascii=False)
                 summary += f"\nMeta: {meta_str[:600]}"
 
-            from aether_os.core.memory.store import MemoryRecord
             await get_memory_store().store(MemoryRecord(
                 input_hash=input_hash,
                 input_text=f"[{phase}] {domain}",
@@ -110,7 +115,6 @@ class PhaseBase:
             ))
             # Also populate ChromaDB for semantic search across runs
             try:
-                from aether_os.core.memory.vector_store import ChromaProjectMemory
                 chroma = ChromaProjectMemory.get_instance()
                 if chroma.available:
                     project_name_val = (result_metadata or {}).get("project_name", "")
@@ -139,8 +143,6 @@ class PhaseBase:
                           client_id: Optional[str] = None,
                           whatsapp_msg: Optional[str] = None) -> None:
         """Post PhaseResult to message bus and optionally send WhatsApp."""
-        from aether_os.orchestrator.bus import get_bus
-        from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
         result = PhaseResult(
             run_id=run_id,
             phase=phase,
@@ -162,7 +164,6 @@ class PhaseBase:
     async def _send_whatsapp(self, client_id: str, message: str) -> None:
         """Send WhatsApp message via WAHA HTTP API."""
         try:
-            import httpx
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
                     os.getenv("WAHA_URL", "http://localhost:3000") + "/api/sendText",
@@ -184,8 +185,7 @@ class PhaseBase:
         _zt_ticket = (phase_input.input_data or {}).get("_zt_ticket")
         if _zt_ticket:
             try:
-                from aether_os.core.identity.zero_trust import verify_ticket as _zt_verify
-                _zt_verify(
+                verify_ticket(
                     _zt_ticket,
                     project_path=phase_input.run_id,
                     resource_path=phase_input.output_dir,
@@ -202,7 +202,6 @@ class PhaseBase:
                 self.phase_name,
             )
 
-        from aether_os.core.memory.fingerprinter import fingerprint
         input_hash = fingerprint(str(phase_input.input_data))
         memory_ctx = await self.memory_before(input_hash, self.phase_name)
 

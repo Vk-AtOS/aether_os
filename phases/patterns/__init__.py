@@ -18,6 +18,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.phases.patterns.file_upload import (
+    FILE_UPLOAD_CODE,
+    FILE_UPLOAD_REQUIREMENTS,
+)
+from aether_os.phases.patterns.iot_timeseries import IOT_TIMESERIES_REQUIREMENTS
+from aether_os.phases.patterns.pattern_name_resolver import (
+    generate_iot_pattern,
+    generate_social_pattern,
+)
+from aether_os.phases.patterns.rbac import RBAC_CODE
+from aether_os.phases.patterns.social_graph import SOCIAL_GRAPH_REQUIREMENTS
+from aether_os.phases.patterns.stripe import STRIPE_CODE, STRIPE_REQUIREMENTS
+from aether_os.phases.patterns.websocket import (
+    WEBSOCKET_CODE,
+    WEBSOCKET_REQUIREMENTS,
+)
+
 logger = logging.getLogger(__name__)
 
 # ── Pattern definitions ────────────────────────────────────────────────────────
@@ -63,7 +80,6 @@ class Pattern:
 # ── Pattern registry ──────────────────────────────────────────────────────────
 
 def _websocket_pattern() -> Pattern:
-    from aether_os.phases.patterns.websocket import WEBSOCKET_CODE, WEBSOCKET_REQUIREMENTS
     return Pattern(
         name="websocket",
         description="WebSocket real-time connection manager with room-based broadcasting",
@@ -75,7 +91,6 @@ def _websocket_pattern() -> Pattern:
 
 
 def _file_upload_pattern() -> Pattern:
-    from aether_os.phases.patterns.file_upload import FILE_UPLOAD_CODE, FILE_UPLOAD_REQUIREMENTS
     return Pattern(
         name="file_upload",
         description="Multipart file upload with local disk storage and S3-compatible API",
@@ -87,7 +102,6 @@ def _file_upload_pattern() -> Pattern:
 
 
 def _stripe_pattern() -> Pattern:
-    from aether_os.phases.patterns.stripe import STRIPE_CODE, STRIPE_REQUIREMENTS
     return Pattern(
         name="stripe",
         description="Stripe checkout session, webhook handling, and subscription management",
@@ -99,7 +113,6 @@ def _stripe_pattern() -> Pattern:
 
 
 def _rbac_pattern() -> Pattern:
-    from aether_os.phases.patterns.rbac import RBAC_CODE
     return Pattern(
         name="rbac",
         description="Role-based access control middleware with role hierarchy enforcement",
@@ -112,8 +125,6 @@ def _rbac_pattern() -> Pattern:
 
 def _iot_pattern(entity_map: Optional[Dict[str, str]] = None) -> Pattern:
     """IoT time-series pattern. entity_map resolves canonical names from the IR."""
-    from aether_os.phases.patterns.iot_timeseries import IOT_TIMESERIES_REQUIREMENTS
-    from aether_os.phases.patterns.pattern_name_resolver import generate_iot_pattern
     code = generate_iot_pattern(entity_map)
     return Pattern(
         name="iot_timeseries",
@@ -128,8 +139,6 @@ def _iot_pattern(entity_map: Optional[Dict[str, str]] = None) -> Pattern:
 
 def _social_pattern(entity_map: Optional[Dict[str, str]] = None) -> Pattern:
     """Social graph pattern. entity_map resolves canonical names from the IR."""
-    from aether_os.phases.patterns.social_graph import SOCIAL_GRAPH_REQUIREMENTS
-    from aether_os.phases.patterns.pattern_name_resolver import generate_social_pattern
     code = generate_social_pattern(entity_map)
     return Pattern(
         name="social_graph",

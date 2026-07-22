@@ -9,9 +9,27 @@ Functions:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
+import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+from aether_os.core.domain_ir import AetherType
+from aether_os.core.pipeline_state import publish_event
+from aether_os.orchestrator.events import ACTIVE_RUN_ID
+from aether_os.phases.p05_frontend.ir_generators import (
+    ir_to_p05_entities,
+    normalize_ir_entity,
+)
+from aether_os.phases.p05_frontend.llm_page_writer import (
+    generate_entity_page_tsx,
+    generate_landing_page_tsx,
+    LLMPageWriter,
+)
+from aether_os.phases.p05_frontend.preview import vlm_rubric_critique
 
 logger = logging.getLogger(__name__)
 
@@ -328,10 +346,7 @@ async def assemble_domain_pages(
 
     Returns {"llm_count": N, "template_count": M} for template_debt_pct.
     """
-    from aether_os.phases.p05_frontend.llm_page_writer import (
-        write_entity_page_llm,
-        get_design_tokens,
-    )
+
 
     logger.info("p05: Generating entity CRUD pages...")
     llm_count = 0
@@ -390,7 +405,7 @@ async def assemble_domain_pages(
         _global_fk_refs: Dict[str, Dict[str, str]] = {}
         if domain_ir:
             try:
-                from aether_os.core.domain_ir import AetherType as _AT
+
                 for ir_ent in (domain_ir.entities or []):
                     for ir_field in ir_ent.fields:
                         if ir_field.type == _AT.FK and ir_field.ref_entity:
@@ -449,13 +464,13 @@ async def run_gate3_approval(
     Returns the (possibly human-corrected) list of admin_features.
     In autonomous mode, returns the features without waiting.
     """
-    import json as _json
+
     customer_flows = [wf.trigger for wf in domain_ir.workflows] if domain_ir else []
     admin_features = derive_admin_features_fn(customer_flows)
     try:
-        from aether_os.core.pipeline_state import publish_event
-        from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
-        from aether_os.orchestrator.events import ACTIVE_RUN_ID
+
+
+
         run_id = ACTIVE_RUN_ID.get()
 
         if run_id and not is_autonomous:
@@ -517,7 +532,7 @@ async def run_gate2_preview(
     # "improve visual polish" instruction, re-screenshot, then run again.
     # Human-review path (non-autonomous) still runs at most one round below.
     if is_autonomous and _shot_ok:
-        from aether_os.phases.p05_frontend.preview import vlm_rubric_critique
+
         _critique = await vlm_rubric_critique(preview_path, domain, project_name)
         for _round in (1, 2):
             try:
@@ -532,8 +547,8 @@ async def run_gate2_preview(
 
     try:
         if run_id and not is_autonomous:
-            from aether_os.core.pipeline_state import publish_event
-            from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
+    
+    
             engine = get_decision_engine()
             decision = Decision(
                 run_id=run_id, org_id=data.get("org_id", ""),
