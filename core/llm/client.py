@@ -143,6 +143,7 @@ class LLMClient:
         """
         start_time = time.time()
         tokens_in = len(prompt) // 4
+        tokens_out = 0
         raw_response = ""
         error_msg = None
         parsed_ok = True
