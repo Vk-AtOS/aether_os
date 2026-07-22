@@ -441,7 +441,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
     # model_used: resolved provider string; degraded when not a frontier tier (anthropic/gemini)
     _model_used = _primary_llm if _primary_llm else "ollama"
-    _degraded = _model_used not in ("anthropic", "gemini", "bedrock")
+    # bedrock counts as degraded — Claude on Bedrock blocked; Nova Pro is the fallback
+    _degraded = _model_used not in ("anthropic", "gemini")
     meta = {
         "project_name": project_name, "project_slug": project_slug, "domain": domain,
         "entities": [e["table"] for e in entities], "used_llm": domain_widget_generated,
