@@ -378,6 +378,21 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             app_brand=app_brand,
             app_tagline=app_tagline,
         )
+        # LLM-first portal home: overwrite template Home.tsx if LLM succeeds
+        from aether_os.phases.p05_frontend.llm_page_writer import (
+            write_portal_home_llm,
+            get_design_tokens as _get_tokens,
+        )
+        _portal_home_llm = await write_portal_home_llm(
+            domain=domain,
+            project_name=project_name,
+            raw_input=data.get("raw_input", ""),
+            design_tokens=_get_tokens(domain),
+        )
+        if _portal_home_llm:
+            (src_dir / "pages" / "customer" / "Home.tsx").write_text(_portal_home_llm)
+            _llm_count += 1
+            logger.info("p05: LLM portal home written for %s", project_name)
     else:
         logger.warning("p05: phase watchdog — skipping customer portal generation")
 
