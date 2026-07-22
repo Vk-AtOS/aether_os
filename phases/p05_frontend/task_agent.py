@@ -435,7 +435,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # 5. Write metadata
     generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
-    # template_debt_pct: fraction of entity pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
+    # template_debt_pct: fraction of pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
+    # denominator: entity pages + dashboard + customer portal (all LLM-authored files)
     from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
     # model_used: resolved provider string; degraded when not a frontier tier (anthropic/gemini)
