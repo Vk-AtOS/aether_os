@@ -330,6 +330,7 @@ async def assemble_domain_pages(
     """
     from aether_os.phases.p05_frontend.llm_page_writer import (
         write_entity_page_llm,
+        write_dashboard_llm,
         get_design_tokens,
     )
 
@@ -345,9 +346,18 @@ async def assemble_domain_pages(
             generate_ir_entity_page as _gen_ent_page,
             generate_ir_types_ts as _gen_types,
         )
-        (src_dir / "pages" / "Dashboard.tsx").write_text(
-            _gen_dash(domain_ir, entities, project_name, domain=domain)
+        _dash_llm = await write_dashboard_llm(
+            domain=domain, entities=entities, project_name=project_name,
+            raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens,
         )
+        if _dash_llm:
+            (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
+            llm_count += 1
+        else:
+            (src_dir / "pages" / "Dashboard.tsx").write_text(
+                _gen_dash(domain_ir, entities, project_name, domain=domain)
+            )
+            template_count += 1
         _ir_sem = asyncio.Semaphore(4)
 
         async def _write_ir_entity(ir_entity):
@@ -383,9 +393,18 @@ async def assemble_domain_pages(
             template_count += _td
         (src_dir / "types" / "index.ts").write_text(_gen_types(domain_ir))
     else:
-        # Non-IR path: premium domain dashboard + per-entity pages
-        _dash_code = generate_domain_dashboard_fn(domain, entities)
-        (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_code)
+        # Non-IR path: LLM dashboard first, template fallback
+        _dash_llm = await write_dashboard_llm(
+            domain=domain, entities=entities, project_name=project_name,
+            raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens,
+        )
+        if _dash_llm:
+            (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
+            llm_count += 1
+        else:
+            _dash_code = generate_domain_dashboard_fn(domain, entities)
+            (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_code)
+            template_count += 1
 
         _global_fk_refs: Dict[str, Dict[str, str]] = {}
         if domain_ir:

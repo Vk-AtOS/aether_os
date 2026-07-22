@@ -67,6 +67,73 @@ def _relationship_hints(entity: dict, domain_ir: Any) -> str:
     return ""
 
 
+async def write_dashboard_llm(
+    domain: str,
+    entities: list,
+    project_name: str,
+    raw_input: str,
+    domain_ir: Any,
+    design_tokens: dict,
+    timeout: float = 120.0,
+) -> Optional[str]:
+    """Generate a domain-specific admin dashboard via one LLM call. Returns None on failure."""
+    if os.environ.get("ENVIRONMENT") == "test":
+        return None
+
+    from aether_os.core.llm.client import get_llm_client
+
+    tokens = design_tokens or get_design_tokens(domain)
+    entity_names = [e.get("name") or e.get("table", "") for e in (entities or [])[:8]]
+
+    prompt = (
+        f'Generate a React 18 + TypeScript admin dashboard page for the "{project_name}" ({domain}) app.\n\n'
+        f"User's original request: {raw_input[:400]}\n\n"
+        f"Entities in this app: {', '.join(entity_names) or 'items'}\n\n"
+        "The dashboard MUST include:\n"
+        "- 4 summary stats cards (e.g. total counts, revenue, active users, pending items) with real entity names\n"
+        "- A recent-activity table with 5 mock rows relevant to the domain\n"
+        "- 3–4 quick-action buttons that link to entity pages (use TanStack Router <Link>)\n"
+        "- Domain-specific KPIs as small metric chips below the stats cards\n\n"
+        "Hard requirements:\n"
+        "- React 18 + TypeScript + TanStack Router + Tailwind CSS\n"
+        "- Import useQuery from '@tanstack/react-query' for any async data\n"
+        "- Use shadcn/ui components imported from '@/components/ui/*' (Button, Card)\n"
+        "- No hardcoded API calls — stats can be mock values for the dashboard\n"
+        "- Include: {/* DOMAIN_WIDGET_SLOT */} comment as a placeholder inside the JSX\n"
+        "- Export: export default function Dashboard()\n"
+        f"- Design tokens: accent={tokens.get('accent')}, page bg={tokens.get('bg_page')}, "
+        f"radius={tokens.get('radius')}, card={tokens.get('bg_card')}, "
+        f"text={tokens.get('text_primary')}, gradient={tokens.get('gradient')}\n"
+        "- Max 350 lines total\n"
+        "- Return ONLY the .tsx code — no markdown fences, no prose.\n"
+    )
+
+    client = get_llm_client()
+    try:
+        result = await asyncio.wait_for(
+            client.call(prompt, task_type="code_generation", max_tokens=6000),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("p05: LLM dashboard for %s timed out after %.0fs", project_name, timeout)
+        return None
+    except Exception as exc:
+        logger.warning("p05: LLM dashboard for %s failed: %s", project_name, exc)
+        return None
+
+    if not result:
+        return None
+
+    cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", result.strip())
+    cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
+
+    if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
+        logger.warning("p05: LLM dashboard missing required tokens — falling back to template")
+        return None
+
+    return cleaned
+
+
 async def write_entity_page_llm(
     entity: dict,
     route_map: dict,
