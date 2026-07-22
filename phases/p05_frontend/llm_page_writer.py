@@ -67,6 +67,66 @@ def _relationship_hints(entity: dict, domain_ir: Any) -> str:
     return ""
 
 
+async def write_portal_home_llm(
+    domain: str,
+    project_name: str,
+    raw_input: str,
+    design_tokens: dict,
+    timeout: float = 120.0,
+) -> Optional[str]:
+    """Generate a customer portal homepage via one LLM call. Returns None on failure."""
+    if os.environ.get("ENVIRONMENT") == "test":
+        return None
+
+    from aether_os.core.llm.client import get_llm_client
+
+    tokens = design_tokens or get_design_tokens(domain)
+
+    prompt = (
+        f'Generate a public-facing customer portal homepage for a "{domain}" app named "{project_name}".\n\n'
+        f"User's original request: {raw_input[:400]}\n\n"
+        "The page MUST include:\n"
+        "- A hero section with a compelling headline, subtitle, and a primary CTA button\n"
+        "- A feature highlights section with 3 cards describing key benefits\n"
+        "- A CTA banner at the bottom encouraging sign-up or login\n\n"
+        "Hard requirements:\n"
+        "- React 18 + TypeScript + Tailwind CSS\n"
+        "- Import Link from '@tanstack/react-router' for navigation\n"
+        "- Use shadcn/ui Button from '@/components/ui/Button' for the CTA\n"
+        "- No API calls — this is a static marketing page\n"
+        "- Export: export default function Home()\n"
+        f"- Design tokens: accent={tokens.get('accent')}, gradient={tokens.get('gradient')}, "
+        f"radius={tokens.get('radius')}, card={tokens.get('bg_card')}\n"
+        "- Max 250 lines total\n"
+        "- Return ONLY the .tsx code — no markdown fences, no prose.\n"
+    )
+
+    client = get_llm_client()
+    try:
+        result = await asyncio.wait_for(
+            client.call(prompt, task_type="code_generation", max_tokens=4000),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("p05: LLM portal home for %s timed out after %.0fs", project_name, timeout)
+        return None
+    except Exception as exc:
+        logger.warning("p05: LLM portal home for %s failed: %s", project_name, exc)
+        return None
+
+    if not result:
+        return None
+
+    cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", result.strip())
+    cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
+
+    if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
+        logger.warning("p05: LLM portal home missing required tokens — falling back to template")
+        return None
+
+    return cleaned
+
+
 async def write_dashboard_llm(
     domain: str,
     entities: list,
