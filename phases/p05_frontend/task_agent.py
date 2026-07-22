@@ -1,15 +1,26 @@
 """P05 Frontend Task Agent — React 18 + Vite 5 + TypeScript + TanStack project generator."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import re
 import os
-import asyncio
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.domain_ir import DomainIR
+from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p05_frontend.build_loop import run_build_loop
+from aether_os.phases.p05_frontend.cloud_console_generator import (
+    generate_cloud_console,
+)
+from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
+from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
+from aether_os.phases.utils import memory_hint
 from aether_os.phases.p05_frontend.prompts import (
     DOMAIN_FALLBACK_WIDGETS,
     DOMAIN_COMPONENT_DESC,
@@ -128,13 +139,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if _bp.get("build_type") == "cloud_platform":
         logger.info("p05: build_type=cloud_platform — routing to cloud_console_generator")
         try:
-            from aether_os.phases.p05_frontend.cloud_console_generator import generate_cloud_console
             _ir_path_str = data.get("domain_ir_path", "")
             _cc_entities: list = []
             if _ir_path_str:
                 try:
-                    import json as _json
-                    _ir_data = _json.loads(Path(_ir_path_str).read_text())
+                    _ir_data = json.loads(Path(_ir_path_str).read_text())
                     _cc_entities = _ir_data.get("entities", [])
                 except Exception as _cc_exc:
                     logger.warning("p05: cloud console IR load failed: %s", _cc_exc)
@@ -178,11 +187,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _ir_p = Path(_ir_path_str)
         if _ir_p.exists():
             try:
-                from aether_os.core.domain_ir import DomainIR as _DomainIR
-                from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities as _ir_to_ents
-                _domain_ir = _DomainIR.load(_ir_p)
+                _domain_ir = DomainIR.load(_ir_p)
                 if _domain_ir.entities:
-                    entities = _ir_to_ents(_domain_ir)
+                    entities = ir_to_p05_entities(_domain_ir)
                     logger.info(
                         "p05: IR fast-path — %d typed entities from domain_ir.json",
                         len(entities),
@@ -220,7 +227,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     design_brief = data.get("design_brief", {})
 
-    from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
 
     # Extract designer spec settings
@@ -392,8 +398,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Obtain run_id once for both Gate 3 and Gate 2
     run_id: Optional[str] = None
     try:
-        from aether_os.orchestrator.events import ACTIVE_RUN_ID as _ARID
-        run_id = _ARID.get()
+        run_id = ACTIVE_RUN_ID.get()
     except Exception as e:
         logger.debug("[p05] ACTIVE_RUN_ID.get() failed: %s", e)
 
@@ -413,15 +418,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _canonical_frontend = project_dir / "frontend"
     if not _canonical_frontend.exists() and frontend_dir.exists():
         try:
-            import shutil as _shutil
-            _shutil.copytree(str(frontend_dir), str(_canonical_frontend), ignore=_shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
+            shutil.copytree(str(frontend_dir), str(_canonical_frontend), ignore=shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
         except Exception as _copy_exc:
             logger.warning("p05: copytree to canonical frontend failed: %s", _copy_exc)
 
     # 5. Write metadata
     generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
     # template_debt_pct: fraction of entity pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
-    from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
     # model_used: resolved provider string; degraded when not a frontier tier (anthropic/gemini)
     _model_used = _primary_llm if _primary_llm else "ollama"
@@ -438,8 +441,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Step 6: Final Build (with compile-error feedback loop) ──
     # Runs before Gate-2 so the screenshot shows the compiled artifact.
-    import subprocess
-    from aether_os.phases.p05_frontend.build_loop import run_build_loop
     frontend_dir_final = project_dir / 'frontend'
     build_success = True
     tsc_errors: int = 0

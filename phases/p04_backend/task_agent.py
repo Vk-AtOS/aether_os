@@ -4,11 +4,23 @@ import asyncio
 import ast
 import json
 import logging
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.architecture_governor import ArchitectureGovernor
+from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p04a_backend_codegen.task_agent import run as p04a_run
+from aether_os.phases.p04b_uiux_design.task_agent import run as p04b_run
+from aether_os.phases.p04_backend.go_generator import (
+    generate_go_multiservice,
+    generate_go_project,
+)
+from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
+from aether_os.phases.p04_backend.node_generator import generate_node_project
 from aether_os.orchestrator.events import emit as _global_emit
 
 logger = logging.getLogger(__name__)
@@ -28,7 +40,6 @@ def _read_if_exists(path: Path) -> str:
 
 async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noqa: ARG001
     """Ask LLM to fix a startup error in main.py. Returns True if fixed."""
-    from aether_os.core.llm.client import get_llm_client
     client = get_llm_client()
     source = main_py.read_text()
     # Also read models + schemas so the LLM has full context to fix import errors
@@ -113,10 +124,8 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
                 "globals_ns = {'__file__': os.path.abspath('main.py'), '__name__': '__main__'}; "
                 "exec(compile(parts[0], 'main.py', 'exec'), globals_ns)"
             )
-            import os as _os
-            import tempfile as _tempfile
-            _db_fd, _db_tmp = _tempfile.mkstemp(suffix=".db")
-            _os.close(_db_fd)
+            _db_fd, _db_tmp = tempfile.mkstemp(suffix=".db")
+            os.close(_db_fd)
             smoke_env = {**_os.environ, "DATABASE_URL": f"sqlite:///{_db_tmp}"}
             try:
                 proc2 = await asyncio.create_subprocess_exec(
@@ -182,8 +191,6 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
 
 async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     """Generate Go/Gin backend (single service or multi-service) based on build_profile."""
-    from aether_os.phases.p04_backend.go_generator import generate_go_project, generate_go_multiservice
-    from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
     data = phase_input.input_data or {}
     domain_ir = data.get("domain_ir") or {}
     entities = domain_ir.get("entities") or []
@@ -230,7 +237,6 @@ async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
 
 async def _run_node_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     """Generate TypeScript/Fastify backend when build_profile.backend_lang == 'typescript'."""
-    from aether_os.phases.p04_backend.node_generator import generate_node_project
     data = phase_input.input_data or {}
     domain_ir = data.get("domain_ir") or {}
     entities = domain_ir.get("entities") or []

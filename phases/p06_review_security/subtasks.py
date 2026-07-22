@@ -9,10 +9,19 @@ import json
 import logging
 import os
 import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.compliance.code_scanner import scan_file
+from aether_os.core.compliance.pdf_report import generate_pdf
+from aether_os.core.domain_knowledge.loader import build_compliance_summary, load_pack
+from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p06_review_security.manifest import write_compliance_manifest
+from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
+from aether_os.phases.p06_review_security.task_agent import _extract_json, _inject_compliance
+from aether_os.phases.utils import memory_hint
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +34,9 @@ async def run_code_review(
     output_dir: Path,
 ) -> TaskResult:
     """Sub-task 1: LLM code review — checks generated backend code for OWASP issues."""
-    from aether_os.phases.utils import memory_hint
     mem = memory_hint(memory_ctx)
 
     try:
-        from aether_os.core.llm.client import get_llm_client
-        from aether_os.phases.p06_review_security.task_agent import _extract_json
         _llm_client = get_llm_client()
         data = phase_input.input_data
         project_dir = data.get("project_dir", "")
@@ -54,7 +60,6 @@ async def run_code_review(
 
         _compliance_hint = ""
         try:
-            from aether_os.core.domain_knowledge.loader import build_compliance_summary
             _domain = data.get("domain", "general")
             _cs = build_compliance_summary(_domain)
             if _cs:
@@ -234,7 +239,6 @@ async def run_bandit_scan(
         # Apply AST security patches for HIGH findings
         if high_severity > 0:
             logger.warning("[p06] HIGH severity security issues found by bandit")
-            from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
             patcher = ASTSecurityPatcher()
             patched_files: set = set()
             for finding in bandit_findings:
@@ -289,9 +293,6 @@ async def run_compliance_scan(
 ) -> TaskResult:
     """Sub-task 3: Compliance scan (real code scanner + PDF report)."""
     try:
-        from aether_os.core.compliance.code_scanner import scan_file
-        from aether_os.core.compliance.pdf_report import generate_pdf
-
         data = phase_input.input_data
         project_dir = Path(data.get("project_dir", ""))
         backend_path = data.get("backend_output_path", "")
@@ -325,7 +326,6 @@ async def run_compliance_scan(
 
         scan_dir = output_dir / "compliance"
         scan_dir.mkdir(parents=True, exist_ok=True)
-        from dataclasses import asdict
         json_path = scan_dir / "compliance_scan.json"
         json_path.write_text(
             json.dumps(asdict(scan_result), indent=2, default=str),
@@ -340,18 +340,15 @@ async def run_compliance_scan(
             pdf_path = json_path
 
         # G12: inject missing compliance boilerplate into src/main.py
-        from aether_os.phases.p06_review_security.task_agent import _inject_compliance
         _inject_compliance(main_py, scan_result, domain)
 
         # Gap 1: compliance manifest
-        from aether_os.phases.p06_review_security.manifest import write_compliance_manifest
         _manifest_path = write_compliance_manifest(
             scan_result, project_dir, project_name, domain
         )
 
         # Gap 4: domain_knowledge.json in generated project
         try:
-            from aether_os.core.domain_knowledge.loader import load_pack
             _pack = load_pack(domain)
             if _pack:
                 _dk_path = project_dir / "domain_knowledge.json"

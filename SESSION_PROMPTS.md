@@ -147,6 +147,34 @@ The desktop master document adds open items beyond the folder's 51-item list. Fo
 
 Every item is either assigned to a session or explicitly human-only. A2/OD1 is bounded (top-20 files per pass) because plans2.md itself marks it incremental — the remaining count is recorded each pass so it converges measurably.
 
+## SESSION 5 — Mop-up + first real E2E run (no VPS needed)
+
+```
+Read PROJECT_STATE_AUDIT.md (W6/W7 sections) and plans2.md STATUS. This is the final engineering session. No re-auditing — open only files named here. One commit per item, root cause in message.
+
+Part 1 — remaining code items (spawn 2 parallel subagents, worktree isolation):
+- Agent A (phases/p05_frontend/: domain_assembler.py, llm_page_writer.py, helpers.py, task_agent.py metadata block):
+  1. W6 — extend LLM-first authorship to Dashboard.tsx and customer portal pages (same pattern as write_entity_page_llm: raw prompt + IR + design tokens, template fallback, counted in template_debt). Landing page optional if time allows.
+  2. W6b — make template_debt_pct count ALL generated pages (dashboard, layouts, portal), not just entity pages. Document the denominator in a code comment.
+  3. W7 — raise vlm_rubric_critique max_tokens 300→1000; widen apply_gate2_revisions candidate list to include all files in src/pages/; confirm task_type="ui_critique" is registered in model_registry (add it if missing).
+  4. W3b — degraded flag: treat bedrock-Nova as degraded=true; only anthropic/gemini frontier tiers count as non-degraded. Keep model_used accurate.
+- Agent B (repo-wide, cheapest model):
+  5. A2 second pass — next 20 offender files for function-scoped imports; record remaining count in plans2.md.
+  6. Regenerate local secrets in .env: new AETHER_SECRET_KEY, AETHER_ONE_ZT_SECRET, AETHER_ADMIN_PASS(WORD) via secrets.token_urlsafe; sync both env var names; update .env.example placeholders. Do NOT touch AWS keys — flag them as HUMAN (AWS console rotation).
+
+Part 2 — SOLO, after merge (sequential, this is the first-ever real E2E):
+7. git remote add origin https://github.com/Vk-AtOS/aether_os.git, then STOP and ask me to confirm before running: git push --force origin main (history was rewritten — this replaces GitHub history and kills the leaked JWT).
+8. Boot the server locally (python main.py start or uvicorn per RUNBOOK), seed admin, verify /health.
+9. Run ./scripts/smoke_test.sh http://localhost:8000 — report results.
+10. Trigger ONE real pipeline build via the API with prompt: "Build a veterinary clinic management app with appointments, patients, owners, invoices, and a vaccination schedule." Watch it end-to-end. Report: per-stage status, template_debt_pct, model_used, build_loop rounds/tsc_errors, confidence, whether Gate-2 critique ran with vision, and paste the final app's file tree (top 2 levels).
+11. If the run fails at any stage: diagnose root cause, fix (one commit), re-run once. Do not patch forward more than once — report instead.
+12. Update plans2.md STATUS + CURRENT_STATE.md. Final report: table of item → commit → status, then the E2E run summary. Nothing else.
+
+Known constraint: PRIMARY_LLM=bedrock (Nova) until the Anthropic payment is fixed — the E2E run validates wiring, not final output quality. Note in the report anywhere Nova visibly hurt output.
+```
+
+---
+
 ## Honest expectations
 
 - 4 sessions closes every **agent-doable** item if sessions 1–2 go clean. Q1/Q3/Q4 quality (not just "implemented") depends on iteration — the benchmark harness in session 4 tells you truthfully whether output now competes, and session 4's build comparison is the acceptance test.

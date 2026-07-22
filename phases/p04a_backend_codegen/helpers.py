@@ -13,8 +13,14 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import httpx
 import json
 import logging
+import os
+import secrets
+import socket
+import sys
+import textwrap
 from pathlib import Path
 from typing import Any, Optional
 
@@ -253,10 +259,8 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
 
 async def _live_http_probe(src_dir: Path, emit) -> dict:
     """Start uvicorn on a temp port, hit /health, return result. Non-blocking on failure."""
-    import sys as _sys, socket as _sock, os as _os, secrets as _sec2
-
     # Find a free port
-    with _sock.socket() as _s:
+    with socket.socket() as _s:
         _s.bind(("127.0.0.1", 0))
         probe_port = _s.getsockname()[1]
 
@@ -266,7 +270,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
     if not _env_file.exists():
         _env_file.write_text(
             f"DATABASE_URL=sqlite+aiosqlite:///{src_dir.parent}/probe.db\n"
-            f"SECRET_KEY={_sec2.token_hex(32)}\n"
+            f"SECRET_KEY={secrets.token_hex(32)}\n"
             f"CORS_ORIGINS=http://localhost:3000\n"
         )
         _wrote_env = True
@@ -274,7 +278,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
     _log_path = src_dir.parent / "probe.log"
     proc = None
     try:
-        _env = {**_os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
+        _env = {**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
         if _env_file.exists():
             # Load .env into subprocess env
             for line in _env_file.read_text().splitlines():
@@ -284,7 +288,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
 
         with open(_log_path, "w") as _lf:
             proc = await asyncio.create_subprocess_exec(
-                _sys.executable, "-m", "uvicorn", "src.main:app",
+                sys.executable, "-m", "uvicorn", "src.main:app",
                 "--host", "127.0.0.1", "--port", str(probe_port),
                 "--timeout-graceful-shutdown", "1",
                 cwd=str(src_dir.parent),
@@ -298,7 +302,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
         for _ in range(16):
             await asyncio.sleep(0.5)
             try:
-                with _sock.create_connection(("127.0.0.1", probe_port), timeout=0.3):
+                with socket.create_connection(("127.0.0.1", probe_port), timeout=0.3):
                     _ready = True
                     break
             except OSError as e:
@@ -309,8 +313,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
             return {"passed": False, "skipped": False, "errors": [f"Server did not start in 8s: {_log_tail[-400:]}"], "health_status": "timeout"}
 
         # Hit /health
-        import httpx as _httpx
-        async with _httpx.AsyncClient(timeout=5.0) as _c:
+        async with httpx.AsyncClient(timeout=5.0) as _c:
             _r = await _c.get(f"http://127.0.0.1:{probe_port}/health")
         _health_ok = _r.status_code == 200
 
@@ -398,7 +401,6 @@ def _fallback_auth_flow_code() -> str:
     Uses a standalone APIRouter so it can be included alongside entity routers
     without depending on auth.py's internal router variable.
     """
-    import textwrap
     return textwrap.dedent("""\
 
         import secrets as _secrets

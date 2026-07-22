@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
@@ -226,7 +229,6 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
         return {"passed": True, "error": None, "fixed": False}
 
     parent = src_dir.parent  # backend root (has src/ as package)
-    import os
     env_patch = {"DATABASE_URL": "sqlite+aiosqlite:///./test_exec_validate.db", "SECRET_KEY": "test-secret"}
     test_env = {**os.environ, **env_patch}
 
@@ -273,7 +275,6 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
     crud_path = src_dir / "routers" / "crud.py"
     if crud_path.exists() and ("crud" in err.lower() or "import" in err.lower()):
         try:
-            from aether_os.core.llm.client import get_llm_client
             llm = get_llm_client()
             crud_code = crud_path.read_text()
             fix_prompt = (
@@ -291,9 +292,8 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
                 timeout=60,
             )
             if fixed_code and len(fixed_code.strip()) > 200:
-                import re as _re
-                fixed_code = _re.sub(r"^```(?:python)?\s*\n?", "", fixed_code.strip())
-                fixed_code = _re.sub(r"\n?```\s*$", "", fixed_code.strip())
+                fixed_code = re.sub(r"^```(?:python)?\s*\n?", "", fixed_code.strip())
+                fixed_code = re.sub(r"\n?```\s*$", "", fixed_code.strip())
                 crud_path.write_text(fixed_code)
                 logger.info("[p07a] LLM fixed crud.py — re-validating")
 
@@ -349,9 +349,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Run pytest ────────────────────────────────────────────────────────────
     run_dir = src_dir if src_dir else output_dir
     try:
-        import os as _os
         _test_env = {
-            **_os.environ,
+            **os.environ,
             "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
             "SECRET_KEY": "test-secret-key-not-for-production",
             "PYTHONPATH": str(run_dir),
@@ -369,11 +368,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         (output_dir / "pytest_output.txt").write_text(output_text)
 
         if "passed" in output_text:
-            import re
             m = re.search(r"(\d+) passed", output_text)
             test_results["passed"] = int(m.group(1)) if m else 1
         if "failed" in output_text:
-            import re
             m = re.search(r"(\d+) failed", output_text)
             test_results["failed"] = int(m.group(1)) if m else 0
         if proc.returncode not in (0, 1):

@@ -31,7 +31,6 @@ def _get_posthog():
         return _posthog
     if _POSTHOG_KEY:
         try:
-            import posthog as _ph
             _ph.api_key = _POSTHOG_KEY
             _ph.host = os.getenv("POSTHOG_HOST", "https://app.posthog.com")
             _posthog = _ph
@@ -207,7 +206,6 @@ async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
     posthog_key = os.getenv("POSTHOG_API_KEY", "")
     if posthog_key:
         try:
-            import posthog as _ph
             _ph.api_key = posthog_key
             _ph.capture(str(user_id or "anon"), event=event, properties=data)
         except Exception as e:

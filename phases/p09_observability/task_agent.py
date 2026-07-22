@@ -54,7 +54,6 @@ def add_prometheus_middleware(app) -> None:
     same process don't collide on metric names (ValueError: Duplicated timeseries).
     """
     try:
-        from prometheus_client import CollectorRegistry
         from prometheus_fastapi_instrumentator import Instrumentator
         _registry = CollectorRegistry()
         Instrumentator(
