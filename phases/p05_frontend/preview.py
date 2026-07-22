@@ -108,7 +108,7 @@ async def vlm_rubric_critique(
         from aether_os.core.llm.client import get_llm_client
         client = get_llm_client()
         result = await asyncio.wait_for(
-            client.call_vision(prompt, img_bytes, task_type="ui_critique", max_tokens=300),
+            client.call_vision(prompt, img_bytes, task_type="ui_critique", max_tokens=1000),
             timeout=timeout,
         )
         if isinstance(result, str) and result.strip():
@@ -128,13 +128,12 @@ async def apply_gate2_revisions(
     """Use LLM to refine the customer portal based on user feedback."""
     from aether_os.phases.p05_frontend.task_agent import _generate_file
 
-    # Identify files to refine (focus on the most visible ones)
+    # Identify files to refine — all generated pages + key components
     src_dir = frontend_dir / "src"
-    candidates = [
-        src_dir / "pages" / "Dashboard.tsx",
-        src_dir / "components" / "DomainWidget.jsx",
-        src_dir / "components" / "Layout.tsx",
-    ]
+    candidates = (
+        list((src_dir / "pages").glob("*.tsx"))
+        + [src_dir / "components" / "DomainWidget.jsx", src_dir / "components" / "Layout.tsx"]
+    )
 
     # Also include all pages in customer portal subdirectory
     customer_dir = src_dir / "pages" / "customer"
