@@ -54,7 +54,13 @@ client.interceptors.response.use(
           original.headers.Authorization = `Bearer ${res.data.access_token}`;
           return client(original);
         } catch {
-          // Refresh failed — fall through to logout
+          // Refresh tokens are single-use. If another tab refreshed first, it has already
+          // stored a newer pair: use that instead of signing this tab out.
+          const latest = localStorage.getItem('aether_token');
+          if (localStorage.getItem('aether_refresh_token') !== refreshToken && latest) {
+            original.headers.Authorization = `Bearer ${latest}`;
+            return client(original);
+          }
         }
       }
       localStorage.removeItem('aether_token');

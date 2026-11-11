@@ -20,6 +20,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from aether_os.core.rate_limiter import get_client_ip
+from aether_os.gateway.auth_refresh import issue_token_pair
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -196,7 +197,6 @@ async def switch_org(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
     if str(u.org_id) != str(org_id):
         raise HTTPException(status_code=403, detail="You do not belong to that organisation")
 
-    from aether_os.gateway.auth import create_access_token, create_refresh_token
     claims = {
         "sub": u.email,
         "user_id": u.id,
@@ -205,9 +205,11 @@ async def switch_org(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
         "role": u.role,
         "plan": org.plan,
     }
+    # Same family: switching org continues this session, so logout still revokes it.
+    access, refresh = issue_token_pair(claims, family=user.get("fam"))
     return {
-        "access_token": create_access_token(claims),
-        "refresh_token": create_refresh_token(claims),
+        "access_token": access,
+        "refresh_token": refresh,
         "token_type": "bearer",
         "org_id": org.id,
         "org_slug": org.slug,

@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from aether_os.core.audit.ledger import get_ledger
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import Organisation, User
 from aether_os.core.rate_limiter import get_client_ip
+from aether_os.gateway.auth import decode_access_token
+from aether_os.gateway.auth_refresh import consume_refresh_token, issue_token_pair
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -43,46 +49,30 @@ class LoginResponse(BaseModel):
 
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh_token_endpoint(req: RefreshRequest, request: Request) -> LoginResponse:
-    """Exchange a valid refresh token for a new access + refresh token pair."""
-    from aether_os.gateway.auth import decode_access_token, create_access_token, create_refresh_token as _crt_ref
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import User, Organisation
-    from sqlalchemy import select
+    """Exchange a refresh token for a new access + refresh pair (single use).
 
+    Public on purpose: the refresh token in the body is the credential.
+    """
     claims = decode_access_token(req.refresh_token)
     if not claims or claims.get("token_type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     # Audit: token_refresh
-    from aether_os.core.audit.ledger import get_ledger
-    client_ip = get_client_ip(request)
     asyncio.create_task(get_ledger().async_log_audit_event(
         org_id=claims.get("org_id", "-"),
         user_id=claims.get("user_id", "-"),
         action="token_refresh",
-        ip_address=client_ip,
+        ip_address=get_client_ip(request),
         user_agent=request.headers.get("User-Agent", "-")
     ))
 
-    # Check Redis blacklist
-    jti = claims.get("jti")
-    if jti:
-        try:
-            from aether_os.core.pipeline_state import get_redis
-            r = await get_redis()
-            if r and await r.get(f"jwt:blacklist:{jti}"):
-                raise HTTPException(status_code=401, detail="Refresh token has been revoked")
-        except HTTPException:
-            raise
-        except Exception as _redis_exc:
-            logger.warning("Redis blacklist check failed during token refresh: %s", _redis_exc)
+    # Spend the token before anything is issued: revoked, replayed or unverifiable → no new pair.
+    family = await consume_refresh_token(claims)
 
-    user_id = claims.get("user_id")
-    session_factory = get_session_factory()
-    async with session_factory() as session:
+    async with get_session_factory()() as session:
         row = (
             await session.execute(
-                select(User, Organisation).join(Organisation).where(User.id == user_id)
+                select(User, Organisation).join(Organisation).where(User.id == claims.get("user_id"))
             )
         ).fetchone()
         if not row:
@@ -91,16 +81,14 @@ async def refresh_token_endpoint(req: RefreshRequest, request: Request) -> Login
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account is disabled")
 
-        _new_claims = {
+        new_access, new_refresh = issue_token_pair({
             "sub": user.email,
             "user_id": user.id,
             "org_id": org.id,
             "org_slug": org.slug,
             "role": user.role,
             "plan": org.plan,
-        }
-        new_access = create_access_token(_new_claims)
-        new_refresh = _crt_ref(_new_claims)
+        }, family=family)
         return LoginResponse(
             access_token=new_access,
             refresh_token=new_refresh,

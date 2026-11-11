@@ -79,6 +79,7 @@ async def reset_user_password_service(
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import User
     from aether_os.gateway.auth import get_password_hash
+    from aether_os.gateway.auth_refresh import revoke_user_refresh_tokens
     import secrets as _sec
 
     sf = get_session_factory()
@@ -89,6 +90,8 @@ async def reset_user_password_service(
         temp_password = _sec.token_urlsafe(16)
         db_user.password_hash = get_password_hash(temp_password)
         db_user.must_change_password = True  # FIX-15: force change on next login
+        # The old password is gone, so sessions opened with it must not keep refreshing.
+        await revoke_user_refresh_tokens(db_user.id)
         await session.commit()
         target_email = db_user.email
 
