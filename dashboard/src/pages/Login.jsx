@@ -42,8 +42,9 @@ const Login = () => {
     const urlError = searchParams.get('error');
     if (urlError) setError(decodeURIComponent(urlError));
 
-    fetch('/api/auth/saml/metadata', { method: 'GET' })
-      .then(r => { if (r.ok || r.status === 200) setSamlAvailable(true); })
+    fetch('/api/auth/saml/available')
+      .then(r => (r.ok ? r.json() : { available: false }))
+      .then(d => { if (d.available) setSamlAvailable(true); })
       .catch(() => {});
   }, []);
 

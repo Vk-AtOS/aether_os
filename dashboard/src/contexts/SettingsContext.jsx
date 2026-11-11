@@ -53,6 +53,8 @@ export const SettingsProvider = ({ children }) => {
   // never display a hardcoded provider name.
   const activeProvider = llmConfig?.primary_llm || llmConfig?.provider || llmConfig?.active_provider || null;
   const activeModel = llmConfig?.active_model || llmConfig?.primary_model || llmConfig?.model || '—';
+  // False only when the server says the configured provider has no credential at all.
+  const providerKeyMissing = llmConfig?.primary_key_configured === false;
   const orgName = orgSettings?.org_name || '';
   const plan = orgSettings?.plan || 'free';
 
@@ -60,7 +62,7 @@ export const SettingsProvider = ({ children }) => {
     <SettingsContext.Provider value={{
       llmConfig, orgSettings, prefs,
       ready,
-      activeProvider, activeModel, orgName, plan,
+      activeProvider, activeModel, providerKeyMissing, orgName, plan,
       updateLlmConfig, updateOrgSettings, updatePrefs,
       reload: load,
     }}>
