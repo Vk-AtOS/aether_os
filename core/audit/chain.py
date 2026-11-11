@@ -10,14 +10,16 @@ This module deliberately exposes no update, delete or purge operation.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import time
+import weakref
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Float, Integer, String, Text, event, select
+from sqlalchemy import Float, Integer, String, Text, event, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,9 +28,25 @@ from aether_os.core.db import Base, get_session_factory
 logger = logging.getLogger(__name__)
 
 GENESIS_HASH = "0" * 64
-# Two writers that read the same tail collide on the primary key / unique
-# prev_hash; the loser re-reads the tail and tries again this many times.
+# Appends are serialised (see append()). The retry below is only the backstop for
+# writers the locks cannot see (a second process on SQLite): two writers that read
+# the same tail collide on the primary key / unique prev_hash and the loser retries.
 _APPEND_ATTEMPTS = 8
+# Arbitrary constant naming "the audit chain tail" for pg_advisory_xact_lock.
+_PG_CHAIN_LOCK_KEY = 0x41455448_434841  # "AETHCHA"
+# One asyncio.Lock per event loop (a Lock cannot be shared across loops).
+_loop_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
+    weakref.WeakKeyDictionary())
+
+
+def _local_lock() -> asyncio.Lock:
+    """In-process lock: the whole serialisation on SQLite, and on PostgreSQL it keeps
+    waiting appends from each holding a pooled connection."""
+    loop = asyncio.get_running_loop()
+    lock = _loop_locks.get(loop)
+    if lock is None:
+        lock = _loop_locks[loop] = asyncio.Lock()
+    return lock
 _VERIFY_PAGE = 1000
 
 
@@ -82,26 +100,32 @@ async def append(actor: str, action: str, payload: Optional[Dict[str, Any]] = No
     ts = time.time() if timestamp is None else float(timestamp)
     sf = get_session_factory()
     last_error: Optional[Exception] = None
-    for _ in range(_APPEND_ATTEMPTS):
-        async with sf() as session:
-            tail = (await session.execute(
-                select(AuditChainEntry).order_by(AuditChainEntry.seq.desc()).limit(1)
-            )).scalars().first()
-            prev_hash = tail.entry_hash if tail else GENESIS_HASH
-            entry = AuditChainEntry(
-                seq=(tail.seq + 1) if tail else 1,
-                timestamp=ts, actor=actor, action=action, payload=payload_text,
-                prev_hash=prev_hash,
-                entry_hash=compute_entry_hash(prev_hash, ts, actor, action, payload_text),
-            )
-            session.add(entry)
-            try:
-                await session.commit()
-                return entry
-            except IntegrityError as e:
-                # Another writer took this position; re-read the tail and retry.
-                last_error = e
-                await session.rollback()
+    async with _local_lock():
+        for _ in range(_APPEND_ATTEMPTS):
+            async with sf() as session:
+                if session.get_bind().dialect.name == "postgresql":
+                    # Cross-process serialisation: held until this transaction ends,
+                    # so the tail read below cannot be shared with another writer.
+                    await session.execute(text("SELECT pg_advisory_xact_lock(:k)"),
+                                          {"k": _PG_CHAIN_LOCK_KEY})
+                tail = (await session.execute(
+                    select(AuditChainEntry).order_by(AuditChainEntry.seq.desc()).limit(1)
+                )).scalars().first()
+                prev_hash = tail.entry_hash if tail else GENESIS_HASH
+                entry = AuditChainEntry(
+                    seq=(tail.seq + 1) if tail else 1,
+                    timestamp=ts, actor=actor, action=action, payload=payload_text,
+                    prev_hash=prev_hash,
+                    entry_hash=compute_entry_hash(prev_hash, ts, actor, action, payload_text),
+                )
+                session.add(entry)
+                try:
+                    await session.commit()
+                    return entry
+                except IntegrityError as e:
+                    # Another writer took this position; re-read the tail and retry.
+                    last_error = e
+                    await session.rollback()
     raise RuntimeError(f"audit chain append lost {_APPEND_ATTEMPTS} races") from last_error
 
 
