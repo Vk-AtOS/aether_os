@@ -49,7 +49,7 @@ const Workspaces = () => {
       setShowCreate(false);
       setCreateStatus(null);
       await loadWorkspaces();
-    } catch (err) {
+    } catch {
       setCreateStatus('error');
       setTimeout(() => setCreateStatus(null), 3000);
     }
@@ -77,7 +77,7 @@ const Workspaces = () => {
       setEditingWs(null);
       setEditStatus(null);
       await loadWorkspaces();
-    } catch (err) {
+    } catch {
       setEditStatus('error');
       setTimeout(() => setEditStatus(null), 3000);
     }

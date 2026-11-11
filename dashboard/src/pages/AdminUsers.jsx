@@ -110,7 +110,7 @@ const AdminUsers = () => {
     setConfirmDeactivate(null);
     const failures = [];
     for (const id of selectedIds) {
-      try { await api.client.post(`/admin/users/${id}/deactivate`); } catch (err) {
+      try { await api.client.post(`/admin/users/${id}/deactivate`); } catch {
         failures.push(id);
       }
     }
@@ -138,7 +138,7 @@ const AdminUsers = () => {
       setInviteEmail('');
       setTimeout(() => { setInviteStatus(null); setShowInvite(false); }, 2000);
       fetchUsers();
-    } catch (err) {
+    } catch {
       setInviteStatus('error');
     }
   };

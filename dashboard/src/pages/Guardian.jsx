@@ -244,7 +244,7 @@ export default function Guardian() {
     try {
       await api.client.post('/guardian/scan');
       setTimeout(load, 2000);
-    } catch (e) {
+    } catch {
       // scan endpoint may not exist — just reload
       await load();
     } finally {

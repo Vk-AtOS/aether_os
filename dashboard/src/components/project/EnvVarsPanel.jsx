@@ -19,7 +19,7 @@ const EnvVarsPanel = ({ runId, onToast }) => {
     try {
       await api.patchEnvVars(runId, envVars.filter(v => v.key.trim()));
       onToast('Environment saved.');
-    } catch (e) {
+    } catch {
       onToast('Save failed.');
     } finally {
       setEnvSaving(false);

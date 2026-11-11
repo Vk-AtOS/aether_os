@@ -53,7 +53,7 @@ client.interceptors.response.use(
           }
           original.headers.Authorization = `Bearer ${res.data.access_token}`;
           return client(original);
-        } catch (_) {
+        } catch {
           // Refresh failed — fall through to logout
         }
       }
