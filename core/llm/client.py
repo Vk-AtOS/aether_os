@@ -29,6 +29,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.api_key_store import get_api_key
 from aether_os.core.errors import LLMCallError
 from aether_os.core.llm._org_context import _current_org_id, _active_provider  # noqa: F401  (re-exported for back-compat)
 
@@ -72,7 +73,6 @@ def set_org_context(org_id: str) -> None:
 
 async def init_org_llm_context(org_id: str) -> None:
     """Pre-warm API key cache for this org. Call at the start of each pipeline run."""
-    from core.api_key_store import get_api_key
     set_org_context(org_id)
     for provider in ["anthropic", "google", "openrouter"]:
         try:
@@ -511,10 +511,10 @@ def reinitialize() -> None:
     the PUT /settings/llm-config endpoint) to ensure the new configuration
     is picked up without restarting the server.
 
-    Note: individual provider calls (Anthropic, Gemini, Bedrock) already
-    read API keys from os.environ at call time, so hot-reloading os.environ
-    alone is sufficient for key changes.  This function exists as an explicit
-    contract for callers that want to guarantee a clean slate.
+    Note: provider calls resolve their key per call (core.api_key_store.get_api_key
+    for the org, then the platform environment), so key changes need no reset.
+    This function exists as an explicit contract for callers that want to
+    guarantee a clean slate.
     """
     global _instance
     _instance = None

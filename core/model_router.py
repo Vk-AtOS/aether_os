@@ -34,6 +34,8 @@ from aether_os.core.model_router_providers import (
     _DEAD_MODELS,
     FALLBACK_CHAIN,
 )
+from aether_os.core.api_key_store import get_api_key
+from aether_os.core.llm._org_context import _current_org_id
 from aether_os.core.llm.ahm import default_ahm as _ahm
 from aether_os.orchestrator.events import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
 
@@ -46,6 +48,22 @@ _background_tasks: set = set()
 _active_model: Optional[str] = None        # e.g. "anthropic/claude-sonnet-4-6"
 _fallback_count_today: int = 0
 _fallback_date: str = ""
+
+
+# Router provider name → api_key_store provider name (bedrock/ollama have no API key).
+_KEY_PROVIDERS = {"anthropic": "anthropic", "gemini": "google", "openrouter": "openrouter"}
+
+
+async def _provider_key(provider: str, org_id: Optional[str]) -> Optional[str]:
+    """This org's key for the provider, else the platform key, else None.
+
+    Resolved per call and passed to the provider client explicitly — an org's key
+    is never read from (or written to) the process environment.
+    """
+    name = _KEY_PROVIDERS.get(provider)
+    if name is None:
+        return None
+    return await get_api_key(name, org_id or _current_org_id.get())
 
 
 def _get_ahm():
@@ -205,7 +223,8 @@ class ModelRouter:
 
         error_class = "fallback"  # default for first iteration
         for spec in chain:
-            if not _is_provider_configured(spec):
+            _api_key = await _provider_key(spec.provider, org_id)
+            if not _api_key and not _is_provider_configured(spec):
                 logger.debug("Router: skipping %s — not configured", spec.provider)
                 continue
             if spec.provider in _DEAD_PROVIDERS:
@@ -248,7 +267,8 @@ class ModelRouter:
                         },
                     ):
                         result = await asyncio.wait_for(
-                            self._call_provider(spec, _active_prompt, task_type, system, max_tokens),
+                            self._call_provider(spec, _active_prompt, task_type, system,
+                                                max_tokens, api_key=_api_key),
                             timeout=spec.timeout_seconds,
                         )
 
@@ -452,9 +472,11 @@ class ModelRouter:
         task_type: str,
         system: Optional[str],
         max_tokens: int,
+        api_key: Optional[str] = None,
     ) -> str:
         """
         Delegate to the appropriate provider function in core.llm.client.
+        `api_key` is the key resolved for this call's org (see _provider_key).
 
         We import the module (not the function) so that test patches on
         aether_os.core.llm.client._call_* are picked up correctly.
@@ -463,7 +485,7 @@ class ModelRouter:
 
         if spec.provider == "anthropic":
             return await _llm_mod._call_anthropic(
-                prompt, task_type, system=system, max_tokens=max_tokens
+                prompt, task_type, system=system, max_tokens=max_tokens, api_key=api_key
             )
         if spec.provider == "bedrock":
             return await _llm_mod._call_bedrock(
@@ -472,13 +494,13 @@ class ModelRouter:
             )
         if spec.provider == "gemini":
             return await _llm_mod._call_gemini(
-                prompt, task_type, system=system, max_tokens=max_tokens
+                prompt, task_type, system=system, max_tokens=max_tokens, api_key=api_key
             )
         if spec.provider == "openrouter":
             from aether_os.core.llm.openrouter_client import call_openrouter
             return await call_openrouter(
                 prompt, task_type, system=system, max_tokens=max_tokens,
-                model=spec.model,
+                model=spec.model, api_key=api_key,
             )
         if spec.provider == "ollama":
             return await _llm_mod._call_ollama_with_model(prompt, task_type, spec.model)
