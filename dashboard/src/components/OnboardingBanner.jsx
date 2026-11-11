@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, CheckCircle2, Circle, Key, Rocket, Settings } from 'lucide-react';
-import { api } from '../api';
 
 const STORAGE_KEY = 'aether_onboarding_dismissed';
 

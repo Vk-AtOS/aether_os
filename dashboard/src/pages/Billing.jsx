@@ -56,7 +56,7 @@ const Billing = () => {
       api.client.get('/billing/invoices').then(res => {
         setInvoices(res.data?.invoices ?? res.data ?? []);
       }).catch(() => setInvoices([]));
-    } catch (e) {
+    } catch {
       setError('Failed to load billing data.');
     } finally {
       setLoading(false);

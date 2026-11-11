@@ -52,7 +52,7 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
       await api.stopRunApp(runId);
       setRunning(false);
       setAppOutput(prev => [...prev, '[AetherOS] App stopped.']);
-    } catch (e) {
+    } catch {
       setRunning(false);
     }
   };

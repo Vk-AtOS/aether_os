@@ -6,7 +6,6 @@ import CostPill from '../components/CostPill';
 import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket, TrendingUp, Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { useRole } from '../hooks/useRole';
-import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../api';
 import { SkeletonTable } from '../components/Skeleton';
 import OnboardingBanner from '../components/OnboardingBanner';

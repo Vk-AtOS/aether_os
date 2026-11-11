@@ -20,7 +20,7 @@ const ForgotPassword = () => {
     try {
       await api.client.post('/auth/password-reset-request', { email: email.trim() });
       setSubmitted(true);
-    } catch (err) {
+    } catch {
       // Always show success to prevent email enumeration
       setSubmitted(true);
     } finally {
