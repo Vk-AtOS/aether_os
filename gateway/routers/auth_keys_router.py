@@ -19,6 +19,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from aether_os.core.rate_limiter import get_client_ip
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -65,11 +66,7 @@ async def create_api_key(
 
         # Audit: api_key_created
         from aether_os.core.audit.ledger import get_ledger
-        client_ip = (
-            request.headers.get("X-Real-IP")
-            or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or (request.client.host if request.client else "unknown")
-        )
+        client_ip = get_client_ip(request)
         asyncio.create_task(get_ledger().async_log_audit_event(
             org_id=org_id,
             user_id=user.get("user_id", "-"),
@@ -122,11 +119,7 @@ async def revoke_api_key(key_id: str, request: Request, user: Dict[str, Any] = _
 
         # Audit: api_key_revoked
         from aether_os.core.audit.ledger import get_ledger
-        client_ip = (
-            request.headers.get("X-Real-IP")
-            or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or (request.client.host if request.client else "unknown")
-        )
+        client_ip = get_client_ip(request)
         asyncio.create_task(get_ledger().async_log_audit_event(
             org_id=user["org_id"],
             user_id=user.get("user_id", "-"),

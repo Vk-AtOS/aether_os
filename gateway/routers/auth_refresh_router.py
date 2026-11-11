@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from aether_os.core.rate_limiter import get_client_ip
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -53,11 +55,7 @@ async def refresh_token_endpoint(req: RefreshRequest, request: Request) -> Login
 
     # Audit: token_refresh
     from aether_os.core.audit.ledger import get_ledger
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    client_ip = get_client_ip(request)
     asyncio.create_task(get_ledger().async_log_audit_event(
         org_id=claims.get("org_id", "-"),
         user_id=claims.get("user_id", "-"),

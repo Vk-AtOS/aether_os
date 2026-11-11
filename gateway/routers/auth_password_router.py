@@ -21,7 +21,7 @@ from aether_os.core.guardian.password_shield import check_password_safety
 from aether_os.core.models import User
 from aether_os.core.notifications.email import get_email_notifier
 from aether_os.core.pipeline_state import get_redis
-from aether_os.core.rate_limiter import get_rate_limiter as _get_rl
+from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter as _get_rl
 from aether_os.gateway.auth import get_password_hash
 from aether_os.gateway.auth import verify_password, get_password_hash
 from sqlalchemy import select
@@ -40,11 +40,7 @@ def _auth():
 @router.get("/verify-email")
 async def verify_email(token: str, request: Request) -> Dict[str, str]:
     """Verify user's email address using the token."""
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    client_ip = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "-")
     try:
         r = await get_redis()
@@ -79,11 +75,7 @@ async def verify_email(token: str, request: Request) -> Dict[str, str]:
 @router.post("/password-reset-request")
 async def password_reset_request(req: PasswordResetRequest, request: Request) -> Dict[str, str]:
     """Request a password reset email."""
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    client_ip = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "-")
     # SEC-H3: rate limit — 5 requests per 15 minutes per IP to prevent email abuse
     _rl = _get_rl()
@@ -158,11 +150,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
 @router.post("/password-reset-confirm")
 async def password_reset_confirm(req: PasswordResetConfirm, request: Request) -> Dict[str, str]:
     """Confirm password reset using the token."""
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    client_ip = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "-")
     try:
         r = await get_redis()
@@ -210,11 +198,7 @@ async def change_password(req: Dict[str, Any], request: Request, user: Dict[str,
     user_id = user.get("user_id", "")
     current_pw = req.get("current_password", "")
     new_pw = req.get("new_password", "")
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    client_ip = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "-")
     # Password safety: complexity + HIBP breach check
     try:

@@ -13,8 +13,8 @@ router = APIRouter(tags=["legal"])
 @router.get("/legal/tos")
 async def legal_tos(request: Request):
     """Terms of Service / EULA."""
-    from aether_os.core.rate_limiter import get_rate_limiter
-    _ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or "unknown"
+    from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
+    _ip = get_client_ip(request)
     _rl = get_rate_limiter()
     await _rl.record_public_request(_ip)
     if not await _rl.check_public_ratelimit(_ip):
@@ -49,8 +49,8 @@ async def legal_tos(request: Request):
 @router.get("/legal/privacy")
 async def legal_privacy(request: Request):
     """Privacy Policy."""
-    from aether_os.core.rate_limiter import get_rate_limiter
-    _ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or "unknown"
+    from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
+    _ip = get_client_ip(request)
     _rl = get_rate_limiter()
     await _rl.record_public_request(_ip)
     if not await _rl.check_public_ratelimit(_ip):
@@ -90,8 +90,8 @@ async def legal_privacy(request: Request):
 @router.get("/legal/dpa")
 async def legal_dpa(request: Request):
     """Data Processing Agreement (GDPR Art. 28)."""
-    from aether_os.core.rate_limiter import get_rate_limiter
-    _ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or "unknown"
+    from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
+    _ip = get_client_ip(request)
     _rl = get_rate_limiter()
     await _rl.record_public_request(_ip)
     if not await _rl.check_public_ratelimit(_ip):

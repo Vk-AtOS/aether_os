@@ -21,6 +21,8 @@ Per-org IdP config stored in DB (takes precedence over env vars):
 """
 from __future__ import annotations
 
+import importlib.util
+
 import logging
 import os
 import urllib.parse
@@ -30,6 +32,11 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import select
+
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import Organisation, User
+from aether_os.gateway.auth import create_access_token, create_refresh_token, get_password_hash
 
 logger = logging.getLogger(__name__)
 saml_router = APIRouter(prefix="/auth/saml", tags=["saml"])
@@ -52,8 +59,9 @@ def _is_saml_usable() -> bool:
 # ── Per-org IdP config lookup ─────────────────────────────────────────────────
 
 async def _get_idp_config_for_org(org_slug: Optional[str]) -> Optional[Dict[str, str]]:
-    """Return {idp_entity_id, idp_sso_url, idp_cert} from DB for the given org slug.
-    Falls back to env vars when org_slug is None or no DB record exists."""
+    """Return {idp_entity_id, idp_sso_url, idp_cert, org_id} from DB for the given org slug.
+    Falls back to env vars when org_slug is None or no DB record exists; org_id is
+    None for that platform-operated fallback IdP."""
     if org_slug:
         try:
             from aether_os.core.db import get_session_factory
@@ -75,6 +83,7 @@ async def _get_idp_config_for_org(org_slug: Optional[str]) -> Optional[Dict[str,
                             "idp_entity_id": cfg.idp_entity_id,
                             "idp_sso_url": cfg.idp_sso_url,
                             "idp_cert": cfg.idp_cert,
+                            "org_id": org.id,
                         }
         except Exception as exc:
             logger.debug("DB IdP lookup failed: %s", exc)
@@ -89,8 +98,55 @@ async def _get_idp_config_for_org(org_slug: Optional[str]) -> Optional[Dict[str,
             "idp_entity_id": os.environ["SAML_IDP_ENTITY_ID"],
             "idp_sso_url": os.environ["SAML_IDP_SSO_URL"],
             "idp_cert": os.environ["SAML_IDP_CERT"],
+            "org_id": None,
         }
     return None
+
+
+async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
+    """Map a validated SAML assertion to (user, org), or raise 403.
+
+    A per-org IdP is configured by that org's own admins, so its assertions are
+    only trusted for users of that org. Looking the email up globally let any
+    tenant register an IdP, assert a victim's email and receive the victim's JWT.
+    Only the platform env IdP (idp_org_id=None) may sign in or create any account.
+    """
+    sf = get_session_factory()
+    async with sf() as session:
+        row = (
+            await session.execute(
+                select(User, Organisation).join(Organisation).where(User.email == email)
+            )
+        ).fetchone()
+        if row:
+            user, org = row
+            if idp_org_id and user.org_id != idp_org_id:
+                logger.warning("SAML: IdP of org %s asserted a user of org %s — rejected", idp_org_id, user.org_id)
+                raise HTTPException(status_code=403, detail="SAML identity does not belong to this organisation")
+            if not user.is_active or user.deleted_at or org.is_deleted:
+                raise HTTPException(status_code=403, detail="Account is deactivated")
+            return user, org
+        if idp_org_id:
+            # JIT-provision into the IdP's own org as a plain member — never a new owner.
+            org = await session.get(Organisation, idp_org_id)
+            if not org or org.is_deleted:
+                raise HTTPException(status_code=403, detail="Organisation not found")
+            role = "member"
+        else:
+            slug = email.split("@")[0].lower().replace(".", "-") + "-" + secrets.token_hex(3)
+            org = Organisation(id=str(uuid.uuid4()), name=email, slug=slug, plan="trial")
+            session.add(org)
+            role = "owner"
+        user = User(
+            id=str(uuid.uuid4()), org_id=org.id, email=email,
+            password_hash=get_password_hash(secrets.token_urlsafe(32)),
+            role=role,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        await session.refresh(org)
+        return user, org
 
 
 def _build_saml_settings(idp: Dict[str, str]) -> Dict[str, Any]:
@@ -127,6 +183,13 @@ def _build_request_dict(request: Request) -> Dict[str, Any]:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@saml_router.get("/available")
+async def saml_available() -> dict:
+    """Whether SSO sign-in can be offered. Public on purpose: the sign-in page
+    asks before anyone is authenticated, and the answer reveals no tenant data."""
+    return {"available": _is_saml_usable() and importlib.util.find_spec("onelogin") is not None}
+
 
 @saml_router.get("/metadata")
 async def saml_metadata() -> Response:
@@ -237,42 +300,21 @@ async def saml_callback(request: Request) -> RedirectResponse:
          [name_id])[0]
     )
 
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation, User
-    from aether_os.gateway.auth import create_access_token, get_password_hash
-    from sqlalchemy import select
+    try:
+        user, org = await _resolve_saml_user(email, idp.get("org_id"))
+    except HTTPException as exc:
+        return RedirectResponse(
+            url=f"{_frontend_url()}/login?error={urllib.parse.quote(str(exc.detail))}",
+            status_code=302,
+        )
 
-    sf = get_session_factory()
-    async with sf() as session:
-        row = (
-            await session.execute(
-                select(User, Organisation).join(Organisation).where(User.email == email)
-            )
-        ).fetchone()
-        if row:
-            user, org = row
-        else:
-            slug = email.split("@")[0].lower().replace(".", "-") + "-" + secrets.token_hex(3)
-            org = Organisation(id=str(uuid.uuid4()), name=email, slug=slug, plan="trial")
-            session.add(org)
-            user = User(
-                id=str(uuid.uuid4()), org_id=org.id, email=email,
-                password_hash=get_password_hash(secrets.token_urlsafe(32)),
-                role="owner",
-            )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
-            await session.refresh(org)
-
-    from aether_os.gateway.auth import create_refresh_token as _crt_saml
     _saml_claims = {
         "sub": user.email, "user_id": user.id,
         "org_id": org.id, "org_slug": org.slug,
         "role": user.role, "plan": org.plan,
     }
     token = create_access_token(_saml_claims)
-    refresh = _crt_saml(_saml_claims)
+    refresh = create_refresh_token(_saml_claims)
     frontend = _frontend_url()
     return RedirectResponse(
         url=(
