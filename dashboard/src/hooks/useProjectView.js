@@ -297,7 +297,14 @@ export function useProjectView(id) {
   // ── Derived state ──────────────────────────────────────────────────────────
 
   const getPhaseStatus = useCallback((phaseId) => {
-    if (run?.phases?.[phaseId]) return run.phases[phaseId].status;
+    const rowStatus = run?.phases?.[phaseId]?.status;
+    // A failed run stopped at current_phase (the stage the failure banner names). That stage's
+    // own row can still say "running" (crash) or "timeout" (critical stage timed out); neither is a pass.
+    if (run?.status === 'failed' && run.current_phase === phaseId
+        && !['passed', 'completed', 'skipped'].includes(rowStatus)) return 'failed';
+    // Once the run has stopped, a leftover "running" row means the stage never finished.
+    if (rowStatus === 'running' && ['failed', 'cancelled', 'interrupted'].includes(run?.status)) return 'pending';
+    if (rowStatus) return rowStatus;
     if (['completed', 'passed'].includes(run?.status) && !Object.keys(run?.phases || {}).length) return 'passed';
     if (run?.current_phase === phaseId) return 'running';
     const currentIdx = PHASES.indexOf(run?.current_phase);

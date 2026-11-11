@@ -25,7 +25,7 @@ import {
   GitBranch, Zap, ShieldCheck, Users, GitPullRequest, CheckCircle2, List,
 } from 'lucide-react';
 import {
-  PHASES, PHASE_NAMES, PRIORITY_CONFIG, PRIORITY_CYCLE, countFiles,
+  PHASES, PHASE_NAMES, PRIORITY_CONFIG, PRIORITY_CYCLE,
 } from '../components/project/projectConstants';
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -55,11 +55,11 @@ const ProjectView = () => {
     iframeDevice, setIframeDevice, iframeKey, setIframeKey,
     feedLines, feedDone, feedEndRef, feedContainerRef,
     appRunning, setAppRunning, qualityData, complianceData,
-    specReview, specModalOpen, setSpecModalOpen, specApproving, setSpecApproving, setSpecReview,
+    specReview, specModalOpen, setSpecModalOpen, specApproving, setSpecApproving,
     showGitHubModal, setShowGitHubModal,
     showAddFeatureModal, setShowAddFeatureModal,
     gitHubToken, setGitHubToken, gitHubRepoName, setGitHubRepoName, gitHubPushing,
-    addFeatureText, setAddFeatureText, addingFeature, branchPhaseState, setBranchPhaseState,
+    addFeatureText, setAddFeatureText, addingFeature, setBranchPhaseState,
     getPhaseStatus, completedPhases, progressPercent, eta, artifactCount,
     fetchRunDetail, showToast,
     handlePause, handleResume, handleCancel, handlePriorityCycle, handleRerun, handleEditRestart,
@@ -168,14 +168,15 @@ const ProjectView = () => {
             const st = getPhaseStatus(p);
             const pData = phases[p] || {};
             const dur = pData.duration_s != null ? (pData.duration_s < 60 ? `${pData.duration_s}s` : `${Math.round(pData.duration_s / 60)}m`) : null;
-            const isActive = st === 'running' || run.current_phase === p;
+            // Nothing is in progress once the run has stopped, so no stage is highlighted as active.
+            const isActive = (isRunning || isPaused) && (st === 'running' || run.current_phase === p);
             const isDone2  = st === 'passed' || st === 'completed' || st === 'timeout';
             const isFailed = st === 'failed';
             return (
               <div key={p} className="relative group/phase">
                 <button onClick={() => navigate(`/project/${id}/phase/${p}`)}
                   className={`w-full flex items-center px-3 py-2.5 text-xs rounded-xl transition-all duration-200 text-left ${isActive ? 'bg-violet-500/10 text-violet-300 border border-violet-500/20' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 flex-shrink-0 ${isDone2 ? 'bg-emerald-400' : isActive ? 'bg-blue-400 animate-pulse' : isFailed ? 'bg-red-400' : 'bg-slate-700'}`} />
+                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 flex-shrink-0 ${isDone2 ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : isActive ? 'bg-blue-400 animate-pulse' : 'bg-slate-700'}`} />
                   <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
                   {(p === 's06_testing' || p === 'p07_testing') && pData?.output?.test_quality_flag && (
                     <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${pData.output.test_quality_flag === 'pass' ? 'bg-green-500/20 text-green-400' : pData.output.test_quality_flag === 'warn' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -211,7 +212,7 @@ const ProjectView = () => {
           <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger/40 bg-danger/10 px-5 py-4">
             <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-danger">This build failed{run.current_phase ? ` at ${run.current_phase}` : ''}</p>
+              <p className="text-sm font-bold text-danger">This build failed{run.current_phase ? ` at ${PHASE_NAMES[run.current_phase] || run.current_phase}` : ''}</p>
               <p className="text-xs text-bright/80 mt-1 break-words">
                 {run.message || events[events.length - 1]?.detail || 'No reason was recorded. Check the Logs and Trace tabs.'}
               </p>
@@ -340,7 +341,7 @@ const ProjectView = () => {
 
         {isRunning && specModalOpen && (
           <section className="panel p-4 flex items-center justify-between border-accent/30 bg-accent/5">
-            <div className="flex items-center gap-3"><CheckCircle2 className="w-4 h-4 text-accent shrink-0" /><div><p className="text-sm font-bold text-accent">Spec Review Required</p><p className="text-xs text-muted">p01 completed - approve the parsed requirements to start code generation.</p></div></div>
+            <div className="flex items-center gap-3"><CheckCircle2 className="w-4 h-4 text-accent shrink-0" /><div><p className="text-sm font-bold text-accent">Spec Review Required</p><p className="text-xs text-muted">Intake completed - approve the parsed requirements to start code generation.</p></div></div>
             <button onClick={() => setSpecModalOpen(true)} className="text-xs px-3 py-1.5 bg-accent text-black font-semibold rounded-lg hover:bg-accent/80 transition-colors shrink-0">Review Spec</button>
           </section>
         )}
@@ -359,7 +360,7 @@ const ProjectView = () => {
           );
         })()}
 
-        <ProjectLivePreviewPanel runId={run.run_id || run.id} currentPhase={run.current_phase} isRunning={isRunning} isPaused={isPaused} liveUrl={run.live_url} />
+        <ProjectLivePreviewPanel runId={run.run_id || run.id} currentPhase={run.current_phase} runStatus={runStatus} isRunning={isRunning} isPaused={isPaused} liveUrl={run.live_url} appRunning={appRunning} />
 
         <section>
           <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">

@@ -1,29 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
-
-export const PHASE_LABELS = {
-  p01_intake_requirements: 'Intake & Requirements',
-  p02_architecture:        'Architecture',
-  p02b_domain_ir:          'Domain IR',
-  p03_scaffolding:         'Scaffolding',
-  p04_backend:             'Backend Codegen',
-  p05_frontend:            'Frontend Codegen',
-  p06_review_security:     'Review & Security',
-  p07_testing:             'Testing',
-  p07b_self_healing:       'Self-Healing',
-  p08_cicd_deployment:     'CI/CD & Deployment',
-  p09_observability:       'Observability',
-  p10_docs_delivery:       'Docs & Delivery',
-  p11_deployment:          'Deployment',
-  p11a_monitoring:         'Monitoring',
-  p11b_error_tracking:     'Error Tracking',
-  p11c_analytics:          'Analytics',
-  p11d_alerting:           'Alerting',
-  p12a_feature_flags:      'Feature Flags',
-  p12b_ab_testing:         'A/B Testing',
-  p13_app_memory:          'App Memory',
-  p14_client_portal:       'Client Portal',
-};
+import { PHASE_LABELS } from '../project/projectConstants';
 
 export const fmtDuration = (ms) => {
   if (ms == null) return '—';
@@ -60,7 +37,7 @@ export const StatusBadge = ({ status }) => {
 };
 
 const PhasePill = ({ status }) => {
-  if (status === 'completed' || status === 'complete') return <CheckCircle2 className="w-4 h-4 text-success shrink-0" />;
+  if (status === 'passed' || status === 'completed' || status === 'complete') return <CheckCircle2 className="w-4 h-4 text-success shrink-0" />;
   if (status === 'running')   return <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />;
   if (status === 'failed')    return <XCircle className="w-4 h-4 text-danger shrink-0" />;
   if (status === 'skipped')   return <span className="w-4 h-4 text-muted shrink-0 text-[10px] font-bold flex items-center justify-center">–</span>;
@@ -83,7 +60,7 @@ export const PhaseRow = ({ name, phaseData }) => {
       <td className="px-4 py-3 text-xs text-muted">{label}</td>
       <td className="px-4 py-3">
         <span className={`text-[10px] font-bold uppercase tracking-wider ${
-          status === 'completed' || status === 'complete' ? 'text-success' :
+          status === 'passed' || status === 'completed' || status === 'complete' ? 'text-success' :
           status === 'running'   ? 'text-accent' :
           status === 'failed'    ? 'text-danger' :
           status === 'skipped'   ? 'text-muted/50' :

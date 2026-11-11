@@ -8,8 +8,11 @@ import { ChevronDown, Loader2, Monitor, ExternalLink } from 'lucide-react';
 import { PHASES, formatBytes } from './projectConstants';
 import { api } from '../../api';
 
-const FRONTEND_PHASES = new Set([
-  'p05_frontend', 'p06_review_security', 'p07_testing',
+const FRONTEND_STAGE = 's04_frontend';
+// Ids from before the 12-stage pipeline, kept so older runs still get the panel.
+const LEGACY_FRONTEND_PHASE = 'p05_frontend';
+const LEGACY_AFTER_FRONTEND = new Set([
+  'p06_review_security', 'p07_testing',
   'p08_cicd_deployment', 'p09_observability', 'p10_docs_delivery',
 ]);
 
@@ -27,7 +30,7 @@ const FILE_ICON = (path) => {
   return icons[ext] || 'f';
 };
 
-const ProjectLivePreviewPanel = ({ runId, currentPhase, isRunning, isPaused, liveUrl }) => {
+const ProjectLivePreviewPanel = ({ runId, currentPhase, runStatus, isRunning, isPaused, liveUrl, appRunning }) => {
   const [artifacts, setArtifacts] = useState([]);
   const [expanded, setExpanded]   = useState(true);
   const [showIframe, setShowIframe] = useState(false);
@@ -35,12 +38,15 @@ const ProjectLivePreviewPanel = ({ runId, currentPhase, isRunning, isPaused, liv
   const [newPaths, setNewPaths]   = useState(new Set());
   const timerRef                  = useRef(null);
 
-  const isFrontendPhase = FRONTEND_PHASES.has(currentPhase);
-  const frontendIdx     = PHASES.indexOf('p05_frontend');
-  const currentIdx      = PHASES.indexOf(currentPhase);
-  const pastFrontend    = currentIdx > frontendIdx;
-  const isBuildingNow   = currentPhase === 'p05_frontend' && isRunning;
-  const shouldShow      = isFrontendPhase || pastFrontend || artifacts.length > 0;
+  const atFrontend      = currentPhase === FRONTEND_STAGE || currentPhase === LEGACY_FRONTEND_PHASE;
+  // indexOf is -1 for an unknown stage, so compare against a stage that is known to be in PHASES.
+  const pastFrontend    = PHASES.indexOf(currentPhase) > PHASES.indexOf(FRONTEND_STAGE) || LEGACY_AFTER_FRONTEND.has(currentPhase);
+  const isFrontendPhase = atFrontend || pastFrontend;
+  const isBuildingNow   = atFrontend && isRunning;
+  // A run that stopped early has no finished frontend to claim, unless an app is actually up.
+  const stoppedEarly    = ['failed', 'cancelled', 'interrupted'].includes(runStatus);
+  const frontendReady   = !isRunning && (Boolean(liveUrl) || appRunning || (pastFrontend && !stoppedEarly));
+  const shouldShow      = isFrontendPhase || artifacts.length > 0;
 
   const fetchArtifacts = useCallback(async () => {
     if (!runId) return;
@@ -86,7 +92,7 @@ const ProjectLivePreviewPanel = ({ runId, currentPhase, isRunning, isPaused, liv
               Building frontend
             </span>
           )}
-          {pastFrontend && !isRunning && (
+          {frontendReady && (
             <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
               Frontend ready
@@ -121,8 +127,9 @@ const ProjectLivePreviewPanel = ({ runId, currentPhase, isRunning, isPaused, liv
           <div className="p-3 max-h-52 overflow-y-auto custom-scrollbar">
             {displayFiles.length === 0 ? (
               <div className="flex items-center gap-2 py-4 justify-center text-slate-600 text-xs italic">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Files will appear here as the frontend is generated
+                {isRunning || isPaused ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Files will appear here as the frontend is generated</>
+                ) : 'No frontend files were generated'}
               </div>
             ) : (
               <div className="space-y-0.5">

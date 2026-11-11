@@ -19,8 +19,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import RerunDropdown from '../components/RerunDropdown';
+import { PHASES } from '../components/project/projectConstants';
 import {
-  PHASE_LABELS,
   fmtTime,
   StatusBadge,
   PhaseRow,
@@ -222,7 +222,8 @@ const RunDetail = () => {
 
   // Build phase progress from run.phases or run.phase_results
   const phaseMap = run.phases || run.phase_results || {};
-  const phaseList = Object.keys(PHASE_LABELS);
+  // The 12 stages; a run recorded before the stage pipeline lists the phases it actually has.
+  const phaseList = Object.keys(phaseMap).every(k => PHASES.includes(k)) ? PHASES : Object.keys(phaseMap);
 
   // Derive council verdict from run
   const councilVerdict = run.council_verdict || run.council?.verdict || null;
@@ -403,10 +404,10 @@ const RunDetail = () => {
         </div>
         <div className="bg-panel border border-border rounded-xl p-4">
           <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1 flex items-center gap-1">
-            <FileCode className="w-3 h-3" /> Phases
+            <FileCode className="w-3 h-3" /> Stages
           </div>
           <div className="text-2xl font-bold text-bright">
-            {Object.values(phaseMap).filter(p => p?.status === 'completed' || p?.status === 'complete').length}
+            {Object.values(phaseMap).filter(p => ['passed', 'completed', 'complete'].includes(p?.status)).length}
             <span className="text-sm font-normal text-muted">/{phaseList.length}</span>
           </div>
         </div>
@@ -468,7 +469,7 @@ const RunDetail = () => {
 
       {/* Phase progress table */}
       <section>
-        <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Phase Progress</h2>
+        <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Stage Progress</h2>
         <div className="bg-panel border border-border rounded-xl overflow-hidden">
           <table className="w-full text-left">
             <thead>

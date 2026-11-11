@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api';
+import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 import { 
   CheckCircle2, 
   MessageSquare, 
@@ -37,31 +38,15 @@ const ClientPortal = () => {
     fetchStatus();
   }, [id]);
 
-  const stages = [
-    { name: 'Requirements', phases: ['p01_intake_requirements'] },
-    { name: 'Architecture', phases: ['p02_architecture', 'p03_scaffolding'] },
-    { name: 'Build', phases: ['p04_backend', 'p04a_backend_codegen', 'p04b_uiux_design', 'p04c', 'p04d', 'p04e'] },
-    { name: 'Frontend', phases: ['p05_frontend', 'p06_review_security'] },
-    { name: 'Testing', phases: ['p07_testing', 'p07a', 'p07b', 'p07b_self_healing', 'p07c', 'p07d'] },
-    { name: 'CI/CD', phases: ['p08_cicd', 'p08_cicd_deployment'] },
-    { name: 'Observe', phases: ['p09_observability'] },
-    { name: 'Docs', phases: ['p10_docs_delivery'] },
-    { name: 'Deploy', phases: ['p11_deployment', 'p11a_monitoring', 'p11b_error_tracking', 'p11c_analytics', 'p11d_alerting'] },
-    { name: 'Post-Launch', phases: ['p12a_feature_flags', 'p12b_ab_testing', 'p13_app_memory', 'p14_client_portal'] },
-  ];
-
-  const currentStageIndex = (() => {
-    if (!status?.current_phase) return 0;
-    const idx = stages.findIndex(s => s.phases.includes(status.current_phase));
-    return idx >= 0 ? idx : 0;
-  })();
+  // The stepper shows the 12 pipeline stages; an unknown or missing stage falls back to the first.
+  const currentStageIndex = Math.max(0, PHASES.indexOf(status?.current_phase));
 
   const handleApprove = async () => {
     setActionError(null);
     try {
       await api.approvePortalPhase(id, true, 'Approved via portal');
       setSubmitted(true);
-    } catch (err) {
+    } catch {
       setActionError('Failed to submit approval. Please try again.');
     }
   };
@@ -73,7 +58,7 @@ const ClientPortal = () => {
       await api.sendPortalFeedback(id, feedback, status.current_phase);
       setFeedback('');
       setFeedbackSent(true);
-    } catch (err) {
+    } catch {
       setActionError('Failed to send feedback. Please try again.');
     }
   };
@@ -122,11 +107,11 @@ const ClientPortal = () => {
         </header>
 
         {/* Stage Stepper */}
-        <div className="panel p-8">
-          <div className="relative flex justify-between items-center">
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-border -z-10"></div>
-            {stages.map((stage, i) => (
-              <div key={stage.name} className="flex flex-col items-center bg-panel px-4">
+        <div className="panel p-8 overflow-x-auto">
+          <div className="relative flex justify-between items-start">
+            <div className="absolute left-0 top-4 -translate-y-1/2 w-full h-1 bg-border -z-10"></div>
+            {PHASES.map((stage, i) => (
+              <div key={stage} className="flex flex-col items-center bg-panel px-1">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs border-2 transition-all ${
                   i < currentStageIndex ? 'bg-success border-success text-white' :
                   i === currentStageIndex ? 'bg-accent border-accent text-white scale-125' :
@@ -134,8 +119,8 @@ const ClientPortal = () => {
                 }`}>
                   {i < currentStageIndex ? <CheckCircle2 className="w-4 h-4" /> : i + 1}
                 </div>
-                <span className={`text-[10px] font-bold uppercase tracking-wider mt-3 ${i === currentStageIndex ? 'text-accent' : 'text-muted'}`}>
-                  {stage.name}
+                <span className={`text-[10px] font-bold uppercase tracking-wider text-center leading-tight mt-3 ${i === currentStageIndex ? 'text-accent' : 'text-muted'}`}>
+                  {PHASE_NAMES[stage]}
                 </span>
               </div>
             ))}
@@ -147,7 +132,7 @@ const ClientPortal = () => {
             <section className="panel overflow-hidden">
                <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center justify-between">
                   <h2 className="text-sm font-bold uppercase tracking-widest">Current Specifications</h2>
-                  <span className="text-[10px] font-mono text-muted">PHASE: {status.current_phase?.toUpperCase()}</span>
+                  <span className="text-[10px] font-mono text-muted">STAGE: {(PHASE_NAMES[status.current_phase] || status.current_phase)?.toUpperCase()}</span>
                </div>
                <div className="p-8 prose prose-invert max-w-none">
                   <h3 className="text-accent text-lg font-bold mb-4">Core Requirements</h3>

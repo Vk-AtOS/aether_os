@@ -19,32 +19,9 @@ import {
   ChevronDown, ChevronRight, CheckCircle2, XCircle, Clock,
   Loader2, Copy, Check, FileText, Cpu, AlertTriangle,
 } from 'lucide-react';
+import { PHASE_LABELS } from '../components/project/projectConstants';
 
 // ── Phase display metadata ────────────────────────────────────────────────────
-
-const PHASE_LABELS = {
-  p01_intake_requirements: 'Intake & Requirements',
-  p02_architecture:        'Architecture Design',
-  p02b_domain_ir:          'Domain IR Extraction',
-  p03_scaffolding:         'Project Scaffolding',
-  p04_backend:             'Backend Codegen',
-  p05_frontend:            'Frontend Codegen',
-  p06_review_security:     'Code Review & Security',
-  p07_testing:             'Testing Suite',
-  p07b_self_healing:       'Self-Healing',
-  p08_cicd_deployment:     'CI/CD & Deployment',
-  p09_observability:       'Observability',
-  p10_docs_delivery:       'Docs & Delivery',
-  p11_deployment:          'Deployment',
-  p11a_monitoring:         'Monitoring & Metrics',
-  p11b_error_tracking:     'Error Tracking',
-  p11c_analytics:          'Analytics',
-  p11d_alerting:           'Alerting & Runbooks',
-  p12a_feature_flags:      'Feature Flags',
-  p12b_ab_testing:         'A/B Testing',
-  p13_app_memory:          'App Memory Layer',
-  p14_client_portal:       'Client Portal',
-};
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 

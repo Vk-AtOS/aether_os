@@ -1,20 +1,5 @@
 import React from 'react';
-
-// Canonical 10-phase order matching orchestrator/factory_pipeline.py PHASE_SEQUENCE
-const PHASE_ORDER = [
-  'p01_intake_requirements',
-  'p02_architecture',
-  'p03_scaffolding',
-  'p04_backend',
-  'p05_frontend',
-  'p06_review_security',
-  'p07_testing',
-  'p07b_self_healing',
-  'p08_cicd_deployment',
-  'p09_observability',
-  'p10_docs_delivery',
-  'p11_deployment',
-];
+import { PHASES, PHASE_NAMES } from './project/projectConstants';
 
 const PhaseBar = ({ phases }) => {
   // phases may be a dict { phase_name: { status, updated_at } } or empty/null
@@ -22,7 +7,7 @@ const PhaseBar = ({ phases }) => {
     ? phases
     : {};
 
-  const blocks = PHASE_ORDER.map((id) => {
+  const blocks = PHASES.map((id) => {
     const status = phaseDict[id]?.status ?? 'pending';
     let color = 'bg-border/30';
     if (status === 'passed' || status === 'completed') color = 'bg-success';
@@ -34,7 +19,7 @@ const PhaseBar = ({ phases }) => {
       <div
         key={id}
         className={`h-1.5 flex-1 rounded-full ${color}`}
-        title={id}
+        title={PHASE_NAMES[id]}
       />
     );
   });

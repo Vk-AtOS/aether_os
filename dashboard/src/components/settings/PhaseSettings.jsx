@@ -1,26 +1,6 @@
 import React, { useEffect } from 'react';
 import { Settings as SettingsIcon, FolderTree, Search, FileCode, ChevronDown, ChevronUp } from 'lucide-react';
 
-// ── Shared phase metadata (exported for Settings.jsx to pass as props) ──────────
-export const PHASES = [
-  'p01_intake_requirements','p02_architecture','p02b_domain_ir','p03_scaffolding',
-  'p04_backend','p05_frontend','p06_review_security','p07_testing','p07b_self_healing',
-  'p08_cicd_deployment','p09_observability','p10_docs_delivery','p11_deployment',
-  'p11a_monitoring','p11b_error_tracking','p11c_analytics','p11d_alerting',
-  'p12a_feature_flags','p12b_ab_testing','p13_app_memory','p14_client_portal',
-];
-
-export const PHASE_NAMES = {
-  p01_intake_requirements: 'Intake & Requirements', p02_architecture: 'Architecture',
-  p02b_domain_ir: 'Domain IR', p03_scaffolding: 'Scaffolding', p04_backend: 'Backend',
-  p05_frontend: 'Frontend', p06_review_security: 'Review & Security', p07_testing: 'Testing',
-  p07b_self_healing: 'Self-Healing', p08_cicd_deployment: 'CI/CD & Deployment',
-  p09_observability: 'Observability', p10_docs_delivery: 'Docs & Delivery',
-  p11_deployment: 'Deployment', p11a_monitoring: 'Monitoring',
-  p11b_error_tracking: 'Error Tracking', p11c_analytics: 'Analytics',
-  p11d_alerting: 'Alerting', p12a_feature_flags: 'Feature Flags',
-  p12b_ab_testing: 'A/B Testing', p13_app_memory: 'App Memory', p14_client_portal: 'Client Portal',
-};
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -37,7 +17,7 @@ hljs.registerLanguage('sql', sql);
 
 // ── Phase Config Panel ─────────────────────────────────────────────────────────
 // Inline sub-component kept here since it only serves PhaseControls
-const PhaseConfigPanel = ({ phase, config, onSave }) => {
+const PhaseConfigPanel = ({ config, onSave }) => {
   const [enabled, setEnabled] = React.useState(config.enabled !== false);
   const [priority, setPriority] = React.useState(
     config.priority ? config.priority.charAt(0).toUpperCase() + config.priority.slice(1) : 'Normal'
@@ -94,7 +74,7 @@ export const PhaseControlsPanel = ({ PHASES, PHASE_NAMES, phaseConfigs, expanded
   <section className="panel overflow-hidden">
     <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
       <SettingsIcon className="w-4 h-4 mr-2 text-accent" />
-      <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Phase Controls</h3>
+      <h3 className="text-xs font-bold text-muted uppercase tracking-widest">Stage Controls</h3>
     </div>
     <div className="divide-y divide-border">
       {PHASES.map((p) => (
@@ -111,7 +91,6 @@ export const PhaseControlsPanel = ({ PHASES, PHASE_NAMES, phaseConfigs, expanded
           </button>
           {expandedPhase === p && (
             <PhaseConfigPanel
-              phase={p}
               config={phaseConfigs[p] || {}}
               onSave={(cfg) => onSavePhaseConfig(p, cfg)}
             />
