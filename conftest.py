@@ -41,7 +41,12 @@ def _register_aether_os_package() -> None:
 _register_aether_os_package()
 
 
+import os
+
 import pytest
+
+# See gateway/lifespan.py: background monitors make test teardown flaky.
+os.environ.setdefault("AETHER_DISABLE_MONITORS", "1")
 
 
 @pytest.fixture(autouse=True)
@@ -57,3 +62,21 @@ def _reset_pipeline_semaphore():
     _rs._PIPELINE_SEMAPHORE = None
     yield
     _rs._PIPELINE_SEMAPHORE = None
+
+
+@pytest.fixture(autouse=True)
+def _no_human_spec_review(monkeypatch):
+    """Skip the human spec-review pause in tests.
+
+    Runs default to approval_required, so after s01 the pipeline critiques the
+    spec with a real model call and then waits up to 600 s for a person to
+    approve. Pipeline tests mock the stages and have no person, so they hang.
+    A test of the gate itself should import run_spec_review_gate directly.
+    """
+    async def _approved(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "aether_os.orchestrator.spec_review_gate.run_spec_review_gate", _approved
+    )
+    yield
