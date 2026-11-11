@@ -24,12 +24,22 @@ from typing import Any, Dict, List, Optional, Union
 from aether_os.core.audit import chain as audit_chain
 from aether_os.core import db as core_db  # module ref: tests patch core.db.get_session_factory
 from aether_os.core.models import AuditLog
+from aether_os.core.security.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
 
 # M5: track all fire-and-forget audit futures in a WeakSet so callers can
 # drain them during graceful shutdown instead of silently losing events.
 _active_audit_futures: weakref.WeakSet = weakref.WeakSet()
+
+# Audit events whose audit_chain append failed since process start. Each such
+# audit_log row is also stored with metadata["chain_linked"] = False.
+_unlinked_audit_events = 0
+
+
+def unlinked_audit_event_count() -> int:
+    """How many audit events this process wrote without a chain link (should be 0)."""
+    return _unlinked_audit_events
 
 
 class DecisionLedger:
@@ -94,10 +104,16 @@ class DecisionLedger:
 
     async def async_update_run_status(self, run_id: str, status: str,
                                       message: Optional[str] = None) -> None:
-        """`message` is the human-readable reason shown on the run's page (used on failure)."""
+        """`message` is the human-readable reason shown on the run's page (used on failure).
+
+        Callers build it from exception text, so it is redacted and length-capped here,
+        the one place every Run.message passes through, before it is stored.
+        """
         try:
             from aether_os.core.db_utils import update_run_status
-            await update_run_status(run_id, status, message=message)
+            await update_run_status(
+                run_id, status,
+                message=redact_secrets(message) if message is not None else None)
         except Exception as exc:
             logger.debug("async_update_run_status failed: %s", exc)
 
@@ -126,8 +142,10 @@ class DecisionLedger:
 
         Never raises — callers fire this with asyncio.create_task. Failures are logged.
         """
+        global _unlinked_audit_events
         ts = time.time()
         entry_hash: Optional[str] = None
+        row_metadata = metadata or {}
         try:
             entry = await audit_chain.append(
                 actor=user_id, action=action, timestamp=ts,
@@ -137,7 +155,13 @@ class DecisionLedger:
             )
             entry_hash = entry.entry_hash
         except Exception as exc:
-            logger.error("audit chain append failed for action=%s: %s", action, exc)
+            # Never silent: counted, logged at error level, and the row itself is
+            # flagged so unlinked events can be found with a query afterwards.
+            _unlinked_audit_events += 1
+            row_metadata = {**row_metadata, "chain_linked": False}
+            logger.error(
+                "AUDIT CHAIN LINK FAILED action=%s org=%s (unlinked since start: %d): %s",
+                action, org_id, _unlinked_audit_events, exc)
         try:
             sf = core_db.get_session_factory()
             async with sf() as session:
@@ -145,7 +169,7 @@ class DecisionLedger:
                     id=str(uuid.uuid4()), org_id=org_id, user_id=user_id,
                     action=action, resource_type=resource_type,
                     resource_id=resource_id,
-                    log_metadata=json.dumps(metadata or {}),
+                    log_metadata=json.dumps(row_metadata),
                     ip_address=ip_address, created_at=ts,
                     # Legacy column name: it now holds the entry_hash of this
                     # event's audit_chain entry, linking the row to the chain.
