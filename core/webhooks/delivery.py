@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from aether_os.core.encryption import decrypt
+
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
@@ -78,6 +80,11 @@ class WebhookDelivery:
 
         Returns True on success (2xx), False if all attempts failed.
         """
+        if not secret:
+            # An HMAC keyed with "" can be forged by anyone — an unsigned-in-effect
+            # delivery is worse than none, so refuse rather than send.
+            logger.error("[webhook] no signing secret for %s — delivery of %s refused", url, event_type)
+            return False
         delivery_id = delivery_id or str(uuid.uuid4())
         body = json.dumps({
             "id": delivery_id,
@@ -153,6 +160,21 @@ async def deliver_event(
         )
 
 
+def _signing_secret(stored: Optional[str]) -> str:
+    """Recover the HMAC key from webhooks.secret (Fernet-encrypted by the gateway).
+
+    Rows created while only a bcrypt hash was kept have no recoverable key and
+    return "" (send() refuses those — the webhook must be re-created). Rows older
+    than that hold the plaintext secret, which is used as-is.
+    """
+    if not stored:
+        return ""
+    try:
+        return decrypt(stored)
+    except ValueError:
+        return stored
+
+
 async def _get_org_webhooks(org_id: str, event_type: str) -> List[Dict[str, Any]]:
     """Return active webhooks for org that are subscribed to event_type."""
     try:
@@ -173,7 +195,7 @@ async def _get_org_webhooks(org_id: str, event_type: str) -> List[Dict[str, Any]
         for w in rows:
             subscribed = w.events or []
             if not subscribed or event_type in subscribed or "*" in subscribed:
-                result.append({"url": w.url, "secret": w.secret or ""})
+                result.append({"url": w.url, "secret": _signing_secret(w.secret)})
         return result
     except Exception as exc:
         logger.debug("[webhook] fetch failed: %s", exc)
