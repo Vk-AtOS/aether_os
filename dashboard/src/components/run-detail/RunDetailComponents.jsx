@@ -101,21 +101,36 @@ export const LiveEventLog = ({ runId }) => {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('aether_token');
-    const url = `/api/factory/runs/${runId}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-    const es = new EventSource(url);
-    es.onopen = () => setConnected(true);
-    es.onmessage = (e) => {
+    // The stream only accepts a short-lived, run-scoped token. Sending the session
+    // JWT in the query string was rejected (401) and would leak it into server logs.
+    let es = null;
+    let cancelled = false;
+    (async () => {
       try {
-        const data = JSON.parse(e.data);
-        const msg = data.message || data.text || JSON.stringify(data);
-        setLines(prev => [...prev.slice(-200), msg]);
-      } catch {
-        setLines(prev => [...prev.slice(-200), e.data]);
+        const res = await fetch(`/api/factory/runs/${runId}/sse-token`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localStorage.getItem('aether_token')}` },
+        });
+        if (!res.ok || cancelled) return;
+        const { sse_token } = await res.json();
+        if (cancelled) return;
+        es = new EventSource(`/api/factory/runs/${runId}/stream?sse_token=${encodeURIComponent(sse_token)}`);
+        es.onopen = () => setConnected(true);
+        es.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            const msg = data.message || data.text || JSON.stringify(data);
+            setLines(prev => [...prev.slice(-200), msg]);
+          } catch {
+            setLines(prev => [...prev.slice(-200), e.data]);
+          }
+        };
+        es.onerror = () => { setConnected(false); es.close(); };
+      } catch (err) {
+        console.warn('Live log: could not open the event stream', err);
       }
-    };
-    es.onerror = () => { setConnected(false); es.close(); };
-    return () => es.close();
+    })();
+    return () => { cancelled = true; es?.close(); };
   }, [runId]);
 
   useEffect(() => {

@@ -108,7 +108,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const location = useLocation();
   const isOnWizard = location.pathname === '/new';
 
-  const { activeProvider, activeModel } = useSettings();
+  const { activeProvider, activeModel, providerKeyMissing } = useSettings();
 
   useEffect(() => {
     const fetchHealth = async () => {
@@ -275,12 +275,12 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
           {/* Live LLM provider badge */}
           {activeProvider && (
             <div
-              className={`hidden sm:flex items-center gap-1.5 border rounded-xl px-2.5 py-1 ${providerStyle.bg}`}
-              aria-label={`Active LLM provider: ${activeProvider}`}
+              className={`hidden sm:flex items-center gap-1.5 border rounded-xl px-2.5 py-1 ${providerKeyMissing ? 'bg-red-500/10 border-red-500/30' : providerStyle.bg}`}
+              aria-label={providerKeyMissing ? `No key set for ${activeProvider}` : `Active LLM provider: ${activeProvider}`}
             >
-              <Zap className={`w-3 h-3 ${providerStyle.text}`} aria-hidden="true" />
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${providerStyle.text}`}>
-                {activeProvider}
+              <Zap className={`w-3 h-3 ${providerKeyMissing ? 'text-red-400' : providerStyle.text}`} aria-hidden="true" />
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${providerKeyMissing ? 'text-red-400' : providerStyle.text}`}>
+                {providerKeyMissing ? `${activeProvider} · no key` : activeProvider}
               </span>
             </div>
           )}

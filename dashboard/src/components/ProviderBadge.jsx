@@ -10,7 +10,7 @@ const PROVIDER_STYLES = {
 };
 
 const ProviderBadge = () => {
-  const { activeProvider, activeModel, ready } = useSettings();
+  const { activeProvider, activeModel, providerKeyMissing, ready } = useSettings();
 
   // While settings are loading, show nothing to avoid a hardcoded flash
   if (!ready) return null;
@@ -28,16 +28,21 @@ const ProviderBadge = () => {
     );
   }
 
-  const style = PROVIDER_STYLES[activeProvider] || { dot: 'bg-violet-400', pill: 'bg-violet-500/10 border-violet-500/20 text-violet-400' };
-  const label = activeModel && activeModel !== '—'
-    ? `${activeProvider} · ${activeModel.split('/').pop()?.slice(0, 18) || activeModel.slice(0, 18)}`
-    : activeProvider;
+  // A provider with no key cannot build anything; say so instead of calling it active.
+  const style = providerKeyMissing
+    ? { dot: 'bg-red-400', pill: 'bg-red-500/10 border-red-500/30 text-red-400' }
+    : PROVIDER_STYLES[activeProvider] || { dot: 'bg-violet-400', pill: 'bg-violet-500/10 border-violet-500/20 text-violet-400' };
+  const label = providerKeyMissing
+    ? `${activeProvider} · no key set`
+    : activeModel && activeModel !== '—'
+      ? `${activeProvider} · ${activeModel.split('/').pop()?.slice(0, 18) || activeModel.slice(0, 18)}`
+      : activeProvider;
 
   return (
     <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-xl border ${style.pill} transition-all`}>
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} />
       <div className="min-w-0">
-        <span className="text-[9px] font-bold uppercase tracking-widest opacity-60 block leading-none mb-0.5">Active LLM</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest opacity-60 block leading-none mb-0.5">{providerKeyMissing ? 'Model not ready' : 'Active LLM'}</span>
         <span className="font-medium truncate block max-w-[130px] text-[11px]">{label}</span>
       </div>
     </div>
