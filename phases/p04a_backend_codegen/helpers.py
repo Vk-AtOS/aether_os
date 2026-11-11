@@ -51,6 +51,7 @@ from fastapi import Request
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase
 from starlette.middleware.base import BaseHTTPMiddleware
+from aether_os.core.run_app.child_env import child_env
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +279,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
     _log_path = src_dir.parent / "probe.log"
     proc = None
     try:
-        _env = {**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
+        _env = {**child_env(), "DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
         if _env_file.exists():
             # Load .env into subprocess env
             for line in _env_file.read_text().splitlines():

@@ -3,23 +3,21 @@ AetherOS — App Preview Proxy Router
 
 Proxies /app-preview/* to the generated-app process of ONE run: the run named
 in the caller's preview cookie (issued by the authenticated run-app endpoints
-after an org check — see run_app_router._grant_preview).  Port state is read
-from core.app_state (Redis-backed, shared across workers and gateway restarts).
+after an org check — see run_app_router._grant_preview).  The port is only used
+while the process recorded for that run is alive and is the one that was
+launched for it (core.run_app.preview_state); a stale record means "app down".
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
-from pathlib import Path
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from aether_os.core.app_state import get_all_ports, get_app_state
+from aether_os.core.run_app import preview_state
 from aether_os.core.services.run_app_service import _launch_generated_app
 from aether_os.gateway.auth import PREVIEW_COOKIE, decode_access_token, decode_preview_token
 
@@ -69,26 +67,16 @@ def _forward_headers(request: Request) -> dict:
     }
 
 
-async def _resolve_port(run_id: str) -> Optional[int]:
-    """Port of this run's app: in-process cache, then Redis, then its state file."""
-    port = get_all_ports().get(run_id)
-    if port:
-        return port
+def _restart_page(run_id: str, org_id: str) -> Response:
+    """App is down — restart it as the cookie's org (the launcher re-checks run ownership)."""
     try:
-        state = await get_app_state(run_id)
-        if state and state.get("port"):
-            return int(state["port"])
+        restart_user = {"org_id": org_id, "user_id": "system", "role": "admin"}
+        asyncio.create_task(_launch_generated_app(run_id=run_id, user=restart_user))
+        logger.info("app-preview: auto-restarting run %s (app down)", run_id)
     except Exception as exc:
-        logger.warning("app-preview: app state lookup failed for run %s: %s", run_id, exc)
-    # Gateway restart / other worker: the run's own state file (run_id comes from a
-    # signed cookie, so this path is not caller-controlled).
-    state_file = Path.home() / ".aether_os" / "projects" / run_id / "run_app_state.json"
-    try:
-        if state_file.exists():
-            return int(json.loads(state_file.read_text()).get("port") or 0) or None
-    except Exception as exc:
-        logger.warning("app-preview: unreadable state file for run %s: %s", run_id, exc)
-    return None
+        logger.warning("app-preview: auto-restart failed for run %s: %s", run_id, exc)
+        return _page("Generated app is not running.", 503)
+    return _page("Starting generated app… page will refresh automatically.", 200, refresh=True)
 
 
 @router.api_route("/app-preview", methods=["GET", "HEAD"], include_in_schema=False)
@@ -109,8 +97,12 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
         )
     run_id, org_id = claims["run_id"], claims["org_id"]
 
-    port = await _resolve_port(run_id)
+    # run_id comes from the signed cookie, so the state path is not caller-controlled.
+    port = await asyncio.to_thread(preview_state.live_port, run_id)
     if port is None:
+        if preview_state.was_launched(run_id):
+            # Dead process or stale record (reused pid/port): never proxy to it.
+            return _restart_page(run_id, org_id)
         return _page(
             "No generated app is currently running.<br><small>Go to your project and click "
             "<strong>Run App</strong> to start one.</small>",
@@ -129,7 +121,8 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
                 headers=_forward_headers(request),
                 content=await request.body(),
             )
-        skip = {"transfer-encoding", "content-encoding", "content-security-policy", "x-frame-options"}
+        skip = {"transfer-encoding", "content-encoding", "content-security-policy", "x-frame-options",
+                preview_state.NONCE_HEADER}
         headers = {k: v for k, v in upstream.headers.items() if k.lower() not in skip}
         # Generated Vite apps have no nonces — allow scripts/styles/eval so the app renders
         headers["content-security-policy"] = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;"
@@ -141,18 +134,7 @@ async def _app_preview_proxy(request: Request, path: str = "") -> Response:
         )
 
     except httpx.ConnectError:
-        # App is down — restart it as the cookie's org (the launcher re-checks run ownership).
-        restarted = False
-        try:
-            restart_user = {"org_id": org_id, "user_id": "system", "role": "admin"}
-            asyncio.create_task(_launch_generated_app(run_id=run_id, user=restart_user))
-            restarted = True
-            logger.info("app-preview: auto-restarting run %s after ConnectError", run_id)
-        except Exception as exc:
-            logger.warning("app-preview: auto-restart failed for run %s: %s", run_id, exc)
-        if restarted:
-            return _page("Starting generated app… page will refresh automatically.", 200, refresh=True)
-        return _page("Generated app is not running.", 503)
+        return _restart_page(run_id, org_id)
 
     except Exception as exc:
         logger.warning("app_preview_router: preview proxy error: %s", exc)

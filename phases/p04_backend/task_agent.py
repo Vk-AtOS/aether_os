@@ -22,6 +22,7 @@ from aether_os.phases.p04_backend.go_generator import (
 from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
 from aether_os.orchestrator.events import emit as _global_emit
+from aether_os.core.run_app.child_env import child_env
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
             )
             _db_fd, _db_tmp = tempfile.mkstemp(suffix=".db")
             os.close(_db_fd)
-            smoke_env = {**os.environ, "DATABASE_URL": f"sqlite:///{_db_tmp}"}
+            smoke_env = {**child_env(), "DATABASE_URL": f"sqlite:///{_db_tmp}"}
             try:
                 proc2 = await asyncio.create_subprocess_exec(
                     "python3", "-c", check_code,

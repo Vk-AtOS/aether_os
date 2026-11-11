@@ -22,7 +22,6 @@ class is importable from the orchestrator layer without pulling in FastAPI.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import pathlib
@@ -30,6 +29,8 @@ import subprocess as _sp
 import sys
 from typing import Any, Dict, Optional
 
+from aether_os.core.run_app import preview_state
+from aether_os.core.run_app.child_env import child_env
 from aether_os.core.run_app.process_manager_helpers import (
     api_explorer_html,
     stub_main_py,
@@ -86,12 +87,10 @@ class RunAppManager:
         _run_procs = _get_app_procs()
         _run_ports = _get_app_ports()
         existing = _run_procs.get(run_id)
-        if existing is not None and existing.poll() is None:
-            return {
-                "status": "already_running",
-                "pid": existing.pid,
-                "port": _run_ports.get(run_id, int(os.environ.get("RUN_APP_PORT", "8001"))),
-            }
+        # A handle rebuilt from a stale state file (reused pid) is not "running".
+        _live_port = await asyncio.to_thread(preview_state.live_port, run_id)
+        if existing is not None and _live_port:
+            return {"status": "already_running", "pid": existing.pid, "port": _live_port}
 
         run_detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
         if not run_detail:
@@ -124,12 +123,14 @@ class RunAppManager:
             )
 
         log_path = root_dir / "run_app.log"
+        # Generated code and its install/build scripts never see the platform's environment.
+        _tool_env = child_env(PIP_DISABLE_PIP_VERSION_CHECK="1")
 
         # ── Install Python dependencies ────────────────────────────────────────
         _sp.run(
             [sys.executable, "-m", "pip", "install", "aiosqlite", "httpx", "-q",
              "--no-warn-script-location"],
-            capture_output=True, timeout=60,
+            capture_output=True, timeout=60, env=_tool_env,
         )
         req_file = backend_dir / "requirements.txt"
         if req_file.exists():
@@ -145,7 +146,7 @@ class RunAppManager:
             _sp.run(
                 [sys.executable, "-m", "pip", "install", "-r", str(_lite_req_path), "-q",
                  "--no-warn-script-location"],
-                capture_output=True, timeout=120,
+                capture_output=True, timeout=120, env=_tool_env,
             )
 
         # ── Locate frontend ────────────────────────────────────────────────────
@@ -224,7 +225,7 @@ class RunAppManager:
                 _npm_cache = os.path.expanduser("~/.aether_os/npm_cache")
                 _npm_install_r = _sp.run(
                     [npm_bin, "install", "--silent", "--cache", _npm_cache],
-                    cwd=str(frontend_dir), capture_output=True, timeout=300,
+                    cwd=str(frontend_dir), capture_output=True, timeout=300, env=_tool_env,
                 )
                 if _npm_install_r.returncode != 0:
                     _npm_err = (_npm_install_r.stderr or b"").decode(errors="replace")[-400:]
@@ -266,11 +267,10 @@ class RunAppManager:
                         break
 
                 _npx_bin = _sh.which("npx") or "npx"
-                _node_env = {
-                    **os.environ,
-                    "NODE_OPTIONS": "--max-old-space-size=384",
-                    "ESBUILD_WORKER_THREADS": "false",
-                }
+                _node_env = child_env(
+                    NODE_OPTIONS="--max-old-space-size=384",
+                    ESBUILD_WORKER_THREADS="false",
+                )
                 _vite_result = _sp.run(
                     [_npx_bin, "vite", "build"],
                     cwd=str(frontend_dir), capture_output=True, timeout=300,
@@ -297,7 +297,7 @@ class RunAppManager:
                     _sp.run(
                         [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent",
                          "--cache", _npm_cache],
-                        cwd=str(frontend_dir), capture_output=True, timeout=120,
+                        cwd=str(frontend_dir), capture_output=True, timeout=120, env=_tool_env,
                     )
                     if _oom:
                         for _vc_name2 in ("vite.config.ts", "vite.config.js"):
@@ -357,11 +357,13 @@ class RunAppManager:
         )
 
         # ── Start uvicorn ──────────────────────────────────────────────────────
-        _env = {**os.environ}
-        _env["DATABASE_URL"] = f"sqlite+aiosqlite:///{root_dir}/preview.db"
-        _env["PYTHONPATH"] = (
-            str(backend_dir / "src") + ":" + _env.get("PYTHONPATH", "")
+        _env = child_env(
+            DATABASE_URL=f"sqlite+aiosqlite:///{root_dir}/preview.db",
+            PYTHONPATH=str(backend_dir / "src"),
         )
+        # Per-launch marker on the command line: ties the recorded pid to this launch.
+        _nonce = preview_state.new_nonce()
+        _nonce_args = preview_state.nonce_args(_nonce)
 
         _alembic_ini = backend_dir / "alembic.ini"
         if _alembic_ini.exists():
@@ -391,7 +393,7 @@ class RunAppManager:
             log_file.flush()
             proc = _sp.Popen(
                 [sys.executable, "-m", "uvicorn", "src.main:app",
-                 "--host", "127.0.0.1", "--port", str(port)],
+                 "--host", "127.0.0.1", "--port", str(port), *_nonce_args],
                 cwd=str(backend_dir),
                 stdout=log_file,
                 stderr=log_file,
@@ -425,11 +427,12 @@ class RunAppManager:
                 log_file.flush()
                 return _sp.Popen(
                     [sys.executable, "-m", "uvicorn", "main:app",
-                     "--host", "127.0.0.1", "--port", str(port)],
+                     "--host", "127.0.0.1", "--port", str(port), *_nonce_args],
                     cwd=str(_stub_dir),
                     stdout=log_file,
                     stderr=log_file,
                     shell=False,
+                    env=_tool_env,
                     start_new_session=True,
                 )
             _stub_main.write_text(stub_main_py(_dist_path))
@@ -440,11 +443,12 @@ class RunAppManager:
             log_file.flush()
             return _sp.Popen(
                 [sys.executable, "-m", "uvicorn", "main:app",
-                 "--host", "127.0.0.1", "--port", str(port)],
+                 "--host", "127.0.0.1", "--port", str(port), *_nonce_args],
                 cwd=str(_stub_dir),
                 stdout=log_file,
                 stderr=log_file,
                 shell=False,
+                env=_tool_env,
                 start_new_session=True,
             )
 
@@ -477,16 +481,9 @@ class RunAppManager:
             except Exception as exc:
                 logger.warning("RunAppManager: could not update app_state for %s: %s", run_id, exc)
 
-            import time as _ts_state
-            _state_file = root_dir / "run_app_state.json"
             try:
-                _state_file.write_text(json.dumps({
-                    "run_id": run_id,
-                    "port": port,
-                    "pid": proc.pid,
-                    "started_at": _ts_state.time(),
-                    "mode": mode,
-                }))
+                preview_state.write_state(root_dir / preview_state.STATE_FILE, run_id,
+                                          port, proc.pid, _nonce, mode)
             except Exception as exc:
                 logger.warning("RunAppManager: could not write run_app_state.json for %s: %s", run_id, exc)
 
