@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from aether_os.core.api_key_store import get_api_key
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import LlmConfig, Organisation, PhaseConfig, SamlConfig
 from aether_os.core.services.memory_service import get_memory_service
@@ -54,6 +55,29 @@ class SamlConfigRequest(BaseModel):
 
 # ── LLM config routes ─────────────────────────────────────────────────────────
 
+_PROVIDER_ENV_KEYS = {
+    "anthropic": ("ANTHROPIC_API_KEY",), "gemini": ("GOOGLE_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "bedrock": ("AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"),
+}
+
+
+async def _provider_has_key(provider: str, org_id: str) -> bool:
+    """True if a credential exists for the provider (org key or environment).
+
+    Presence only: it does not prove the key is accepted. Ollama needs no key.
+    """
+    if provider == "ollama":
+        return True
+    if any(os.environ.get(k) for k in _PROVIDER_ENV_KEYS.get(provider, ())):
+        return True
+    try:
+        return bool(await get_api_key(provider, org_id))
+    except Exception as e:
+        logger.warning("llm-config: key lookup failed for %s: %s", provider, e)
+        return False
+
+
 @router.get("/settings/llm-config")
 async def get_llm_config(
     user: Dict[str, Any] = _current_user(),
@@ -67,6 +91,7 @@ async def get_llm_config(
     if not db_cfg:
         return {
             "primary_llm": "anthropic",
+            "primary_key_configured": await _provider_has_key("anthropic", org_id),
             "anthropic_model": "claude-sonnet-4-6",
             "ollama_model": "qwen2.5-coder:3b",
             "langsmith_enabled": False,
@@ -75,6 +100,7 @@ async def get_llm_config(
 
     return {
         "primary_llm": db_cfg.provider,
+        "primary_key_configured": await _provider_has_key(db_cfg.provider, org_id),
         "anthropic_model": db_cfg.heavy_model,
         "ollama_model": db_cfg.light_model,
         "openrouter_heavy_model": db_cfg.heavy_model,
@@ -237,6 +263,9 @@ async def get_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, An
 
 @router.put("/settings/sso")
 async def upsert_sso_config(req: SamlConfigRequest, user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    # The IdP decides who can sign in to this org — owner/admin only.
+    if user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only owners and admins can change SSO settings")
     org_id = user["org_id"]
     async with get_session_factory()() as session:
         cfg = (await session.execute(select(SamlConfig).where(SamlConfig.org_id == org_id))).scalar_one_or_none()
@@ -252,6 +281,9 @@ async def upsert_sso_config(req: SamlConfigRequest, user: Dict[str, Any] = _curr
 
 @router.delete("/settings/sso")
 async def delete_sso_config(user: Dict[str, Any] = _current_user()) -> Dict[str, str]:
+    # The IdP decides who can sign in to this org — owner/admin only.
+    if user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only owners and admins can change SSO settings")
     org_id = user["org_id"]
     async with get_session_factory()() as session:
         cfg = (await session.execute(select(SamlConfig).where(SamlConfig.org_id == org_id))).scalar_one_or_none()
