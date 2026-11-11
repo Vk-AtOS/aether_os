@@ -20,10 +20,12 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
 
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.auth import PREVIEW_COOKIE, create_preview_token
+
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
@@ -33,6 +35,24 @@ router = APIRouter(tags=["runs"])
 
 def _current_user():
     return Depends(get_current_user)
+
+
+def _grant_preview(response: Response, run_id: str, user: Dict[str, Any]) -> None:
+    """Set the HttpOnly cookie that lets this browser open /app-preview for this run.
+
+    Only reached after require_run_user, so the run belongs to the caller's org.
+    HttpOnly + Path=/app-preview: generated-app JS cannot read it and it is not
+    sent to the platform API.
+    """
+    response.set_cookie(
+        PREVIEW_COOKIE,
+        create_preview_token(run_id, user["org_id"]),
+        max_age=8 * 3600,
+        path="/app-preview",
+        httponly=True,
+        samesite="lax",
+        secure=os.environ.get("FRONTEND_URL", "").startswith("https://"),
+    )
 
 
 # ── Shared state helpers (no import from factory_runs_router) ──────────────────
@@ -88,17 +108,21 @@ async def acquire_free_port() -> int:
 @router.post("/factory/runs/{run_id}/run-app")
 async def start_run_app(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    response: Response = None,  # None when called in-process (lifespan auto-restore, deploy)
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Start the generated app with uvicorn. Installs deps and builds frontend."""
     from aether_os.core.services.run_app_service import _launch_generated_app
-    return await _launch_generated_app(run_id=run_id, user=user)
+    result = await _launch_generated_app(run_id=run_id, user=user)
+    if response is not None:
+        _grant_preview(response, run_id, user)
+    return result
 
 
 @router.delete("/factory/runs/{run_id}/run-app")
 async def stop_run_app(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Kill the background app process for a run."""
     _run_procs = _get_app_procs()
@@ -126,7 +150,8 @@ async def stop_run_app(
 @router.get("/factory/runs/{run_id}/run-app/status")
 async def run_app_status(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    response: Response,
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Return whether the generated app is currently running."""
     import json as _json_s
@@ -176,6 +201,8 @@ async def run_app_status(
         except Exception as exc:
             logger.debug("Failed to restore run-app state from disk for run %s: %s", run_id, exc)
 
+    if running:
+        _grant_preview(response, run_id, user)
     return {
         "running": running,
         "port": port,
@@ -187,7 +214,7 @@ async def run_app_status(
 @router.get("/factory/runs/{run_id}/preview-credentials")
 async def get_preview_credentials(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Return demo login credentials for the generated app preview."""
     import json as _json
@@ -245,7 +272,7 @@ async def get_preview_credentials(
 @router.get("/factory/runs/{run_id}/preview")
 async def preview_run_html(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Serve the generated index.html for a run."""
     import pathlib
