@@ -58,12 +58,15 @@ def _fast_snapshot(ctx: dict) -> dict:
 # Default per-phase timeout (seconds) — overridable via PHASE_TIMEOUT_SECONDS env var.
 _DEFAULT_PHASE_TIMEOUT = 600.0
 _FRONTEND_TIMEOUT = 1200.0   # s04_frontend needs longer; matches factory_pipeline logic
+_DEVOPS_TIMEOUT = 1800.0     # s09_devops always runs in a parallel wave; matches factory_pipeline logic
 
 
 def _phase_timeout_for(phase_name: str) -> float:
     """Return the per-phase timeout in seconds, honouring env overrides."""
     env_key = f"PHASE_TIMEOUT_{phase_name.upper()}"
-    default = _FRONTEND_TIMEOUT if phase_name == "s04_frontend" else _DEFAULT_PHASE_TIMEOUT
+    default = {"s04_frontend": _FRONTEND_TIMEOUT, "s09_devops": _DEVOPS_TIMEOUT}.get(
+        phase_name, _DEFAULT_PHASE_TIMEOUT
+    )
     return float(os.environ.get(env_key, os.environ.get("PHASE_TIMEOUT_SECONDS", default)))
 
 
@@ -239,6 +242,12 @@ async def run_phases_in_wave(
         phase_result = wave_results[phase_name]
         accumulated_context[f"{phase_name}_output"] = phase_result.get("artifacts", {})
         accumulated_context[f"{phase_name}_path"] = phase_result.get("output_path", "")
+
+        # Merge stage metadata like the sequential path does; without this,
+        # downstream stages never see keys produced inside a parallel wave.
+        for _mk, _mv in (phase_result.get("metadata") or {}).items():
+            if _mk not in accumulated_context or _mv is not None:
+                accumulated_context[_mk] = _mv
 
         # Confidence trail — mirror sequential pipeline behaviour.
         _phase_conf = phase_result.get("confidence", 1.0)

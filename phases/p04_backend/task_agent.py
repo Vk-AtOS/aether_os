@@ -14,7 +14,7 @@ from aether_os.core.architecture_governor import ArchitectureGovernor
 from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p04a_backend_codegen.task_agent import run as p04a_run
-from aether_os.phases.p04b_uiux_design.task_agent import run as p04b_run
+from aether_os.phases.p04_uiux_design.task_agent import run as p04b_run
 from aether_os.phases.p04_backend.go_generator import (
     generate_go_multiservice,
     generate_go_project,
@@ -126,7 +126,7 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
             )
             _db_fd, _db_tmp = tempfile.mkstemp(suffix=".db")
             os.close(_db_fd)
-            smoke_env = {**_os.environ, "DATABASE_URL": f"sqlite:///{_db_tmp}"}
+            smoke_env = {**os.environ, "DATABASE_URL": f"sqlite:///{_db_tmp}"}
             try:
                 proc2 = await asyncio.create_subprocess_exec(
                     "python3", "-c", check_code,
@@ -161,7 +161,7 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
             finally:
                 # Clean up temp DB file
                 try:
-                    _os.unlink(_db_tmp)
+                    os.unlink(_db_tmp)
                 except OSError as e:
                     logger.warning("p04 task_agent: failed to remove temp DB file %s: %s", _db_tmp, e)
 
@@ -399,7 +399,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # Sub-task 2: UI/UX Design
     try:
-        from aether_os.phases.p04b_uiux_design.task_agent import run as p04b_run
+        from aether_os.phases.p04_uiux_design.task_agent import run as p04b_run
         sub_dir = output_dir / "uiux_design"
         r = await p04b_run(phase_input, memory_ctx, sub_dir)
         results["uiux_design"] = r

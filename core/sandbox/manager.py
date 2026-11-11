@@ -37,7 +37,7 @@ import tempfile
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

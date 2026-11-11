@@ -209,12 +209,15 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
         await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": _fix_msg})
 
         failing_file = _identify_failing_file(last_output, project_dir) or main_py
+        # Never "heal" a test: rewriting tests makes them pass without fixing the app.
+        if failing_file.name.startswith(("test_", "conftest")) or "tests" in failing_file.parts:
+            failing_file = main_py
         fix = await _get_fix(failing_file, test_file, last_output, _quality_details, _council_feedback)
         if not fix:
             logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
             # Only apply deterministic fallback on the truly final attempt
             if attempt >= MAX_ATTEMPTS:
-                _apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
+                apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
             continue
 
         # Validate syntax before applying — use compile() not ast.parse() because
@@ -249,7 +252,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
         # Only fall back to deterministic regen on the final attempt —
         # earlier attempts leave the LLM-fixed code in place for further iteration
         if attempt >= MAX_ATTEMPTS:
-            _apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
+            apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
 
     # Problem 45 fix: Max attempts reached — tests still failing → report failure accurately
     # Do NOT propagate a false success=True; set gate_result accordingly
@@ -326,10 +329,7 @@ async def _get_fix(
     if _tb_match:
         _exact_file_str, _exact_line = _tb_match.group(1), _tb_match.group(2)
         _exact_location = f"\nEXACT FAILING LOCATION: File \"{_exact_file_str}\", line {_exact_line}"
-        _tb_path = Path(_exact_file_str)
-        if _tb_path.exists() and _tb_path.resolve() != target_file.resolve():
-            logger.info("[p07b] Traceback → %s — switching target", _tb_path)
-            target_file = _tb_path
+        # Keep target_file: the caller writes the fix there; switching overwrote the wrong file.
 
     src_dir = target_file.parent
     try:

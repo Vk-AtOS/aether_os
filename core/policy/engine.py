@@ -1,6 +1,5 @@
 """
 AetherOS — Policy Engine Core (migrated from Aether-one)
-import logging; logger = logging.getLogger(__name__)  # noqa: E702
 
 Original docstring:
 Aether-One Policy Engine Core
@@ -27,9 +26,12 @@ This module is:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, asdict
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

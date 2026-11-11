@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.llm import client as _llm_client
 from aether_os.phases.p05_frontend.prompts import (
     DOMAIN_FALLBACK_WIDGETS,
     DOMAIN_COMPONENT_DESC,
@@ -74,7 +75,7 @@ async def _generate_file(
     timeout: float = 90.0,
 ) -> Optional[str]:
     """Single LLM call with hard per-file timeout — returns None on timeout/error so callers skip gracefully."""
-    client = get_llm_client()
+    client = _llm_client.get_llm_client()
     try:
         return await asyncio.wait_for(
             client.call(prompt, task_type=task_type),
@@ -187,7 +188,7 @@ async def _generate_domain_component(
         + "\nReturn ONLY the React component code. No markdown fences, no explanation."
     )
 
-    client = get_llm_client()
+    client = _llm_client.get_llm_client()
     try:
         result = await asyncio.wait_for(
             client.call(prompt, task_type="ui_component", max_tokens=2000),

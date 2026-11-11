@@ -242,7 +242,7 @@ class BackendStageSupervisor(PhaseBase):
         """Run p04_backend (which internally calls p04a_backend_codegen)."""
         try:
             from aether_os.phases.p04_backend.task_agent import run as p04_run
-            sub_dir = stage_output_dir / "p04_backend"
+            sub_dir = stage_output_dir.parent / "p04_backend"
             result = await p04_run(phase_input, memory_ctx, sub_dir)
             logger.info(
                 "[s03_backend] p04_backend complete — success=%s confidence=%.2f path=%s",
@@ -282,7 +282,7 @@ class BackendStageSupervisor(PhaseBase):
         except Exception as exc:
             logger.warning("[s03_backend] p04_backend failed: %s", exc)
             return TaskResult(
-                output_path=str(stage_output_dir / "p04_backend"),
+                output_path=str(stage_output_dir.parent / "p04_backend"),
                 confidence=0.0,
                 success=False,
                 issues=[f"p04_backend error: {exc}"],
@@ -297,7 +297,7 @@ class BackendStageSupervisor(PhaseBase):
         """Run p04b_business_logic to generate services.py and tasks.py."""
         try:
             from aether_os.phases.p04b_business_logic.task_agent import run as p04b_run
-            sub_dir = stage_output_dir / "p04b_business_logic"
+            sub_dir = stage_output_dir.parent / "p04b_business_logic"
             result = await p04b_run(phase_input, memory_ctx, sub_dir)
             logger.info(
                 "[s03_backend] p04b_business_logic complete — success=%s confidence=%.2f",
@@ -307,7 +307,7 @@ class BackendStageSupervisor(PhaseBase):
         except Exception as exc:
             logger.warning("[s03_backend] p04b_business_logic failed (non-critical): %s", exc)
             return TaskResult(
-                output_path=str(stage_output_dir / "p04b_business_logic"),
+                output_path=str(stage_output_dir.parent / "p04b_business_logic"),
                 confidence=0.5,
                 success=True,  # non-critical — backend still usable without business logic
                 issues=[f"p04b_business_logic skipped: {exc}"],
@@ -322,7 +322,7 @@ class BackendStageSupervisor(PhaseBase):
         """Run p04c_integration_codegen to generate async integration clients."""
         try:
             from aether_os.phases.p04c_integration_codegen.task_agent import run as p04c_run
-            sub_dir = stage_output_dir / "p04c_integration_codegen"
+            sub_dir = stage_output_dir.parent / "p04c_integration_codegen"
             result = await p04c_run(phase_input, memory_ctx, sub_dir)
             logger.info(
                 "[s03_backend] p04c_integration_codegen complete — success=%s clients=%s",
@@ -333,7 +333,7 @@ class BackendStageSupervisor(PhaseBase):
         except Exception as exc:
             logger.warning("[s03_backend] p04c_integration_codegen failed (non-critical): %s", exc)
             return TaskResult(
-                output_path=str(stage_output_dir / "p04c_integration_codegen"),
+                output_path=str(stage_output_dir.parent / "p04c_integration_codegen"),
                 confidence=0.5,
                 success=True,  # non-critical — integration clients are optional
                 metadata={"clients_generated": [], "skipped": True, "reason": str(exc)},

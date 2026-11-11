@@ -351,11 +351,11 @@ def run_canary(new_image: str) -> bool:
 
     # Step 2: Check error rate
     error_rate = _query_prometheus(
-        f'rate(http_requests_total{{app="{APP_NAME}", status=~"5.."}}[2m])'
-        f' / rate(http_requests_total{{app="{APP_NAME}"}}[2m]) * 100'
+        f'rate(http_requests_total{{{{app="{{APP_NAME}}", status=~"5.."}}}}[2m])'
+        f' / rate(http_requests_total{{{{app="{{APP_NAME}}"}}}}[2m]) * 100'
     )
     latency = _query_prometheus(
-        f'histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{{app="{APP_NAME}"}}[2m])) * 1000'
+        f'histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{{{{app="{{APP_NAME}}"}}}}[2m])) * 1000'
     )
 
     logger.info("canary metrics: error_rate=%s%% latency=%sms", error_rate, latency)

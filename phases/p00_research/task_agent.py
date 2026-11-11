@@ -18,6 +18,12 @@ from aether_os.phases.p00_research.stack_selector import classify_build, inject_
 from aether_os.phases.p00_research.prompts import DESIGN_BRIEF_LLM_FALLBACK_PROMPT
 from aether_os.phases.p00_research.business_model_generator import generate_business_model
 from aether_os.core.domain_knowledge.loader import load_pack
+from aether_os.core.llm import client as _llm_client
+
+try:
+    from playwright.async_api import async_playwright
+except ImportError:  # optional dependency; the screenshot fallback is skipped without it
+    async_playwright = None
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +164,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             competitor_sites=", ".join(sites),
         )
         try:
-            llm = get_llm_client()
+            llm = _llm_client.get_llm_client()
             analysis = await llm.call_json(analysis_prompt, task_type="analysis")
             design_brief["layout_patterns"] = analysis.get("layout_patterns", {"navigation": "sticky top nav"})
             design_brief["must_have_features"] = analysis.get("must_have_features", ["search", "user profile"])

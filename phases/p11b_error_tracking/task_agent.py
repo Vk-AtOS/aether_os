@@ -1,7 +1,10 @@
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 from aether_os.phases.base import TaskResult
+
+logger = logging.getLogger(__name__)
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """

@@ -462,9 +462,8 @@ class ModelRouter:
         import aether_os.core.llm.client as _llm_mod
 
         if spec.provider == "anthropic":
-            client = _llm_mod._get_anthropic_client()
             return await _llm_mod._call_anthropic(
-                client, prompt, task_type, system=system, max_tokens=max_tokens
+                prompt, task_type, system=system, max_tokens=max_tokens
             )
         if spec.provider == "bedrock":
             return await _llm_mod._call_bedrock(

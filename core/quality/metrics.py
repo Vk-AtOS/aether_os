@@ -184,6 +184,7 @@ def _check_test_coverage(project_dir: Path) -> int:
 def _check_test_score(project_dir: Path) -> float:
     """Score tests based on actual pytest results from p07_testing output."""
     for summary_path in [
+        project_dir / "s06_testing" / "unit_testing" / "summary.json",  # where s06 writes it
         project_dir / "p07_testing" / "unit_testing" / "summary.json",
         project_dir / "p07a_unit_testing" / "summary.json",
     ]:
