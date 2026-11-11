@@ -4,6 +4,9 @@ AetherOS — Decision Ledger (Run/Event Log) — ORM edition (C1)
 Migrated from raw sqlite3 to SQLAlchemy async ORM.
 External API is unchanged so no callers need updating.
 
+Audit events are also appended to the tamper-evident hash chain in
+core/audit/chain.py (append / verify). Nothing here updates or deletes them.
+
 Async methods use the ORM session factory directly.
 Sync methods (used by sync pipeline code) delegate to the async API
 via a fresh event loop, avoiding event-loop-not-running errors.
@@ -11,13 +14,16 @@ via a fresh event loop, avoiding event-loop-not-running errors.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import time
 import uuid
 import weakref
 from typing import Any, Dict, List, Optional, Union
+
+from aether_os.core.audit import chain as audit_chain
+from aether_os.core import db as core_db  # module ref: tests patch core.db.get_session_factory
+from aether_os.core.models import AuditLog
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +76,8 @@ class DecisionLedger:
                               org_id: Optional[str] = None,
                               status: str = "running") -> None:
         try:
-            from aether_os.core.db import get_session_factory
             from aether_os.core.models import Run
-            sf = get_session_factory()
+            sf = core_db.get_session_factory()
             async with sf() as session:
                 existing = await session.get(Run, run_id)
                 if existing:
@@ -87,20 +92,21 @@ class DecisionLedger:
         except Exception as exc:
             logger.debug("async_save_run failed: %s", exc)
 
-    async def async_update_run_status(self, run_id: str, status: str) -> None:
+    async def async_update_run_status(self, run_id: str, status: str,
+                                      message: Optional[str] = None) -> None:
+        """`message` is the human-readable reason shown on the run's page (used on failure)."""
         try:
             from aether_os.core.db_utils import update_run_status
-            await update_run_status(run_id, status)
+            await update_run_status(run_id, status, message=message)
         except Exception as exc:
             logger.debug("async_update_run_status failed: %s", exc)
 
     async def async_log_event(self, run_id: str, agent: str, action: str,
                                detail: Union[str, Dict[str, Any]]) -> None:
         try:
-            from aether_os.core.db import get_session_factory
             from aether_os.core.models import Event
             detail_str = json.dumps(detail) if isinstance(detail, dict) else str(detail)
-            sf = get_session_factory()
+            sf = core_db.get_session_factory()
             async with sf() as session:
                 session.add(Event(
                     id=str(uuid.uuid4()), run_id=run_id,
@@ -111,50 +117,39 @@ class DecisionLedger:
         except Exception as exc:
             logger.debug("async_log_event failed: %s", exc)
 
-    @staticmethod
-    def _compute_entry_hash(entry_data: dict) -> str:
-        canonical = json.dumps(entry_data, sort_keys=True, default=str)
-        return hashlib.sha256(canonical.encode()).hexdigest()
-
     async def async_log_audit_event(self, org_id: str, user_id: str, action: str,
                                     resource_type: str = "", resource_id: str = "",
                                     metadata: Optional[Dict[str, Any]] = None,
                                     ip_address: str = "", user_agent: str = "-") -> None:
+        """Record an audit event: one hash-chained entry (audit_chain) plus the
+        queryable audit_log row the compliance/admin endpoints read.
+
+        Never raises — callers fire this with asyncio.create_task. Failures are logged.
+        """
+        ts = time.time()
+        entry_hash: Optional[str] = None
         try:
-            from aether_os.core.db import get_session_factory
-            from aether_os.core.models import AuditLog
-            from sqlalchemy import select
-            sf = get_session_factory()
+            entry = await audit_chain.append(
+                actor=user_id, action=action, timestamp=ts,
+                payload={"org_id": org_id, "resource_type": resource_type,
+                         "resource_id": resource_id, "metadata": metadata or {},
+                         "ip_address": ip_address},
+            )
+            entry_hash = entry.entry_hash
+        except Exception as exc:
+            logger.error("audit chain append failed for action=%s: %s", action, exc)
+        try:
+            sf = core_db.get_session_factory()
             async with sf() as session:
-                # Fetch the last audit entry for this org to compute chain hash
-                last_row = (await session.execute(
-                    select(AuditLog)
-                    .where(AuditLog.org_id == org_id)
-                    .order_by(AuditLog.created_at.desc())
-                    .limit(1)
-                )).scalars().first()
-
-                if last_row is not None:
-                    prev_entry = {
-                        "id": last_row.id,
-                        "org_id": last_row.org_id,
-                        "user_id": last_row.user_id,
-                        "action": last_row.action,
-                        "resource_type": last_row.resource_type,
-                        "resource_id": last_row.resource_id,
-                        "created_at": last_row.created_at,
-                    }
-                    prev_hash = self._compute_entry_hash(prev_entry)
-                else:
-                    prev_hash = ""
-
                 session.add(AuditLog(
                     id=str(uuid.uuid4()), org_id=org_id, user_id=user_id,
                     action=action, resource_type=resource_type,
                     resource_id=resource_id,
                     log_metadata=json.dumps(metadata or {}),
-                    ip_address=ip_address, created_at=time.time(),
-                    prev_hash=prev_hash,
+                    ip_address=ip_address, created_at=ts,
+                    # Legacy column name: it now holds the entry_hash of this
+                    # event's audit_chain entry, linking the row to the chain.
+                    prev_hash=entry_hash,
                 ))
                 await session.commit()
         except Exception as exc:
@@ -166,11 +161,9 @@ class DecisionLedger:
                                    limit: int = 50, action: Optional[str] = None,
                                    from_ts: Optional[float] = None) -> Dict[str, Any]:
         try:
-            from aether_os.core.db import get_session_factory
-            from aether_os.core.models import AuditLog
             from sqlalchemy import select, func
 
-            sf = get_session_factory()
+            sf = core_db.get_session_factory()
             async with sf() as session:
                 q = select(AuditLog).where(AuditLog.org_id == org_id)
                 if action:
