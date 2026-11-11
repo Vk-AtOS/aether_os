@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
@@ -100,7 +100,7 @@ async def cancel_factory_run(
 @router.post("/factory/runs/{run_id}/kill")
 async def kill_run(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Force-cancel a run (owner/admin only)."""
     if user.get("role") not in ("owner", "admin"):

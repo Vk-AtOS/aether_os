@@ -28,7 +28,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
@@ -46,7 +46,7 @@ def _current_user():
 async def approve_decision(
     run_id: str,
     decision_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Approve a pending decision gate."""
     from aether_os.core.decisions.decision_engine import get_decision_engine
@@ -125,7 +125,7 @@ async def decide_decision(
     run_id: str,
     decision_id: str,
     req: Dict[str, Any],
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Resolve a decision gate with approve/reject."""
     from aether_os.core.decisions.decision_engine import get_decision_engine
@@ -150,7 +150,7 @@ async def decide_decision(
 async def validate_spec(
     run_id: str,
     body: Dict[str, Any],
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Basic validation of a backend spec before pipeline starts."""
     spec = body.get("spec", {})
@@ -172,7 +172,7 @@ async def validate_spec(
 @router.get("/factory/runs/{run_id}/spec")
 async def get_run_spec(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Return the parsed requirements spec produced by p01_intake_requirements."""
     import pathlib
@@ -195,7 +195,7 @@ async def get_run_spec(
 async def approve_spec(
     run_id: str,
     body: Dict[str, Any] = {},
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Approve (or cancel) the parsed spec so the pipeline continues past the review gate."""
     from aether_os.core.pipeline_state import set_control as _sc, get_control as _gc
@@ -216,7 +216,7 @@ async def approve_spec(
 @router.post("/factory/runs/{run_id}/council-review")
 async def run_council_review(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Run the generated src/main.py through the LLM Council for multi-model review."""
     import pathlib
@@ -282,7 +282,7 @@ async def run_council_review(
 @router.get("/factory/runs/{run_id}/council-review")
 async def get_council_review(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Get the previously generated council review for a run."""
     import pathlib

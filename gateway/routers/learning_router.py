@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["learning"])
@@ -90,7 +90,7 @@ async def answer_clarification(
 async def submit_run_feedback(
     run_id: str,
     body: FeedbackBody,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Submit star rating + optional tags/comment for a completed run."""
     from aether_os.core.db import get_session_factory

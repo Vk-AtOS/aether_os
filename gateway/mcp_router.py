@@ -13,26 +13,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+
+from aether_os.gateway.dependencies import get_current_user as _get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 
-_security = HTTPBearer(auto_error=False)
-
 _HOME_DB = Path.home() / ".aether_os" / "aether_os.db"
 
-
-def _get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-) -> Dict[str, Any]:
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    from aether_os.gateway.auth import decode_access_token
-    payload = decode_access_token(credentials.credentials)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return payload
+# Auth: the shared get_current_user (revocation, is_active, token-type checks) —
+# MCP used to decode the JWT itself and skipped all of them.
 
 
 router = APIRouter(prefix="/mcp", tags=["MCP"])
@@ -59,7 +49,7 @@ async def mcp_list_runs(
 @router.get("/get_run_status/{run_id}")
 async def mcp_get_run_status(
     run_id: str,
-    user: Dict[str, Any] = Depends(_get_current_user),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> List[Dict[str, Any]]:
     """Get phase-by-phase status of a run."""
     if not _HOME_DB.exists():
@@ -78,7 +68,7 @@ async def mcp_get_run_status(
 async def mcp_get_artifact(
     run_id: str,
     file_path: str,
-    user: Dict[str, Any] = Depends(_get_current_user),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Retrieve a generated artifact file for a run (file_path query param)."""
     project_dir = Path.home() / ".aether_os" / "projects" / run_id
@@ -118,7 +108,7 @@ async def mcp_start_pipeline(
 @router.get("/get_architecture/{run_id}")
 async def mcp_get_architecture(
     run_id: str,
-    user: Dict[str, Any] = Depends(_get_current_user),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Retrieve the architecture document for a run."""
     project_dir = Path.home() / ".aether_os" / "projects" / run_id
