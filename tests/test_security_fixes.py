@@ -489,3 +489,22 @@ def test_signing_secret_handles_missing_and_legacy_rows():
     assert _signing_secret(None) == ""
     assert _signing_secret("") == ""
     assert _signing_secret("legacy-plaintext") == "legacy-plaintext"
+
+
+# ── Feature flags are process-wide: platform operator only ────────────────────
+
+def test_feature_flags_can_only_be_set_by_platform_operator(env, monkeypatch):
+    from aether_os.core.feature_flags import flags
+    flag = next(iter(flags.all_flags()))
+    key = f"FEATURE_{flag.upper()}"
+    monkeypatch.delenv(key, raising=False)
+    url = f"/system/feature-flags/{flag}"
+    # An org owner is not the platform operator: the flag affects every organisation.
+    assert env.client.post(url, json={"enabled": False}, headers=env.a.auth).status_code == 403
+    assert key not in os.environ
+    operator = _token_with(env.a.claims, role="superadmin")
+    assert env.client.post("/system/feature-flags/not_a_flag", json={}, headers=operator).status_code == 404
+    assert "FEATURE_NOT_A_FLAG" not in os.environ
+    monkeypatch.setenv(key, "true")  # registered with monkeypatch, so teardown removes the endpoint's write
+    assert env.client.post(url, json={"enabled": False}, headers=operator).status_code == 200
+    assert os.environ[key] == "false"

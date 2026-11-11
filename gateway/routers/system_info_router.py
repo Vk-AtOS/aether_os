@@ -208,9 +208,16 @@ async def list_feature_flags(user: Dict[str, Any] = Depends(get_current_user)):
 async def set_feature_flag(
     flag: str, body: dict = {}, user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Override a platform feature flag at runtime via env var (admin only)."""
-    if user.get("role") not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Override a platform feature flag at runtime via env var (platform operator only).
+
+    The flag lives in this process's environment, so it changes behaviour for every
+    organisation: an org's own owner or admin must not be able to set it.
+    """
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
+    from aether_os.core.feature_flags import flags
+    if flag not in flags.all_flags():
+        raise HTTPException(status_code=404, detail="Unknown feature flag")
     value = body.get("enabled", True)
     key = f"FEATURE_{flag.upper()}"
     os.environ[key] = "true" if value else "false"
