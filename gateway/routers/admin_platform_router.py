@@ -86,10 +86,21 @@ async def prune_artifacts(
     req: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ):
-    """Delete artifact files older than `ttl_days` (default 30). Admin only."""
-    if user.get("role") not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Admin only")
-    ttl_days = int(req.get("ttl_days", 30))
+    """Delete artifact files older than `ttl_days` (default 30). Superadmin only.
+
+    ARTIFACT_DIR is one directory for the whole platform, not per organisation,
+    so an org owner/admin (which every self-registered user is, in their own org)
+    must not be able to list or delete it.
+    """
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+    try:
+        ttl_days = int(req.get("ttl_days", 30))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="ttl_days must be a whole number of days")
+    # 0 or a negative value moves the cutoff to now or the future: every file would go.
+    if ttl_days < 1:
+        raise HTTPException(status_code=422, detail="ttl_days must be at least 1")
     dry_run   = bool(req.get("dry_run", False))
     artifacts_root = pathlib.Path(os.environ.get("ARTIFACT_DIR", "artifacts"))
     cutoff = time.time() - ttl_days * 86400
@@ -97,7 +108,9 @@ async def prune_artifacts(
     deleted_bytes = 0
     if artifacts_root.exists():
         for p in sorted(artifacts_root.rglob("*")):
-            if p.is_file() and p.stat().st_mtime < cutoff:
+            # Symlinks are skipped: is_file()/stat() follow them, so the age and
+            # size reported would be those of a file outside the artifact directory.
+            if p.is_file() and not p.is_symlink() and p.stat().st_mtime < cutoff:
                 deleted_bytes += p.stat().st_size
                 deleted_files.append(str(p.relative_to(artifacts_root)))
                 if not dry_run:
