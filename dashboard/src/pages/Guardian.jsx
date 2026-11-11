@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
+import { useRole } from '../hooks/useRole';
 import {
   Shield, ShieldAlert, ShieldCheck, ShieldOff,
   RefreshCw, Loader2, Database, Clock, AlertTriangle,
   CheckCircle2, XCircle, Eye, RotateCcw, Camera,
   Cpu, Server, HardDrive, Wifi, Lock, Unlock, Info, Zap,
 } from 'lucide-react';
+import { confirmAction } from '../components/confirmAction';
 
 // ── Threat level config ───────────────────────────────────────────────────────
 const THREAT_CONFIG = {
@@ -173,6 +175,7 @@ const StatCard = ({ label, value, sub, color = 'text-bright', icon: Icon, pulse 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Guardian() {
+  const isSuperadmin = useRole().role === 'superadmin';
   const [status, setStatus] = useState(null);
   const [stats, setStats] = useState(null);
   const [events, setEvents] = useState([]);
@@ -192,7 +195,10 @@ export default function Guardian() {
         api.client.get('/guardian/status'),
         api.client.get('/guardian/stats'),
         api.client.get('/guardian/events', { params: { limit: 50, ...(severityFilter ? { severity: severityFilter } : {}) } }),
-        api.client.get('/guardian/snapshots?limit=20'),
+        // Snapshots are super-admin only; other admins still get the rest of the page.
+        isSuperadmin
+          ? api.client.get('/guardian/snapshots?limit=20')
+          : Promise.resolve({ data: { snapshots: [] } }),
       ]);
       setStatus(statusRes.data);
       setStats(statsRes.data);
@@ -204,7 +210,7 @@ export default function Guardian() {
     } finally {
       setLoading(false);
     }
-  }, [severityFilter]);
+  }, [severityFilter, isSuperadmin]);
 
   useEffect(() => {
     load();
@@ -247,7 +253,7 @@ export default function Guardian() {
   };
 
   const handleRestore = async (snapId) => {
-    if (!window.confirm('This will restore the database from this snapshot. AetherOS will be briefly unavailable. Continue?')) return;
+    if (!(await confirmAction('This will restore the database from this snapshot. AetherOS will be briefly unavailable. Continue?'))) return;
     setRestoring(snapId);
     try {
       await api.client.post(`/guardian/restore/${snapId}`);
@@ -260,7 +266,7 @@ export default function Guardian() {
   };
 
   const handleBaselineRefresh = async () => {
-    if (!window.confirm('Refresh the file integrity baseline? Do this only after a planned code deployment.')) return;
+    if (!(await confirmAction('Refresh the file integrity baseline? Do this only after a planned code deployment.'))) return;
     setBaselineRefreshing(true);
     try {
       const res = await api.client.post('/guardian/update-baseline');

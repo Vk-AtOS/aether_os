@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Users, Shield, CheckCircle2, XCircle, Search, UserPlus, RefreshCw, ChevronLeft, ChevronRight, Upload, Trash2, Loader2 } from 'lucide-react';
 import { TableSkeleton } from '../components/PageLoader';
 import { ROLES, ROLE_BADGE, InvitePanel, BulkImportPanel } from '../components/admin/UserPanels';
+import { confirmAction } from '../components/confirmAction';
 
 const AdminUsers = () => {
   const [items, setItems] = useState([]);
@@ -81,7 +82,7 @@ const AdminUsers = () => {
   };
 
   const handleResetPassword = async (userId) => {
-    if (!window.confirm('Generate a temporary password for this user?')) return;
+    if (!(await confirmAction('Generate a temporary password for this user?'))) return;
     try {
       const res = await api.client.post(`/admin/users/${userId}/reset-password`);
       const { temp_password } = res.data;

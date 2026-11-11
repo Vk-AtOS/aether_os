@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Search, Package, Star, Zap, Shield, Database, Cpu, Globe, PlusCircle, X, Loader2, CheckCircle2 } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
+import { confirmAction } from '../components/confirmAction';
 
 const CATEGORY_ICONS = {
   auth: Shield,
@@ -78,7 +79,7 @@ const Marketplace = () => {
   };
 
   const handleUninstall = async (profileId, profileName) => {
-    if (!window.confirm(`Uninstall ${profileName}?`)) return;
+    if (!(await confirmAction(`Uninstall ${profileName}?`))) return;
     try {
       await api.client.delete(`/marketplace/profiles/${profileId}`);
       setInstalledIds(prev => { const n = new Set(prev); n.delete(profileId); return n; });

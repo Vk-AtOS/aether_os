@@ -5,6 +5,7 @@ import {
   Zap, Star, Building2, Loader2, ExternalLink, Download,
 } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
+import { confirmAction } from '../components/confirmAction';
 
 const PLAN_ICONS  = { trial: Zap, pro: Star, enterprise: Building2 };
 const PLAN_COLORS = { trial: 'text-yellow-400', pro: 'text-accent', enterprise: 'text-purple-400' };
@@ -155,7 +156,7 @@ const Billing = () => {
 
   // ── India cancel subscription ─────────────────────────────────────────────
   const handleCancelIndia = async () => {
-    if (!window.confirm('Cancel your subscription? You will be downgraded to the Trial plan at end of current period.')) return;
+    if (!(await confirmAction('Cancel your subscription? You will be downgraded to the Trial plan at end of current period.'))) return;
     setCancellingSubscription(true);
     try {
       await api.client.post('/billing/cancel');

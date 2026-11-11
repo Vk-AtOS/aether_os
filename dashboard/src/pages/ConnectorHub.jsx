@@ -4,6 +4,7 @@ import {
   GitBranch, MessageSquare, Pen, Globe, Database, Cloud, Bell, CreditCard, Search
 } from "lucide-react";
 import api from "../api";
+import { confirmAction } from '../components/confirmAction';
 
 const ICON_MAP = {
   github: GitBranch, gitlab: GitBranch, slack: MessageSquare, figma: Pen,
@@ -240,7 +241,7 @@ export default function ConnectorHub() {
   };
 
   const handleUninstall = async (pluginId) => {
-    if (!confirm(`Uninstall ${pluginId}? This will remove stored credentials.`)) return;
+    if (!(await confirmAction(`Uninstall ${pluginId}? This will remove stored credentials.`))) return;
     await api.client.delete(`/v2/plugins/installed/${pluginId}`);
     await load();
   };
