@@ -237,10 +237,47 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def decode_bearer_token(token: str) -> Optional[Dict[str, Any]]:
+    """Decode a JWT presented as an API credential; None unless it is an access token.
+
+    decode_access_token only proves the signature, and refresh tokens (30 days) and
+    preview cookies share that signer — so every place that authenticates a request
+    must go through here, or a long-lived refresh token works as an access token.
+    """
+    payload = decode_access_token(token)
+    if payload and payload.get("token_type", "access") != "access":
+        logger.warning("JWT rejected: token_type=%r used as access token", payload.get("token_type"))
+        return None
+    return payload
+
+
+PREVIEW_COOKIE = "aether_preview"
+
+
+def create_preview_token(run_id: str, org_id: str, expires_hours: int = 8) -> str:
+    """Token for the /app-preview cookie: grants one run's generated app, nothing else.
+
+    The preview is loaded by an iframe / plain link, which cannot send an
+    Authorization header, so it needs a cookie. token_type="preview" means
+    decode_bearer_token refuses it everywhere else.
+    """
+    return create_access_token(
+        {"token_type": "preview", "run_id": run_id, "org_id": org_id},
+        expires_hours=expires_hours,
+    )
+
+
+def decode_preview_token(token: str) -> Optional[Dict[str, Any]]:
+    payload = decode_access_token(token) if token else None
+    if payload and payload.get("token_type") == "preview" and payload.get("run_id") and payload.get("org_id"):
+        return payload
+    return None
+
+
 def verify_token_dependency(token: str) -> Dict[str, Any]:
     """FastAPI dependency: raises HTTP 401 if token is invalid."""
     from fastapi import HTTPException, status
-    payload = decode_access_token(token)
+    payload = decode_bearer_token(token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

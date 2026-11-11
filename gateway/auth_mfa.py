@@ -24,7 +24,7 @@ from aether_os.core.rate_limiter import _get_async_redis
 from aether_os.core.rate_limiter import _get_async_redis, _redis_get_count
 from aether_os.core.rate_limiter import _get_async_redis, _redis_incr_window
 from aether_os.gateway.auth import create_refresh_token as _crt_mfa
-from aether_os.gateway.auth import decode_access_token, create_access_token
+from aether_os.gateway.auth import decode_bearer_token, create_access_token
 from sqlalchemy import select
 import pyotp  # optional dependency — only used when MFA is enabled; not installed in all deployments
 logger = logging.getLogger(__name__)
@@ -167,7 +167,7 @@ async def mfa_confirm(request: Request, body: MfaConfirmRequest) -> Dict[str, An
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many MFA attempts. Please wait before trying again.",
         )
-    claims = decode_access_token(body.mfa_token)
+    claims = decode_bearer_token(body.mfa_token)
     if not claims or not claims.get("mfa_pending"):
         raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
     user_id = claims.get("user_id")

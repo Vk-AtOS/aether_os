@@ -18,6 +18,9 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import Run
+
 security_scheme = HTTPBearer(auto_error=False)
 
 # Endpoints exempt from must_change_password block — user must be able to reach
@@ -37,10 +40,10 @@ async def get_current_user(
         )
 
     token = credentials.credentials
-    from aether_os.gateway.auth import decode_access_token, hash_api_key
+    from aether_os.gateway.auth import decode_bearer_token, hash_api_key
 
     # 1. Try JWT
-    payload = decode_access_token(token)
+    payload = decode_bearer_token(token)
     if payload:
         if payload.get("mfa_pending"):
             raise HTTPException(
@@ -132,3 +135,31 @@ async def get_current_user(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
     )
+
+
+async def assert_run_in_org(run_id: str, user: Dict[str, Any]) -> None:
+    """Raise 404 unless run_id is a run owned by the caller's org.
+
+    Single choke point for run-scoped endpoints: project files, traces, Redis
+    control flags and preview processes are all keyed by run_id alone, so the
+    org check has to happen before any of them is touched. 404 (not 403) so a
+    caller cannot probe which run ids exist in other orgs.
+    """
+    org_id = user.get("org_id")
+    if run_id and org_id:
+        async with get_session_factory()() as session:
+            found = (await session.execute(
+                select(Run.id).where(Run.id == run_id, Run.org_id == org_id)
+            )).scalar_one_or_none()
+        if found:
+            return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+
+async def require_run_user(
+    run_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Dependency for routes with a {run_id} path param: the user, after the org check."""
+    await assert_run_in_org(run_id, user)
+    return user

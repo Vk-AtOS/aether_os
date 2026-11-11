@@ -109,7 +109,7 @@ class OrgIDLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         import structlog
-        from aether_os.gateway.auth import decode_access_token
+        from aether_os.gateway.auth import decode_bearer_token
 
         org_id = request.headers.get("X-Org-ID")
         user_id = None
@@ -118,7 +118,7 @@ class OrgIDLoggingMiddleware(BaseHTTPMiddleware):
             auth_header = request.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:]
-                payload = decode_access_token(token)
+                payload = decode_bearer_token(token)
                 if payload:
                     org_id = payload.get("org_id")
                     user_id = payload.get("user_id")

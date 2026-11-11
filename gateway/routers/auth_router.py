@@ -21,7 +21,7 @@ from aether_os.core.guardian.password_shield import check_password_safety
 from aether_os.core.models import Organisation, User
 from aether_os.core.notifications.email import get_email_notifier
 from aether_os.core.pipeline_state import get_redis
-from aether_os.core.rate_limiter import get_rate_limiter
+from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
 from aether_os.gateway.auth import create_refresh_token as _crt
 from aether_os.gateway.auth import create_refresh_token as _crt_reg
 from aether_os.gateway.auth import get_password_hash, create_access_token
@@ -61,11 +61,7 @@ def _auth():
 async def register(req: RegisterRequest, request: Request) -> LoginResponse:
     """Register a new organisation and owner user."""
     # Rate-limit registrations by IP to prevent spam org creation
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or "unknown"
-    )
+    client_ip = get_client_ip(request)
     rl = get_rate_limiter()
     await rl.record_registration_attempt(client_ip)
     if not await rl.check_registration_attempts(client_ip):
@@ -173,11 +169,7 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
 async def login(req: LoginRequest, request: Request) -> LoginResponse:
     """Authenticate and return a JWT token."""
     # Rate-limit login attempts by IP — prevents brute force
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or "unknown"
-    )
+    client_ip = get_client_ip(request)
     rl = get_rate_limiter()
     await rl.record_login_attempt(client_ip)
     if not await rl.check_login_attempts(client_ip):
@@ -254,11 +246,7 @@ async def logout(request: Request, user: Dict[str, Any] = _auth()) -> Dict[str, 
     jti = user.get("jti")
     exp = user.get("exp", 0)
     # Audit: logout
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    client_ip = get_client_ip(request)
     asyncio.create_task(get_ledger().async_log_audit_event(
         org_id=user.get("org_id", "-"),
         user_id=user.get("user_id", "-"),

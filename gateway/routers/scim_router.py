@@ -28,7 +28,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
 from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import User as _User
-from aether_os.gateway.auth import decode_access_token
+from aether_os.gateway.auth import decode_bearer_token
 from aether_os.gateway.auth import get_password_hash
 from datetime import datetime as _dt
 from sqlalchemy import select
@@ -96,7 +96,7 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
         # scim_token column may not exist yet (pre-migration) — fall through
         logger.warning("SCIM per-org token lookup failed: %s", exc)
     # 3. Fallback: standard JWT (dev / backward-compat)
-    payload = decode_access_token(token)
+    payload = decode_bearer_token(token)
     if payload:
         return payload
     raise HTTPException(
