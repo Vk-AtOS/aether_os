@@ -126,3 +126,4 @@ ACQUISITION_EMAILS.md
 token.txt
 auth_res.json
 *.db.bak
+.local/
