@@ -16,6 +16,7 @@ import logging
 import os
 from typing import List, Optional
 
+from aether_os.core.api_key_store import get_api_key
 from aether_os.core.errors import LLMCallError
 from aether_os.core.llm._org_context import _current_org_id
 
@@ -28,29 +29,20 @@ def _get_current_org_id() -> Optional[str]:
 
 # ── Anthropic ─────────────────────────────────────────────────────────────────
 
-def _get_anthropic_client():
+def _get_anthropic_client(api_key: Optional[str] = None):
     """Lazy-import Anthropic SDK and return a client instance.
 
     Supports OpenRouter (or any OpenAI-compatible endpoint) via:
       ANTHROPIC_API_KEY=<openrouter-key>
       ANTHROPIC_BASE_URL=https://openrouter.ai/api
 
-    When an org context is set (via set_org_context / init_org_llm_context),
-    the org-specific key from the DB cache is preferred over the system env var.
+    `api_key` is the key resolved for this call (get_api_key(provider, org_id)).
+    Without it only the platform-level key from the environment is used.
     """
     try:
         import anthropic  # type: ignore
     except ImportError as exc:
         raise ImportError("anthropic SDK not installed. Run: pip install anthropic") from exc
-
-    api_key = None
-    org_id = _get_current_org_id()
-    if org_id:
-        try:
-            from core.api_key_store import _cache_get
-            api_key = _cache_get(org_id, "anthropic")
-        except Exception as exc:
-            logger.debug("_get_anthropic_client: org key cache lookup failed for %s: %s", org_id, exc)
 
     if not api_key:
         # Support ANTHROPIC_AUTH_TOKEN as alias (used by Claude Code's settings.local.json)
@@ -74,8 +66,13 @@ async def _call_anthropic(
     task_type: str,
     system: Optional[str] = None,
     max_tokens: int = 8192,
+    api_key: Optional[str] = None,
 ) -> str:
-    """Call Anthropic API with retry + cost tracking."""
+    """Call Anthropic API with retry + cost tracking.
+
+    `api_key`: the caller's key for this call; when omitted it is looked up for
+    the org in the current context (falling back to the platform key).
+    """
     from core.config.loader import get_config
     from aether_os.core.llm.model_registry import _select_model
     from aether_os.core.llm.token_counter import _cost_registry
@@ -91,7 +88,9 @@ async def _call_anthropic(
 
     logger.info("LLM call: provider=anthropic model=%s task=%s", model, task_type)
 
-    client = _get_anthropic_client()
+    if api_key is None:
+        api_key = await get_api_key("anthropic", _get_current_org_id())
+    client = _get_anthropic_client(api_key)
     last_exc: Exception | None = None
 
     # Use prompt caching for the system prompt — reduces cached token cost by 90%.
@@ -159,8 +158,12 @@ async def _call_gemini(
     task_type: str,
     system: Optional[str] = None,
     max_tokens: int = 8192,
+    api_key: Optional[str] = None,
 ) -> str:
-    """Call Google Gemini API with retry (uses google-genai SDK)."""
+    """Call Google Gemini API with retry (uses google-genai SDK).
+
+    `api_key`: as for _call_anthropic.
+    """
     try:
         from google import genai  # type: ignore
         from google.genai import types as genai_types  # type: ignore
@@ -169,16 +172,8 @@ async def _call_gemini(
             "google-genai SDK not installed. Run: pip install google-genai"
         ) from exc
 
-    api_key = None
-    org_id = _get_current_org_id()
-    if org_id:
-        try:
-            from core.api_key_store import _cache_get
-            api_key = _cache_get(org_id, "google")
-        except Exception as exc:
-            logger.debug("_call_gemini: org key cache lookup failed for %s: %s", org_id, exc)
-    if not api_key:
-        api_key = os.environ.get("GOOGLE_API_KEY")
+    if api_key is None:
+        api_key = await get_api_key("google", _get_current_org_id())
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY not configured for this org or system.")
 

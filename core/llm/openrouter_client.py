@@ -36,6 +36,9 @@ import logging
 import os
 from typing import Optional
 
+from aether_os.core.api_key_store import get_api_key
+from aether_os.core.llm._org_context import _current_org_id
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://openrouter.ai/api/v1"
@@ -97,13 +100,20 @@ async def call_openrouter(
     system: Optional[str] = None,
     max_tokens: int = 8192,
     model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> str:
-    """Call OpenRouter via the OpenAI-compatible chat/completions endpoint."""
+    """Call OpenRouter via the OpenAI-compatible chat/completions endpoint.
+
+    `api_key`: the caller's key for this call; when omitted it is looked up for
+    the org in the current context (falling back to the platform key).
+    """
     import httpx
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if api_key is None:
+        api_key = await get_api_key("openrouter", _current_org_id.get())
+    api_key = (api_key or "").strip()
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY not set")
+        raise RuntimeError("OPENROUTER_API_KEY not configured for this org or system.")
 
     chosen_model = model or select_openrouter_model(task_type)
     system_content = system or (

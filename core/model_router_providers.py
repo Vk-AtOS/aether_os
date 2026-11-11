@@ -53,24 +53,11 @@ def _is_provider_configured(spec: ModelSpec) -> bool:
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     if spec.provider == "gemini":
         key = os.environ.get("GOOGLE_API_KEY", "").strip()
-        if bool(key) and len(key) > 10 and not key.startswith("REPLACE"):
-            return True
-        # Also check if any org key is cached (populated by init_org_llm_context)
-        try:
-            from aether_os.core.api_key_store import _cache as _KEY_CACHE
-            return any(k[1] == "google" for k in _KEY_CACHE)
-        except Exception as exc:
-            logger.debug("Google org key cache check failed: %s", exc)
-            return False
+        # Platform key only. An org's own key is resolved per call by the router
+        # (_provider_key); another org having one cached says nothing about this caller.
+        return bool(key) and len(key) > 10 and not key.startswith("REPLACE")
     if spec.provider == "openrouter":
-        if bool(os.environ.get("OPENROUTER_API_KEY", "").strip()):
-            return True
-        try:
-            from aether_os.core.api_key_store import _cache as _KEY_CACHE
-            return any(k[1] == "openrouter" for k in _KEY_CACHE)
-        except Exception as exc:
-            logger.debug("OpenRouter org key cache check failed: %s", exc)
-            return False
+        return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
     if spec.provider == "bedrock":
         # Respect explicit opt-out via BEDROCK_ENABLED=false
         if os.environ.get("BEDROCK_ENABLED", "").lower() == "false":
