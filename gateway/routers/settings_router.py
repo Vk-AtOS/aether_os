@@ -229,7 +229,9 @@ async def test_provider(
         _env_map = {"anthropic": "ANTHROPIC_API_KEY", "gemini": "GOOGLE_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
         api_key = os.environ.get(_env_map.get(req.provider, ""), "")
 
-    if not api_key:
+    # Bedrock authenticates with AWS credentials or a bearer token from the
+    # environment, not an org API key, so it must reach its own branch below.
+    if not api_key and req.provider != "bedrock":
         raise HTTPException(status_code=400, detail=f"No API key configured for {req.provider}")
 
     if req.provider == "anthropic":
