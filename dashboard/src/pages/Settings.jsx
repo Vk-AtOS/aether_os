@@ -9,7 +9,8 @@ import { ApiKeyPanel, PlanLimitsPanel, LLMStatusPanel, FactoryStatsPanel, Versio
 import { ModelConfigPanel, BedrockPanel, CouncilPanel, LangsmithPanel } from '../components/settings/LLMSettings';
 import { SSOPanel, SCIMPanel } from '../components/settings/SecuritySettings';
 import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components/settings/OrgSettings';
-import { PhaseControlsPanel, FileBrowserPanel, PHASES, PHASE_NAMES } from '../components/settings/PhaseSettings';
+import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
+import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 
 const Settings = () => {
   const { orgName, updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
@@ -129,29 +130,29 @@ const Settings = () => {
         try {
           const lsRes = await api.client.get('/settings/langsmith');
           setLangsmithConfig(c => ({ ...c, opt_in: lsRes.data.opt_in ?? false, api_key_set: lsRes.data.api_key_set ?? false, project: lsRes.data.project || 'aetheros-factory' }));
-        } catch (_) {}
+        } catch { /* optional section: keep its defaults */ }
         try {
           const ssoRes = await api.client.get('/settings/sso');
           setSsoConfig(ssoRes.data);
           if (ssoRes.data.configured) setSsoForm(f => ({ ...f, idp_entity_id: ssoRes.data.idp_entity_id || '', idp_sso_url: ssoRes.data.idp_sso_url || '' }));
-        } catch (_) {}
+        } catch { /* optional section: keep its defaults */ }
         try {
           const compRes = await api.client.get('/compliance/org-report');
           if (compRes.data?.data_region) setDataRegion(compRes.data.data_region.toLowerCase());
-        } catch (_) {}
+        } catch { /* optional section: keep its defaults */ }
         try {
           const orgRes = await api.client.get('/account/settings');
           if (orgRes.data?.autonomous_mode !== undefined) setOrgConfig(c => ({ ...c, autonomous_mode: !!orgRes.data.autonomous_mode }));
-        } catch (_) {}
+        } catch { /* optional section: keep its defaults */ }
         try {
           const scimRes = await api.client.get('/settings/scim');
           setScimConfig(scimRes.data);
-        } catch (_) {}
+        } catch { /* optional section: keep its defaults */ }
         try {
           const usageRes = await api.client.get('/orgs/me/usage');
           setUsageData(usageRes.data);
           setUsageError(false);
-        } catch (_) {
+        } catch {
           setUsageError(true);
         } finally {
           setUsageLoading(false);
@@ -174,7 +175,7 @@ const Settings = () => {
       const storeProvider = provider === 'gemini' ? 'google' : provider;
       setOrgKeys(ok => ({ ...ok, [storeProvider]: true }));
       ctxReload();
-    } catch (err) {
+    } catch {
       setKeyStatus(s => ({ ...s, [provider]: 'error' }));
     }
   };
@@ -185,7 +186,7 @@ const Settings = () => {
       await api.testProvider(provider);
       setTestStatus(s => ({ ...s, [provider]: 'ok' }));
       setTimeout(() => setTestStatus(s => ({ ...s, [provider]: null })), 4000);
-    } catch (err) {
+    } catch {
       setTestStatus(s => ({ ...s, [provider]: 'fail' }));
       setTimeout(() => setTestStatus(s => ({ ...s, [provider]: null })), 4000);
     }
@@ -205,7 +206,7 @@ const Settings = () => {
       await api.updateCouncilConfig(councilConfig);
       setCouncilSaveStatus('saved');
       setTimeout(() => setCouncilSaveStatus(null), 3000);
-    } catch (err) {
+    } catch {
       setCouncilSaveStatus('error');
       setTimeout(() => setCouncilSaveStatus(null), 3000);
     }
@@ -399,7 +400,7 @@ const Settings = () => {
         grouped[group].push(path);
       });
       setRunFiles(grouped);
-    } catch (err) {
+    } catch {
       setRunFiles({});
     } finally {
       setLoadingFiles(false);
@@ -414,7 +415,7 @@ const Settings = () => {
       const payload = res.data;
       if (payload?.type === 'image') setFileContent('// Image file — cannot preview');
       else setFileContent(payload?.content || '// (empty file)');
-    } catch (err) {
+    } catch {
       setFileContent(`// Could not load file: ${filePath}`);
     }
   };
