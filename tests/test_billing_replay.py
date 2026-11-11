@@ -63,7 +63,8 @@ def test_paid_order_cannot_be_replayed_after_cancel(env, monkeypatch):
     assert env.sql("SELECT count(*) FROM billing_payments WHERE order_id = 'order_A'")[0][0] == 1
 
 
-def test_webhook_redelivery_is_acknowledged_but_not_reapplied(env):
+def test_webhook_redelivery_is_acknowledged_but_not_reapplied(env, monkeypatch):
+    _paid_order(env, monkeypatch)
     assert _webhook(env, "order_W", "pay_W").json() == {"received": True}
     assert _plan(env) == "pro"
     env.sql("UPDATE organisations SET plan = 'free' WHERE id = ?", (env.org_id,))
@@ -99,3 +100,17 @@ def test_racing_presentations_apply_exactly_once(env):
     results = env.client.portal.call(race)
     assert sum(results) == 1
     assert env.sql("SELECT count(*) FROM billing_payments WHERE order_id = 'order_R'")[0][0] == 1
+
+
+def test_webhook_takes_plan_and_amount_from_the_order_not_the_payment_notes(env, monkeypatch):
+    # Payment notes are set at checkout, so the payer controls them; the order's notes are ours.
+    env.sql("UPDATE organisations SET plan = 'free' WHERE id = ?", (env.org_id,))
+    _paid_order(env, monkeypatch, plan="pro")
+    assert _webhook(env, "order_N", "pay_N", plan="enterprise").status_code == 200
+    assert _plan(env) == "pro"
+
+    env.sql("UPDATE organisations SET plan = 'free' WHERE id = ?", (env.org_id,))
+    _paid_order(env, monkeypatch, plan="enterprise", amount=99900)     # enterprise notes, pro price
+    assert _webhook(env, "order_M", "pay_M", plan="enterprise").status_code == 200
+    assert _plan(env) == "free"
+    assert env.sql("SELECT count(*) FROM billing_payments WHERE order_id = 'order_M'")[0][0] == 0

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Request
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.billing.payments import apply_paid_order
@@ -29,6 +29,24 @@ RAZORPAY_PLANS: Dict[str, Dict] = {
     "pro":        {"name": "Pro",        "amount": 99900,  "currency": "INR", "period": "monthly"},
     "enterprise": {"name": "Enterprise", "amount": 499900, "currency": "INR", "period": "monthly"},
 }
+def _confirmed_order(order_id: str) -> Optional[Tuple[str, str, int]]:
+    """(org_id, plan, amount) of a paid order as Razorpay holds it, or None if it is not one of ours.
+
+    The org and plan come from the notes create_order wrote on the order, and the amount
+    must be that plan's price. Both verify-payment and the webhook go through here, so
+    neither can be talked into a plan by values the payer controls (the request body, or
+    the notes on a payment, which are set at checkout).
+    """
+    order = _razorpay_client().order.fetch(order_id)
+    notes = order.get("notes") or {}
+    plan_id = str(notes.get("plan", "")).lower()
+    org_id = notes.get("org_id") or ""
+    if (not org_id or plan_id not in RAZORPAY_PLANS
+            or order.get("amount") != RAZORPAY_PLANS[plan_id]["amount"] or order.get("status") != "paid"):
+        return None
+    return org_id, plan_id, order["amount"]
+
+
 def _razorpay_client():
     key_id     = os.environ.get("RAZORPAY_KEY_ID", "")
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
@@ -125,30 +143,22 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     if not _hmac.compare_digest(expected, signature):
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
     # The signature only proves order_id|payment_id is genuine. What was paid for, and
-    # by which org, is on the server-side order (notes set in create_order) — never
-    # take the plan from the request body, or paying for Pro unlocks Enterprise.
+    # by which org, is on the server-side order — never taken from the request body.
     try:
-        order = _razorpay_client().order.fetch(order_id)
+        confirmed = _confirmed_order(order_id)
     except HTTPException:
         raise
     except Exception as exc:
         logger.warning("verify_payment: Razorpay order fetch failed for %s: %s", order_id, exc)
         raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway")
-    notes = order.get("notes") or {}
-    plan_id = str(notes.get("plan", "")).lower()
-    if (
-        plan_id not in RAZORPAY_PLANS
-        or notes.get("org_id") != user["org_id"]
-        or order.get("amount") != RAZORPAY_PLANS[plan_id]["amount"]
-        or order.get("status") != "paid"
-    ):
-        logger.warning("verify_payment: order %s does not match org=%s (plan=%r)", order_id, user["org_id"], plan_id)
+    if confirmed is None or confirmed[0] != user["org_id"]:
+        logger.warning("verify_payment: order %s does not match org=%s", order_id, user["org_id"])
         raise HTTPException(status_code=400, detail="Order does not match this organisation or plan")
+    _, plan_id, amount = confirmed
     # Record the order and upgrade the plan in one transaction. A paid order is
     # good for exactly one upgrade: presented again (after a cancel, or racing
     # itself) it is refused by the unique constraint, not by a check-then-write.
-    if not await apply_paid_order("razorpay", order_id, payment_id, user["org_id"], plan_id,
-                                  amount=order.get("amount")):
+    if not await apply_paid_order("razorpay", order_id, payment_id, user["org_id"], plan_id, amount=amount):
         raise HTTPException(status_code=409, detail="This payment has already been applied")
     # Log payment
     logger.info(f"Payment verified: org={user['org_id']} plan={plan_id} payment={payment_id}")
@@ -277,16 +287,21 @@ async def razorpay_webhook(request: Request):
     payload = await request.json()
     event   = payload.get("event", "")
     entity  = payload.get("payload", {}).get("payment", {}).get("entity", {})
-    notes   = entity.get("notes", {})
-    org_id  = notes.get("org_id", "")
-    plan_id = notes.get("plan", "")
-    if event in ("payment.captured", "order.paid") and org_id and plan_id in RAZORPAY_PLANS:
-        order_id, payment_id = entity.get("order_id", ""), entity.get("id", "")
+    order_id, payment_id = entity.get("order_id", ""), entity.get("id", "")
+    if event in ("payment.captured", "order.paid"):
         if not order_id or not payment_id:
             # Without ids the event cannot be tied to one payment, so it could be replayed.
-            logger.warning("Webhook: %s for org=%s has no order/payment id — not applied", event, org_id)
-        elif await apply_paid_order("razorpay", order_id, payment_id, org_id, plan_id,
-                                    amount=entity.get("amount")):
-            logger.info(f"Webhook: upgraded org={org_id} to plan={plan_id}")
+            logger.warning("Webhook: %s has no order/payment id — not applied", event)
+            return {"received": True}
+        try:
+            confirmed = _confirmed_order(order_id)
+        except Exception as exc:
+            # 5xx makes Razorpay deliver the event again later.
+            logger.warning("Webhook: could not confirm order %s: %s", order_id, exc)
+            raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway")
+        if confirmed is None:
+            logger.warning("Webhook: order %s is not a paid order for a known plan — not applied", order_id)
+        elif await apply_paid_order("razorpay", order_id, payment_id, confirmed[0], confirmed[1], amount=confirmed[2]):
+            logger.info("Webhook: upgraded org=%s to plan=%s", confirmed[0], confirmed[1])
         # else: already applied (by verify-payment or an earlier delivery) — still acknowledge.
     return {"received": True}
