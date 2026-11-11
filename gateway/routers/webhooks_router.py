@@ -11,6 +11,7 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
+from aether_os.core.encryption import encrypt
 from aether_os.core.models import Webhook
 from sqlalchemy import select
 import httpx
@@ -66,7 +67,9 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
         logger.warning("webhooks_router: invalid webhook URL rejected: %s", e)
         raise HTTPException(status_code=422, detail="Invalid webhook URL")
     events = req.get("events", [])
-    # M3: generate raw secret, return it ONCE, store only the bcrypt hash
+    # M3: generate raw secret, return it ONCE. HMAC signing needs the key itself, so it
+    # is stored Fernet-encrypted (AETHER_FIELD_KEY); with only the bcrypt hash kept,
+    # every delivery was signed with an empty key.
     secret = _secrets.token_hex(32)
     secret_hash = bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
     org_id = user["org_id"]
@@ -75,7 +78,7 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
         new_webhook = Webhook(
             url=url,
             events=events,
-            secret=None,       # M3: never store plaintext secret
+            secret=encrypt(secret),  # ciphertext, never plaintext
             secret_hash=secret_hash,
             org_id=org_id,
         )
