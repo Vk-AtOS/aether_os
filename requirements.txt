@@ -118,7 +118,7 @@ redis[asyncio]>=5.0.0
 
 # ── PostgreSQL async driver — required when DATABASE_URL=postgresql:// ────────
 asyncpg>=0.29.0
-# psycopg2-binary>=2.9.0
+psycopg2-binary>=2.9.0  # sync driver: Alembic migrations cannot run without it
 psutil>=5.9.0
 
 # ── Enterprise connectors ─────────────────────────────────────────────────────
