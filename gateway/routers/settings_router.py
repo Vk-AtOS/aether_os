@@ -15,12 +15,15 @@ routes live in settings_advanced_router.py.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
+from aether_os.core.api_key_store import get_api_key
+from aether_os.core.db import get_session_factory
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.services.settings_service import (
     get_org_plan,
@@ -215,22 +218,49 @@ async def update_langsmith_settings(
 
 # ── Provider test route ───────────────────────────────────────────────────────
 
+_TESTABLE_PROVIDERS = ("anthropic", "gemini", "openai", "openrouter", "bedrock")
+
+
+def _test_failed(provider: str, exc: Exception) -> HTTPException:
+    """Log the provider's error; give the caller a fixed message.
+
+    SDK and HTTP errors can quote request ids, account ids, ARNs, endpoint URLs
+    or fragments of the credential, so the text never leaves the server.
+    """
+    logger.warning("test-provider: %s check failed: %s: %s", provider, type(exc).__name__, exc)
+    return HTTPException(
+        status_code=400,
+        detail=f"Connection test failed for {provider}. Check the credentials; details are in the server log.",
+    )
+
+
 @router.post("/settings/test-provider")
 async def test_provider(
     req: TestProviderRequest,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Test LLM provider connectivity using org-scoped keys."""
+    """Test LLM provider connectivity with the org's key, or (admins only) the platform's."""
+    if req.provider not in _TESTABLE_PROVIDERS:
+        raise HTTPException(status_code=400, detail="Provider is not supported for testing")
+
     org_id = user.get("org_id", "")
-    from aether_os.core.api_key_store import get_api_key
+    # Keys are stored under "google" (see update_api_keys); looking up "gemini" never found them.
+    store_provider = "google" if req.provider == "gemini" else req.provider
 
-    api_key = await get_api_key(req.provider, org_id)
-    if not api_key:
-        _env_map = {"anthropic": "ANTHROPIC_API_KEY", "gemini": "GOOGLE_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
-        api_key = os.environ.get(_env_map.get(req.provider, ""), "")
+    # Bedrock always runs on the platform's AWS credentials; the others do when the
+    # org has not stored its own key. Spending the platform's credentials is an
+    # admin action, not something every member of every org may trigger.
+    has_org_key = False
+    if req.provider != "bedrock" and org_id:
+        async with get_session_factory()() as session:
+            has_org_key = store_provider in await get_org_api_key_providers(session, org_id)
+    if not has_org_key and user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only org owners/admins may test a provider that uses platform credentials.",
+        )
 
-    # Bedrock authenticates with AWS credentials or a bearer token from the
-    # environment, not an org API key, so it must reach its own branch below.
+    api_key = "" if req.provider == "bedrock" else await get_api_key(store_provider, org_id)
     if not api_key and req.provider != "bedrock":
         raise HTTPException(status_code=400, detail=f"No API key configured for {req.provider}")
 
@@ -238,23 +268,21 @@ async def test_provider(
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=api_key)
-            resp = await asyncio.to_thread(lambda: client.messages.create(
+            await asyncio.to_thread(lambda: client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=10,
                 messages=[{"role": "user", "content": "hi"}]
             ))
-            return {"success": True, "message": "Connected"}
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise _test_failed(req.provider, e)
 
     elif req.provider == "gemini":
         try:
             from google import genai
             client = genai.Client(api_key=api_key)
-            resp = await asyncio.to_thread(lambda: client.models.generate_content(model="gemini-2.0-flash", contents="hi"))
-            return {"success": True, "message": "Connected"}
+            await asyncio.to_thread(lambda: client.models.generate_content(model="gemini-2.0-flash", contents="hi"))
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise _test_failed(req.provider, e)
 
     elif req.provider in ("openai", "openrouter"):
         try:
@@ -271,33 +299,29 @@ async def test_provider(
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                     json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
                 )
-            if r.status_code == 401:
-                raise HTTPException(status_code=400, detail="Invalid API key")
-            if r.status_code == 429:
-                raise HTTPException(status_code=400, detail="Rate limited — key is valid but quota exceeded")
-            if not r.is_success:
-                raise HTTPException(status_code=400, detail=f"Provider returned {r.status_code}: {r.text[:200]}")
-            return {"success": True, "message": "Connected"}
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise _test_failed(req.provider, e)
+        if r.status_code == 401:
+            raise HTTPException(status_code=400, detail="Invalid API key")
+        if r.status_code == 429:
+            raise HTTPException(status_code=400, detail="Rate limited — key is valid but quota exceeded")
+        if not r.is_success:
+            # The body is the provider's own error text: log it, return only the status.
+            raise _test_failed(req.provider, RuntimeError(f"HTTP {r.status_code}: {r.text[:500]}"))
 
-    elif req.provider == "bedrock":
+    else:  # bedrock
         try:
             import boto3
-            import json as _json
             bedrock = await asyncio.to_thread(
                 lambda: boto3.client("bedrock-runtime", region_name=os.environ.get("AWS_REGION", "us-east-1"))
             )
-            resp = await asyncio.to_thread(lambda: bedrock.invoke_model(
+            await asyncio.to_thread(lambda: bedrock.invoke_model(
                 modelId="amazon.titan-text-lite-v1",
-                body=_json.dumps({"inputText": "hi", "textGenerationConfig": {"maxTokenCount": 5}}),
+                body=json.dumps({"inputText": "hi", "textGenerationConfig": {"maxTokenCount": 5}}),
                 contentType="application/json",
                 accept="application/json",
             ))
-            return {"success": True, "message": "Connected"}
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise _test_failed(req.provider, e)
 
-    raise HTTPException(status_code=400, detail=f"Provider '{req.provider}' is not supported for testing")
+    return {"success": True, "message": "Connected"}
