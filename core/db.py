@@ -158,6 +158,7 @@ async def init_db() -> None:
     - run_metadata.run_id: priority lookups are per-run
     """
     from . import models  # Ensure all models are registered with Base
+    from .billing import payments  # noqa: F401  registers billing_payments for callers that never load the gateway
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

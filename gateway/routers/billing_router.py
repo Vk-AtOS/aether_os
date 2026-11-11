@@ -12,13 +12,12 @@ import time
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.billing.payments import apply_paid_order
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
 from sqlalchemy import select as _sel
-from sqlalchemy import select as _sel, update as _upd
 from sqlalchemy import select as _sel_cancel, update as _upd_cancel
 from sqlalchemy import update as _upd_down
-from sqlalchemy import update as _upd_wh
 import hmac as _hmac, hashlib as _hashlib
 import hmac as _hmac_wh, hashlib as _hashlib_wh
 import razorpay
@@ -145,15 +144,12 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     ):
         logger.warning("verify_payment: order %s does not match org=%s (plan=%r)", order_id, user["org_id"], plan_id)
         raise HTTPException(status_code=400, detail="Order does not match this organisation or plan")
-    # Upgrade org plan in DB
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        await session.execute(
-            _upd(Organisation)
-            .where(Organisation.id == user["org_id"])
-            .values(plan=plan_id)
-        )
-        await session.commit()
+    # Record the order and upgrade the plan in one transaction. A paid order is
+    # good for exactly one upgrade: presented again (after a cancel, or racing
+    # itself) it is refused by the unique constraint, not by a check-then-write.
+    if not await apply_paid_order("razorpay", order_id, payment_id, user["org_id"], plan_id,
+                                  amount=order.get("amount")):
+        raise HTTPException(status_code=409, detail="This payment has already been applied")
     # Log payment
     logger.info(f"Payment verified: org={user['org_id']} plan={plan_id} payment={payment_id}")
     return {
@@ -285,13 +281,12 @@ async def razorpay_webhook(request: Request):
     org_id  = notes.get("org_id", "")
     plan_id = notes.get("plan", "")
     if event in ("payment.captured", "order.paid") and org_id and plan_id in RAZORPAY_PLANS:
-        session_factory = get_session_factory()
-        async with session_factory() as session:
-            await session.execute(
-                _upd_wh(Organisation)
-                .where(Organisation.id == org_id)
-                .values(plan=plan_id)
-            )
-            await session.commit()
-        logger.info(f"Webhook: upgraded org={org_id} to plan={plan_id}")
+        order_id, payment_id = entity.get("order_id", ""), entity.get("id", "")
+        if not order_id or not payment_id:
+            # Without ids the event cannot be tied to one payment, so it could be replayed.
+            logger.warning("Webhook: %s for org=%s has no order/payment id — not applied", event, org_id)
+        elif await apply_paid_order("razorpay", order_id, payment_id, org_id, plan_id,
+                                    amount=entity.get("amount")):
+            logger.info(f"Webhook: upgraded org={org_id} to plan={plan_id}")
+        # else: already applied (by verify-payment or an earlier delivery) — still acknowledge.
     return {"received": True}
