@@ -27,6 +27,8 @@ import pytest
 _REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+from aether_os.phases.base import TaskResult  # noqa: E402
+
 # ── Minimal generated-file fixtures ───────────────────────────────────────────
 
 MINIMAL_MAIN_PY = '''\

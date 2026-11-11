@@ -315,7 +315,7 @@ def gen_entity_lambda_handler(entity: dict) -> str:
 
 
         def _update_{name}(item_id: str, body: Dict) -> Dict:
-            set_clause = ", ".join(f"{{k}} = :{k}" for k in body if k != "id")
+            set_clause = ", ".join(f"{{k}} = :{{k}}" for k in body if k != "id")
             if not set_clause:
                 return _resp(400, {{"detail": "No fields to update"}})
             params = {{**body, "id": item_id}}

@@ -16,6 +16,7 @@ from typing import Any
 
 from aether_os.core.llm.client import get_llm_client
 from aether_os.core.domain_ir import IRClarifyingQuestion
+from aether_os.phases.base import TaskResult
 from aether_os.phases.p02b_domain_ir.ir_extractor import (
     _seed_entities,
     _build_ir_from_passes,

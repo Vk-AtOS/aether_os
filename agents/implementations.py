@@ -268,7 +268,7 @@ class FixEngineAgent(Agent):
                 f"You are a code fix assistant. Given the following error:\n{error}\n\n"
                 f"And code:\n{code[:2000]}\n\nProvide a concise fix."
             )
-            fix = await client.complete(prompt, max_tokens=512)
+            fix = await client.call(prompt, max_tokens=512)
             return _ok(self.name, "Fix suggestion generated", {"fix": fix})
         except Exception as exc:
             logger.warning("FixEngineAgent: fix engine failed: %s", exc)
@@ -293,7 +293,7 @@ class CodeReviewAgent(Agent):
                 "Return a JSON list of findings with keys: severity (high/medium/low), line_hint, message.\n\n"
                 f"```\n{code[:3000]}\n```"
             )
-            review = await client.complete(prompt, max_tokens=1024)
+            review = await client.call(prompt, max_tokens=1024)
             return _ok(self.name, "Code review complete", {"review": review})
         except Exception as exc:
             logger.warning("CodeReviewAgent: code review failed: %s", exc)
@@ -336,7 +336,7 @@ class RefactorAgent(Agent):
                 f"Refactor the following code to {goal}. "
                 f"Return the refactored code only.\n\n```\n{code[:3000]}\n```"
             )
-            refactored = await client.complete(prompt, max_tokens=2048)
+            refactored = await client.call(prompt, max_tokens=2048)
             return _ok(self.name, "Refactoring complete", {"refactored_code": refactored})
         except Exception as exc:
             logger.warning("RefactorAgent: refactor failed: %s", exc)

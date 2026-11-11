@@ -98,8 +98,9 @@ class HealingStageSupervisor(PhaseBase):
             )
             return TaskResult(
                 success=True,
-                output={"skipped": True, "reason": "already_healed_via_gate"},
+                output_path=str(output_dir),
                 metadata={
+                    "skipped": True,
                     "healing_passed": True,
                     "repairs_applied": [],
                     "error_patterns": [],

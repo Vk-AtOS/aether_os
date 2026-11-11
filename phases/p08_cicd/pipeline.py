@@ -7,6 +7,7 @@ and stability verification into a single repair pipeline.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -19,6 +20,8 @@ from aether_os.phases.p08_cicd.patch_reuse.matcher import match
 from aether_os.phases.p08_cicd.dsee.boundary import check_boundary
 from aether_os.phases.p08_cicd.dsee.impact import simulate_impact, ImpactResult
 from aether_os.phases.p08_cicd.dsee.test_runner import TieredTestRunner
+
+logger = logging.getLogger(__name__)
 from aether_os.phases.p08_cicd.dsee.verifier import verify_stability
 from aether_os.phases.p08_cicd.lang import detect_language_adapter
 from aether_os.phases.p08_cicd.feedback import fingerprint as log_fingerprint, GLOBAL_REPAIR_MEMORY

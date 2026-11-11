@@ -424,7 +424,7 @@ async def assemble_domain_pages(
 
                 for ir_ent in (domain_ir.entities or []):
                     for ir_field in ir_ent.fields:
-                        if ir_field.type == _AT.FK and ir_field.ref_entity:
+                        if ir_field.type == AetherType.FK and ir_field.ref_entity:
                             ref_lower = ir_field.ref_entity.lower()
                             _global_fk_refs[ir_field.name] = {
                                 "endpoint": f"/api/{pluralise_fn(ref_lower)}",
@@ -509,7 +509,7 @@ async def run_gate3_approval(
             if resolved.status == "approved" and resolved.human_choice:
                 try:
                     if resolved.human_choice.strip().startswith("["):
-                        admin_features = _json.loads(resolved.human_choice)
+                        admin_features = json.loads(resolved.human_choice)
                     else:
                         admin_features = [f.strip() for f in resolved.human_choice.split(",") if f.strip()]
                 except Exception as _parse_exc:

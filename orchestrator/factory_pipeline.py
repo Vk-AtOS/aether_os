@@ -7,11 +7,12 @@ The orchestrator routes messages; it never calls phase logic directly.
 
 Phase registry data lives in orchestrator/phase_sequence.py.
 Run-state helpers live in orchestrator/run_state.py.
+"""
+from __future__ import annotations
 import secrets
 import json as _json
 from sqlalchemy import update as _sa_update
 from sqlalchemy import select as _sel, update as _upd
-from sqlalchemy import select as _sel
 from aether_os.integrations.aether2_bridge import ExternalMonitorBridge
 from aether_os.core.services.learning_service import get_user_context
 from aether_os.core.questionnaire.stage_questions import get_stage_questions
@@ -33,8 +34,6 @@ from aether_os.core.db import get_session_factory as _gsf_esc
 from aether_os.core.db import get_session_factory as _gsf_canc
 from aether_os.core.db import get_session_factory as _gsf
 from aether_os.core.db import get_session_factory
-"""
-from __future__ import annotations
 import asyncio
 import logging
 import time
@@ -88,6 +87,7 @@ from aether_os.orchestrator.phase_selector import (
     restore_from_checkpoint,
 )
 from aether_os.orchestrator.phase_hooks import run_phase_hooks
+from aether_os.orchestrator.phase_hooks_helpers import hook_persist_live_url
 from aether_os.orchestrator import messages as _messages_module
 from aether_os.orchestrator.bus import release_bus
 from aether_os.orchestrator.pipeline_completion import (
@@ -424,16 +424,25 @@ class FactoryPipeline:
                         "[pipeline] Parallel wave %s raised unexpectedly: %s — aborting",
                         _wave, _wave_exc,
                     )
-                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await self.ledger.async_update_run_status(
+                        run_id, "failed", message=f"Stages {', '.join(_wave)} crashed: {_wave_exc}")
                     await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
                                                  "error": str(_wave_exc), "ts": time.time()})
                     return {"run_id": run_id, "status": "failed", "error": str(_wave_exc)}
 
+                # Checkpoint the wave once, on its earliest phase in run order.
+                # Resume restarts at index(last_completed)+1, so checkpointing a
+                # later phase (e.g. s12 in [s05, s12]) would skip s06-s11.
+                _run_order = list(phases_to_run)
+                await save_checkpoint(
+                    run_id, min(_wave, key=_run_order.index), accumulated_context
+                )
                 for _wp in _wave:
                     _wr = _wave_results.get(_wp, {})
                     results[_wp] = _wr
-                    # Persist checkpoint after each completed parallel phase
-                    await save_checkpoint(run_id, _wp, accumulated_context)
+                    # s09 only ever runs in a parallel wave, and it is the only
+                    # parallel stage with a post-stage hook: persist Run.live_url.
+                    await hook_persist_live_url(_wp, _wr, run_id, accumulated_context)
                     # D6: record in project memory
                     _pm_update(project_dir, {
                         f"phase_{_wp}": {
@@ -448,7 +457,8 @@ class FactoryPipeline:
                             "[pipeline] Critical phase %s failed in parallel wave — aborting run %s",
                             _wp, run_id,
                         )
-                        await self.ledger.async_update_run_status(run_id, "failed")
+                        await self.ledger.async_update_run_status(
+                            run_id, "failed", message=f"Stage {_wp} failed: {_err}")
                         await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
                                                      "error": _err, "ts": time.time()})
                         return {"run_id": run_id, "status": "failed", "error": _err}
@@ -740,7 +750,11 @@ class FactoryPipeline:
                         logger.debug("bridge.report_failure(timeout) non-fatal: %s", _btoe)
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
-                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await self.ledger.async_update_run_status(
+                        run_id, "failed",
+                        message=(f"Stage {phase_name} did not finish within {int(_phase_timeout)} seconds. "
+                                 "The usual cause is that no model provider is answering: "
+                                 "check the model key in Settings."))
                     # Fix 62: persist finished_at on pipeline abort
                     try:
 
@@ -770,7 +784,8 @@ class FactoryPipeline:
                         logger.debug("bridge.report_failure non-fatal: %s", _bfe)
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s failed — aborting pipeline %s", phase_name, run_id)
-                    await self.ledger.async_update_run_status(run_id, "failed")
+                    await self.ledger.async_update_run_status(
+                        run_id, "failed", message=f"Stage {phase_name} failed: {e}")
                     # Fix 62: persist finished_at on pipeline abort
                     try:
 

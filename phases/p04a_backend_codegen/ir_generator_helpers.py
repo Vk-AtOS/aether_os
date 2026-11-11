@@ -49,7 +49,7 @@ def _role_guard(roles: list) -> list:
         return []
     roles_repr = repr(roles)
     return [
-        f"    if getattr(current_user, 'role', None) not in {roles_repr}:",
+        f"    if (current_user.get('role') if isinstance(current_user, dict) else getattr(current_user, 'role', None)) not in {roles_repr}:",
         f"        raise HTTPException(status_code=403, detail='Insufficient permissions')",
     ]
 
@@ -230,6 +230,7 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None, mul
         "from database import get_db",
         "from auth import get_current_user",
         "import models",
+        "import schemas",
         schema_import_line,
         "try:",
         "    from services.audit_service import log_action as _log_action",
