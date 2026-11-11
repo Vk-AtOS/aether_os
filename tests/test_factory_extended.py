@@ -290,7 +290,8 @@ def test_portal_status_project_not_found(tmp_path):
     client = TestClient(app)
     resp = client.get("/portal/nonexistent-id/status")
 
-    assert resp.status_code == 404
+    # No credentials: refused before the project is looked up, so the id is not confirmed either way.
+    assert resp.status_code == 401
     pm_mod._manager = None
 
 
