@@ -7,6 +7,7 @@ import OAuthCallback from './pages/OAuthCallback';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
+import { ConfirmHost } from './components/confirmAction';
 
 // Lazy (all other pages)
 const Dashboard         = React.lazy(() => import('./pages/Dashboard'));
@@ -46,6 +47,8 @@ const GlobalPatternsTuning = React.lazy(() => import('./pages/GlobalPatternsTuni
 const ProjectDesigner   = React.lazy(() => import('./pages/ProjectDesigner'));
 const Workspaces        = React.lazy(() => import('./pages/Workspaces'));
 const RunDetail         = React.lazy(() => import('./pages/RunDetail'));
+const Operations        = React.lazy(() => import('./pages/Operations'));
+const Prime             = React.lazy(() => import('./pages/Prime'));
 
 
 const ProtectedRoute = ({ children }) => {
@@ -83,6 +86,8 @@ function App() {
   }, [navigate]);
 
   return (
+    <>
+    <ConfirmHost />
     <Routes>
       <Route path="/signin"  element={<Navigate to="/login" replace />} />
       <Route path="/dashboard/connector-hub" element={<Navigate to="/connectors" replace />} />
@@ -142,6 +147,8 @@ function App() {
         <Route path="designer" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
         <Route path="designer/:id" element={<ErrorBoundary><ProjectDesigner /></ErrorBoundary>} />
         <Route path="workspaces" element={<ErrorBoundary><Workspaces /></ErrorBoundary>} />
+        <Route path="operations" element={<ErrorBoundary><Operations /></ErrorBoundary>} />
+        <Route path="prime" element={<ErrorBoundary><Prime /></ErrorBoundary>} />
         <Route path="runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="dashboard/runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />
@@ -149,6 +156,7 @@ function App() {
 
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </>
   );
 }
 

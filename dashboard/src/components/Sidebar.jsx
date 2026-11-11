@@ -5,7 +5,7 @@ import {
   Plug, Wrench, Brain, DollarSign, ChevronDown, ChevronRight,
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
-  Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2,
+  Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2, BrainCircuit, Briefcase,
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
@@ -68,6 +68,13 @@ const Sidebar = () => {
     { name: 'Marketplace',   path: '/marketplace', icon: Store },
     { name: 'Settings',      path: '/settings',    icon: Settings },
   ].filter(Boolean);
+
+  // The other two products. They sit above the factory's own sections so the
+  // three parts of the system are always one click apart.
+  const companyItems = [
+    { name: 'Operations', path: '/operations', icon: Briefcase },
+    { name: 'Prime',      path: '/prime',      icon: BrainCircuit },
+  ];
 
   const platformItems = [
     { name: 'Intelligence',  path: '/intelligence', icon: Sparkles },
@@ -149,6 +156,19 @@ const Sidebar = () => {
             </NavLink>
           );
         })}
+
+        <div className="pt-3 pb-1">
+          <p className="px-3 pb-1 text-[10px] font-bold text-slate-600 uppercase tracking-widest">Company</p>
+          {companyItems.map((item) => {
+            const active = isActiveRoute(item.path);
+            return (
+              <NavLink key={item.name} to={item.path} className={linkClass(active)} aria-current={active ? 'page' : undefined}>
+                <item.icon className={`w-4 h-4 mr-3 flex-shrink-0 ${active ? 'text-violet-400' : ''}`} aria-hidden="true" />
+                {item.name}
+              </NavLink>
+            );
+          })}
+        </div>
 
         {/* Platform section */}
         <div className="pt-2">

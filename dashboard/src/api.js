@@ -242,6 +242,18 @@ export const api = {
   // LLM Traces
   getRunTraces: (runId) => client.get(`/factory/runs/${runId}/traces`),
   getRunTraceDetail: (runId, traceId) => client.get(`/factory/runs/${runId}/traces/${traceId}`),
+
+  // Operations (Velaris)
+  getVelarisInventory: () => client.get('/velaris/inventory'),
+
+  // Prime
+  getPrimeMeta: () => client.get('/prime/meta'),
+  listDelegations: () => client.get('/prime/delegations'),
+  createDelegation: (data) => client.post('/prime/delegations', data),
+  revokeDelegation: (id) => client.post(`/prime/delegations/${id}/revoke`),
+  checkPrimeAction: (data) => client.post('/prime/check', data),
+  getPrimeActivity: () => client.get('/prime/activity'),
+  verifyLedger: () => client.get('/prime/ledger/verify'),
 };
 
 // Default export so pages can do: import api from '../api'
