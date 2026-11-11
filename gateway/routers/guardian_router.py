@@ -15,7 +15,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from aether_os.gateway.dependencies import get_current_user, security_scheme
 from aether_os.core.services.guardian_service import (
@@ -42,6 +42,7 @@ def _require_admin(user: Dict[str, Any]) -> None:
 
 @router.get("/status")
 async def guardian_status(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> Dict[str, Any]:
     """Current threat level, last snapshot, and live service health."""
@@ -50,7 +51,7 @@ async def guardian_status(
     user: Optional[Dict[str, Any]] = None
     if credentials:
         try:
-            user = await get_current_user(credentials)
+            user = await get_current_user(request, credentials)
         except HTTPException as e:
             logger.warning("guardian_router: authentication failed (will return public stub): %s", e.detail)
 
