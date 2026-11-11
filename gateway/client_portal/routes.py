@@ -1,17 +1,20 @@
-
 from __future__ import annotations
-import datetime
 import io
 import json
 import logging
+import re
+import secrets
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
+from aether_os.core.projects import get_project_manager
 from aether_os.gateway.client_portal.provenance import _build_provenance
+from aether_os.gateway.dependencies import assert_run_in_org, get_current_user, security_scheme
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/portal", tags=["client-portal"])
@@ -29,8 +32,6 @@ class ApproveBody(BaseModel):
 
 def _get_portal_token(project_id: str) -> str:
     """Return (or generate) a persistent portal access token for a run, stored next to the project."""
-    import secrets
-    from aether_os.core.projects import get_project_manager
     try:
         project_dir = get_project_manager().get_project_dir(project_id)
         token_file = project_dir / ".portal_token"
@@ -45,38 +46,55 @@ def _get_portal_token(project_id: str) -> str:
         return ""
 
 
-async def _portal_auth(request: Request, portal_token: Optional[str] = None) -> None:
-    """
-    Lightweight portal auth for write endpoints (approve / feedback).
-    Accepts either:
-      - A valid AetherOS JWT in the Authorization: Bearer header (dashboard users)
-      - An X-Portal-Token header matching the run's stored portal token file
-      - A ?portal_token=<uuid> query param (legacy; prefer header to avoid URL log exposure)
-    """
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        jwt_val = auth_header[7:]
-        try:
-            from aether_os.gateway.auth import decode_bearer_token
-            payload = decode_bearer_token(jwt_val)
-            if payload and payload.get("org_id"):
-                return  # Valid JWT
-        except Exception as exc:
-            logger.debug("Portal JWT validation failed, falling through to portal token check: %s", exc)
+# A run / project id as a single safe path component: these ids are joined onto the
+# projects directory, so "..", separators and empty values must never get that far.
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
-    # Prefer header-supplied token over query param to keep token out of server logs
-    effective_token = request.headers.get("x-portal-token") or portal_token
-    if effective_token:
-        # Extract project_id from request path to validate the token
-        path = request.url.path
-        parts = path.strip("/").split("/")
-        # Path is /portal/{project_id}/approve or /portal/{project_id}/feedback
-        if len(parts) >= 2 and parts[0] == "portal":
-            stored = _get_portal_token(parts[1])
-            if stored and stored == effective_token:
-                return  # Valid portal token
 
-    raise HTTPException(status_code=401, detail="Portal authentication required")
+def _stored_portal_token(project_id: str) -> str:
+    """Read the project's portal token without creating anything; "" if there is none."""
+    try:
+        token_file = get_project_manager()._root / project_id / ".portal_token"
+        return token_file.read_text().strip() if token_file.is_file() else ""
+    except Exception as exc:
+        logger.warning("Could not read portal token for project %s: %s", project_id, exc)
+        return ""
+
+
+async def _portal_auth(
+    request: Request,
+    portal_token: Optional[str] = None,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+) -> None:
+    """Auth for every /portal/{id}/... route. Accepts either:
+      - the project's own portal token: X-Portal-Token header, or ?portal_token=
+        (query form kept for plain download links; it does end up in access logs)
+      - a signed-in user (or API key) of the organisation that owns the run.
+    A valid session from another organisation is not enough: 404, same as any
+    other run route, so run ids cannot be probed.
+    """
+    project_id = request.path_params.get("project_id") or request.path_params.get("run_id") or ""
+    if not _SAFE_NAME.match(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    supplied = request.headers.get("x-portal-token") or portal_token
+    if supplied:
+        stored = _stored_portal_token(project_id)
+        if stored and secrets.compare_digest(stored.encode(), supplied.encode()):
+            return
+        raise HTTPException(status_code=401, detail="Portal authentication required")
+
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Portal authentication required")
+    user = await get_current_user(request, credentials)
+    await assert_run_in_org(project_id, user)
+
+
+def _portal_error(what: str, project_id: str, exc: Exception) -> HTTPException:
+    """Log the real error; the portal is client-facing, so the reply carries no
+    exception text (it used to include import errors and filesystem paths)."""
+    logger.warning("Portal %s failed for project %s: %s: %s", what, project_id, type(exc).__name__, exc)
+    return HTTPException(status_code=500, detail=f"Portal {what} request failed")
 
 
 async def _resolve_run(project_id: str) -> dict:
@@ -111,7 +129,6 @@ async def _resolve_run(project_id: str) -> dict:
         logger.debug("DB run lookup failed: %s", exc)
 
     # Fallback: file-based ProjectManager
-    from aether_os.core.projects import get_project_manager
     pm = get_project_manager()
     project = pm.get_project(project_id)
     if project:
@@ -128,7 +145,7 @@ async def _resolve_run(project_id: str) -> dict:
 
 
 @router.get("/{project_id}/status")
-async def get_project_status(project_id: str):
+async def get_project_status(project_id: str, _auth: None = Depends(_portal_auth)):
     try:
         rec = await _resolve_run(project_id)
         project_dir = rec["project_dir"]
@@ -213,16 +230,17 @@ async def get_project_status(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Status error: %s", e)
-        raise HTTPException(500, str(e))
+        raise _portal_error("status", project_id, e)
 
 
 @router.get("/{project_id}/phase/{phase_name}")
-async def get_phase_output(project_id: str, phase_name: str):
+async def get_phase_output(project_id: str, phase_name: str, _auth: None = Depends(_portal_auth)):
+    # phase_name is joined onto the project directory: ".." would list every
+    # project's files, and get_output_dir() would create whatever name is sent.
+    if not _SAFE_NAME.match(phase_name):
+        raise HTTPException(status_code=404, detail="Phase not found")
     try:
-        from aether_os.core.projects import get_project_manager
-        pm = get_project_manager()
-        phase_dir = pm.get_output_dir(project_id, phase_name)
+        phase_dir = (await _resolve_run(project_id))["project_dir"] / phase_name
         files = {}
         for f in phase_dir.rglob("*"):
             if f.is_file() and f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
@@ -231,8 +249,10 @@ async def get_phase_output(project_id: str, phase_name: str):
                 except Exception as exc:
                     logger.debug("Failed to read phase output file %s: %s", f.name, exc)
         return {"project_id": project_id, "phase": phase_name, "files": files}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise _portal_error("phase", project_id, e)
 
 
 @router.post("/{project_id}/approve")
@@ -252,7 +272,7 @@ async def approve_phase(
                 "message": "Approval recorded. Next phase will start shortly." if body.approved
                            else "Change request noted. Re-running affected phases."}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise _portal_error("approve", project_id, e)
 
 
 @router.post("/{project_id}/feedback")
@@ -274,18 +294,14 @@ async def submit_feedback(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise _portal_error("feedback", project_id, e)
 
 
 # ── Download endpoints ────────────────────────────────────────────────────────
 
 @router.get("/{run_id}/download")
-async def portal_download_zip(run_id: str):
-    """Download all project artifacts as a ZIP file.
-
-    No auth required — the run_id UUID is unguessable and acts as the
-    access token for client delivery.
-    """
+async def portal_download_zip(run_id: str, _auth: None = Depends(_portal_auth)):
+    """Download all project artifacts as a ZIP file (portal token or owning-org user)."""
     rec = await _resolve_run(run_id)
     project_dir: Path = rec["project_dir"]
 
@@ -359,7 +375,7 @@ async def portal_download_zip(run_id: str):
 
 
 @router.get("/{run_id}/provenance")
-async def portal_provenance(run_id: str):
+async def portal_provenance(run_id: str, _auth: None = Depends(_portal_auth)):
     """Return the build provenance Markdown document."""
     rec = await _resolve_run(run_id)
 

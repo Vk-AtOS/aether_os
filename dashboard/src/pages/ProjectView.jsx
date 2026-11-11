@@ -130,6 +130,21 @@ const ProjectView = () => {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
+  // The portal download needs the sign-in header, which a plain link cannot send.
+  const downloadCompliance = async () => {
+    try {
+      const res = await api.client.get(`/portal/${id}/download`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${id}-compliance.zip`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      setToast('Download failed. Try again.');
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -320,7 +335,7 @@ const ProjectView = () => {
                   </div>
                 ))}
                 {(complianceData.findings || []).filter(f => f.severity !== 'pass').length === 0 && <div className="text-xs text-emerald-400 font-medium">All compliance checks passed.</div>}
-                <a href={`/api/portal/${id}/download`} className="flex items-center space-x-1.5 text-xs text-accent hover:underline"><Download className="w-3 h-3" /><span>Download Compliance PDF (ZIP)</span></a>
+                <button type="button" onClick={downloadCompliance} className="flex items-center space-x-1.5 text-xs text-accent hover:underline"><Download className="w-3 h-3" /><span>Download Compliance PDF (ZIP)</span></button>
               </section>
             )}
           </div>
