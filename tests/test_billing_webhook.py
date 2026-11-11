@@ -188,8 +188,12 @@ def test_cancel_subscription(client):
     assert data.get("plan") == "free"
 
 
-def test_downgrade_subscription_valid_plan(client):
-    """POST /billing/downgrade with valid target_plan must succeed."""
+def test_downgrade_cannot_be_used_to_upgrade(client):
+    """A fresh trial org asking to "downgrade" to starter is a free upgrade and must be refused.
+
+    This test used to expect 200: it asserted the billing self-upgrade defect.
+    Real downgrades are covered in tests/test_security_fixes.py.
+    """
     token = _register_and_login(client)
     if not token:
         pytest.skip("Could not authenticate")
@@ -198,10 +202,7 @@ def test_downgrade_subscription_valid_plan(client):
         json={"target_plan": "starter"},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data.get("success") is True
-    assert data.get("plan") == "starter"
+    assert resp.status_code in (400, 403)
 
 
 def test_downgrade_subscription_invalid_plan_rejected(client):

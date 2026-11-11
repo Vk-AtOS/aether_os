@@ -38,6 +38,10 @@ def _razorpay_client():
     return razorpay.Client(auth=(key_id, key_secret))
 def _current_user():
     return Depends(get_current_user)
+def _require_billing_admin(user: Dict[str, Any]) -> None:
+    """Plan changes affect the whole org — owner/admin only (API keys have role 'api')."""
+    if user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only org owners and admins can change the plan")
 @router.get("/billing/plans")
 async def list_plans():
     """Return available subscription plans (public endpoint)."""
@@ -111,11 +115,8 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     order_id   = req.get("razorpay_order_id", "")
     payment_id = req.get("razorpay_payment_id", "")
     signature  = req.get("razorpay_signature", "")
-    plan_id    = req.get("plan", "pro").lower()
     if not order_id or not payment_id or not signature:
         raise HTTPException(status_code=422, detail="razorpay_order_id, razorpay_payment_id, razorpay_signature are required")
-    if plan_id not in RAZORPAY_PLANS:
-        raise HTTPException(status_code=422, detail="Invalid plan")
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
     if not key_secret:
         raise HTTPException(status_code=503, detail="Payment gateway not configured")
@@ -124,6 +125,26 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     expected = _hmac.new(key_secret.encode(), msg, _hashlib.sha256).hexdigest()
     if not _hmac.compare_digest(expected, signature):
         raise HTTPException(status_code=400, detail="Payment signature verification failed")
+    # The signature only proves order_id|payment_id is genuine. What was paid for, and
+    # by which org, is on the server-side order (notes set in create_order) — never
+    # take the plan from the request body, or paying for Pro unlocks Enterprise.
+    try:
+        order = _razorpay_client().order.fetch(order_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("verify_payment: Razorpay order fetch failed for %s: %s", order_id, exc)
+        raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway")
+    notes = order.get("notes") or {}
+    plan_id = str(notes.get("plan", "")).lower()
+    if (
+        plan_id not in RAZORPAY_PLANS
+        or notes.get("org_id") != user["org_id"]
+        or order.get("amount") != RAZORPAY_PLANS[plan_id]["amount"]
+        or order.get("status") != "paid"
+    ):
+        logger.warning("verify_payment: order %s does not match org=%s (plan=%r)", order_id, user["org_id"], plan_id)
+        raise HTTPException(status_code=400, detail="Order does not match this organisation or plan")
     # Upgrade org plan in DB
     session_factory = get_session_factory()
     async with session_factory() as session:
@@ -182,6 +203,7 @@ async def list_invoices(user: Dict[str, Any] = _current_user()):
 @router.post("/billing/cancel")
 async def cancel_subscription(user: Dict[str, Any] = _current_user()):
     """Cancel active subscription via Stripe (if configured) then downgrade org to free."""
+    _require_billing_admin(user)
     org_id = user["org_id"]
     # If Stripe is configured, cancel the active subscription there first
     stripe_key = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -214,13 +236,25 @@ async def cancel_subscription(user: Dict[str, Any] = _current_user()):
     except Exception as _e:
         logger.warning("cancel_subscription DB update failed: %s", _e)
     return {"success": True, "plan": "free", "message": "Subscription cancelled. Plan downgraded to free."}
-_VALID_DOWNGRADE_PLANS = {"free", "trial", "starter", "pro", "enterprise"}
+# Lowest to highest. Raising the plan only ever happens through a verified payment.
+_PLAN_ORDER = ["free", "trial", "starter", "pro", "enterprise"]
+_VALID_DOWNGRADE_PLANS = set(_PLAN_ORDER)
 @router.post("/billing/downgrade")
 async def downgrade_subscription(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     """Downgrade the org to a lower plan."""
     target_plan = req.get("target_plan", "").lower()
     if target_plan not in _VALID_DOWNGRADE_PLANS:
         raise HTTPException(status_code=400, detail=f"Invalid target_plan: {target_plan}. Choose from: {sorted(_VALID_DOWNGRADE_PLANS)}")
+    _require_billing_admin(user)
+    # Compare against the plan in the DB (the JWT claim can be an hour stale).
+    async with get_session_factory()() as session:
+        current_plan = (await session.execute(
+            _sel(Organisation.plan).where(Organisation.id == user["org_id"])
+        )).scalar_one_or_none()
+    # Unknown current plan → treated as lowest, so nothing can be "downgraded" up from it.
+    current_rank = _PLAN_ORDER.index(current_plan) if current_plan in _PLAN_ORDER else 0
+    if _PLAN_ORDER.index(target_plan) >= current_rank:
+        raise HTTPException(status_code=403, detail="target_plan must be lower than the current plan; upgrades require payment")
     try:
         session_factory = get_session_factory()
         async with session_factory() as session:
