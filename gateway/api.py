@@ -39,6 +39,8 @@ from pydantic import BaseModel
 # Pydantic models and middleware classes live in api_helpers.py to keep this
 # file under 600 lines. They are re-imported here for backwards compatibility
 # with any code that imports them from gateway.api directly.
+from aether_os.core.rate_limiter import get_client_ip
+from aether_os.gateway.security import require_ci_auth
 from aether_os.gateway.api_helpers import (  # noqa: F401 (re-export)
     PipelineStartRequest, PipelineStartResponse,
     ApproveRequest, ApiKeyRequest, TestProviderRequest,
@@ -142,12 +144,13 @@ def create_app() -> FastAPI:
         from aether_os.core.prometheus_patch import apply as _apply_prom_patch
         _apply_prom_patch()  # must run before .instrument() — see core/prometheus_patch.py
         from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore
-        instrumentator = Instrumentator(
+        Instrumentator(
             should_group_status_codes=True,
             should_ignore_untemplated=True,
             excluded_handlers=["/health", "/metrics"],
         ).instrument(app)
-        instrumentator.expose(app, endpoint="/_metrics_internal", include_in_schema=False)
+        # No instrumentator.expose(): it mounted an unauthenticated /_metrics_internal that
+        # bypassed the X-Metrics-Key check. metrics_router serves the same registry at /metrics.
         logger.info("Prometheus instrumentation enabled (handler: metrics_router)")
     except ImportError:
         logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
@@ -168,8 +171,8 @@ def create_app() -> FastAPI:
                 # Extract user from Authorization header (best-effort — don't block request)
                 auth = request.headers.get("Authorization", "")
                 if auth.startswith("Bearer "):
-                    from aether_os.gateway.auth import decode_access_token
-                    claims = decode_access_token(auth[7:])
+                    from aether_os.gateway.auth import decode_bearer_token
+                    claims = decode_bearer_token(auth[7:])
                     if claims:
                         from aether_os.core.audit.ledger import get_ledger
                         import asyncio
@@ -181,11 +184,7 @@ def create_app() -> FastAPI:
                             resource_type=path_parts[1] if len(path_parts) > 1 else "api",
                             resource_id=path_parts[2] if len(path_parts) > 2 else "-",
                             metadata={},
-                            ip_address=(
-                                request.headers.get("X-Real-IP")
-                                or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                                or (request.client.host if request.client else "unknown")
-                            ),
+                            ip_address=get_client_ip(request),
                         ))
             except Exception as exc:
                 # ARCH-H2: WARNING so failures are visible in production (DEBUG is off by default).
@@ -274,10 +273,13 @@ def create_app() -> FastAPI:
         ("guardian",      "aether_os.gateway.routers.guardian_router",      "router",       {},                        False),
         ("guardian_snapshots", "aether_os.gateway.routers.guardian_snapshots_router", "router", {},                    False),
         ("app_preview",   "aether_os.gateway.routers.app_preview_router",   "router",       {},                        False),
+        ("prime",         "aether_os.gateway.routers.prime_router",         "router",       {},                        False),
+        ("velaris",       "aether_os.gateway.routers.velaris_router",       "router",       {},                        False),
         # --- Plugin / optional integrations ---
         ("plugins",       "aether_os.gateway.routers.plugins_router",       "router",       {"prefix": "/v2"},         False),
         ("plugins_connectors", "aether_os.gateway.routers.plugins_connectors_router", "router", {"prefix": "/v2"},    False),
-        ("cicd_webhook",  "aether_os.phases.p08_cicd.webhook",              "router",       {"tags": ["CI/CD"]},       False),
+        # Auth is attached at mount time: the router itself (phases/) declares none.
+        ("cicd_webhook",  "aether_os.phases.p08_cicd.webhook",              "router",       {"tags": ["CI/CD"], "dependencies": [Depends(require_ci_auth)]}, False),
         ("client_portal", "aether_os.gateway.client_portal.routes",         "router",       {},                        False),
         ("mcp",           "aether_os.gateway.mcp_router",                   "router",       {},                        False),
         ("saml",          "aether_os.gateway.auth_saml",                    "saml_router",  {},                        False),

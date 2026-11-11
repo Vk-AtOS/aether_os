@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -198,15 +198,19 @@ async def pricing():
 
 
 @router.get("/system/feature-flags")
-async def list_feature_flags():
+async def list_feature_flags(user: Dict[str, Any] = Depends(get_current_user)):
     """Return current platform feature flag states (admin use)."""
     from aether_os.core.feature_flags import flags
     return {"flags": flags.all_flags(), "source": "growthbook+env+defaults"}
 
 
 @router.post("/system/feature-flags/{flag}")
-async def set_feature_flag(flag: str, body: dict = {}):
-    """Override a platform feature flag at runtime via env var."""
+async def set_feature_flag(
+    flag: str, body: dict = {}, user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Override a platform feature flag at runtime via env var (admin only)."""
+    if user.get("role") not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
     value = body.get("enabled", True)
     key = f"FEATURE_{flag.upper()}"
     os.environ[key] = "true" if value else "false"
