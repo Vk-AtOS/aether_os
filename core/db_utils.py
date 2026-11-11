@@ -227,8 +227,9 @@ async def update_run_status(
     status: str,
     org_id: Optional[str] = None,
     current_phase: Optional[str] = None,
+    message: Optional[str] = None,
 ) -> bool:
-    """Update run status (and optionally current_phase). Returns False if not found."""
+    """Update run status (and optionally current_phase / message). Returns False if not found."""
     session_factory = get_session_factory()
     async with session_factory() as session:
         run = await session.get(Run, run_id)
@@ -239,6 +240,8 @@ async def update_run_status(
         run.status = status
         if current_phase is not None:
             run.current_phase = current_phase
+        if message is not None:
+            run.message = message[:2000]
         if status in ("completed", "failed", "cancelled", "gated"):
             run.finished_at = time.time()
         await session.commit()
