@@ -28,6 +28,7 @@ from aether_os.phases.p07b_self_healing.quality_helpers import (
     apply_deterministic_fallback,
 )
 from aether_os.core.error_registry import ErrorCategory
+from aether_os.core.run_app.child_env import child_env
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,6 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
                 logger.debug("[p07b] Pattern matched failing file: %s", candidate)
                 return candidate
     return None
-
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
@@ -281,7 +281,7 @@ async def _run_tests(test_file: Path) -> Dict[str, Any]:
     proc = None
     try:
         _test_env = {
-            **os.environ,
+            **child_env(),
             "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
             "SECRET_KEY": "test-secret-key-not-for-production",
         }
@@ -485,7 +485,7 @@ async def _quality_probe(
 
     proc = None
     try:
-        _env = {**os.environ}
+        _env = child_env()
         for line in env_file.read_text().splitlines():
             if "=" in line and not line.startswith("#"):
                 k, v = line.split("=", 1)

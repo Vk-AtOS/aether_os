@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
+from aether_os.core.run_app.child_env import child_env
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
 
     parent = src_dir.parent  # backend root (has src/ as package)
     env_patch = {"DATABASE_URL": "sqlite+aiosqlite:///./test_exec_validate.db", "SECRET_KEY": "test-secret"}
-    test_env = {**os.environ, **env_patch}
+    test_env = {**child_env(), **env_patch}
 
     cmd = [
         "python3", "-c",
@@ -350,7 +351,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     run_dir = src_dir if src_dir else output_dir
     try:
         _test_env = {
-            **os.environ,
+            **child_env(),
             "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
             "SECRET_KEY": "test-secret-key-not-for-production",
             "PYTHONPATH": str(run_dir),
