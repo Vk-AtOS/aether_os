@@ -6,11 +6,12 @@ POST   /scim/v2/Users
 PUT    /scim/v2/Users/{user_id}
 DELETE /scim/v2/Users/{user_id}
 GET    /scim/v2/Groups
-Auth: dedicated SCIM Bearer token (NOT a user JWT).
+Auth: dedicated SCIM Bearer token only. A user session JWT is never accepted:
+provisioning creates and deactivates accounts, so it must not be reachable with
+a credential every signed-in user holds.
 Priority:
   1. SCIM_BEARER_TOKEN env var (static token — simplest for single-tenant)
-  2. Organisation.scim_token column (per-org DB token — for multi-tenant)
-  3. Fallback to standard JWT (dev/backward-compat mode only)
+  2. Organisation.scim_token_hash (per-org token from /settings/scim/rotate)
 IdP setup (Okta / Azure AD / Google):
   - Bearer token: value of SCIM_BEARER_TOKEN (or per-org token from /settings/scim)
   - Base URL: https://your-domain/api/scim/v2
@@ -28,7 +29,6 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
 from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import User as _User
-from aether_os.gateway.auth import decode_bearer_token
 from aether_os.gateway.auth import get_password_hash
 from datetime import datetime as _dt
 from sqlalchemy import select
@@ -38,12 +38,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["scim"])
 async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
     """
-    Dedicated SCIM auth dependency — accepts a provisioning Bearer token,
-    NOT a user JWT.  This is required for real IdPs (Okta, Azure AD, etc.).
+    Dedicated SCIM auth dependency — accepts only a provisioning Bearer token.
     Priority:
     1. SCIM_BEARER_TOKEN env var (static token — IdP mode, single-tenant).
-    2. Organisation.scim_token DB column (per-org token — multi-tenant / UI-managed).
-    3. Fallback: standard AetherOS JWT (dev / backward-compat).
+    2. Organisation.scim_token_hash (per-org token — multi-tenant / UI-managed).
+    Anything else, including a valid user JWT, is 401.
     """
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -55,7 +54,7 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
     token = auth_header[7:]
     # 1. Env-var static token (simplest setup — generate with secrets.token_urlsafe(32))
     static = os.environ.get("SCIM_BEARER_TOKEN", "").strip()
-    if static and secrets.compare_digest(token, static):
+    if static and secrets.compare_digest(token.encode(), static.encode()):
         scim_org_id = os.getenv("SCIM_ORG_ID", "").strip()
         if not scim_org_id:
             raise HTTPException(
@@ -86,19 +85,15 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
                 except Exception as _bce:
                     logger.warning("SCIM bcrypt compare failed for org %s: %s", org.id, _bce)
             # Legacy plaintext fallback (only during migration window)
-            elif org.scim_token and secrets.compare_digest(token, org.scim_token):
+            elif org.scim_token and secrets.compare_digest(token.encode(), org.scim_token.encode()):
                 logger.warning(
                     "SCIM: org %s is using deprecated plaintext scim_token — "
                     "rotate via /settings/scim to migrate to hashed storage", org.id
                 )
                 return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
     except Exception as exc:
-        # scim_token column may not exist yet (pre-migration) — fall through
+        # Lookup failure is a denial, never a reason to try another credential type.
         logger.warning("SCIM per-org token lookup failed: %s", exc)
-    # 3. Fallback: standard JWT (dev / backward-compat)
-    payload = decode_bearer_token(token)
-    if payload:
-        return payload
     raise HTTPException(
         status_code=401,
         detail="SCIM: invalid Bearer token",
