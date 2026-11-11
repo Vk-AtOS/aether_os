@@ -2,36 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   RotateCcw, Play, Pencil, Layers, ChevronDown, ChevronRight, X, Loader2, Rocket,
 } from 'lucide-react';
+// One stage list for the whole dashboard; reruns must name a stage the pipeline knows.
+import { PHASES, PHASE_NAMES } from './project/projectConstants';
 
-const PHASES = [
-  'p01_intake_requirements',
-  'p02_architecture',
-  'p03_scaffolding',
-  'p04_backend',
-  'p05_frontend',
-  'p06_review_security',
-  'p07_testing',
-  'p07b_self_healing',
-  'p08_cicd_deployment',
-  'p09_observability',
-  'p10_docs_delivery',
-  'p11_deployment',
-];
-
-const PHASE_NAMES = {
-  p01_intake_requirements: 'Intake & Requirements',
-  p02_architecture:        'Architecture Design',
-  p03_scaffolding:         'Project Scaffolding',
-  p04_backend:             'Backend Codegen',
-  p05_frontend:            'Frontend Codegen',
-  p06_review_security:     'Code Review & Security',
-  p07_testing:             'Testing Suite',
-  p07b_self_healing:       'Self-Healing',
-  p08_cicd_deployment:     'CI/CD & Deployment',
-  p09_observability:       'Observability',
-  p10_docs_delivery:       'Docs & Delivery',
-  p11_deployment:          'Deployment',
-};
 
 // ── Edit & Restart modal ─────────────────────────────────────────────────────
 

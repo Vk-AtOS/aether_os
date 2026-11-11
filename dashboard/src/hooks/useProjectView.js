@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { PHASES, countFiles, findIndexHtml, formatEvent } from '../components/project/projectConstants';
+import { confirmAction } from '../components/confirmAction';
 
 export function useProjectView(id) {
   const navigate = useNavigate();
@@ -51,7 +52,7 @@ export function useProjectView(id) {
   const [gitHubPushing, setGitHubPushing]             = useState(false);
   const [addFeatureText, setAddFeatureText]           = useState('');
   const [addingFeature, setAddingFeature]             = useState(false);
-  const [branchPhaseState, setBranchPhaseState]       = useState('p04_backend');
+  const [branchPhaseState, setBranchPhaseState]       = useState('s03_backend');
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -61,7 +62,6 @@ export function useProjectView(id) {
       if (!res.data) throw new Error('Empty response from server');
       setRun(res.data);
       setPriority(res.data.priority || 'normal');
-      if (res.data.status === 'failed') setError(res.data.message || 'The pipeline failed to complete.');
     } catch (err) {
       setError(err.response?.status === 404
         ? 'Project not found (404). It may have been archived or deleted.'
@@ -224,7 +224,7 @@ export function useProjectView(id) {
   }, [id, fetchRunDetail, showToast]);
 
   const handleCancel = useCallback(async () => {
-    if (!window.confirm('Cancel this run? This cannot be undone.')) return;
+    if (!(await confirmAction('Cancel this run? This cannot be undone.'))) return;
     setControlLoading('cancel');
     try { await api.cancelRun(id); setRun((p) => p ? { ...p, status: 'cancelled' } : p); showToast('Pipeline cancelled'); setTimeout(fetchRunDetail, 2000); }
     catch (e) { showToast('Failed to cancel: ' + (e.message || 'error')); }
@@ -288,7 +288,7 @@ export function useProjectView(id) {
     if (!addFeatureText.trim()) return showToast('Describe the feature to add');
     setAddingFeature(true);
     try {
-      const res = await api.branchRun(id, branchPhaseState || 'p04_backend', addFeatureText.trim());
+      const res = await api.branchRun(id, branchPhaseState || 's03_backend', addFeatureText.trim());
       showToast('Branch run started'); setShowAddFeatureModal(false); navigate(`/project/${res.data?.run_id}`);
     } catch (e) { showToast('Failed: ' + (e.response?.data?.detail || e.message)); }
     finally { setAddingFeature(false); }
@@ -307,7 +307,7 @@ export function useProjectView(id) {
   }, [run]);
 
   const completedPhases = useMemo(() =>
-    PHASES.filter((p) => ['passed', 'completed', 'timeout'].includes(getPhaseStatus(p))).length,
+    PHASES.filter((p) => ['passed', 'completed'].includes(getPhaseStatus(p))).length,
     [getPhaseStatus]
   );
   const progressPercent = (completedPhases / PHASES.length) * 100;

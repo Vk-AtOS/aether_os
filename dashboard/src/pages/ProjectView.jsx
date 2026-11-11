@@ -99,7 +99,7 @@ const ProjectView = () => {
   const successRate = completedPhases > 0 ? Math.round((passedCount / completedPhases) * 100) : 0;
 
   const secFindings = (() => {
-    const p06 = phases?.p06_review_security?.output;
+    const p06 = (phases?.s05_quality || phases?.p06_review_security)?.output;
     if (!p06) return null;
     if (typeof p06.security_total === 'number') return p06.security_total;
     if (Array.isArray(p06.security_findings)) return p06.security_findings.length;
@@ -177,7 +177,7 @@ const ProjectView = () => {
                   className={`w-full flex items-center px-3 py-2.5 text-xs rounded-xl transition-all duration-200 text-left ${isActive ? 'bg-violet-500/10 text-violet-300 border border-violet-500/20' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
                   <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 flex-shrink-0 ${isDone2 ? 'bg-emerald-400' : isActive ? 'bg-blue-400 animate-pulse' : isFailed ? 'bg-red-400' : 'bg-slate-700'}`} />
                   <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
-                  {p === 'p07_testing' && pData?.output?.test_quality_flag && (
+                  {(p === 's06_testing' || p === 'p07_testing') && pData?.output?.test_quality_flag && (
                     <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${pData.output.test_quality_flag === 'pass' ? 'bg-green-500/20 text-green-400' : pData.output.test_quality_flag === 'warn' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
                       {pData.output.test_quality_flag === 'pass' ? `${pData.output.passed_tests}/${pData.output.total_tests} passed` : pData.output.test_quality_flag === 'warn' ? 'partial' : `${pData.output.passed_tests || 0}/${pData.output.total_tests || 0} FAILED`}
                     </span>
@@ -205,6 +205,22 @@ const ProjectView = () => {
 
       {/* RIGHT: Main area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+
+        {/* A failed run keeps its page: logs, artifacts and the trace are how you find out why. */}
+        {run.status === 'failed' && (
+          <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger/40 bg-danger/10 px-5 py-4">
+            <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-danger">This build failed{run.current_phase ? ` at ${run.current_phase}` : ''}</p>
+              <p className="text-xs text-bright/80 mt-1 break-words">
+                {run.message || events[events.length - 1]?.detail || 'No reason was recorded. Check the Logs and Trace tabs.'}
+              </p>
+            </div>
+            <button onClick={() => navigate('/new')} className="shrink-0 px-3 py-1.5 text-xs font-bold text-white bg-accent hover:bg-accent/90 rounded-lg">
+              Start a new build
+            </button>
+          </div>
+        )}
 
         <header className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -261,7 +277,7 @@ const ProjectView = () => {
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="add-feature-modal-title">
             <div className="bg-panel border border-border rounded-xl p-6 w-[480px] space-y-4">
               <h3 id="add-feature-modal-title" className="text-base font-bold text-bright">Add a Feature</h3>
-              <p className="text-xs text-muted">Describe the feature to add. A new run will branch from p04_backend with your existing architecture.</p>
+              <p className="text-xs text-muted">Describe the feature to add. A new run will branch from the backend stage with your existing architecture.</p>
               <textarea value={addFeatureText} onChange={e => setAddFeatureText(e.target.value)} rows={4} placeholder="Add Stripe payments with webhook support..." className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent resize-none" />
               <div className="flex space-x-3">
                 <button onClick={() => setShowAddFeatureModal(false)} className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-bright transition-colors">Cancel</button>
@@ -277,7 +293,7 @@ const ProjectView = () => {
           isViewer={isViewer} isRunning={isRunning} isPaused={isPaused} isDone={isDone}
           priority={priority} controlLoading={controlLoading} progressPercent={progressPercent}
           onPause={handlePause} onResume={handleResume} onCancel={handleCancel}
-          onRerun={handleRerun} onFullRestart={() => handleRerun('p01_intake_requirements')} onEditRestart={handleEditRestart}
+          onRerun={handleRerun} onFullRestart={() => handleRerun('s01_intake')} onEditRestart={handleEditRestart}
         />
 
         {(qualityData || complianceData) && (

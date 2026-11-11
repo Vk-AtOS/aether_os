@@ -1,30 +1,22 @@
 // Shared constants and pure helpers for ProjectView and its sub-components.
 
+// The pipeline runs these 12 stages (orchestrator/phase_sequence.py). The older
+// p01…p14 names below are kept only so runs recorded before the stage pipeline
+// still get readable labels.
 export const PHASES = [
-  'p01_intake_requirements',
-  'p02_architecture',
-  'p02b_domain_ir',
-  'p03_scaffolding',
-  'p04_backend',
-  'p05_frontend',
-  'p06_review_security',
-  'p07_testing',
-  'p07b_self_healing',
-  'p08_cicd_deployment',
-  'p09_observability',
-  'p10_docs_delivery',
-  'p11_deployment',
-  'p11a_monitoring',
-  'p11b_error_tracking',
-  'p11c_analytics',
-  'p11d_alerting',
-  'p12a_feature_flags',
-  'p12b_ab_testing',
-  'p13_app_memory',
-  'p14_client_portal',
+  's01_intake', 's02_architecture', 's03_backend', 's04_frontend', 's05_quality', 's06_testing',
+  's07_healing', 's08_observability', 's09_devops', 's10_enterprise', 's11_handoff', 's12_specialist',
 ];
 
+const STAGE_NAMES = {
+  s01_intake: 'Intake', s02_architecture: 'Architecture', s03_backend: 'Backend',
+  s04_frontend: 'Frontend', s05_quality: 'Quality gate', s06_testing: 'Testing',
+  s07_healing: 'Self-healing', s08_observability: 'Observability', s09_devops: 'Deploy',
+  s10_enterprise: 'Enterprise', s11_handoff: 'Handoff', s12_specialist: 'Specialist targets',
+};
+
 export const PHASE_NAMES = {
+  ...STAGE_NAMES,
   p01_intake_requirements: 'Intake',
   p02_architecture:        'Architecture',
   p02b_domain_ir:          'Domain IR',
@@ -49,6 +41,7 @@ export const PHASE_NAMES = {
 };
 
 export const PHASE_LABELS = {
+  ...STAGE_NAMES,
   p01_intake_requirements: 'Intake & Requirements',
   p02_architecture:        'Architecture Design',
   p02b_domain_ir:          'Domain IR Extraction',
