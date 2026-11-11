@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 import re
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -22,8 +21,7 @@ from aether_os.core.models import Organisation, User
 from aether_os.core.notifications.email import get_email_notifier
 from aether_os.core.pipeline_state import get_redis
 from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
-from aether_os.gateway.auth import create_refresh_token as _crt
-from aether_os.gateway.auth import create_refresh_token as _crt_reg
+from aether_os.gateway.auth_refresh import issue_token_pair, revoke_session
 from aether_os.gateway.auth import get_password_hash, create_access_token
 from aether_os.gateway.auth import verify_password, create_access_token
 from sqlalchemy import select
@@ -156,8 +154,7 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
             "role": user.role,
             "plan": org.plan,
         }
-        token = create_access_token(_reg_claims)
-        refresh = _crt_reg(_reg_claims)
+        token, refresh = issue_token_pair(_reg_claims)
         return LoginResponse(
             access_token=token,
             refresh_token=refresh,
@@ -231,8 +228,7 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
             "role": user.role,
             "plan": org.plan,
         }
-        token = create_access_token(_token_claims)
-        refresh = _crt(_token_claims)
+        token, refresh = issue_token_pair(_token_claims)
         return LoginResponse(
             access_token=token,
             refresh_token=refresh,
@@ -242,26 +238,16 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
         )
 @router.post("/logout")
 async def logout(request: Request, user: Dict[str, Any] = _auth()) -> Dict[str, str]:
-    """Invalidate the current JWT by adding its jti to Redis blacklist."""
-    jti = user.get("jti")
-    exp = user.get("exp", 0)
-    # Audit: logout
-    client_ip = get_client_ip(request)
+    """Blacklist this access token and revoke the refresh-token family issued with it."""
     asyncio.create_task(get_ledger().async_log_audit_event(
         org_id=user.get("org_id", "-"),
         user_id=user.get("user_id", "-"),
         action="logout",
-        ip_address=client_ip,
+        ip_address=get_client_ip(request),
         user_agent=request.headers.get("User-Agent", "-")
     ))
-    if jti and isinstance(exp, (int, float)):
-        try:
-            r = await get_redis()
-            if r:
-                ttl = max(1, int(exp - time.time()))
-                await r.set(f"jwt:blacklist:{jti}", "1", ex=ttl)
-        except Exception as exc:
-            logger.debug("Failed to add JWT jti=%s to Redis blacklist on logout: %s", jti, exc)
+    # Raises 503 if the revocation could not be stored: "Logged out" must be true.
+    await revoke_session(user)
     return {"message": "Logged out"}
 # ── Token refresh lives in auth_refresh_router.py (split to stay under 400 lines) ─
 # ── Email verification and password routes live in auth_password_router.py ─────

@@ -23,8 +23,8 @@ from aether_os.core.models import User, Organisation
 from aether_os.core.rate_limiter import _get_async_redis
 from aether_os.core.rate_limiter import _get_async_redis, _redis_get_count
 from aether_os.core.rate_limiter import _get_async_redis, _redis_incr_window
-from aether_os.gateway.auth import create_refresh_token as _crt_mfa
-from aether_os.gateway.auth import decode_bearer_token, create_access_token
+from aether_os.gateway.auth_refresh import issue_token_pair
+from aether_os.gateway.auth import decode_bearer_token
 from sqlalchemy import select
 import pyotp  # optional dependency — only used when MFA is enabled; not installed in all deployments
 logger = logging.getLogger(__name__)
@@ -201,8 +201,7 @@ async def mfa_confirm(request: Request, body: MfaConfirmRequest) -> Dict[str, An
         "role": user.role,
         "plan": org.plan,
     }
-    token = create_access_token(_mfa_claims)
-    refresh = _crt_mfa(_mfa_claims)
+    token, refresh = issue_token_pair(_mfa_claims)
     return {
         "access_token": token,
         "refresh_token": refresh,

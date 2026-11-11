@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
+from aether_os.gateway.auth_refresh import family_key
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -91,7 +92,9 @@ async def get_current_user(
             try:
                 from aether_os.core.pipeline_state import get_redis
                 r = await get_redis()
-                if r and await r.exists(f"jwt:blacklist:{jti}"):
+                # One round trip: this token blacklisted, or its whole family
+                # revoked (logout elsewhere / refresh-token replay).
+                if r and await r.exists(f"jwt:blacklist:{jti}", family_key(payload.get("fam") or jti)):
                     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
             except HTTPException:
                 raise
