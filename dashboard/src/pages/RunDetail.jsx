@@ -26,6 +26,7 @@ import {
   PhaseRow,
   LiveEventLog,
 } from '../components/run-detail/RunDetailComponents';
+import { confirmAction } from '../components/confirmAction';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -72,6 +73,12 @@ const RunDetail = () => {
     runStatusRef.current = run?.status;
   }, [run?.status]);
 
+  // The preview link only works once this browser holds the run's preview cookie,
+  // which the status call issues.
+  useEffect(() => {
+    if (run?.live_url) api.getRunAppStatus(runId).catch(() => {});
+  }, [run?.live_url, runId]);
+
   useEffect(() => {
     loadRun();
     const iv = setInterval(() => {
@@ -102,7 +109,7 @@ const RunDetail = () => {
   };
 
   const handleCancel = async () => {
-    if (!window.confirm('Cancel this run? It cannot be resumed.')) return;
+    if (!(await confirmAction('Cancel this run? It cannot be resumed.'))) return;
     setCancelling(true);
     try {
       await api.cancelRun(runId);
@@ -151,7 +158,7 @@ const RunDetail = () => {
   };
 
   const handleUndeploy = async () => {
-    if (!window.confirm('Stop this deployed app?')) return;
+    if (!(await confirmAction('Stop this deployed app?'))) return;
     setDeploying(true);
     try {
       await api.stopDeploy(runId);

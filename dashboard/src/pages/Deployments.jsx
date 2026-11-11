@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { Rocket, Loader2, RefreshCw, ExternalLink, Clock, CheckCircle2, AlertTriangle, XCircle, Globe, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { confirmAction } from '../components/confirmAction';
 
 const STATUS_META = {
   deployed:   { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
@@ -36,7 +37,11 @@ const Deployments = () => {
     try {
       const res = await api.listDeployments();
       const data = res.data;
-      setDeployments(Array.isArray(data) ? data : (data?.items || data?.deployments || []));
+      const items = Array.isArray(data) ? data : (data?.items || data?.deployments || []);
+      setDeployments(items);
+      // The preview is only served to a browser holding that run's preview cookie,
+      // which the status call issues. Fetch it now so the "open" links work.
+      items.filter((d) => d.run_id).forEach((d) => api.getRunAppStatus(d.run_id).catch(() => {}));
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to load deployments');
     } finally {
@@ -46,7 +51,7 @@ const Deployments = () => {
 
   const handleUndeploy = async (runId, e) => {
     e.preventDefault();
-    if (!window.confirm('Stop this deployed app?')) return;
+    if (!(await confirmAction('Stop this deployed app?'))) return;
     setUndeploying(p => ({ ...p, [runId]: true }));
     try {
       await api.stopDeploy(runId);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Shield, Users, Copy, RefreshCw } from 'lucide-react';
+import { confirmAction } from '../confirmAction';
 
 // ── SSO / SAML Configuration Panel ────────────────────────────────────────────
 export const SSOPanel = ({ ssoRef, ssoConfig, setSsoConfig, ssoForm, setSsoForm, ssoStatus, setSsoStatus }) => (
@@ -73,7 +74,7 @@ export const SSOPanel = ({ ssoRef, ssoConfig, setSsoConfig, ssoForm, setSsoForm,
         {ssoConfig?.configured && (
           <button
             onClick={async () => {
-              if (!window.confirm('Remove SSO configuration? Users will no longer be able to sign in with SSO.')) return;
+              if (!(await confirmAction('Remove SSO configuration? Users will no longer be able to sign in with SSO.'))) return;
               setSsoStatus('deleting');
               try {
                 const { api } = await import('../../api');
