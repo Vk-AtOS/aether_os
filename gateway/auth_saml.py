@@ -36,7 +36,8 @@ from sqlalchemy import select
 
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation, User
-from aether_os.gateway.auth import create_access_token, create_refresh_token, get_password_hash
+from aether_os.gateway.auth import get_password_hash
+from aether_os.gateway.auth_refresh import issue_token_pair
 
 logger = logging.getLogger(__name__)
 saml_router = APIRouter(prefix="/auth/saml", tags=["saml"])
@@ -54,6 +55,38 @@ def _frontend_url() -> str:
 
 def _is_saml_usable() -> bool:
     return bool(_sp_entity_id() and _sp_acs_url())
+
+
+# ── RelayState ────────────────────────────────────────────────────────────────
+
+def _relay_state_for(org_slug: Optional[str]) -> str:
+    """The RelayState this server issues at login: a relative path naming the org."""
+    return "/login?" + urllib.parse.urlencode({"org": org_slug}) if org_slug else "/login"
+
+
+def _org_from_relay_state(relay_state: Any) -> Optional[str]:
+    """Org slug from a RelayState, or None.
+
+    RelayState comes back in a browser POST, so anyone can set it. It is only
+    honoured when it is a same-site relative path (what _relay_state_for issues);
+    an absolute or scheme-relative URL, a backslash trick or control characters
+    mean "no RelayState" and the callback falls back to its default. It is never
+    used as a redirect target.
+    """
+    if not isinstance(relay_state, str) or not (0 < len(relay_state) <= 512):
+        return None
+    if not relay_state.startswith("/") or relay_state.startswith("//") or "\\" in relay_state:
+        return None
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in relay_state):
+        return None
+    try:
+        parsed = urllib.parse.urlparse(relay_state)
+        if parsed.scheme or parsed.netloc:
+            return None
+        return urllib.parse.parse_qs(parsed.query).get("org", [None])[0] or None
+    except ValueError as exc:
+        logger.warning("SAML: unparseable RelayState ignored: %s", exc)
+        return None
 
 
 # ── Per-org IdP config lookup ─────────────────────────────────────────────────
@@ -220,7 +253,8 @@ async def saml_login(
     request: Request,
     org: Optional[str] = Query(None, description="Org slug — resolves per-org IdP config"),
 ) -> RedirectResponse:
-    """Redirect browser to the IdP SSO URL for the given org (or global fallback)."""
+    """Redirect browser to the IdP SSO URL for the given org (or global fallback).
+    Public on purpose: this is how an unauthenticated browser starts SSO."""
     if not _is_saml_usable():
         raise HTTPException(status_code=503, detail="SAML SP is not configured")
     idp = await _get_idp_config_for_org(org)
@@ -230,7 +264,9 @@ async def saml_login(
         from onelogin.saml2.auth import OneLogin_Saml2_Auth  # type: ignore
         req = _build_request_dict(request)
         auth = OneLogin_Saml2_Auth(req, _build_saml_settings(idp))
-        sso_url = auth.login()
+        # Without return_to the library sends its own URL (minus the query) as
+        # RelayState, so the org never reached the callback.
+        sso_url = auth.login(return_to=_relay_state_for(org))
         return RedirectResponse(url=sso_url)
     except ImportError:
         raise HTTPException(status_code=503, detail="python3-saml not installed")
@@ -242,7 +278,8 @@ async def saml_login(
 
 @saml_router.post("/callback")
 async def saml_callback(request: Request) -> RedirectResponse:
-    """Process IdP response, create/update user, redirect to frontend with JWT."""
+    """Process IdP response, create/update user, redirect to frontend with JWT.
+    Public on purpose: the signed SAML assertion in the body is the credential."""
     if not _is_saml_usable():
         raise HTTPException(status_code=503, detail="SAML SP is not configured")
     try:
@@ -253,14 +290,8 @@ async def saml_callback(request: Request) -> RedirectResponse:
     form_data = await request.form()
     relay_state = form_data.get("RelayState", "")
 
-    # Try to extract org slug from RelayState (passed through from login initiation)
-    org_slug: Optional[str] = None
-    if relay_state:
-        try:
-            parsed = urllib.parse.parse_qs(urllib.parse.urlparse(relay_state).query)
-            org_slug = parsed.get("org", [None])[0]
-        except Exception as exc:
-            logger.debug("Failed to parse org slug from SAML RelayState %r: %s", relay_state, exc)
+    # Org slug from RelayState (issued by /login); anything but a relative path is ignored.
+    org_slug = _org_from_relay_state(relay_state)
 
     idp = await _get_idp_config_for_org(org_slug)
     if not idp:
@@ -268,7 +299,7 @@ async def saml_callback(request: Request) -> RedirectResponse:
         # If RelayState didn't identify the org and no global fallback is configured, reject.
         logger.warning(
             "SAML callback: cannot determine organization from RelayState=%r (org_slug=%r)",
-            relay_state,
+            str(relay_state)[:200],
             org_slug,
         )
         raise HTTPException(
@@ -313,8 +344,7 @@ async def saml_callback(request: Request) -> RedirectResponse:
         "org_id": org.id, "org_slug": org.slug,
         "role": user.role, "plan": org.plan,
     }
-    token = create_access_token(_saml_claims)
-    refresh = create_refresh_token(_saml_claims)
+    token, refresh = issue_token_pair(_saml_claims)
     frontend = _frontend_url()
     return RedirectResponse(
         url=(
