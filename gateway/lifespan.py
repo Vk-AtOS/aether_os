@@ -270,17 +270,24 @@ def create_lifespan(background_tasks: Set):
         except Exception as _sqs_exc:
             logger.warning("SQS consumer failed to start: %s", _sqs_exc)
 
+        # Periodic monitors query the database on their own schedule. Under a test
+        # client they outlive the test's database and fail its teardown at random,
+        # so tests switch them off with AETHER_DISABLE_MONITORS=1.
+        _monitors_on = os.environ.get("AETHER_DISABLE_MONITORS") != "1"
+
         # ── Workloop Monitor ─────────────────────────────────────────────────
         try:
-            get_workloop_monitor().start()
+            if _monitors_on:
+                get_workloop_monitor().start()
         except Exception as _wl_exc:
             logger.warning("WorkloopMonitor failed to start: %s", _wl_exc)
 
         # ── Guardian Watchdog ─────────────────────────────────────────────────
         try:
-            _guardian_task = asyncio.create_task(get_watchdog().start())
-            background_tasks.add(_guardian_task)
-            logger.info("Guardian watchdog started")
+            if _monitors_on:
+                _guardian_task = asyncio.create_task(get_watchdog().start())
+                background_tasks.add(_guardian_task)
+                logger.info("Guardian watchdog started")
         except Exception as _gw_exc:
             logger.warning("Guardian watchdog failed to start: %s", _gw_exc)
 
