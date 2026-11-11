@@ -13,7 +13,7 @@ import pathlib
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
 from aether_os.core.db import get_session_factory
@@ -121,7 +121,7 @@ async def purge_audit_logs(
         raise HTTPException(status_code=500, detail=f"Purge failed: {exc}")
     return {"deleted": deleted, "cutoff_days": days_to_keep}
 @router.get("/compliance/artifacts/{run_id}")
-async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = _current_user()):
+async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(require_run_user)):
     """
     Return a ZIP containing the compliance JSON + PDF for a given run.
     Runs the real code scanner on the generated src/main.py if it exists,

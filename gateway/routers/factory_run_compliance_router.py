@@ -14,7 +14,7 @@ import pathlib
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["run-compliance"])
@@ -31,7 +31,7 @@ def _current_user():
 @router.get("/factory/runs/{run_id}/compliance")
 async def get_run_compliance(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """
     Return the compliance scan result for a pipeline run.
@@ -135,7 +135,7 @@ async def get_run_compliance(
 async def get_run_decisions(
     run_id: str,
     status: Optional[str] = None,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """List decisions (spec approvals, phase gates) for a run."""
     from aether_os.core.decisions.decision_engine import get_decision_engine

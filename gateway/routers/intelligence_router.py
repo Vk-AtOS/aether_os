@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import assert_run_in_org, get_current_user, require_run_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.db import get_session_factory as _gsf_qb
 from aether_os.core.intelligence.arch_governor import get_arch_governor
@@ -213,6 +213,8 @@ async def arch_governor_review(
     """T9-01: Review generated code against architecture spec."""
     gov = get_arch_governor()
     run_id = req.get("run_id", "")
+    if run_id:
+        await assert_run_in_org(run_id, user)
     result = await gov.enforce(
         run_id=run_id,
         architecture_doc=req.get("architecture_doc", ""),
@@ -228,6 +230,7 @@ async def truth_engine_validate(
     """T9-02: Validate requirements coverage in generated output."""
     engine = get_truth_engine()
     if run_id := req.get("run_id"):
+        await assert_run_in_org(run_id, user)
         return await engine.audit_run(run_id)
     return await engine.validate(
         requirements=req.get("requirements", ""),
@@ -253,6 +256,8 @@ async def conflict_resolver_resolve(
 ):
     """T9-03: Record a conflict resolution."""
     resolver = get_conflict_resolver()
+    if req.get("run_id"):
+        await assert_run_in_org(req["run_id"], user)
     return await resolver.resolve(
         conflict_id=req.get("conflict_id", ""),
         resolution=req.get("resolution", ""),
@@ -275,7 +280,7 @@ async def tradeoff_engine_analyze(
 @router.post("/intelligence/improvement-loop/cycle")
 async def improvement_loop_cycle(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """T9-05: Run a full improvement loop cycle for a completed run."""
     loop = get_improvement_loop()
@@ -288,6 +293,8 @@ async def maintenance_engine_scan(
     """T9-06: Scan dependencies and/or analyze tech debt."""
     engine = get_maintenance_engine()
     results = {}
+    if req.get("run_id"):
+        await assert_run_in_org(req["run_id"], user)
     if req.get("requirements_txt"):
         results["dependencies"] = await engine.scan_dependencies(req["requirements_txt"])
     if req.get("code"):
@@ -296,7 +303,7 @@ async def maintenance_engine_scan(
         results["health"] = await engine.health_check_project(req["run_id"])
     return results
 @router.get("/intelligence/maintenance-engine/health/{run_id}")
-async def maintenance_health_check(run_id: str, user: Dict[str, Any] = _current_user()):
+async def maintenance_health_check(run_id: str, user: Dict[str, Any] = Depends(require_run_user)):
     """T9-06: Health check for a project run."""
     engine = get_maintenance_engine()
     return await engine.health_check_project(run_id)

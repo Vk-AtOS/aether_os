@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.llm.client import LLMClient
 from aether_os.core.models import LLMTrace
@@ -119,7 +119,7 @@ async def get_run_traces(
     run_id: str,
     phase: Optional[str] = Query(None),
     limit: int = Query(100, le=500),
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Return LLM call traces for a pipeline run."""
     sf = get_session_factory()
@@ -152,7 +152,7 @@ async def get_run_traces(
 async def get_trace_detail(
     run_id: str,
     trace_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Return full prompt and response for a single trace."""
     sf = get_session_factory()

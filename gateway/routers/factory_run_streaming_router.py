@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response, StreamingResponse
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["run-streaming"])
@@ -31,7 +31,7 @@ def _current_user():
 @router.post("/factory/runs/{run_id}/sse-token")
 async def get_sse_token(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, str]:
     """Exchange bearer JWT for a short-lived (30s) SSE-only token for this run."""
     import secrets
