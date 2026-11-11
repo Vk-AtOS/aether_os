@@ -44,7 +44,7 @@ export const TEMPLATE_COLORS = {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 export const StepIndicator = ({ step }) => {
-  const steps = ['Template', 'Describe', 'Configure', 'Launch'];
+  const steps = ['Type', 'Describe', 'Configure', 'Launch'];
   return (
     <div className="flex items-center justify-center mb-10">
       {steps.map((label, i) => {

@@ -7,34 +7,9 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
 import { useRuns } from '../contexts/RunsContext';
 import { SkeletonTable } from '../components/Skeleton';
+import { PHASES } from '../components/project/projectConstants';
 
-// 23-phase list in order (matches factory_pipeline.py PHASE_SEQUENCE)
-const PHASES = [
-  'p00_research',
-  'p01_intake_requirements',
-  'p02_architecture',
-  'p02b_domain_ir',
-  'p03_scaffolding',
-  'p04_backend',
-  'p04b_business_logic',
-  'p05_frontend',
-  'p06_review_security',
-  'p07_testing',
-  'p07b_self_healing',
-  'p08_cicd_deployment',
-  'p09_observability',
-  'p10_docs_delivery',
-  'p11_deployment',
-  'p11a_monitoring',
-  'p11b_error_tracking',
-  'p11c_analytics',
-  'p11d_alerting',
-  'p12a_feature_flags',
-  'p12b_ab_testing',
-  'p13_app_memory',
-  'p14_client_portal',
-];
-
+// The stage list is shared with the project page so the two can never disagree.
 const getCompletedCount = (run) => {
   if (run.status === 'completed') return PHASES.length;
   const phases = run.phases || {};
