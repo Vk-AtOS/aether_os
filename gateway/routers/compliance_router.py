@@ -4,27 +4,24 @@ GET    /compliance/artifacts/{run_id}
 GET    /compliance/org-report
 GET    /audit/logs
 GET    /audit/logs/export
-DELETE /audit/logs/purge
+DELETE /audit/logs/purge   (always refused: the ledger is append-only)
 """
 from __future__ import annotations
 import logging
 import os
 import pathlib
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
 from aether_os.core.db import get_session_factory
 from aether_os.core.db import get_session_factory as _gsf_ca
-from aether_os.core.db import get_session_factory as _gsf_purge
-from aether_os.core.models import AuditLog as _AL
 from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import Run as _Run_ca
 from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete as _delete
 from sqlalchemy import select as _sel_ca
 from sqlalchemy import text as _ct
 from sqlalchemy import text as _ct2
@@ -32,7 +29,6 @@ import csv, io as _io
 import io, zipfile
 import json as _json_exp
 import time as _time_export
-import time as _time_purge
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["compliance", "audit"])
 def _current_user():
@@ -101,25 +97,27 @@ async def export_audit_logs(
         )
 @router.delete("/audit/logs/purge")
 async def purge_audit_logs(
+    request: Request,
     days_to_keep: int = 90,
     user: Dict[str, Any] = _current_user(),
 ):
-    """T4-09: Delete audit log entries older than `days_to_keep`. Enforces retention policy."""
+    """Refused: the audit ledger is append-only (no update or delete paths).
+
+    The route is kept so callers get a clear answer instead of a 404, and every
+    attempt is itself recorded in the audit log.
+    """
+    await get_ledger().async_log_audit_event(
+        org_id=user["org_id"], user_id=user.get("user_id", ""),
+        action="audit.purge_refused", resource_type="audit_log",
+        metadata={"days_to_keep": days_to_keep, "role": user.get("role")},
+        ip_address=request.client.host if request.client else "",
+    )
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Admin access required")
-    if days_to_keep < 30:
-        raise HTTPException(status_code=400, detail="Minimum retention is 30 days")
-    cutoff = _time_purge.time() - days_to_keep * 86400
-    try:
-        async with _gsf_purge()() as _sess:
-            result = await _sess.execute(
-                _delete(_AL).where(_AL.org_id == user["org_id"]).where(_AL.created_at <= cutoff)
-            )
-            await _sess.commit()
-            deleted = result.rowcount
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Purge failed: {exc}")
-    return {"deleted": deleted, "cutoff_days": days_to_keep}
+    raise HTTPException(
+        status_code=410,
+        detail="Audit logs are append-only and cannot be purged. This attempt has been recorded.",
+    )
 @router.get("/compliance/artifacts/{run_id}")
 async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(require_run_user)):
     """
