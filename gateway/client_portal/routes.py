@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from aether_os.core.identity import portal_access
 from aether_os.core.projects import get_project_manager
+from aether_os.core.run_app import safe_fs
 from aether_os.gateway.client_portal.provenance import _build_provenance
 from aether_os.gateway.dependencies import assert_run_in_org, get_current_user, security_scheme
 
@@ -129,24 +130,25 @@ async def get_project_status(project_id: str, _auth: Dict[str, Any] = Depends(_p
         rec = await _resolve_run(project_id)
         project_dir = rec["project_dir"]
         phases_completed = []
-        if project_dir.exists():
-            for phase_dir in sorted(project_dir.iterdir()):
-                if phase_dir.is_dir() and phase_dir.name.startswith("p"):
-                    phases_completed.append(phase_dir.name)
+        # safe_fs throughout: the sandboxed app writes in project_dir, so a planted link is
+        # never listed, entered or read.
+        phases_completed = [n for n, is_dir in safe_fs.list_dir(project_dir)
+                            if is_dir and n.startswith("p")]
 
         # Extract requirements text from p01 intake output
         requirement_text = ""
         specification_text = ""
         try:
-            p01_dir = project_dir / "p01_intake_requirements"
+            p01_dir = Path("p01_intake_requirements")   # relative to project_dir
             # Try all known artifact locations written by p01
             intake_candidates = [
                 p01_dir / "intake" / "intake.json",
                 p01_dir / "requirements.json",
             ]
             for intake_json in intake_candidates:
-                if intake_json.exists():
-                    intake_data = json.loads(intake_json.read_text())
+                intake_text = safe_fs.read_text_or_none(project_dir, intake_json)
+                if intake_text is not None:
+                    intake_data = json.loads(intake_text)
                     requirement_text = (
                         intake_data.get("raw_text") or
                         intake_data.get("description") or
@@ -163,8 +165,9 @@ async def get_project_status(project_id: str, _auth: Dict[str, Any] = Depends(_p
                     p01_dir / "requirements" / "requirements.md",
                 ]
                 for req_md in md_candidates:
-                    if req_md.exists():
-                        requirement_text = req_md.read_text(encoding="utf-8")[:3000]
+                    md_text = safe_fs.read_text_or_none(project_dir, req_md)
+                    if md_text is not None:
+                        requirement_text = md_text[:3000]
                         break
 
             specification_text = requirement_text
@@ -174,9 +177,9 @@ async def get_project_status(project_id: str, _auth: Dict[str, Any] = Depends(_p
         # Best-effort compliance score from delivery JSON
         compliance_score = None
         try:
-            delivery_json = project_dir / "p12_delivery" / "delivery.json"
-            if delivery_json.exists():
-                delivery_data = json.loads(delivery_json.read_text())
+            delivery_text = safe_fs.read_text_or_none(project_dir, "p12_delivery/delivery.json")
+            if delivery_text is not None:
+                delivery_data = json.loads(delivery_text)
                 compliance_score = delivery_data.get("compliance_score")
         except Exception as exc:
             logger.debug("Failed to load compliance_score from delivery.json for run %s: %s", project_id, exc)
@@ -219,14 +222,13 @@ async def get_phase_output(project_id: str, phase_name: str, _auth: Dict[str, An
     if not _SAFE_NAME.match(phase_name):
         raise HTTPException(status_code=404, detail="Phase not found")
     try:
-        phase_dir = (await _resolve_run(project_id))["project_dir"] / phase_name
+        project_dir = (await _resolve_run(project_id))["project_dir"]
         files = {}
-        for f in phase_dir.rglob("*"):
-            if f.is_file() and f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
-                try:
-                    files[f.name] = f.read_text()[:5000]
-                except Exception as exc:
-                    logger.debug("Failed to read phase output file %s: %s", f.name, exc)
+        for f in safe_fs.walk_files(project_dir, phase_name):
+            if f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
+                text = safe_fs.read_text_or_none(project_dir, f, max_bytes=1024 * 1024)
+                if text is not None:
+                    files[f.name] = text[:5000]
         return {"project_id": project_id, "phase": phase_name, "files": files}
     except HTTPException:
         raise
@@ -271,10 +273,8 @@ async def submit_feedback(
         rec = await _resolve_run(project_id)
         project_dir = rec["project_dir"]
         project_dir.mkdir(parents=True, exist_ok=True)
-        feedback_file = project_dir / "feedback.jsonl"
         entry = {"timestamp": time.time(), "feedback": body.feedback, "phase": body.phase}
-        with open(feedback_file, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+        safe_fs.safe_append_text(project_dir, project_dir / "feedback.jsonl", json.dumps(entry) + "\n")
         return {"project_id": project_id, "message": "Feedback recorded", "entry": entry}
     except HTTPException:
         raise
@@ -304,14 +304,9 @@ async def portal_download_zip(run_id: str, _auth: Dict[str, Any] = Depends(_port
                                ".prettierrc", ".editorconfig", ".nvmrc"}
         _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-            for file_path in project_dir.rglob("*"):
-                if not file_path.is_file():
-                    continue
+            for rel_path in safe_fs.walk_files(project_dir, skip_dirs=_SKIP_DIRS):
+                file_path = project_dir / rel_path
                 if file_path.name == "run_preview.py":
-                    continue
-                parts_set = set(file_path.parts)
-                # Skip known heavy/sensitive/internal directories
-                if parts_set & _SKIP_DIRS:
                     continue
                 # Allow .github/ and .devcontainer/; allow known dotfiles; skip everything else hidden
                 rel_parts = file_path.relative_to(project_dir).parts
@@ -322,16 +317,12 @@ async def portal_download_zip(run_id: str, _auth: Dict[str, Any] = Depends(_port
                 if file_path.suffix in _SKIP_SUFFIXES:
                     continue
                 # Skip files larger than 5 MB
-                try:
-                    if file_path.stat().st_size > 5 * 1024 * 1024:
-                        continue
-                except OSError:
+                # Links, special files and anything over 5 MB (counted while reading) are left out
+                data = safe_fs.read_bytes_or_none(project_dir, rel_path, max_bytes=5 * 1024 * 1024)
+                if data is None:
+                    logger.debug("Skipping %s in ZIP", file_path)
                     continue
-                try:
-                    arcname = file_path.relative_to(project_dir)
-                    zf.write(file_path, arcname)
-                except Exception as fe:
-                    logger.debug("Skipping %s in ZIP: %s", file_path, fe)
+                zf.writestr(str(rel_path), data)
 
             # Embed provenance document
             provenance_md = _build_provenance(

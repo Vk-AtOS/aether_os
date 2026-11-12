@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
+from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user as _get_current_user, require_run_user
 from aether_os.gateway.policy_guard import admit_run_start
 
@@ -74,10 +75,12 @@ async def mcp_get_artifact(
     """Retrieve a generated artifact file for a run (file_path query param)."""
     project_dir = Path.home() / ".aether_os" / "projects" / run_id
     full_path = (project_dir / file_path).resolve()
-    if not str(full_path).startswith(str(project_dir)):
+    if not full_path.is_relative_to(project_dir.resolve()):
         raise HTTPException(status_code=400, detail="Invalid file path")
-    if full_path.exists() and full_path.is_file():
-        return {"run_id": run_id, "file_path": file_path, "content": full_path.read_text()}
+    # safe_fs: the sandboxed app writes here; a link anywhere on the path is a 404.
+    content = safe_fs.read_text_or_none(project_dir, full_path)
+    if content is not None:
+        return {"run_id": run_id, "file_path": file_path, "content": content}
     raise HTTPException(status_code=404, detail=f"Artifact {file_path} not found for run {run_id}")
 
 
@@ -119,9 +122,8 @@ async def mcp_get_architecture(
         "architecture.json",
         "p02_architecture/architecture.md",
     ]:
-        path = project_dir / candidate
-        if path.exists():
-            content = path.read_text()
+        content = safe_fs.read_text_or_none(project_dir, candidate)
+        if content is not None:
             try:
                 return {"run_id": run_id, "architecture": json.loads(content)}
             except json.JSONDecodeError:

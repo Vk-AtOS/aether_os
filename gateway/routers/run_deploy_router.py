@@ -16,6 +16,7 @@ import logging
 import re as _re_art
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
+from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.db import get_session_factory
@@ -146,10 +147,12 @@ async def get_run_artifacts(
             _stripped = _re_art.sub(r"^p\d+[^/]*/(?:backend_codegen/)?src/", "src/", rel_str)
         return _stripped
     if project_dir.exists():
-        for fpath in sorted(project_dir.rglob("*")):
-            if not fpath.is_file():
+        # safe_fs: the sandboxed app writes here, so links are never entered or followed.
+        for rel in safe_fs.walk_files(project_dir, skip_dirs=_ARTIFACT_SKIP):
+            fpath = project_dir / rel
+            st = safe_fs.stat_or_none(project_dir, rel)
+            if st is None:
                 continue
-            rel = fpath.relative_to(project_dir)
             rel_str = str(rel)
             parts = rel.parts
             if any(p in _ARTIFACT_SKIP for p in parts):
@@ -173,8 +176,8 @@ async def get_run_artifacts(
                 "filename": fpath.name,
                 "path": _display_path,
                 "phase": rel.parts[0] if len(rel.parts) > 1 else "root",
-                "size_bytes": fpath.stat().st_size,
-                "created_at": int(fpath.stat().st_mtime * 1000),
+                "size_bytes": st.st_size,
+                "created_at": int(st.st_mtime * 1000),
             })
     return artifacts
 @router.get("/factory/runs/{run_id}/download")
@@ -204,10 +207,8 @@ async def download_run_zip(
     _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fpath in sorted(project_dir.rglob("*")):
-            if not fpath.is_file():
-                continue
-            rel = fpath.relative_to(project_dir)
+        for rel in safe_fs.walk_files(project_dir, skip_dirs=_SKIP):
+            fpath = project_dir / rel
             if rel.name == "run_preview.py":
                 continue
             parts = rel.parts
@@ -218,12 +219,10 @@ async def download_run_zip(
                     continue
             if fpath.suffix in {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}:
                 continue
-            try:
-                if fpath.stat().st_size > 5 * 1024 * 1024:
-                    continue
-            except OSError:
+            data = safe_fs.read_bytes_or_none(project_dir, rel, max_bytes=5 * 1024 * 1024)
+            if data is None:   # link, special file, vanished or over 5 MB: left out
                 continue
-            zf.write(fpath, rel)
+            zf.writestr(str(rel), data)
     buf.seek(0)
     name = (run.project_name or run_id).replace(" ", "_")
     return StreamingResponse(

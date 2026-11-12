@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 from aether_os.core.artifact_store import get_artifact_store
+from aether_os.core.run_app import safe_fs
 from aether_os.core.artifact_store import get_artifact_store as _gas_s3
 from aether_os.core.council import DeliveryCouncil
 from aether_os.core.db import get_session_factory as _gsf
@@ -55,13 +56,15 @@ async def embed_artifacts(
         for _phase in results:
             if await get_control(run_id) == "cancel":
                 break
-            _phase_dir = project_dir / _phase
-            if _phase_dir.exists():
-                for f in _phase_dir.rglob("*"):
-                    if f.is_file() and f.suffix in _extensions:
+            if safe_fs.is_real_dir(project_dir, _phase):   # a symlinked phase folder is skipped
+                for f in safe_fs.walk_files(project_dir, _phase):   # f is relative to project_dir
+                    if f.suffix in _extensions:
                         _total_files += 1
                         try:
-                            await store.store_artifact(run_id, str(f.relative_to(project_dir)), f.read_text(), org_id=org_id)
+                            _text = safe_fs.read_text_or_none(project_dir, f)
+                            if _text is None:
+                                continue
+                            await store.store_artifact(run_id, str(f), _text, org_id=org_id)
                             _count += 1
                             if _count >= _MAX_ARTIFACTS:
                                 break

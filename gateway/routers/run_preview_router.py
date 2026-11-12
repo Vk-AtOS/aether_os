@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.core.db import get_session_factory
+from aether_os.core.run_app import safe_fs
 from aether_os.core.llm.client import LLMClient
 from aether_os.core.models import LLMTrace
 from aether_os.core.models import Run
@@ -88,10 +89,10 @@ async def push_run_to_github(
         user_res = await gh.get("https://api.github.com/user", headers=headers)
         gh_user = user_res.json().get("login", "aetheros")
         files_pushed = 0
-        for fpath in sorted(project_dir.rglob("*")):
-            if not fpath.is_file() or files_pushed >= 50:
+        for rel in safe_fs.walk_files(project_dir, skip_dirs=_SKIP):   # links never followed
+            fpath = project_dir / rel
+            if files_pushed >= 50:
                 break
-            rel = fpath.relative_to(project_dir)
             if rel.name == "run_preview.py":
                 continue
             parts = rel.parts
@@ -103,7 +104,10 @@ async def push_run_to_github(
             if fpath.suffix in {".pyc", ".pyo"}:
                 continue
             try:
-                content = base64.b64encode(fpath.read_bytes()).decode()
+                data = safe_fs.read_bytes_or_none(project_dir, rel, max_bytes=5 * 1024 * 1024)
+                if data is None:
+                    continue
+                content = base64.b64encode(data).decode()
                 await gh.put(
                     f"https://api.github.com/repos/{gh_user}/{repo_name}/contents/{rel}",
                     json={"message": f"Add {rel}", "content": content},

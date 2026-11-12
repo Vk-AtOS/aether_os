@@ -11,9 +11,11 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import tempfile
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
@@ -48,12 +50,14 @@ async def get_run_compliance(
     project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
 
     # Fast path: p06 already wrote the JSON
-    pre_built = project_dir / "p06_review_security" / "compliance" / "compliance_scan.json"
-    if pre_built.exists():
+    # (safe_fs: the sandboxed app writes in project_dir; a planted link reads as absent)
+    pre_rel = "p06_review_security/compliance/compliance_scan.json"
+    pre_text = safe_fs.read_text_or_none(project_dir, pre_rel)
+    if pre_text is not None:
         try:
-            data = json.loads(pre_built.read_text(encoding="utf-8"))
-            pdf_sibling = pre_built.with_name("compliance_report.pdf")
-            data["pdf_path"] = str(pdf_sibling) if pdf_sibling.exists() else None
+            data = json.loads(pre_text)
+            has_pdf = safe_fs.file_size_or_none(project_dir, "p06_review_security/compliance/compliance_report.pdf") is not None
+            data["pdf_path"] = str(project_dir / "p06_review_security/compliance/compliance_report.pdf") if has_pdf else None
             return data
         except Exception as exc:
             logger.debug(
@@ -63,16 +67,13 @@ async def get_run_compliance(
             )
 
     # On-demand scan: find src/main.py
-    main_py: Optional[pathlib.Path] = None
-    for candidate in [
-        project_dir / "src" / "main.py",
-        project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
-    ]:
-        if candidate.exists():
-            main_py = candidate
+    main_src: Optional[str] = None
+    for candidate in ("src/main.py", "p04_backend/backend_codegen/src/main.py"):
+        main_src = safe_fs.read_text_or_none(project_dir, candidate)
+        if main_src is not None:
             break
 
-    if not main_py:
+    if main_src is None:
         return {
             "run_id": run_id,
             "status": "not_available",
@@ -106,20 +107,25 @@ async def get_run_compliance(
             "DB lookup for compliance project_name/domain failed (run %s): %s", run_id, exc
         )
 
-    scan_result = scan_file(main_py, project_name=_project_name, domain=_domain)
+    # Scan a private copy of what safe_fs read, so the scanner never opens the sandbox's path.
+    with tempfile.TemporaryDirectory(prefix="aether_compliance_") as _tmp:
+        _snap = pathlib.Path(_tmp) / "src" / "main.py"
+        _snap.parent.mkdir()
+        _snap.write_text(main_src, encoding="utf-8")
+        scan_result = scan_file(_snap, project_name=_project_name, domain=_domain)
 
-    # Persist the result so subsequent calls are fast
+    # Persist the result so subsequent calls are fast (links in project_dir are never followed)
     pdf_path = None
     try:
-        scan_dir = project_dir / "p06_review_security" / "compliance"
-        scan_dir.mkdir(parents=True, exist_ok=True)
-        json_path = scan_dir / "compliance_scan.json"
-        json_path.write_text(
-            json.dumps(asdict(scan_result), indent=2, default=str),
-            encoding="utf-8",
-        )
-        pdf_path = scan_dir / "compliance_report.pdf"
-        generate_pdf(scan_result, pdf_path)
+        scan_rel = pathlib.Path("p06_review_security") / "compliance"
+        safe_fs.safe_makedirs(project_dir, scan_rel)
+        safe_fs.safe_write_text(project_dir, project_dir / scan_rel / "compliance_scan.json",
+                                json.dumps(asdict(scan_result), indent=2, default=str))
+        with tempfile.TemporaryDirectory(prefix="aether_compliance_") as _tmp:
+            built = generate_pdf(scan_result, pathlib.Path(_tmp) / "compliance_report.pdf")
+            safe_fs.safe_write_bytes(project_dir, project_dir / scan_rel / "compliance_report.pdf",
+                                     pathlib.Path(built).read_bytes())
+        pdf_path = project_dir / scan_rel / "compliance_report.pdf"
     except Exception as exc:
         logger.debug(
             "Failed to persist compliance scan result to disk for run %s: %s", run_id, exc
@@ -127,7 +133,7 @@ async def get_run_compliance(
         pdf_path = None
 
     result_dict = asdict(scan_result)
-    result_dict["pdf_path"] = str(pdf_path) if pdf_path and pdf_path.exists() else None
+    result_dict["pdf_path"] = str(pdf_path) if pdf_path else None
     return result_dict
 
 
@@ -181,7 +187,7 @@ async def get_run_portal(
         _project_dir / "p10_docs_delivery" / "index.html",
     ]
     for _cand in _portal_candidates:
-        if _cand.exists():
+        if safe_fs.file_size_or_none(_project_dir, _cand) is not None:   # no links
             _portal_html = str(_cand.relative_to(_project_dir))
             break
 
@@ -191,15 +197,10 @@ async def get_run_portal(
     # Gather deliverables list
     _deliverables = []
     for _phase in ("p10_docs_delivery", "p14_client_portal"):
-        _phase_dir = _project_dir / _phase
-        if _phase_dir.exists():
-            for _f in sorted(_phase_dir.rglob("*")):
-                if _f.is_file() and _f.suffix in (".html", ".pdf", ".zip", ".md", ".json"):
-                    _deliverables.append({
-                        "filename": _f.name,
-                        "path": str(_f.relative_to(_project_dir)),
-                        "size_bytes": _f.stat().st_size,
-                    })
+        for _f in safe_fs.walk_files(_project_dir, _phase):
+            _size = safe_fs.file_size_or_none(_project_dir, _f)
+            if _size is not None and _f.suffix in (".html", ".pdf", ".zip", ".md", ".json"):
+                _deliverables.append({"filename": _f.name, "path": str(_f), "size_bytes": _size})
 
     _council = _run_p.council_delivery or {}
     return {

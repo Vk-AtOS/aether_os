@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
@@ -8,6 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+from aether_os.core.run_app import safe_fs
 
 try:
     from aether_os.core.llm.client import get_llm_client
@@ -179,15 +182,15 @@ class ArtifactStore:
                     "type": "run",
                 })
                 for suffix in (".md", ".json"):
-                    for fpath in sorted(project_dir.rglob(f"*{suffix}"))[:5]:
+                    for fpath in [f for f in safe_fs.walk_files(project_dir) if f.suffix == suffix][:5]:
                         try:
-                            text = fpath.read_text(errors="ignore").lower()
+                            text = (safe_fs.read_text_or_none(project_dir, fpath) or "").lower()
                             if query.lower() in text:
                                 results.append({
                                     "run_id": run.id,
                                     "project_name": run.project_name,
                                     "status": run.status,
-                                    "file_path": str(fpath.relative_to(project_dir)),
+                                    "file_path": str(fpath),
                                     "score": 0.8,
                                     "type": "artifact",
                                 })
@@ -215,9 +218,10 @@ class ArtifactStore:
             logger.debug("Failed to get artifact from DB: %s", exc)
 
         try:
-            full_path = Path.home() / ".aether_os" / "projects" / run_id / file_path
-            if full_path.exists() and full_path.is_file():
-                return full_path.read_text()
+            project_dir = Path.home() / ".aether_os" / "projects" / run_id
+            text = safe_fs.read_text_or_none(project_dir, file_path)   # no links, stays inside the project
+            if text is not None:
+                return text
         except Exception as exc:
             logger.debug("Failed to get artifact from filesystem: %s", exc)
 
@@ -263,17 +267,16 @@ class ArtifactStore:
             import boto3
             s3 = self._s3_client()
             count = 0
-            for f in Path(project_dir).rglob("*"):
-                if any(part in _SKIP_DIRS for part in f.parts):
+            for f in safe_fs.walk_files(project_dir, skip_dirs=_SKIP_DIRS):
+                if f.suffix not in _UPLOAD_EXTS:
                     continue
-                if not f.is_file() or f.suffix not in _UPLOAD_EXTS:
+                rel = str(f)
+                data = safe_fs.read_bytes_or_none(project_dir, f, max_bytes=5 * 1024 * 1024)  # skip links, > 5 MB
+                if data is None:
                     continue
-                if f.stat().st_size > 5 * 1024 * 1024:  # skip files > 5 MB
-                    continue
-                rel = str(f.relative_to(project_dir))
                 key = self._s3_key(run_id, rel)
                 try:
-                    s3.upload_file(str(f), _S3_BUCKET, key)
+                    s3.upload_fileobj(io.BytesIO(data), _S3_BUCKET, key)
                     count += 1
                 except Exception as exc:
                     logger.debug("[s3] upload failed for %s: %s", rel, exc)
@@ -292,14 +295,13 @@ class ArtifactStore:
         project_path = Path(project_dir)
         if not project_path.exists():
             return 0
-        for f in project_path.rglob("*"):
-            if any(part in _skip_dirs for part in f.parts):
-                continue
-            if f.is_file() and f.suffix in extensions:
+        for f in safe_fs.walk_files(project_path, skip_dirs=_skip_dirs):
+            if f.suffix in extensions:
                 try:
-                    await self.store_artifact(
-                        run_id, str(f.relative_to(project_path)), f.read_text(), org_id=org_id
-                    )
+                    text = safe_fs.read_text_or_none(project_path, f)
+                    if text is None:
+                        continue
+                    await self.store_artifact(run_id, str(f), text, org_id=org_id)
                     count += 1
                     if count >= 50:
                         break

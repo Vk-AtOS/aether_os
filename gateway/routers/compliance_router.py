@@ -18,6 +18,7 @@ from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.compliance.artifact_generator import ComplianceArtifactGenerator
 from aether_os.core.db import get_session_factory
 from aether_os.core.db import get_session_factory as _gsf_ca
+from aether_os.core.run_app import safe_fs
 from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import Run as _Run_ca
 from aether_os.core.policy.compliance import ComplianceEngine, ComplianceContext
@@ -28,6 +29,7 @@ from sqlalchemy import text as _ct2
 import csv, io as _io
 import io, zipfile
 import json as _json_exp
+import tempfile
 import time as _time_export
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["compliance", "audit"])
@@ -127,14 +129,20 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(r
     """
     # Try to locate the generated src/main.py for this run
     project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
-    main_py_path: Optional[str] = None
-    for candidate in [
-        project_dir / "src" / "main.py",
-        project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
-    ]:
-        if candidate.exists():
-            main_py_path = str(candidate)
+    # safe_fs: the sandboxed app writes in project_dir. The scan runs on a private copy of
+    # what safe_fs read (never the sandbox's path), so a planted link is never followed.
+    main_src: Optional[str] = None
+    for candidate in ("src/main.py", "p04_backend/backend_codegen/src/main.py"):
+        main_src = safe_fs.read_text_or_none(project_dir, candidate)
+        if main_src is not None:
             break
+    _tmp = tempfile.TemporaryDirectory(prefix="aether_compliance_")
+    main_py_path: Optional[str] = None
+    if main_src is not None:
+        _snap = pathlib.Path(_tmp.name) / "src" / "main.py"
+        _snap.parent.mkdir()
+        _snap.write_text(main_src, encoding="utf-8")
+        main_py_path = str(_snap)
     # Pull project_name / domain from the run DB record (best-effort)
     _project_name = ""
     _domain = "general"
@@ -162,6 +170,7 @@ async def get_compliance_artifacts(run_id: str, user: Dict[str, Any] = Depends(r
         zf.writestr("compliance_scan.json", artifact.content)
         if artifact.pdf_path and pathlib.Path(artifact.pdf_path).exists():
             zf.write(artifact.pdf_path, arcname="compliance_report.pdf")
+    _tmp.cleanup()
     zip_buffer.seek(0)
     return StreamingResponse(
         zip_buffer,
