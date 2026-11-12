@@ -31,6 +31,8 @@ import os
 from dataclasses import dataclass, asdict
 from typing import Dict, Optional
 
+from aether_os.core.policy.rules import PLAN_ENTITLEMENTS
+
 logger = logging.getLogger(__name__)
 
 
@@ -357,60 +359,23 @@ def evaluate_operation(
 # AetherOS service wrapper (used by PipelineService and other callers)
 # ---------------------------------------------------------------------------
 
-_PLAN_RISK_MAP: Dict[str, str] = {
-    "trial": "LOW",
-    "starter": "LOW",
-    "growth": "LOW",
-    "enterprise": "LOW",
-    "fintech": "MEDIUM",
-    "healthcare": "MEDIUM",
-}
-
-_PLAN_PROFILE_MAP: Dict[str, str] = {
-    "fintech": "FINTECH",
-    "healthcare": "HEALTHCARE",
-}
-
-
 class AetherPolicyEngine:
-    """
-    High-level wrapper around the deterministic policy engine.
-    Used by PipelineService, factory pipeline, and API handlers.
-    All operations are synchronous (pure-python, no I/O).
+    """Synchronous entry point kept for the callers that have only (org_id, plan).
+
+    It can only judge what it is given. The full decision — org active, role,
+    quotas, concurrent runs, with denials ledgered — is
+    aether_os.core.policy.enforce.authorize(), which the gateway calls before a
+    build starts.
     """
 
     def check_pipeline_start(self, org_id: str, plan: str) -> tuple[bool, str]:
-        """
-        Decide whether an org is allowed to start a new pipeline run.
-        Returns (allowed: bool, reason: str).
-        """
-        plan_lower = (plan or "trial").lower()
-        profile = _PLAN_PROFILE_MAP.get(plan_lower, "DEFAULT")
-        risk = _PLAN_RISK_MAP.get(plan_lower, "LOW")
-        policy = preset_policy(profile)
-
-        decision = evaluate_operation(
-            policy,
-            operation_type="pipeline_start",
-            risk_level=risk,
-            is_guarded=True,
-        )
-        return decision.allowed, decision.reason
-
-    def check_operation(
-        self,
-        org_id: str,
-        plan: str,
-        operation_type: str,
-        risk_level: str = "MEDIUM",
-        is_guarded: bool = True,
-    ) -> tuple[bool, str]:
-        """General-purpose operation check for any pipeline phase."""
-        plan_lower = (plan or "trial").lower()
-        profile = _PLAN_PROFILE_MAP.get(plan_lower, "DEFAULT")
-        policy = preset_policy(profile)
-        decision = evaluate_operation(policy, operation_type, risk_level, is_guarded)
-        return decision.allowed, decision.reason
+        """(allowed, reason). Refuses a missing org or a plan with no entitlements
+        (it used to allow every org on every plan)."""
+        if not org_id:
+            return False, "org_not_found"
+        if (plan or "trial").lower() not in PLAN_ENTITLEMENTS:
+            return False, "plan_unknown"
+        return True, "ok"
 
 
 _policy_engine: Optional[AetherPolicyEngine] = None
@@ -422,4 +387,3 @@ def get_policy_engine() -> AetherPolicyEngine:
     if _policy_engine is None:
         _policy_engine = AetherPolicyEngine()
     return _policy_engine
-

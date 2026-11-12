@@ -24,7 +24,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.db import get_session_factory
+from aether_os.core.models import OrgApiKey
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
+from sqlalchemy import select
 from aether_os.core.services.settings_service import (
     get_org_plan,
     get_org_api_key_providers,
@@ -239,30 +242,34 @@ async def test_provider(
     req: TestProviderRequest,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Test LLM provider connectivity with the org's key, or (admins only) the platform's."""
+    """Test LLM provider connectivity.
+
+    An org owner/admin tests the key their organisation stored, and nothing else.
+    The platform's own credentials (operator env keys, and Bedrock, which always
+    runs on the platform's AWS account) are exercised by a superadmin only.
+    """
     if req.provider not in _TESTABLE_PROVIDERS:
         raise HTTPException(status_code=400, detail="Provider is not supported for testing")
 
     org_id = user.get("org_id", "")
+    await enforce("provider.test", user, req.provider)  # owner/admin and up; denial is ledgered
     # Keys are stored under "google" (see update_api_keys); looking up "gemini" never found them.
     store_provider = "google" if req.provider == "gemini" else req.provider
 
-    # Bedrock always runs on the platform's AWS credentials; the others do when the
-    # org has not stored its own key. Spending the platform's credentials is an
-    # admin action, not something every member of every org may trigger.
-    has_org_key = False
+    # The org's own row only. get_api_key() falls back to the platform's env key,
+    # which is exactly what an org admin must not be able to spend or probe.
+    api_key = ""
     if req.provider != "bedrock" and org_id:
         async with get_session_factory()() as session:
-            has_org_key = store_provider in await get_org_api_key_providers(session, org_id)
-    if not has_org_key and user.get("role") not in ("owner", "admin", "superadmin"):
-        raise HTTPException(
-            status_code=403,
-            detail="Only org owners/admins may test a provider that uses platform credentials.",
-        )
-
-    api_key = "" if req.provider == "bedrock" else await get_api_key(store_provider, org_id)
-    if not api_key and req.provider != "bedrock":
-        raise HTTPException(status_code=400, detail=f"No API key configured for {req.provider}")
+            api_key = (await session.execute(
+                select(OrgApiKey.api_key).where(OrgApiKey.org_id == org_id, OrgApiKey.provider == store_provider)
+            )).scalar_one_or_none() or ""
+    if not api_key:
+        await enforce("provider.test_platform", user, req.provider)  # superadmin only
+        if req.provider != "bedrock":
+            api_key = await get_api_key(store_provider, None)
+            if not api_key:
+                raise HTTPException(status_code=400, detail=f"No API key configured for {req.provider}")
 
     if req.provider == "anthropic":
         try:

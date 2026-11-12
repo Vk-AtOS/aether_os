@@ -199,7 +199,8 @@ async def _upgrade_org_plan(org_id: str, plan_id: str) -> None:
         sf = get_session_factory()
         async with sf() as session:
             await session.execute(
-                _upd(Organisation).where(Organisation.id == org_id).values(plan=plan_id)
+                # Stripe subscriptions end through Stripe's own webhook, not the one-off payment period.
+                _upd(Organisation).where(Organisation.id == org_id).values(plan=plan_id, plan_period_end=None)
             )
             await session.commit()
     except Exception as exc:

@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 from aether_os.gateway.routers.factory_run_background import (
     enrich_phases_from_disk,
     load_phase_events,
@@ -286,6 +287,7 @@ async def rerun_factory_run(
     detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
     if not detail:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    await enforce("run.start", user, run_id)  # a rerun is a new run: same quota as /factory/start
 
     session_factory = get_session_factory()
     async with session_factory() as session:

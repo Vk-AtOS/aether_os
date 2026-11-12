@@ -191,7 +191,7 @@ def test_every_run_route_hides_other_orgs_runs(env):
     for method, path in _run_routes(env.app):
         url = (path.replace("{run_id}", env.run_a)
                .replace("{trace_id}", "t1").replace("{decision_id}", "d1")
-               .replace("{snapshot_id}", "s1").replace("{phase_name}", "p01"))
+               .replace("{snapshot_id}", "s1").replace("{token_id}", "tok1").replace("{phase_name}", "p01"))
         assert "{" not in url, f"unfilled path param in {path}"
         kwargs = {"json": _ANY_BODY} if method in ("POST", "PUT", "PATCH") else {}
         resp = env.client.request(method, url, headers=env.b.auth,

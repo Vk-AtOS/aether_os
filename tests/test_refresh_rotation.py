@@ -106,7 +106,11 @@ def test_password_reset_revokes_every_session(gw, redis_sync):
 
 def test_refresh_fails_closed_when_redis_is_down(gw, redis_sync):
     s = gw.register("down")
-    with patch("aether_os.gateway.auth_refresh.get_redis", new_callable=AsyncMock, return_value=None):
+    # get_redis() -> None alone only means "was down at startup" (auth_refresh then uses
+    # its own client); down means that client cannot connect either.
+    with patch("aether_os.gateway.auth_refresh.get_redis", new_callable=AsyncMock, return_value=None), \
+         patch("aether_os.gateway.auth_refresh.REDIS_URL", "redis://127.0.0.1:1/0"), \
+         patch("aether_os.gateway.auth_refresh._own_client", None):
         assert _refresh(gw, s.refresh).status_code == 503
         # Logout must not claim success when it revoked nothing.
         assert gw.client.post("/auth/logout", headers=s.auth).status_code == 503
