@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import and_, case, exists, func, or_, select, update
 
@@ -21,13 +21,17 @@ from aether_os.core.audit import chain as audit_chain
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import User
 from aether_os.core.security.redact import redact_secrets
-from aether_os.prime.authz import ACTION_TYPES, NEVER, PRIME, Action, Outcome, dead_reason
+from aether_os.prime.authz import (
+    ACTION_TYPES, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
+)
 from aether_os.prime.executors import (
     DEFAULT_EXECUTOR, ExecutionContext, ExecutionFailed, get_executor,
 )
 from aether_os.prime.limits import get_limits
 from aether_os.prime.models import PrimeDelegation, PrimeRequest
-from aether_os.prime.repository import DelegationRepository, _aware_utc, _naive_utc
+from aether_os.prime.repository import (
+    DelegationRepository, _aware_utc, _naive_utc, authority, person_in_org,
+)
 from aether_os.prime.service import PrimeService
 
 logger = logging.getLogger(__name__)
@@ -117,7 +121,7 @@ class ApprovalService:
         """Decide `action`; record a request if a person or an executor must act on it."""
         if get_executor(executor) is None:
             raise RequestError(400, f"unknown executor '{executor}'")
-        decision = await self._prime.decide(action, org_id)
+        decision = await self._prime.decide(action, org_id, executor)
         out: Dict[str, Any] = {"action_id": action.id, **decision.model_dump(mode="json"),
                                "request": None}
         if decision.outcome not in _ACTING | _WAITING:
@@ -205,14 +209,17 @@ class ApprovalService:
             raise RequestError(409, f"this request was already {row.status}")
         blocked = await self._why_not(row, uid, ids, approve)
         if blocked:
+            await audit_chain.append(actor=uid, action="prime.approval.refuse", payload={
+                **self._ledger(row, status=row.status), "answer": wanted, "reason": blocked[1]})
             raise RequestError(*blocked)
+        checks = (await self._violation(row, uid))[1] if approve else []
 
         now = _now()
         # Ledger first. ponytail: if two people decide at the same instant the loser's
         # entry stays in the ledger although the request kept the winner's answer; the
         # request row and the later execution entries show which one took effect.
         await audit_chain.append(actor=uid, action="prime.approval.decision", payload={
-            **self._ledger(row, status=wanted), "reason": reason})
+            **self._ledger(row, status=wanted), "reason": reason, "authority": checks})
         async with get_session_factory()() as session:
             won = (await session.execute(
                 update(PrimeRequest)
@@ -240,16 +247,40 @@ class ApprovalService:
         dead = dead_reason(delegation, _aware_utc(now)) if delegation else "delegation missing"
         if dead:
             return 409, f"cannot approve: {dead}"
-        # Re-check the rules no person can override; the limits may have changed since.
-        limits = await get_limits(row.org_id)
+        violation, checks = await self._violation(row, uid)
+        if violation:
+            # 403 when the approver themselves lacks authority; they may still reject.
+            mine = any(c["person"] == uid and not c["ok"] for c in checks) and uid != row.on_behalf_of
+            return (403 if mine else 409), f"cannot approve: {violation}"
+        return None
+
+    async def _violation(self, row: PrimeRequest, approver: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """Why this request may not run on `approver`'s approval now ('' if it may), and
+        the authority checks made. Rules no person can override, re-checked at approval
+        and again before execution, because limits and roles change."""
         action = _action(row)
         if action.type in NEVER or action.type not in ACTION_TYPES:
-            return 409, f"'{action.type}' can never be approved"
-        if action.amount is not None and action.amount > limits.payment_ceiling:
-            return 409, f"amount is above the payment ceiling {limits.payment_ceiling}"
+            return f"'{action.type}' can never be approved", []
         if get_executor(row.executor) is None:
-            return 409, f"unknown executor '{row.executor}'"
-        return None
+            return f"unknown executor '{row.executor}'", []
+        bad_money = money_reason(action, (await get_limits(row.org_id)).payment_ceiling)
+        if bad_money:
+            return bad_money, []
+        # The person acted for must still hold the authority, and so must a human
+        # approver: a deputy approving out of scope or over limit uses their own.
+        people = [row.on_behalf_of] + ([approver] if approver not in (PRIME, row.on_behalf_of) else [])
+        checks = [await authority(row.org_id, p, row.action_type, row.executor) for p in people]
+        denied = next((f"{c['person']}: {c['reason']}" for c in checks if not c["ok"]), "")
+        return denied, checks
+
+    async def _no_second_person(self, row: PrimeRequest) -> bool:
+        """Money or an external effect approved only by whoever asked for it."""
+        if not needs_second_person(row.action_type, row.executor):
+            return False
+        person = await person_in_org(row.org_id, row.on_behalf_of)
+        grantor = {row.on_behalf_of.lower(), person[1] if person else row.on_behalf_of.lower()}
+        requester, approver = row.requested_by.lower(), (row.decided_by or "").lower()
+        return approver == requester or (approver == PRIME and requester in grantor)
 
     # ── execute ───────────────────────────────────────────────────────────────
 
@@ -261,11 +292,20 @@ class ApprovalService:
         base = self._ledger(row, status="approved")
         key = f"prime-{row.request_hash}"
         executor = get_executor(row.executor)
-        refusal = ""
+        refusal, checks = "", []
         if not (row.decided_hash == row.request_hash == compute_hash(row)):
             refusal = "the request no longer matches what was approved"
         elif executor is None:
             refusal = f"unknown executor '{row.executor}'"
+        else:
+            try:
+                refusal, checks = await self._violation(row, row.decided_by or "")
+                if not refusal and await self._no_second_person(row):
+                    refusal = "no person other than the requester approved this"
+            except Exception as e:
+                logger.warning("prime: authority check for request %s failed: %s", row.id, e)
+                refusal = "authority could not be checked; refusing"
+        base["authority"] = checks
 
         now = _now()
         async with get_session_factory()() as session:

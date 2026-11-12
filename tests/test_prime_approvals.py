@@ -19,7 +19,7 @@ from aether_os.gateway.routers import prime_router as prime_api
 from aether_os.prime import approvals, AutonomyLevel, DelegationRepository
 from aether_os.prime.approvals import RequestError
 from aether_os.tests.prime_helpers import (  # noqa: F401  (svc and counting are fixtures)
-    act, actions, ADMIN, ALICE, API_KEY, BOB, BOB_IDS, CAROL, counting, DEPUTY, grant, MALLORY, MEMBER, ORG, OTHER_ORG, OUTSIDER, set_row, svc, SYSTEM,
+    act, actions, ADMIN, ALICE, API_KEY, BOB, BOB_IDS, CAROL, counting, DEPUTY, grant, MALLORY, MEMBER, ORG, OWNER, OTHER_ORG, OUTSIDER, set_row, svc, SYSTEM,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -211,16 +211,16 @@ async def test_router_submit_inbox_decide_and_deputies(svc):
     now = datetime.now(timezone.utc)
     created = await prime_api.create_delegation(prime_api.DelegationIn(
         scope=["leave.approve"], autonomy=2, valid_from=now - timedelta(minutes=1),
-        valid_until=now + timedelta(days=2), deputy="bob@a.test"), user=MEMBER)
+        valid_until=now + timedelta(days=2), deputy="bob@a.test"), user=OWNER)
 
-    for bad_user, body in ((MEMBER, inbox_api.RequestIn(type="leave.approve", on_behalf_of=BOB)),
+    for bad_user, body in ((OWNER, inbox_api.RequestIn(type="leave.approve", on_behalf_of=BOB)),
                            (API_KEY, inbox_api.RequestIn(type="leave.approve")),
                            (API_KEY, inbox_api.RequestIn(type="leave.approve", on_behalf_of=MALLORY))):
         with pytest.raises(HTTPException) as e:
             await inbox_api.submit_request(body, user=bad_user)
         assert e.value.status_code == 403
     with pytest.raises(HTTPException) as e:
-        await inbox_api.submit_request(inbox_api.RequestIn(type="leave.approve", executor="nope"), user=MEMBER)
+        await inbox_api.submit_request(inbox_api.RequestIn(type="leave.approve", executor="nope"), user=OWNER)
     assert e.value.status_code == 400
     with pytest.raises(ValidationError):
         inbox_api.RequestIn(type="leave.approve", params={"blob": "x" * 9000})
@@ -242,9 +242,9 @@ async def test_router_submit_inbox_decide_and_deputies(svc):
     done = await inbox_api.approve_request(
         req["id"], inbox_api.DecisionIn(request_hash=req["request_hash"], reason="fine"), user=DEPUTY)
     assert done["state"] == "approved" and done["execution"]["status"] == "succeeded"
-    assert (await inbox_api.get_request(req["id"], user=MEMBER))["decided_by"] == BOB
+    assert (await inbox_api.get_request(req["id"], user=OWNER))["decided_by"] == BOB
 
-    mine = await inbox_api.deputies(user=MEMBER)
+    mine = await inbox_api.deputies(user=OWNER)
     assert [d["id"] for d in mine["given"]] == [created["id"]] and mine["received"] == []
     did = [(e["action"], e["actor"]) for e in mine["given"][0]["activity"]]
     assert ("prime.approval.decision", BOB) in did and ("prime.execution.result", "prime") in did
@@ -253,7 +253,7 @@ async def test_router_submit_inbox_decide_and_deputies(svc):
     assert {e["actor"] for e in theirs["received"][0]["activity"]} == {BOB}
     assert (await inbox_api.deputies(user=ADMIN)) == {"given": [], "received": []}
 
-    await prime_api.revoke_delegation(created["id"], user=MEMBER)
+    await prime_api.revoke_delegation(created["id"], user=OWNER)
     assert (await inbox_api.deputies(user=DEPUTY))["received"][0]["state"] == "revoked"
 
 
@@ -268,7 +268,7 @@ async def test_endpoints_over_http(svc):
     from fastapi import FastAPI
     from aether_os.gateway.dependencies import get_current_user
 
-    who = {"user": MEMBER}
+    who = {"user": OWNER}
     app = FastAPI()
     for module in (prime_api, inbox_api, ledger_api):
         app.include_router(module.router)
@@ -300,6 +300,7 @@ async def test_endpoints_over_http(svc):
                             json={"request_hash": req["request_hash"], "reason": "checked"})
         assert r.status_code == 200 and r.json()["execution"]["status"] == "succeeded"
         assert (await http.get("/prime/deputies")).json()["received"][0]["activity"]
+        who["user"] = MEMBER   # not an organisation admin
         assert (await http.put("/prime/limits", json={"payment_ceiling": 1, "max_delegation_days": 1})).status_code == 403
 
         who["user"] = ADMIN
@@ -311,7 +312,8 @@ async def test_endpoints_over_http(svc):
         assert page["whole_org"] and len(page["entries"]) == 1 and page["next_before"]
         older = (await http.get("/prime/ledger/entries", params={
             "event": "prime.approval", "before": page["next_before"]})).json()
-        assert [e["action"] for e in older["entries"]] == ["prime.approval.request"]
+        # The owner's refused attempt to approve her own request is ledgered too.
+        assert [e["action"] for e in older["entries"]] == ["prime.approval.refuse", "prime.approval.request"]
         one = (await http.get(f"/prime/ledger/entries/{page['entries'][0]['seq']}")).json()
         assert one["link_ok"] and one["hash_ok"] and one["action"] == "prime.approval.decision"
         assert (await http.get("/prime/ledger/verify")).json()["ok"]

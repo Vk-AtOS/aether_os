@@ -21,7 +21,7 @@ from aether_os.prime import (
     Action, AutonomyLevel, Delegation, DelegationRepository, Limits, PrimeService,
 )
 from aether_os.prime.authz import (
-    CURRENCY, HARD_MAX_DELEGATION_DURATION, HARD_PAYMENT_CEILING,
+    CURRENCY, HARD_MAX_DELEGATION_DURATION, HARD_PAYMENT_CEILING, Amount, Currency,
 )
 from aether_os.prime.executors import DEFAULT_EXECUTOR, REGISTRY
 from aether_os.prime.limits import OrgLimits, get_limits, set_limits
@@ -43,18 +43,19 @@ class DelegationIn(BaseModel):
     valid_from: AwareDatetime
     valid_until: AwareDatetime
     deputy: str = Field(min_length=1, max_length=255)
-    max_amount: Optional[Decimal] = Field(default=None, gt=0)
+    max_amount: Optional[Amount] = None
 
 
 class LimitsIn(BaseModel):
-    payment_ceiling: Decimal = Field(gt=0)
+    # No upper bound here: set_limits() refuses above the hard ceiling with a clear 400.
+    payment_ceiling: Decimal = Field(gt=0, decimal_places=2, allow_inf_nan=False)
     max_delegation_days: int = Field(ge=1)
 
 
 class ActionIn(BaseModel):
     type: str = Field(min_length=1, max_length=64)
-    amount: Optional[Decimal] = Field(default=None, gt=0)
-    currency: Optional[str] = Field(default=None, max_length=3)
+    amount: Optional[Amount] = None
+    currency: Optional[Currency] = None
 
 
 def _uid(user: Dict[str, Any]) -> str:
@@ -150,6 +151,8 @@ async def create_delegation(
         await _repo.add(d, org_id=user.get("org_id"))
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.errors()[0]["msg"]) from e
+    except PermissionError as e:  # the grantor's role does not hold what they grant
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:  # the organisation's own limits
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _delegation_out(d, datetime.now(timezone.utc))

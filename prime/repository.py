@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import select
 
 from aether_os.core.audit import chain as audit_chain
 from aether_os.core.db import get_session_factory
-from aether_os.prime.authz import Delegation, Limits
+from aether_os.core.models import User
+from aether_os.prime.authz import Delegation, Limits, authority_reason
 from aether_os.prime.limits import get_limits
 from aether_os.prime.models import PrimeDelegation
 
@@ -26,6 +27,28 @@ def org_payload(org_id: Optional[str]) -> dict:
     return {"org_id": org_id} if org_id else {}
 
 
+async def person_in_org(org_id: Optional[str], uid: str) -> Optional[Tuple[str, str]]:
+    """(role, lower-cased email) of an active person in this organisation, read now
+    (roles change; a sign-in token's role may be stale), or None."""
+    if not org_id or not uid:
+        return None
+    async with get_session_factory()() as session:
+        row = (await session.execute(select(User.role, User.email).where(
+            User.id == uid, User.org_id == org_id, User.is_active == True,  # noqa: E712
+            User.deleted_at.is_(None)))).one_or_none()
+    return (row.role, (row.email or "").lower()) if row else None
+
+
+async def authority(org_id: Optional[str], uid: str, action_type: str,
+                    executor: Optional[str] = None) -> Dict[str, Any]:
+    """The authority check for one person, in the shape written to the ledger."""
+    person = await person_in_org(org_id, uid)
+    role = person[0] if person else None
+    reason = authority_reason(role, action_type, executor)
+    return {"person": uid, "role": role, "action_type": action_type, "executor": executor,
+            "ok": not reason, "reason": reason}
+
+
 def _to_domain(row: PrimeDelegation) -> Delegation:
     return Delegation(
         id=row.id, grantor=row.grantor, deputy=row.deputy, scope=frozenset(row.scope),
@@ -38,19 +61,27 @@ def _to_domain(row: PrimeDelegation) -> Delegation:
 
 
 class DelegationRepository:
-    async def add(self, d: Delegation, org_id: Optional[str] = None) -> None:
-        """Store a delegation. Raises ValueError if it breaks the organisation's limits."""
+    async def add(self, d: Delegation, org_id: Optional[str]) -> None:
+        """Store a delegation. The grantor must hold every action type in its scope
+        (PermissionError); it must fit the organisation's limits, which are what an
+        owner or admin holds (ValueError). Refusals are ledgered too."""
+        checks = [await authority(org_id, d.grantor, t) for t in sorted(d.scope)]
+        denied = next((c["reason"] for c in checks if not c["ok"]), "")
         limits = await get_limits(org_id)
+        problem = ""
         if d.valid_until - d.valid_from > timedelta(days=limits.max_delegation_days):
-            raise ValueError(f"delegation may last at most {limits.max_delegation_days} days")
-        if d.limits and d.limits.max_amount > limits.payment_ceiling:
-            raise ValueError(f"amount limit cannot be above the payment ceiling "
-                             f"{limits.payment_ceiling}")
+            problem = f"delegation may last at most {limits.max_delegation_days} days"
+        elif d.limits and d.limits.max_amount > limits.payment_ceiling:
+            problem = f"amount limit cannot be above the payment ceiling {limits.payment_ceiling}"
+        payload = {**d.model_dump(mode="json"), "authority": checks, **org_payload(org_id)}
+        if denied or problem:
+            await audit_chain.append(actor=d.grantor, action="prime.delegation.refuse",
+                                     payload={**payload, "reason": denied or problem})
+            if denied:
+                raise PermissionError(f"you cannot delegate what you do not hold: {denied}")
+            raise ValueError(problem)
         # Ledger first: a delegation must never exist without a record of who granted it.
-        await audit_chain.append(
-            actor=d.grantor, action="prime.delegation.grant",
-            payload={**d.model_dump(mode="json"), **org_payload(org_id)},
-        )
+        await audit_chain.append(actor=d.grantor, action="prime.delegation.grant", payload=payload)
         async with get_session_factory()() as session:
             session.add(PrimeDelegation(
                 id=d.id, grantor=d.grantor, deputy=d.deputy, scope=sorted(d.scope),

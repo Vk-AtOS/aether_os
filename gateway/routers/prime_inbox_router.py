@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,7 +16,7 @@ from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers.prime_router import _delegation_out, _repo, _uid
 from aether_os.prime import Action
 from aether_os.prime.approvals import ApprovalService, RequestError, members
-from aether_os.prime.authz import CURRENCY
+from aether_os.prime.authz import CURRENCY, Amount, Currency
 from aether_os.prime.executors import DEFAULT_EXECUTOR
 from aether_os.prime.ledger_view import by_delegation
 
@@ -29,8 +28,8 @@ _MAX_PARAMS_BYTES = 8_192
 
 class RequestIn(BaseModel):
     type: str = Field(min_length=1, max_length=64)
-    amount: Optional[Decimal] = Field(default=None, gt=0)
-    currency: Optional[str] = Field(default=None, max_length=3)
+    amount: Optional[Amount] = None
+    currency: Optional[Currency] = None
     params: Dict[str, Any] = Field(default_factory=dict)
     executor: str = Field(default=DEFAULT_EXECUTOR, min_length=1, max_length=64)
     on_behalf_of: Optional[str] = Field(default=None, max_length=255)
@@ -70,7 +69,9 @@ async def submit_request(
     """Ask Prime to carry out an action. Prime decides; a person may have to approve.
 
     A person may only ask on their own behalf. An organisation API key (a system such
-    as Velaris) may ask on behalf of any person in its own organisation.
+    as Velaris) may ask on behalf of any person in its own organisation, and gets no
+    authority that person lacks: Prime checks that person's role for the action and
+    executor (prime/service.py), and again at approval and before execution.
     """
     org_id = user.get("org_id")
     if user.get("user_id"):
