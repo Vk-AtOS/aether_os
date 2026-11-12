@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.gateway.policy_guard import enforce
+from aether_os.gateway.services.run_start import RESTARTABLE_STATUSES, claim_run
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
@@ -121,7 +122,7 @@ async def restart_factory_run(
     """Restart a crashed/failed run from its last saved checkpoint."""
     from aether_os.core.db import get_session_factory as _gsf_restart
     from aether_os.core.models import Run as _Run_restart
-    from sqlalchemy import select as _sel_restart, update as _upd_restart
+    from sqlalchemy import select as _sel_restart
     from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory_r
 
     org_id = user.get("org_id")
@@ -134,7 +135,7 @@ async def restart_factory_run(
         )).scalar_one_or_none()
     if not _run_r:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    if _run_r.status not in ("failed", "cancelled", "error"):
+    if _run_r.status not in RESTARTABLE_STATUSES:
         raise HTTPException(
             status_code=409,
             detail=f"Run is {_run_r.status}; only failed/cancelled runs can be restarted",
@@ -147,13 +148,8 @@ async def restart_factory_run(
         )
     await enforce("run.restart", user, run_id)
 
-    async with _gsf_restart()() as _s_r2:
-        await _s_r2.execute(
-            _upd_restart(_Run_restart)
-            .where(_Run_restart.id == run_id)
-            .values(status="running")
-        )
-        await _s_r2.commit()
+    if not await claim_run(run_id, org_id, only_in=RESTARTABLE_STATUSES, values={"status": "running"}):
+        raise HTTPException(status_code=409, detail="Run is no longer restartable (another restart won)")
 
     raw_input = (_run_r.raw_input or _run_r.command or "").replace("factory: ", "")
     _factory_r = _get_factory_r()

@@ -16,21 +16,20 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import update
 
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
 from aether_os.gateway.dependencies import require_run_user
 from aether_os.gateway.policy_guard import enforce
-from aether_os.gateway.services.run_start import start_in_background
+from aether_os.gateway.services.run_start import BUSY_STATUSES, claim_run, start_in_background
 from aether_os.orchestrator import clarifying
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
 
 RESTART_FROM = "s02_architecture"
-_BUSY = ("running", "queued", "paused", "pending")
+_BUSY = BUSY_STATUSES
 
 
 class AnswersRequest(BaseModel):
@@ -84,12 +83,12 @@ async def submit_clarifying_answers(
         metadata={"fields": sorted(clean), "digest": clarifying.digest(clean), "restart": req.restart})
 
     if req.restart:
-        # Resume AT s02: stage 1's saved context is kept, s02 onwards runs again.
-        async with get_session_factory()() as session:
-            await session.execute(update(Run).where(Run.id == run_id).values(
+        # Resume AT s02: stage 1's saved context is kept, s02 onwards runs again. One
+        # conditional UPDATE: of two concurrent restarts only one matches and starts a build.
+        if not await claim_run(run_id, user["org_id"], not_in=_BUSY, values=dict(
                 status="running", message=None,
-                checkpoint_data={**ckpt, "last_completed_phase": "s01_intake"}))
-            await session.commit()
+                checkpoint_data={**ckpt, "last_completed_phase": "s01_intake"})):
+            raise HTTPException(status_code=409, detail="Run is already running; wait for it to stop first")
         start_in_background(client_id=user.get("org_slug", "clarify"),
                             raw_input=(run.raw_input or run.command or "").removeprefix("factory: "),
                             run_id=run_id, org_id=user["org_id"])
