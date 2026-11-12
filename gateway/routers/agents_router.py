@@ -59,7 +59,8 @@ async def run_agent(
         file_path=req.get("file_path"),
         workflow_id=req.get("workflow_id"),
         user_id=user.get("sub"),
-        metadata={**req.get("metadata", {}), "org_id": user["org_id"]},
+        # Identity comes from the token, never from the request body.
+        metadata={**req.get("metadata", {}), "org_id": user["org_id"], "role": user.get("role")},
     )
     result = await agent.run(ctx)
     return {

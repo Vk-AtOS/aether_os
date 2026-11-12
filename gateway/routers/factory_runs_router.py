@@ -1,13 +1,13 @@
 """AetherOS — Factory Runs Router (core run lifecycle).
 
-GET /factory/runs, GET/POST /factory/runs/{run_id} (detail, quality, priority, rerun, branch).
+GET /factory/runs, GET/POST /factory/runs/{run_id} (detail, quality, priority).
+Rerun/branch    → run_fork_router
 Files/snapshots → factory_run_files_router
 Streaming/SSE  → factory_run_streaming_router
 Compliance     → factory_run_compliance_router
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import pathlib
@@ -17,7 +17,6 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.policy_guard import enforce
 from aether_os.gateway.routers.factory_run_background import (
     enrich_phases_from_disk,
     load_phase_events,
@@ -29,26 +28,17 @@ from aether_os.core.services.run_service import (
     get_explicit_events,
     get_run_priority_and_live_url,
 )
-import uuid as _uuid
-import uuid as _uuid2
 from dataclasses import asdict
 from dataclasses import asdict as _asdict
-from sqlalchemy import select, update as _sa_upd
 from sqlalchemy import select as _sel_ev
-from sqlalchemy import select as _sel_b
-from aether_os.gateway import api as _api
-from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory
-from aether_os.orchestrator.factory_pipeline import get_factory as _get_factory2
 from aether_os.core.quality.metrics import score_project
 from aether_os.core.projects import get_project_manager
 from aether_os.core.models import RunMetadata as _RM_pri
-from aether_os.core.models import Run as _RunB
-from aether_os.core.models import PipelineEvent, Organisation
+from aether_os.core.models import PipelineEvent
 from aether_os.core.db import get_session_factory
 from aether_os.core.db import get_session_factory as _gsf
 from aether_os.core.db import get_session_factory as _gsf_pri
 from aether_os.core.db import get_session_factory as _gsf_ev
-from aether_os.core.db import get_session_factory as _gsf_b
 from aether_os.core.db import get_session_factory as _gsf3
 from aether_os.core.audit.ledger import get_ledger
 
@@ -60,19 +50,10 @@ router = APIRouter(tags=["runs"])
 class PriorityRequest(BaseModel):
     priority: str  # "high" | "normal" | "low"
 
-class RerunRequest(BaseModel):
-    from_phase: str
-
 # ── Auth helper ────────────────────────────────────────────────────────────────
 
 def _current_user():
     return Depends(get_current_user)
-
-# ── Module-level shared state (mirrors api.py globals) ────────────────────────
-
-def _get_background_tasks() -> set:
-
-    return _api._background_tasks
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -274,128 +255,6 @@ async def set_factory_run_priority(
             )
         await _sess_pri.commit()
     return {"run_id": run_id, "priority": req.priority}
-
-@router.post("/factory/runs/{run_id}/rerun")
-async def rerun_factory_run(
-    run_id: str,
-    req: RerunRequest,
-    user: Dict[str, Any] = _current_user(),
-) -> Dict[str, Any]:
-    """Create a new run starting from a given phase."""
-
-    org_id = user.get("org_id")
-    detail = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
-    if not detail:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    await enforce("run.start", user, run_id)  # a rerun is a new run: same quota as /factory/start
-
-    session_factory = get_session_factory()
-    async with session_factory() as session:
-        stmt = select(Organisation).where(Organisation.id == org_id)
-        result = await session.execute(stmt)
-        org = result.scalar_one_or_none()
-        if not org:
-            raise HTTPException(status_code=404, detail="Organisation not found")
-        if org.plan == "trial":
-            # Atomic increment — prevents TOCTOU race (K-04)
-            upd = await session.execute(
-                _sa_upd(Organisation)
-                .where(Organisation.id == org_id)
-                .where(Organisation.trial_runs_used < Organisation.trial_runs_limit)
-                .values(trial_runs_used=Organisation.trial_runs_used + 1)
-            )
-            await session.commit()
-            if upd.rowcount == 0:
-                raise HTTPException(
-                    status_code=402,
-                    detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"},
-                )
-
-    cmd = detail.get("command", "")
-    raw_input = cmd[9:] if cmd.startswith("factory: ") else cmd
-    new_run_id = str(_uuid.uuid4())
-    factory = _get_factory()
-    _background_tasks = _get_background_tasks()
-
-    async def _bg():
-        try:
-            await factory.run(
-                client_id=user.get("org_slug", "rerun"),
-                raw_input=raw_input,
-                start_phase=req.from_phase,
-                run_id=new_run_id,
-                org_id=org_id,
-            )
-        except Exception as exc:
-            logger.error("Rerun failed: %s", exc)
-
-    _t = asyncio.create_task(_bg())
-    _background_tasks.add(_t)
-    _t.add_done_callback(_background_tasks.discard)
-    return {"run_id": new_run_id, "status": "started", "from_phase": req.from_phase}
-
-@router.post("/factory/runs/{run_id}/branch")
-async def branch_factory_run(
-    run_id: str,
-    req: Dict[str, Any],
-    user: Dict[str, Any] = _current_user(),
-) -> Dict[str, Any]:
-    """Fork a run at a given phase — creates a new run with the same context."""
-
-    branch_phase = req.get("branch_phase", "p04_backend")
-    extra_input = req.get("extra_input", "")
-    org_id = user.get("org_id")
-    async with _gsf_b()() as _s:
-        parent = (
-            await _s.execute(
-                _sel_b(_RunB).where(_RunB.id == run_id, _RunB.org_id == org_id)
-            )
-        ).scalar_one_or_none()
-    if not parent:
-        raise HTTPException(status_code=404, detail="Parent run not found")
-
-    new_run_id = str(_uuid2.uuid4())
-    raw_input = (parent.raw_input or parent.command or "").replace("factory: ", "")
-    if extra_input:
-        raw_input = f"{raw_input}\n\nAdditional requirement: {extra_input}"
-
-    # Mark branch in DB
-    async with _gsf_b()() as _s:
-        branch_row = _RunB(
-            id=new_run_id, org_id=org_id, status="queued",
-            parent_run_id=run_id, branch_phase=branch_phase,
-            raw_input=raw_input, domain=parent.domain or "general",
-            project_name=f"{parent.project_name or 'project'} (branch)",
-            started_at=__import__("time").time(),
-        )
-        _s.add(branch_row)
-        await _s.commit()
-
-    factory = _get_factory2()
-    _background_tasks = _get_background_tasks()
-
-    async def _branch_bg():
-        try:
-            await factory.run(
-                client_id=user.get("org_slug", "branch"),
-                raw_input=raw_input,
-                start_phase=branch_phase,
-                run_id=new_run_id,
-                org_id=org_id,
-                domain=parent.domain or "general",
-            )
-        except Exception as exc:
-            logger.error("Branch run failed: %s", exc)
-
-    _bt = asyncio.create_task(_branch_bg())
-    _background_tasks.add(_bt)
-    _bt.add_done_callback(_background_tasks.discard)
-    return {
-        "run_id": new_run_id,
-        "status": "started",
-        "parent_run_id": run_id,
-        "branch_phase": branch_phase,
-    }
 
 @router.get("/factory/runs/{run_id}/events")
 async def get_run_events(

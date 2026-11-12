@@ -36,7 +36,7 @@ oauth_router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 # In a multi-worker deployment, OAuth CSRF state validation may fail if the
 # callback lands on a different worker than the login request. To fix in
 # production: migrate _pending_states to Redis using the same pattern as
-# core/rate_limiter.py (sse_token_set / sse_token_pop).
+# gateway/auth_refresh.py (sse_token_set / sse_token_pop).
 _STATE_TTL_SECONDS = 600  # 10 minutes
 _pending_states: dict = {}  # state_token → {"provider": str, "ts": float}
 

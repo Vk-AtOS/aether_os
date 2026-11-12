@@ -11,7 +11,6 @@ Executors never retry. A name that is not in the registry is refused.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -22,12 +21,13 @@ from sqlalchemy import select
 
 from aether_os.core.db import get_session_factory
 from aether_os.core.encryption import decrypt
-from aether_os.core.models import Run, Webhook
-from aether_os.core.pipeline_state import get_control, set_control
+from aether_os.core.models import Webhook
 # Reused, not re-implemented: the outbound address check and the HMAC signer of
 # organisation webhooks. deliver_event()/send() themselves are not used because
 # they retry, and an approved action must be attempted exactly once.
-from aether_os.core.webhooks.delivery import _DELIVERY_TIMEOUT, _assert_safe_url, _delivery
+from aether_os.core.security.safe_http import UnsafeURL, safe_request
+from aether_os.core.spec_approval import decide_spec
+from aether_os.core.webhooks.delivery import _DELIVERY_TIMEOUT, _delivery
 from aether_os.prime.authz import Action
 
 WEBHOOK_EVENT = "prime.execute"
@@ -117,12 +117,10 @@ class WebhookExecutor:
             "X-AetherOS-Signature-256": f"sha256={_delivery._sign(body, secret)}",
         }
         try:
-            await asyncio.to_thread(_assert_safe_url, wh.url)  # resolves DNS: off the loop
-        except ValueError as e:
+            resp = await safe_request("POST", wh.url, content=body, headers=headers,
+                                      timeout=_DELIVERY_TIMEOUT)
+        except UnsafeURL as e:
             raise ExecutionFailed(f"address refused: {e}") from e
-        try:
-            async with httpx.AsyncClient(timeout=_DELIVERY_TIMEOUT) as client:
-                resp = await client.post(wh.url, content=body, headers=headers)
         except httpx.ConnectError as e:
             raise ExecutionFailed("could not connect to the endpoint") from e
         # Any other transport error (timeout, dropped connection) propagates: the
@@ -158,17 +156,10 @@ class RunGateExecutor:
 
     async def execute(self, ctx: ExecutionContext) -> Dict[str, Any]:
         run_id = self._run_id(ctx)
-        async with get_session_factory()() as session:
-            found = (await session.execute(
-                select(Run.id).where(Run.id == run_id, Run.org_id == ctx.org_id)
-            )).scalar_one_or_none()
-        if not found:
-            raise ExecutionFailed("no such build in this organisation")
-        control = await get_control(run_id)
-        if control != "spec_review":
-            raise ExecutionFailed(
-                f"the build is not waiting at its specification review gate (state: {control})")
-        await set_control(run_id, "spec_approved")
+        outcome = await decide_spec(run_id, ctx.org_id, actor=f"prime:{ctx.request_id}", via="prime",
+                                    metadata={"approved_by": ctx.approved_by})
+        if outcome != "approved":
+            raise ExecutionFailed(f"the build could not be approved here ({outcome})")
         return {"run_id": run_id, "gate": "spec_review", "control": "spec_approved"}
 
 

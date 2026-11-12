@@ -35,7 +35,7 @@ async def get_sse_token(
 ) -> Dict[str, str]:
     """Exchange bearer JWT for a short-lived (30s) SSE-only token for this run."""
     import secrets
-    from aether_os.core.rate_limiter import sse_token_set
+    from aether_os.gateway.auth_refresh import sse_token_set
 
     sse_tok = secrets.token_urlsafe(32)
     await sse_token_set(sse_tok, org_id=user["org_id"], run_id=run_id)
@@ -59,7 +59,7 @@ async def stream_run_events(
     so reconnects do not replay all events from the beginning.
     """
     from aether_os.core.audit.ledger import get_ledger
-    from aether_os.core.rate_limiter import sse_token_pop
+    from aether_os.gateway.auth_refresh import sse_token_pop
 
     if not sse_token:
         return Response(

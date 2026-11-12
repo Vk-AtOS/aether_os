@@ -177,6 +177,11 @@ async def restore_from_checkpoint(
                 _resume_idx = (phase_sequence.index(_last_done) + 1
                                if _last_done in phase_sequence
                                else phase_sequence.index(_legacy_stage))
+                # s01 is saved before its spec review gate runs. A checkpoint with no
+                # record of passing that gate (crash or expiry while waiting) resumes AT
+                # s01, so the spec is reviewed again instead of silently skipped.
+                if _last_done == "s01_intake" and not _saved_ctx.get("spec_review"):
+                    _resume_idx = phase_sequence.index("s01_intake")
                 phases_to_run = phase_sequence[_resume_idx:]
                 logger.info(
                     "[phase_selector] Resuming run %s from checkpoint after phase %s (%d phases remaining)",

@@ -388,43 +388,9 @@ def get_rate_limiter() -> RateLimiter:
     return _instance
 
 
-# ── Async Redis-backed SSE token store ────────────────────────────────────────
-
-_SSE_TTL = 30  # seconds
-_sse_memory: dict = {}  # in-memory fallback only
-
-
-async def sse_token_set(token: str, org_id: str, run_id: str) -> None:
-    """Store a short-lived SSE exchange token (expires in 30s)."""
-    r = await _get_async_redis()
-    if r:
-        try:
-            import json
-            await r.set(f"sse:{token}", json.dumps({"org_id": org_id, "run_id": run_id}), ex=_SSE_TTL)
-            return
-        except Exception as exc:
-            logger.warning("SSE token Redis write failed: %s", exc)
-    _sse_memory[token] = {"org_id": org_id, "run_id": run_id, "exp": time.time() + _SSE_TTL}
-
-
-async def sse_token_pop(token: str) -> Optional[dict]:
-    """Consume (pop) an SSE token. Returns {org_id, run_id} or None if invalid/expired."""
-    r = await _get_async_redis()
-    if r:
-        try:
-            import json
-            key = f"sse:{token}"
-            async with r.pipeline() as pipe:
-                await pipe.get(key)
-                await pipe.delete(key)
-                val, _ = await pipe.execute()
-            return json.loads(val) if val else None
-        except Exception as exc:
-            logger.warning("SSE token Redis pop failed: %s", exc)
-    entry = _sse_memory.pop(token, None)
-    if entry and entry.get("exp", 0) > time.time():
-        return entry
-    return None
+# SSE exchange tokens live with the other token state in gateway/auth_refresh.py
+# (Redis only, 503 when Redis is down): an in-process fallback broke with several
+# workers and let one token be spent once per worker.
 
 
 # ── Run-App port registry (multi-worker-safe via Redis) ───────────────────────

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.policy_guard import enforce
+from aether_os.gateway.policy_guard import admit_run_start
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import InstalledPluginRecord, MarketplaceProfile
 from aether_os.core.models import MarketplaceProfile
@@ -142,7 +142,7 @@ async def install_marketplace_profile(
         )).scalar_one_or_none()
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found or not published")
-        await enforce("run.start", user, profile_id)  # installing starts a build
+        await admit_run_start(user, profile_id)  # installing starts a build: policy + trial allowance
         # Increment usage counter atomically
         await session.execute(
             _sa_upd(MarketplaceProfile)

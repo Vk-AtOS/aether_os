@@ -18,6 +18,7 @@ accepted (503), and nothing is reported as revoked.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -167,3 +168,34 @@ async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) 
     except Exception as exc:
         logger.warning("Could not revoke sessions for user %s: %s", user_id, exc)
         raise _UNAVAILABLE
+
+
+# ── SSE exchange tokens ──────────────────────────────────────────────────────
+# A 30-second, single-use token that stands in for the JWT on the EventSource URL
+# (JWTs must not appear in URLs). Redis only: an in-process store is per worker,
+# so it fails across workers and lets one token be spent once per worker.
+_SSE_TTL_SECONDS = 30
+
+
+async def sse_token_set(token: str, org_id: str, run_id: str) -> None:
+    try:
+        r = await _redis()
+        await r.set(f"sse:{token}", json.dumps({"org_id": org_id, "run_id": run_id}), ex=_SSE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("SSE token could not be stored (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE
+
+
+async def sse_token_pop(token: str) -> Optional[Dict[str, Any]]:
+    """Spend an SSE token: {org_id, run_id} the first time, None after (or if unknown/expired).
+    GET and DELETE run as one transaction, so two connections cannot both spend it."""
+    try:
+        r = await _redis()
+        async with r.pipeline(transaction=True) as pipe:
+            await pipe.get(f"sse:{token}")
+            await pipe.delete(f"sse:{token}")
+            value, _ = await pipe.execute()
+    except Exception as exc:
+        logger.warning("SSE token could not be checked (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE
+    return json.loads(value) if value else None

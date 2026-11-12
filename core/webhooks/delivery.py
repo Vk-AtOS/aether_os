@@ -10,18 +10,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
-import ipaddress
 import json
 import logging
-import socket
 import time
-import urllib.parse
 import uuid
 from typing import Any, Dict, List, Optional
 
-import httpx
-
 from aether_os.core.encryption import decrypt
+from aether_os.core.security.safe_http import resolve_public, safe_request
 
 logger = logging.getLogger(__name__)
 
@@ -30,29 +26,14 @@ _RETRY_DELAYS = [5, 30, 120]   # seconds between attempts (exponential-ish)
 _DELIVERY_TIMEOUT = 10.0       # seconds per HTTP attempt
 
 
-_BLOCKED_HOSTS = {"localhost", "metadata.google.internal", "169.254.169.254"}
-
-
 def _assert_safe_url(url: str) -> None:
-    """Re-validate the webhook URL by resolving its hostname at delivery time.
-    Prevents DNS rebinding attacks where a hostname passes registration checks
-    but later resolves to a private/internal IP."""
-    try:
-        parsed = urllib.parse.urlparse(url)
-        host = parsed.hostname or ""
-        if not host:
-            raise ValueError("empty hostname")
-        if host in _BLOCKED_HOSTS:
-            raise ValueError(f"blocked host: {host}")
-        # Resolve the hostname to its current IP
-        resolved_ip = socket.gethostbyname(host)
-        addr = ipaddress.ip_address(resolved_ip)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-            raise ValueError(f"hostname {host!r} resolved to private IP {resolved_ip}")
-    except ValueError:
-        raise
-    except Exception as exc:
-        raise ValueError(f"SSRF pre-check failed for {url!r}: {exc}") from exc
+    """Raise ValueError unless every address `url` resolves to is public.
+
+    Kept for callers that only check; sending must use safe_request, which also pins
+    the connection to the checked address (a check followed by a fresh lookup can
+    be defeated by DNS rebinding).
+    """
+    resolve_public(url)
 
 
 class WebhookDelivery:
@@ -103,10 +84,9 @@ class WebhookDelivery:
 
         for attempt in range(_MAX_RETRIES):
             try:
-                # Re-resolve DNS on every attempt to block DNS rebinding (H-09)
-                _assert_safe_url(url)
-                async with httpx.AsyncClient(timeout=_DELIVERY_TIMEOUT) as client:
-                    resp = await client.post(url, content=body, headers=headers)
+                # Resolve, check every address, connect to the checked one (DNS rebinding, H-09)
+                resp = await safe_request("POST", url, content=body, headers=headers,
+                                          timeout=_DELIVERY_TIMEOUT)
                 if resp.status_code < 300:
                     logger.info("[webhook] delivered %s → %s (attempt %d)", event_type, url, attempt + 1)
                     return True

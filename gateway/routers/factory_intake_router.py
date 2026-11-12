@@ -16,6 +16,7 @@ import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
+from aether_os.core.security.safe_http import UnsafeURL, check_url_shape, safe_request
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -159,30 +160,7 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
       gitlab_url: self-hosted GitLab base URL (optional, default https://gitlab.com)
       max_files:  max files to include (default 15)
     """
-    import httpx, base64, asyncio, tempfile, shutil
-    import ipaddress
-    from urllib.parse import urlparse as _urlparse
-
-    def _assert_not_ssrf(raw_url: str, label: str = "url") -> None:
-        """Block requests to private/loopback/link-local IP ranges (SSRF prevention)."""
-        try:
-            parsed = _urlparse(raw_url)
-            host = parsed.hostname or ""
-            if not host:
-                raise HTTPException(status_code=422, detail=f"Invalid {label}: no hostname")
-            try:
-                ip = ipaddress.ip_address(host)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-                    raise HTTPException(status_code=422, detail=f"{label} must not point to internal networks")
-            except ValueError as e:
-                logger.warning("factory_intake_router: %r is not a raw IP (hostname, DNS resolves at request time): %s", host, e)
-            if host in ("metadata.google.internal", "169.254.169.254"):
-                raise HTTPException(status_code=422, detail=f"{label} is a blocked cloud metadata endpoint")
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.debug("SSRF URL validation failed for %s=%r: %s", label, raw_url, exc)
-            raise HTTPException(status_code=422, detail=f"Invalid {label}")
+    import httpx, base64, tempfile, shutil
 
     rtype = req.get("type", "github").lower()
     url   = (req.get("url") or req.get("repo_url") or "").strip().rstrip("/")
@@ -196,7 +174,10 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
 
     # SSRF: validate gitlab_url before making server-side requests to it
     if rtype == "gitlab":
-        _assert_not_ssrf(gitlab_base, "gitlab_url")
+        try:
+            check_url_shape(gitlab_base)
+        except UnsafeURL as exc:
+            raise HTTPException(status_code=422, detail=f"gitlab_url refused: {exc}") from exc
 
     # SSRF/injection: SSH URLs must be actual git remotes, not file:// or local paths
     if rtype == "ssh":
@@ -221,19 +202,22 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             hdrs: Dict[str, str] = {}
             if token:
                 hdrs["PRIVATE-TOKEN"] = token
-            async with httpx.AsyncClient(timeout=20) as gl:
-                tree_res = await gl.get(f"{api_base}/projects/{encoded}/repository/tree?recursive=true&per_page=200", headers=hdrs)
-                if tree_res.status_code == 404:
-                    raise HTTPException(status_code=404, detail="GitLab project not found or private (provide token)")
-                tree = tree_res.json()
-                key_files = [f for f in tree if f.get("type") == "blob" and f["name"].lower() in _KEY_FILES][:max_files]
-                context_parts.append(f"Repository: {path} (GitLab)")
-                for f in key_files:
-                    fpath = f["path"]
-                    raw_res = await gl.get(f"{api_base}/projects/{encoded}/repository/files/{fpath.replace('/',  '%2F')}/raw?ref=HEAD", headers=hdrs)
-                    if raw_res.status_code == 200:
-                        text = raw_res.text[:3000]
-                        context_parts.append(f"\n--- {fpath} ---\n{text}")
+            # Self-hosted GitLab: a user-supplied host, so resolve-check-pin every request.
+            try:
+                tree_res = await safe_request("GET", f"{api_base}/projects/{encoded}/repository/tree?recursive=true&per_page=200", headers=hdrs, timeout=20)
+            except UnsafeURL as exc:
+                raise HTTPException(status_code=422, detail=f"gitlab_url refused: {exc}") from exc
+            if tree_res.status_code == 404:
+                raise HTTPException(status_code=404, detail="GitLab project not found or private (provide token)")
+            tree = tree_res.json()
+            key_files = [f for f in tree if f.get("type") == "blob" and f["name"].lower() in _KEY_FILES][:max_files]
+            context_parts.append(f"Repository: {path} (GitLab)")
+            for f in key_files:
+                fpath = f["path"]
+                raw_res = await safe_request("GET", f"{api_base}/projects/{encoded}/repository/files/{fpath.replace('/',  '%2F')}/raw?ref=HEAD", headers=hdrs, timeout=20)
+                if raw_res.status_code == 200:
+                    text = raw_res.text[:3000]
+                    context_parts.append(f"\n--- {fpath} ---\n{text}")
         else:
             # GitHub (existing logic unified here)
             parts = url.replace("https://github.com/", "").split("/")

@@ -43,12 +43,13 @@ class _Echo(BaseHTTPRequestHandler):
         _Echo.seen.append(record)
         body = json.dumps(record).encode()
         self.send_response(200)
+        self.send_header("x-aether-preview-nonce", "n" * 32)  # what the launcher's uvicorn adds
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    do_GET = do_POST = _reply
+    do_GET = do_POST = do_HEAD = _reply
 
     def log_message(self, *args):  # keep test output quiet
         return
@@ -351,59 +352,82 @@ def test_verify_payment_rejects_orders_that_do_not_match(env, monkeypatch, order
 
 
 # ── 4. /app-preview ───────────────────────────────────────────────────────────
+# Generated apps are served only by the preview server, on their own origin
+# (gateway/preview_server.py); the dashboard origin never proxies them.
 
-def test_app_preview_requires_preview_cookie(env):
-    c = env.client
-    c.cookies.clear()
-    assert c.get("/app-preview/").status_code == 401
+_NONCE = "n" * 32
+_PREVIEW = {"AETHER_PREVIEW_ORIGIN": "http://preview.test:8100", "AETHER_PREVIEW_SECRET": "p" * 40}
+
+
+@pytest.fixture
+def preview(monkeypatch, tmp_path):
+    import aether_os.core.projects as projects_mod
+    from aether_os.gateway.preview_server import create_preview_app
+    for k, v in _PREVIEW.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(projects_mod, "_manager", projects_mod.ProjectManager(root=tmp_path))
+    return TestClient(create_preview_app(), base_url=_PREVIEW["AETHER_PREVIEW_ORIGIN"],
+                      follow_redirects=False)
+
+
+def test_app_preview_requires_preview_session(env, preview):
+    from aether_os.core.run_app.preview_token import SESSION_COOKIE
+    from aether_os.gateway.auth import create_preview_token
+    resp = env.client.get("/app-preview/", headers=env.a.auth, follow_redirects=False)
+    assert resp.status_code == 307 and resp.content == b""          # dashboard origin: never content
+    assert preview.get("/app-preview/").status_code == 401
     # A platform bearer token is not a preview session either.
-    assert c.get("/app-preview/", headers=env.a.auth).status_code == 401
-    # Nor is a platform access token smuggled into the cookie.
-    c.cookies.set("aether_preview", env.a.token)
-    assert c.get("/app-preview/").status_code == 401
-    c.cookies.clear()
+    assert preview.get("/app-preview/", headers=env.a.auth).status_code == 401
+    # Nor is a platform access token, or the old dashboard preview cookie, smuggled into a cookie.
+    for name, value in ((SESSION_COOKIE, env.a.token),
+                        (SESSION_COOKIE, create_preview_token(env.run_a, env.a.org_id)),
+                        ("aether_preview", create_preview_token(env.run_a, env.a.org_id))):
+        preview.cookies.clear()
+        preview.cookies.set(name, value)
+        assert preview.get("/app-preview/").status_code == 401, name
+    preview.cookies.clear()
 
 
-def test_app_preview_is_run_scoped_and_strips_platform_credentials(env, upstream):
-    from aether_os.core import app_state
-    c = env.client
-    c.cookies.clear()
-    alive = SimpleNamespace(pid=os.getpid(), poll=lambda: None)
-    app_state.set_proc(env.run_a, alive)
-    app_state.set_port(env.run_a, upstream)
-    try:
-        # Another org cannot obtain a preview session for this run.
-        assert c.get(f"/factory/runs/{env.run_a}/run-app/status", headers=env.b.auth).status_code == 404
-        assert "aether_preview" not in c.cookies
-        assert c.get("/app-preview/whoami").status_code == 401
+def test_app_preview_is_run_scoped_and_strips_platform_credentials(env, preview, upstream):
+    from urllib.parse import urlsplit
+    from aether_os.core.run_app import preview_state
+    # Another org cannot obtain a preview link for this run.
+    assert env.client.post(f"/factory/runs/{env.run_a}/preview-session", headers=env.b.auth).status_code == 404
 
-        # The owner's status call issues the HttpOnly, path-scoped cookie.
-        resp = c.get(f"/factory/runs/{env.run_a}/run-app/status", headers=env.a.auth)
-        assert resp.json()["running"] is True
-        set_cookie = resp.headers["set-cookie"]
-        assert "aether_preview=" in set_cookie
-        assert "HttpOnly" in set_cookie and "Path=/app-preview" in set_cookie
+    # The run's app (the echo server) as the launcher records it; only the nonce identifies it.
+    state = preview_state.state_path(env.run_a)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    preview_state.write_state(state, env.run_a, upstream, None, _NONCE, "backend", container="c1")
 
-        # Proxied request: platform token, cookie and org header never reach the app.
-        resp = c.get("/app-preview/whoami", headers={**env.a.auth, "X-Org-ID": env.a.org_id})
-        assert resp.status_code == 200, resp.text
-        got = resp.json()["headers"]
+    link = env.client.post(f"/factory/runs/{env.run_a}/preview-session", headers=env.a.auth).json()["url"]
+    parts = urlsplit(link)
+    entered = preview.get(f"{parts.path}?{parts.query}")
+    assert entered.status_code == 303
+    set_cookie = entered.headers["set-cookie"]
+    assert "HttpOnly" in set_cookie and "Domain" not in set_cookie
+
+    # Proxied request: platform token, cookie and org header never reach the app.
+    resp = preview.get("/app-preview/whoami", headers={**env.a.auth, "X-Org-ID": env.a.org_id})
+    assert resp.status_code == 200, resp.text
+    assert preview_state.NONCE_HEADER not in resp.headers
+    got = resp.json()["headers"]
+    assert "authorization" not in got
+    assert "cookie" not in got
+    assert "x-org-id" not in got
+
+    # Refresh tokens and API keys are platform credentials too.
+    for cred in (f"Bearer {env.a.refresh}", "Bearer aesk_abc123"):
+        got = preview.get("/app-preview/whoami", headers={"Authorization": cred}).json()["headers"]
         assert "authorization" not in got
-        assert "cookie" not in got
-        assert "x-org-id" not in got
 
-        # Refresh tokens and API keys are platform credentials too.
-        for cred in (f"Bearer {env.a.refresh}", "Bearer aesk_abc123"):
-            got = c.get("/app-preview/whoami", headers={"Authorization": cred}).json()["headers"]
-            assert "authorization" not in got
+    # The generated app's own bearer token still passes through.
+    got = preview.get("/app-preview/whoami", headers={"Authorization": "Bearer app-own-token"}).json()["headers"]
+    assert got["authorization"] == "Bearer app-own-token"
 
-        # The generated app's own bearer token still passes through.
-        got = c.get("/app-preview/whoami", headers={"Authorization": "Bearer app-own-token"}).json()["headers"]
-        assert got["authorization"] == "Bearer app-own-token"
-    finally:
-        app_state.del_proc(env.run_a)
-        app_state.del_port(env.run_a)
-        c.cookies.clear()
+    # Something else answering on the recorded port (no / wrong nonce) is never proxied to.
+    preview_state.write_state(state, env.run_a, upstream, None, "f" * 32, "backend", container="c1")
+    assert preview.get("/app-preview/whoami").status_code == 503
+    preview.cookies.clear()
 
 
 def test_preview_cookie_is_not_an_api_credential(env):
@@ -454,8 +478,13 @@ def test_metrics_internal_is_gone_and_metrics_needs_key(env):
 # ── 7. Outbound webhook signing ───────────────────────────────────────────────
 
 def test_webhook_delivery_refuses_empty_secret_and_signs_with_real_one(env, upstream, monkeypatch):
+    import urllib.parse
+    from aether_os.core.security import safe_http
     from aether_os.core.webhooks import delivery
-    monkeypatch.setattr(delivery, "_assert_safe_url", lambda url: None)  # allow the loopback echo server
+    # Allow the loopback echo server: the address check is the only thing replaced;
+    # pinning, headers and sending still run.
+    monkeypatch.setattr(safe_http, "resolve_public",
+                        lambda url: (urllib.parse.urlsplit(url), ["127.0.0.1"]))
     url = f"http://127.0.0.1:{upstream}/hook"
     sender = delivery.WebhookDelivery()
 

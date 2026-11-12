@@ -200,39 +200,5 @@ class TestGetRateLimiter:
         assert isinstance(limiter, rl_mod.RateLimiter)
 
 
-# ---------------------------------------------------------------------------
-# SSE token store
-# ---------------------------------------------------------------------------
-
-class TestSseTokenStore:
-    @pytest.mark.asyncio
-    async def test_set_and_pop_in_memory(self, monkeypatch):
-        """sse_token_set + sse_token_pop round-trip via in-memory fallback."""
-        monkeypatch.setattr(rl_mod, "_get_async_redis", AsyncMock(return_value=None))
-        rl_mod._sse_memory.clear()
-
-        await rl_mod.sse_token_set("tok123", "org1", "run1")
-        result = await rl_mod.sse_token_pop("tok123")
-
-        assert result is not None
-        assert result["org_id"] == "org1"
-        assert result["run_id"] == "run1"
-
-    @pytest.mark.asyncio
-    async def test_pop_returns_none_for_missing_token(self, monkeypatch):
-        monkeypatch.setattr(rl_mod, "_get_async_redis", AsyncMock(return_value=None))
-        rl_mod._sse_memory.clear()
-
-        result = await rl_mod.sse_token_pop("nonexistent")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_pop_consumes_token(self, monkeypatch):
-        """Second pop of the same token must return None."""
-        monkeypatch.setattr(rl_mod, "_get_async_redis", AsyncMock(return_value=None))
-        rl_mod._sse_memory.clear()
-
-        await rl_mod.sse_token_set("tok_once", "org2", "run2")
-        await rl_mod.sse_token_pop("tok_once")
-        result = await rl_mod.sse_token_pop("tok_once")
-        assert result is None
+# SSE token store: moved to gateway/auth_refresh.py (Redis only, 503 when down);
+# tested in tests/test_backend_lane_fixes.py.
