@@ -64,7 +64,10 @@ async def latest_checkpoint(user: Dict[str, Any] = Depends(get_current_user)) ->
     """The newest signed checkpoint of the caller's organisation chain, and the key to check it."""
     cid = _chain(user)
     key = checkpoints.signing_key(create=False)
+    # file_check: the last scheduled check of the local anchor file (this chain's
+    # problems only; None until the first run, 600 s by default).
     return {"chain_id": cid, "checkpoint": await anchor.latest(cid),
+            "file_check": anchor.last_file_check(cid),
             "key_id": checkpoints.key_id(key) if key else None,
             "public_key_pem": checkpoints.public_key_pem(key) if key else None}
 
@@ -105,8 +108,8 @@ async def check_anchor_file(user: Dict[str, Any] = Depends(get_current_user)) ->
     """Superadmin: verify every chain against the local anchor file."""
     if user.get("role") != "superadmin":
         raise HTTPException(status_code=403, detail="Superadmin only")
-    problems = await anchor.check_file()
-    return {"ok": not problems, "problems": problems}
+    result = await anchor.run_file_check()
+    return {"ok": result["ok"], "problems": result["problems"]}
 
 
 @router.post("/subjects/erase")

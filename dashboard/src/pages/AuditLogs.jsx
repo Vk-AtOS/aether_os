@@ -2,6 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { ShieldCheck, Search, RefreshCw, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 
+// The server resolves pseudonymous references; a person erased on request comes back as
+// "[erased]" and a value that could not be recorded safely as "[withheld]". Never show
+// anything else that looks like a stored reference.
+const personal = (v) => {
+  if (!v) return '—';
+  if (v === '[erased]') return <em title="This person's data was erased on request" className="not-italic text-muted/70">erased</em>;
+  if (v === '[withheld]') return <em title="Not recorded: it could not be stored safely" className="not-italic text-muted/70">not recorded</em>;
+  if (/^sub_[0-9a-f]{32}$/.test(v)) return <em title="A reference that could not be resolved" className="not-italic text-muted/70">erased</em>;
+  return v;
+};
+
 const AuditLogs = () => {
   const [logs, setLogs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -199,7 +210,7 @@ const AuditLogs = () => {
                   {log.resource_type && <span className="font-mono">{log.resource_type}</span>}
                   {log.resource_id && <span className="text-muted/50"> · {log.resource_id.slice(0, 8)}</span>}
                 </td>
-                <td className="px-4 py-3 text-muted font-mono text-xs">{log.ip_address || '—'}</td>
+                <td className="px-4 py-3 text-muted font-mono text-xs">{personal(log.ip_address)}</td>
               </tr>
             ))}
           </tbody>

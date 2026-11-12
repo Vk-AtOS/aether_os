@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from aether_os.core.audit import subjects
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.services.admin_service import (
     invite_user_service,
@@ -240,6 +241,9 @@ async def export_audit_csv(
             stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
         stmt = stmt.order_by(AuditLog.created_at.asc())
         rows = (await session.execute(stmt)).all()
+    # Stored values are pseudonymous references; show them as the ledger would (resolved,
+    # or "[erased]"), never raw ids or hmacs.
+    shown = await subjects.display_columns(effective_org_id, [r[0] for r in rows])
 
     def _generate():
         # Header row
@@ -252,7 +256,7 @@ async def export_audit_csv(
         buf.seek(0)
         yield buf.read()
 
-        for log, email in rows:
+        for (log, email), (ip_text, meta_text) in zip(rows, shown):
             ts_str = (
                 datetime.fromtimestamp(log.created_at, tz=timezone.utc).isoformat()
                 if log.created_at
@@ -268,8 +272,8 @@ async def export_audit_csv(
                 log.action,
                 log.resource_type,
                 log.resource_id,
-                log.ip_address or "",
-                log.log_metadata or "",
+                ip_text,
+                meta_text,
             ])
             buf.seek(0)
             yield buf.read()

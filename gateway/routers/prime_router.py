@@ -24,6 +24,7 @@ from aether_os.prime.authz import (
     CURRENCY, HARD_MAX_DELEGATION_DURATION, HARD_PAYMENT_CEILING, Amount, Currency,
 )
 from aether_os.prime.executors import DEFAULT_EXECUTOR, REGISTRY
+from aether_os.prime import ledger_view
 from aether_os.prime.limits import OrgLimits, get_limits, set_limits
 
 logger = logging.getLogger(__name__)
@@ -32,9 +33,10 @@ router = APIRouter(prefix="/prime", tags=["prime"])
 _repo = DelegationRepository()
 _service = PrimeService(_repo)
 
-# ponytail: activity is a linear scan of the chain. Fine for a single company's
+# ponytail: activity is a linear scan of the org's prime.* entries. Fine for a single company's
 # volume; add an indexed (subject, seq) column when the chain passes this size.
 _ACTIVITY_SCAN_LIMIT = 20_000
+_ACTIVITY_LIMIT = 200
 
 
 class DelegationIn(BaseModel):
@@ -188,30 +190,43 @@ async def check_action(
     return {"action_id": action.id, **decision.model_dump(mode="json")}
 
 
+def _org(user: Dict[str, Any]) -> str:
+    org_id = user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organisation on this sign-in")
+    return str(org_id)
+
+
 @router.get("/activity")
 async def activity(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Ledger entries about the caller's own delegations and Prime decisions, newest first."""
-    uid = _uid(user)
+    """Ledger entries about the caller's own delegations and Prime decisions, newest first.
+    Read through the caller's organisation only (prime.ledger_view), never other orgs' chains."""
+    uid, org_id = _uid(user), _org(user)
     mine: List[Dict[str, Any]] = []
-    after = 0
-    while after < _ACTIVITY_SCAN_LIMIT:
-        batch = await audit_chain.read_entries(limit=1000, after_seq=after)
-        if not batch:
-            break
-        after = batch[-1]["seq"]
-        for e in batch:
+    scanned, cursor = 0, None
+    while len(mine) < _ACTIVITY_LIMIT and scanned < _ACTIVITY_SCAN_LIMIT:
+        page = await ledger_view.browse(org_id, action_prefix="prime.", before_seq=cursor, limit=200)
+        for e in page["entries"]:
             p = e["payload"]
-            if e["action"].startswith("prime.") and uid in (
-                e["actor"], p.get("on_behalf_of"), p.get("grantor")
-            ):
-                mine.append({"seq": e["seq"], "timestamp": e["timestamp"], "actor": e["actor"],
-                             "action": e["action"], "payload": p, "entry_hash": e["entry_hash"]})
-    return {"entries": mine[::-1][:200]}
+            if uid in (e["actor"], p.get("on_behalf_of"), p.get("grantor")):
+                mine.append({k: e[k] for k in ("seq", "timestamp", "actor", "action", "payload", "entry_hash")})
+        scanned += len(page["entries"])
+        cursor = page["next_before"]
+        if cursor is None:
+            break
+    return {"entries": mine[:_ACTIVITY_LIMIT]}
 
 
 @router.get("/ledger/verify")
-async def verify_ledger(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Walk the whole chain. Returns only counts and status, never other tenants' entries."""
-    result = await audit_chain.verify()
+async def verify_ledger(full: bool = False, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Verify the caller's own organisation chain (incrementally from its newest signed
+    checkpoint). `full=true` rescans every entry: organisation admins only. Returns only
+    counts and status, never entries."""
+    org_id = _org(user)
+    if full and user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="A full verification is for organisation admins")
+    result = await audit_chain.verify(org_id, full=full)
     return {"ok": result.ok, "entries_checked": result.entries_checked,
-            "broken_seq": result.broken_seq, "reason": result.reason}
+            "broken_seq": result.broken_seq, "reason": result.reason,
+            "chain_id": result.chain_id, "head_seq": result.head_seq,
+            "checkpoint_seq": result.checkpoint_seq, "full": full}
