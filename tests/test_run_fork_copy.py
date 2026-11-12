@@ -148,3 +148,70 @@ def test_the_copy_is_recorded_in_the_ledger(gw, projects_root, outside):
                              json={"from_phase": "s03_backend"}).json()
     rows = gw.sql("SELECT log_metadata FROM audit_log WHERE action = 'run.rerun' AND resource_id = ?", (out["run_id"],))
     assert rows and parent in rows[0][0] and '"files_copied": 2' in rows[0][0]
+
+
+# ── copy-time link safety ─────────────────────────────────────────────────────
+
+def _tree(tmp_path):
+    src, out = tmp_path / "src", tmp_path / "out"
+    (src / "sub").mkdir(parents=True)
+    (src / "a.txt").write_text("a")
+    (src / "sub" / "b.txt").write_text("b")
+    host = tmp_path / "host_secret.txt"
+    host.write_text("HOST")
+    return src, tmp_path / "dst", host, out
+
+
+def _all_text(d):
+    return [p.read_text() for p in d.rglob("*") if p.is_file()]
+
+
+def test_symlink_planted_after_planning_is_not_copied(tmp_path):
+    src, dst, host, _ = _tree(tmp_path)
+    plan = project_copy.plan_copy(src)
+    (src / "a.txt").unlink()
+    (src / "a.txt").symlink_to(host)
+    assert project_copy.copy_project(src, dst, plan) == 1
+    assert "HOST" not in _all_text(dst) and not (dst / "a.txt").exists()
+
+
+def test_directory_swapped_for_a_symlink_is_not_followed(tmp_path):
+    src, dst, host, _ = _tree(tmp_path)
+    plan = project_copy.plan_copy(src)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "b.txt").write_text("HOST")
+    (src / "sub" / "b.txt").unlink()
+    (src / "sub").rmdir()
+    (src / "sub").symlink_to(outside)
+    assert project_copy.copy_project(src, dst, plan) == 1
+    assert "HOST" not in _all_text(dst)
+
+
+def test_symlinked_source_root_is_refused(tmp_path):
+    src, dst, host, _ = _tree(tmp_path)
+    plan = project_copy.plan_copy(src)
+    link = tmp_path / "link"
+    link.symlink_to(src)
+    with pytest.raises(OSError):
+        project_copy.copy_project(link, dst, plan)
+    assert not dst.exists()
+
+
+def test_fifo_planted_after_planning_is_skipped_without_hanging(tmp_path):
+    src, dst, host, _ = _tree(tmp_path)
+    plan = project_copy.plan_copy(src)
+    (src / "a.txt").unlink()
+    os.mkfifo(src / "a.txt")
+    assert project_copy.copy_project(src, dst, plan) == 1
+    assert not (dst / "a.txt").exists()
+
+
+def test_file_growing_past_the_cap_during_copy_removes_the_destination(tmp_path, monkeypatch):
+    src, dst, host, _ = _tree(tmp_path)
+    monkeypatch.setenv("AETHER_FORK_COPY_MAX_MB", "0.0001")   # ~104 bytes
+    plan = project_copy.plan_copy(src)
+    (src / "a.txt").write_text("x" * 5000)                      # grew after planning
+    with pytest.raises(project_copy.ProjectTooLarge):
+        project_copy.copy_project(src, dst, plan)
+    assert not dst.exists()
