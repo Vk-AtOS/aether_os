@@ -16,13 +16,18 @@ Independently importable — no imports from factory_runs_router.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import signal
+import subprocess
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
 
+from aether_os.core.app_state import clear_app_state, del_proc
+from aether_os.core.run_app import preview_state
 from aether_os.gateway.auth import PREVIEW_COOKIE, create_preview_token
 
 from aether_os.gateway.dependencies import get_current_user, require_run_user
@@ -56,37 +61,6 @@ def _grant_preview(response: Response, run_id: str, user: Dict[str, Any]) -> Non
 
 
 # ── Shared state helpers (no import from factory_runs_router) ──────────────────
-
-class _ExternalProcess:
-    """Lightweight PID wrapper so recovered processes behave like Popen objects."""
-
-    def __init__(self, pid: int):
-        self.pid = pid
-
-    def poll(self):
-        try:
-            os.kill(self.pid, 0)
-            return None  # alive
-        except (ProcessLookupError, PermissionError):
-            return 1  # dead
-
-    def terminate(self):
-        try:
-            import signal as _sig
-            os.kill(self.pid, _sig.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
-
-    def kill(self):
-        try:
-            import signal as _sig
-            os.kill(self.pid, _sig.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-
-    def wait(self, timeout=None):
-        pass
-
 
 def _get_app_procs() -> Dict[str, Any]:
     from aether_os.core.app_state import get_all_procs
@@ -125,25 +99,31 @@ async def stop_run_app(
     user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
     """Kill the background app process for a run."""
-    _run_procs = _get_app_procs()
-    _run_ports = _get_app_ports()
-    proc = _run_procs.get(run_id)
-    if proc is None or proc.poll() is not None:
+    # Only a process proven to be this run's launch (own child handle, or pid +
+    # nonce) is ever signalled: a pid taken from a stale state file may by now
+    # belong to anything.
+    app = await asyncio.to_thread(preview_state.live_app, run_id)
+    if app is None:
         return {"status": "not_running"}
-    proc.terminate()
+    proc = _get_app_procs().get(run_id)
+    if proc is not None and proc.poll() is None:  # a handle this process holds
+        proc.terminate()
+        try:
+            await asyncio.to_thread(proc.wait, 5)
+        except subprocess.TimeoutExpired:
+            logger.warning("run-app %s did not stop on SIGTERM, sending SIGKILL", run_id)
+            proc.kill()
+    elif app["pid"]:  # started by an earlier gateway process; identity proven by pid + nonce
+        try:
+            os.kill(app["pid"], signal.SIGTERM)
+        except OSError as exc:
+            logger.warning("Could not signal run-app pid %s for run %s: %s", app["pid"], run_id, exc)
+    _get_app_ports().pop(run_id, None)
     try:
-        proc.wait(timeout=5)
+        del_proc(run_id)
+        await clear_app_state(run_id)
     except Exception as exc:
-        logger.debug("Process wait timed out for run %s, sending SIGKILL: %s", run_id, exc)
-        proc.kill()
-    del _run_procs[run_id]
-    _run_ports.pop(run_id, None)
-    try:
-        from aether_os.core.app_state import clear_app_state as _cas, del_proc as _dp
-        _dp(run_id)
-        await _cas(run_id)
-    except Exception as exc:
-        logger.debug("Failed to clear app state after stopping run %s: %s", run_id, exc)
+        logger.warning("Failed to clear app state after stopping run %s: %s", run_id, exc)
     return {"status": "stopped", "run_id": run_id}
 
 
@@ -153,62 +133,18 @@ async def run_app_status(
     response: Response,
     user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
-    """Return whether the generated app is currently running."""
-    import json as _json_s
-    from aether_os.core.projects import get_project_manager as _gpm_s
-    _run_procs = _get_app_procs()
-    _run_ports = _get_app_ports()
-    proc = _run_procs.get(run_id)
-    running = proc is not None and proc.poll() is None
-    port = _run_ports.get(run_id, int(os.environ.get("RUN_APP_PORT", "8001")))
-    pid = proc.pid if running else None
+    """Return whether the generated app is currently running.
 
-    if not running:
-        try:
-            root_dir = _gpm_s().get_project_dir(run_id).resolve()
-            state_file = root_dir / "run_app_state.json"
-            if state_file.exists():
-                _s = _json_s.loads(state_file.read_text())
-                _pid = _s.get("pid")
-                _port = _s.get("port")
-                if _pid and _port:
-                    try:
-                        os.kill(_pid, 0)
-                        running = True
-                        port = _port
-                        pid = _pid
-                        _proc_obj = _ExternalProcess(_pid)
-                        _run_procs[run_id] = _proc_obj
-                        _run_ports[run_id] = _port
-                        # Re-publish to Redis + in-memory state
-                        try:
-                            from aether_os.core.app_state import (
-                                set_app_state as _sas2,
-                                set_proc as _sp2,
-                            )
-                            _sp2(run_id, _proc_obj)
-                            await _sas2(
-                                run_id,
-                                port=_port,
-                                pid=_pid,
-                                mode=_s.get("mode", "backend"),
-                                app_dir=str(root_dir),
-                            )
-                        except Exception as exc:
-                            logger.debug("Failed to re-register app state from disk for run %s: %s", run_id, exc)
-                    except (ProcessLookupError, PermissionError):
-                        pass
-        except Exception as exc:
-            logger.debug("Failed to restore run-app state from disk for run %s: %s", run_id, exc)
-
-    if running:
-        _grant_preview(response, run_id, user)
-    return {
-        "running": running,
-        "port": port,
-        "pid": pid,
-        "preview_url": "/app-preview/" if running else None,
-    }
+    "Running" means what it means to the preview proxy: the process launched for
+    this run is alive (preview_state.live_app). The state file alone is never
+    believed — it used to be, so a stale file whose pid had been reused showed
+    another process as this run's app.
+    """
+    app = await asyncio.to_thread(preview_state.live_app, run_id)
+    if app is None:
+        return {"running": False, "port": None, "pid": None, "preview_url": None}
+    _grant_preview(response, run_id, user)
+    return {"running": True, "port": app["port"], "pid": app["pid"], "preview_url": "/app-preview/"}
 
 
 @router.get("/factory/runs/{run_id}/preview-credentials")
