@@ -20,6 +20,7 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
+from aether_os.gateway.auth_refresh import revoke_user_sessions
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.services.account_service import (
     get_org_usage,
@@ -132,21 +133,14 @@ async def delete_account(user: Dict[str, Any] = _current_user()) -> Dict[str, st
     user_id = user.get("user_id", "")
     org_id = user.get("org_id", "")
 
+    # End every session the user holds (all access and refresh tokens) first. If
+    # that cannot be done (Redis down) this raises 503 and nothing is deleted, so
+    # the user can retry — never a deleted account with live tokens.
+    await revoke_user_sessions(user_id)
+
     async with get_session_factory()() as session:
         await anonymise_and_deactivate_user(session, user_id, org_id)
         await session.commit()
-
-    jti = user.get("jti")
-    exp = user.get("exp", 0)
-    if jti:
-        try:
-            from aether_os.core.pipeline_state import get_redis
-            r = await get_redis()
-            if r:
-                ttl = max(1, int(exp - time.time()))
-                await r.set(f"jwt:blacklist:{jti}", "1", ex=ttl)
-        except Exception as exc:
-            logger.debug("Failed to blacklist JWT jti=%s in Redis during account deletion: %s", jti, exc)
 
     await get_ledger().async_log_audit_event(
         org_id=org_id, user_id=user_id, action="account.deleted",

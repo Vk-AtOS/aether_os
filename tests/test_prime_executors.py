@@ -19,7 +19,7 @@ from aether_os.core.audit import chain
 import aether_os.core.db as db
 from aether_os.core.encryption import encrypt
 from aether_os.core.models import Run, Webhook
-from aether_os.core.webhooks import delivery
+from aether_os.core.security import safe_http
 from aether_os.prime import approvals, AutonomyLevel, executors
 from aether_os.prime.approvals import RequestError
 from aether_os.tests.prime_helpers import (  # noqa: F401  (svc and counting are fixtures)
@@ -125,10 +125,12 @@ async def hook(svc, monkeypatch):
         if isinstance(answer["status"], Exception):
             raise answer["status"]
         return httpx.Response(answer["status"])
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(executors.httpx, "AsyncClient",
-                        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
-    monkeypatch.setattr(executors, "_assert_safe_url", lambda url: None)
+
+    async def fake_safe_request(method, url, *, timeout=10.0, **kw):
+        # stands in for core.security.safe_http.safe_request (DNS + pinning are tested there)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=timeout) as c:
+            return await c.request(method, url, **kw)
+    monkeypatch.setattr(executors, "safe_request", fake_safe_request)
     async with db.get_session_factory()() as s:
         s.add_all([
             Webhook(id="wh-ok", org_id=ORG, url="https://erp.example.test/prime",
@@ -190,7 +192,7 @@ async def test_webhook_executor_never_retries(svc, hook, answer, status):
 
 async def test_webhook_executor_uses_the_ssrf_check(svc, hook, monkeypatch):
     sent, _ = hook
-    monkeypatch.setattr(executors, "_assert_safe_url", delivery._assert_safe_url)  # the real check
+    monkeypatch.setattr(executors, "safe_request", safe_http.safe_request)  # the real pinned check
     async with db.get_session_factory()() as s:
         s.add(Webhook(id="wh-local", org_id=ORG, url="http://127.0.0.1:9/x",
                       events=["prime.execute"], secret=encrypt(SECRET)))

@@ -12,7 +12,9 @@ import json
 import logging
 import os
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from aether_os.core.security.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,32 @@ async def get_redis():
     return _redis if _redis_available else None
 
 
+# Event fields that carry free text built from exceptions or gate issues.
+_TEXT_KEYS = frozenset({"error", "message", "reason", "detail", "warning", "issues"})
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, (list, tuple)):
+        return [_redact(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _redact(v) for k, v in value.items()}
+    return value
+
+
+def redact_event(event: dict) -> dict:
+    """Copy of `event` with credentials masked in its free-text fields.
+
+    Exception text routinely carries connection URLs and keys, and the event
+    stream is shown live in the browser and stored in pipeline_events.
+    """
+    return {k: _redact(v) if k in _TEXT_KEYS else v for k, v in event.items()}
+
+
 async def publish_event(run_id: str, event: dict) -> None:
+    """The one path to the live event stream: every publisher's event is redacted here."""
+    event = redact_event(event)
     r = await get_redis()
     payload = json.dumps(event)
     if r is None:

@@ -18,12 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
-from aether_os.core.models import User
 from aether_os.core.models import User, Organisation
-from aether_os.core.rate_limiter import _get_async_redis
-from aether_os.core.rate_limiter import _get_async_redis, _redis_get_count
-from aether_os.core.rate_limiter import _get_async_redis, _redis_incr_window
-from aether_os.gateway.auth_refresh import issue_token_pair
+from aether_os.core.rate_limiter import _get_async_redis, _redis_get_count, _redis_incr_window
+from aether_os.gateway.auth_refresh import _redis as token_store, issue_token_pair
 from aether_os.gateway.auth import decode_bearer_token
 from sqlalchemy import select
 import pyotp  # optional dependency — only used when MFA is enabled; not installed in all deployments
@@ -32,28 +29,19 @@ mfa_router = APIRouter(prefix="/auth/mfa", tags=["mfa"])
 _MFA_ISSUER = os.environ.get("MFA_ISSUER", "AetherOS")
 _MFA_TOKEN_EXPIRE_MINUTES = 5
 # ── TOTP replay prevention ────────────────────────────────────────────────────
-async def _record_used_totp(user_id: str, code: str) -> None:
-    """Record a used TOTP code in Redis with 90-second TTL to prevent replay."""
+async def _claim_totp_code(user_id: str, code: str) -> bool:
+    """Spend a verified TOTP code: True the first time, False on any replay.
+
+    SET NX is atomic, so two concurrent confirms with one code cannot both pass.
+    Same store and the same fail-closed rule as refresh tokens and revocation:
+    if Redis cannot be consulted the answer is 503, never "not used".
+    """
     try:
-        r = await _get_async_redis()
-        if r:
-            key = f"mfa_used:{user_id}:{code}"
-            await r.set(key, "1", ex=90)
+        r = await token_store()
+        return bool(await r.set(f"mfa_used:{user_id}:{code}", "1", nx=True, ex=90))
     except Exception as exc:
-        logger.warning("MFA replay prevention: Redis write failed: %s", exc)
-async def _is_totp_code_used(user_id: str, code: str) -> bool:
-    """Return True if this TOTP code was already used (replay detected)."""
-    try:
-        r = await _get_async_redis()
-        if r:
-            key = f"mfa_used:{user_id}:{code}"
-            return bool(await r.exists(key))
-        # Redis unavailable — fall back to allow (log warning)
-        logger.warning("MFA replay check: Redis unavailable, skipping replay check for user %s", user_id)
-        return False
-    except Exception as exc:
-        logger.warning("MFA replay prevention: Redis read failed: %s", exc)
-        return False
+        logger.warning("MFA replay check failed (Redis unavailable) — denying: %s", exc)
+        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable — please retry")
 # ── MFA rate limiting ─────────────────────────────────────────────────────────
 async def _check_mfa_attempts(ip: str, max_attempts: int = 5, window: int = 300) -> bool:
     """Return True if the IP is within rate limit. False = locked out."""
@@ -183,16 +171,14 @@ async def mfa_confirm(request: Request, body: MfaConfirmRequest) -> Dict[str, An
         user, org = row
         if not user.mfa_enabled or not user.mfa_secret:
             raise HTTPException(status_code=400, detail="MFA not configured for this account")
-        # SEC-011: Check for TOTP code replay before verifying
-        if await _is_totp_code_used(user.id, body.code):
-            await _record_mfa_attempt(client_ip)
-            raise HTTPException(status_code=401, detail="TOTP code has already been used")
         totp = _get_totp(user.mfa_secret)
         if not totp.verify(body.code, valid_window=1):
             await _record_mfa_attempt(client_ip)
             raise HTTPException(status_code=401, detail="Invalid TOTP code")
-        # Record the code as used to prevent replay attacks
-        await _record_used_totp(user.id, body.code)
+        # SEC-011: a valid code works once (atomic claim; Redis down = 503)
+        if not await _claim_totp_code(user.id, body.code):
+            await _record_mfa_attempt(client_ip)
+            raise HTTPException(status_code=401, detail="TOTP code has already been used")
     _mfa_claims = {
         "sub": user.email,
         "user_id": user.id,

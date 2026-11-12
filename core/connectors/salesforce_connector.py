@@ -15,6 +15,7 @@ import logging
 from typing import Any, Dict, List
 
 from aether_os.core.plugins.connectors import BaseConnector, ConnectorError
+from aether_os.core.security.safe_http import safe_request
 
 logger = logging.getLogger(__name__)
 
@@ -61,28 +62,26 @@ class SalesforceConnector(BaseConnector):
         Returns {"ok": True, "instance_url": ..., "api_version": ...} on success.
         """
         try:
-            import httpx
             url = (instance_url or self._instance_url()).rstrip("/")
             token = access_token or self.config.get("access_token", "")
             if not token:
                 return {"ok": False, "message": "access_token is required"}
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(
-                    f"{url}/services/data/{_API_VERSION}/",
-                    headers=headers,
-                )
-                if r.status_code == 200:
-                    return {
-                        "ok": True,
-                        "instance_url": url,
-                        "api_version": _API_VERSION,
-                        "message": "Salesforce connection verified",
-                    }
+            r = await safe_request(
+                "GET", f"{url}/services/data/{_API_VERSION}/", timeout=10,
+                headers=headers,
+            )
+            if r.status_code == 200:
                 return {
-                    "ok": False,
-                    "message": f"HTTP {r.status_code}: {r.text[:200]}",
+                    "ok": True,
+                    "instance_url": url,
+                    "api_version": _API_VERSION,
+                    "message": "Salesforce connection verified",
                 }
+            return {
+                "ok": False,
+                "message": f"HTTP {r.status_code}: {r.text[:200]}",
+            }
         except Exception as exc:
             logger.warning("salesforce_connector validate failed: %s", exc)
             return {"ok": False, "message": str(exc)}
@@ -102,19 +101,17 @@ class SalesforceConnector(BaseConnector):
         Returns a sorted list of API names, e.g. ["Account", "Contact", "Lead", ...].
         """
         try:
-            import httpx
             url = (instance_url or self._instance_url()).rstrip("/")
             token = access_token or self.config.get("access_token", "")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            async with httpx.AsyncClient(timeout=20) as c:
-                r = await c.get(
-                    f"{url}/services/data/{_API_VERSION}/sobjects/",
-                    headers=headers,
-                )
-                r.raise_for_status()
-                data = r.json()
-                sobjects = data.get("sobjects", [])
-                return sorted(obj["name"] for obj in sobjects if obj.get("name"))
+            r = await safe_request(
+                "GET", f"{url}/services/data/{_API_VERSION}/sobjects/", timeout=20,
+                headers=headers,
+            )
+            r.raise_for_status()
+            data = r.json()
+            sobjects = data.get("sobjects", [])
+            return sorted(obj["name"] for obj in sobjects if obj.get("name"))
         except Exception as exc:
             raise ConnectorError(f"Salesforce list_objects failed: {exc}") from exc
 
@@ -134,36 +131,34 @@ class SalesforceConnector(BaseConnector):
         updateable, queryable, searchable.
         """
         try:
-            import httpx
             url = (instance_url or self._instance_url()).rstrip("/")
             token = access_token or self.config.get("access_token", "")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            async with httpx.AsyncClient(timeout=20) as c:
-                r = await c.get(
-                    f"{url}/services/data/{_API_VERSION}/sobjects/{object_name}/describe/",
-                    headers=headers,
-                )
-                r.raise_for_status()
-                data = r.json()
-                # Return a curated subset — full response can be 500KB+
-                return {
-                    "name": data.get("name"),
-                    "label": data.get("label"),
-                    "createable": data.get("createable", False),
-                    "updateable": data.get("updateable", False),
-                    "queryable": data.get("queryable", False),
-                    "searchable": data.get("searchable", False),
-                    "fields": [
-                        {
-                            "name": f["name"],
-                            "label": f["label"],
-                            "type": f["type"],
-                            "nillable": f.get("nillable", True),
-                            "length": f.get("length"),
-                        }
-                        for f in data.get("fields", [])
-                    ],
-                }
+            r = await safe_request(
+                "GET", f"{url}/services/data/{_API_VERSION}/sobjects/{object_name}/describe/", timeout=20,
+                headers=headers,
+            )
+            r.raise_for_status()
+            data = r.json()
+            # Return a curated subset — full response can be 500KB+
+            return {
+                "name": data.get("name"),
+                "label": data.get("label"),
+                "createable": data.get("createable", False),
+                "updateable": data.get("updateable", False),
+                "queryable": data.get("queryable", False),
+                "searchable": data.get("searchable", False),
+                "fields": [
+                    {
+                        "name": f["name"],
+                        "label": f["label"],
+                        "type": f["type"],
+                        "nillable": f.get("nillable", True),
+                        "length": f.get("length"),
+                    }
+                    for f in data.get("fields", [])
+                ],
+            }
         except Exception as exc:
             raise ConnectorError(
                 f"Salesforce describe_object({object_name}) failed: {exc}"
@@ -184,18 +179,16 @@ class SalesforceConnector(BaseConnector):
         Returns {"totalSize": int, "done": bool, "records": [...]}.
         """
         try:
-            import httpx
             url = (instance_url or self._instance_url()).rstrip("/")
             token = access_token or self.config.get("access_token", "")
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            async with httpx.AsyncClient(timeout=30) as c:
-                r = await c.get(
-                    f"{url}/services/data/{_API_VERSION}/query/",
-                    headers=headers,
-                    params={"q": soql},
-                )
-                r.raise_for_status()
-                return r.json()
+            r = await safe_request(
+                "GET", f"{url}/services/data/{_API_VERSION}/query/", timeout=30,
+                headers=headers,
+                params={"q": soql},
+            )
+            r.raise_for_status()
+            return r.json()
         except Exception as exc:
             raise ConnectorError(f"Salesforce query failed: {exc}") from exc
 

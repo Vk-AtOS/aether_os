@@ -32,6 +32,8 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import LlmConfig, Organisation, PhaseConfig, SamlConfig
 from aether_os.core.services.memory_service import get_memory_service
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.orchestrator.phase_sequence import PHASE_SEQUENCE
+from aether_os.orchestrator.stage_gate import MANDATORY_STAGES
 
 router = APIRouter(tags=["settings"])
 
@@ -192,6 +194,14 @@ async def update_phase_config(
     req: PhaseConfigUpdate,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
+    # Only real stage ids, and never a stage the pipeline cannot run without: a
+    # saved toggle the pipeline would silently ignore is a lie in the settings UI.
+    if phase_name not in PHASE_SEQUENCE:
+        raise HTTPException(status_code=422, detail=(
+            f"Unknown stage {phase_name!r}; expected one of: {', '.join(PHASE_SEQUENCE)}"))
+    if not req.enabled and phase_name in MANDATORY_STAGES:
+        raise HTTPException(status_code=422, detail=(
+            f"Stage {phase_name} cannot be disabled: {MANDATORY_STAGES[phase_name]}"))
     org_id = user["org_id"]
     async with get_session_factory()() as session:
         cfg = (await session.execute(select(PhaseConfig).where(PhaseConfig.org_id == org_id, PhaseConfig.phase_name == phase_name))).scalar_one_or_none()

@@ -12,6 +12,8 @@ import logging
 import time
 from typing import Any
 
+from aether_os.core.policy.enforce import authorize
+
 from .base import Agent, AgentContext, AgentKind, AgentName, AgentResult, AgentRegistry
 
 logger = logging.getLogger(__name__)
@@ -41,18 +43,22 @@ class PolicyAgent(Agent):
         super().__init__(AgentName.POLICY, AgentKind.INTERNAL)
 
     async def run(self, ctx: AgentContext) -> AgentResult:
-        org_id = ctx.metadata.get("org_id", "")
-        plan = ctx.metadata.get("plan", "trial")
+        """Ask the policy engine (core.policy.enforce.authorize) whether this caller may
+        do `action` (default run.start). Fails closed: an error is a block, never an allow.
+
+        org_id and role must come from the authenticated caller, not from user input.
+        """
+        action = ctx.metadata.get("action") or "run.start"
         try:
-            from aether_os.core.policy.engine import get_policy_engine
-            engine = get_policy_engine()
-            ok, msg = engine.check_pipeline_start(org_id=org_id, plan=plan)
-            if not ok:
-                return _blocked(self.name, msg)
-            return _ok(self.name, "Policy check passed", {"allowed": True})
+            decision = await authorize(
+                action, org_id=ctx.metadata.get("org_id") or "", role=ctx.metadata.get("role") or "",
+                actor=ctx.user_id or "-")
         except Exception as exc:
-            logger.debug("[PolicyAgent] %s", exc)
-            return _ok(self.name, "Policy engine unavailable — allowing by default")
+            logger.warning("[PolicyAgent] policy engine failed for %s — blocking: %s", action, exc)
+            return _blocked(self.name, "Policy engine unavailable — blocked")
+        if not decision.allowed:
+            return _blocked(self.name, f"Policy denied {action}: {decision.reason}")
+        return _ok(self.name, "Policy check passed", {"allowed": True, "action": action})
 
 
 class RiskAgent(Agent):

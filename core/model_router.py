@@ -86,6 +86,24 @@ def _get_ahm():
     return _ahm
 
 
+def _ahm_record(provider: str, failure: Optional[str]) -> None:
+    """Tell the health monitor how a call went (failure=None means success).
+
+    Health bookkeeping must never break the model call, but a broken monitor is
+    logged so a blind health view is noticed.
+    """
+    try:
+        ahm = _get_ahm()
+        if ahm is None:
+            return
+        if failure is None:
+            ahm.record_success(provider)
+        else:
+            ahm.record_failure(provider, failure)
+    except Exception as e:
+        logger.warning("Router: health monitor update for %s failed: %s", provider, e)
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 class ModelRouter:
@@ -422,12 +440,7 @@ class ModelRouter:
                             await asyncio.sleep(1.5 ** attempt)
                         continue
                     # ── AHM: record success ───────────────────────────────────
-                    try:
-                        _ahm_s = _get_ahm()
-                        if _ahm_s:
-                            _ahm_s.record_success(spec.provider)
-                    except Exception:
-                        pass
+                    _ahm_record(spec.provider, None)
                     # ─────────────────────────────────────────────────────────
                     return result, spec.provider
 
@@ -437,12 +450,7 @@ class ModelRouter:
                     errors.append(msg)
                     error_class = "fallback"   # timeout → skip to next tier
                     # ── AHM: record timeout as a failure ─────────────────────
-                    try:
-                        _ahm_t = _get_ahm()
-                        if _ahm_t:
-                            _ahm_t.record_failure(spec.provider, f"timeout {spec.timeout_seconds}s")
-                    except Exception:
-                        pass
+                    _ahm_record(spec.provider, f"timeout {spec.timeout_seconds}s")
                     break
 
                 except Exception as exc:
@@ -454,12 +462,7 @@ class ModelRouter:
                     if error_class == "fallback":
                         _mark_provider_dead(spec.provider, exc, model=spec.model, scope=_scope)
                     # ── AHM: record exception as a failure ────────────────────
-                    try:
-                        _ahm_e = _get_ahm()
-                        if _ahm_e:
-                            _ahm_e.record_failure(spec.provider, str(exc)[:120])
-                    except Exception:
-                        pass
+                    _ahm_record(spec.provider, str(exc)[:120])
                     # For OpenRouter free-tier, a rate-limit on one model won't
                     # clear in 1-2 seconds — skip immediately to the next model.
                     if spec.provider == "openrouter" and error_class == "retry":

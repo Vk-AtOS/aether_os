@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from core.plugins.connectors import (
+from aether_os.core.plugins.connectors import (
     BaseConnector,
     ConnectorError,
     GitHubConnector,

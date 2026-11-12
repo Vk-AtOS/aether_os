@@ -12,10 +12,9 @@ import asyncio
 import logging
 import time
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Optional
 
 from aether_os.core import pipeline_state
-from aether_os.core.security.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -27,32 +26,14 @@ ACTIVE_PHASE: ContextVar[Optional[str]] = ContextVar("active_phase", default=Non
 ACTIVE_ORG_ID: ContextVar[Optional[str]] = ContextVar("active_org_id", default=None)
 
 
-# Event fields that carry free text built from exceptions or gate issues.
-_TEXT_KEYS = frozenset({"error", "message", "reason", "detail", "warning", "issues"})
-
-
-def _redact(value: Any) -> Any:
-    if isinstance(value, str):
-        return redact_secrets(value)
-    if isinstance(value, (list, tuple)):
-        return [_redact(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _redact(v) for k, v in value.items()}
-    return value
-
-
-def redact_event(event: dict) -> dict:
-    """Copy of `event` with credentials masked in its free-text fields.
-
-    Exception text routinely carries connection URLs and keys, and the event
-    stream is shown live in the browser and stored in pipeline_events.
-    """
-    return {k: _redact(v) if k in _TEXT_KEYS else v for k, v in event.items()}
+# Redaction happens inside core.pipeline_state.publish_event, so every publisher —
+# not only the orchestrator — goes through it. Re-exported here for existing callers.
+redact_event = pipeline_state.redact_event
 
 
 async def publish_event(run_id: str, event: dict) -> None:
-    """The one path from the orchestrator to the live event stream: redact, then publish."""
-    await pipeline_state.publish_event(run_id, redact_event(event))
+    """Publish through core.pipeline_state (looked up per call so it can be replaced in tests)."""
+    await pipeline_state.publish_event(run_id, event)
 
 
 def emit_sync(event: dict, run_id: Optional[str] = None) -> None:

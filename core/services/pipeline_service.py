@@ -50,14 +50,11 @@ class PipelineService:
         if not await rl.check_hourly_starts(org_id):
             raise ValueError(f"Organisation has exceeded the hourly run limit.")
 
-        # Enforce policy
-        try:
-            policy = get_policy_engine()
-            ok, msg = policy.check_pipeline_start(org_id=org_id, plan=plan)
-            if not ok:
-                raise ValueError(msg)
-        except ImportError:
-            pass  # Policy engine not available — allow
+        # Plan sanity check. The full decision (role, quotas, trial allowance) is made
+        # by the caller through gateway.policy_guard.admit_run_start before this runs.
+        ok, msg = get_policy_engine().check_pipeline_start(org_id=org_id, plan=plan)
+        if not ok:
+            raise ValueError(msg)
 
         run_id = str(uuid.uuid4())
         pname = project_name or raw_input[:60].replace("\n", " ")

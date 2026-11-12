@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.policy_guard import enforce
+from aether_os.gateway.policy_guard import admit_run_start, enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["factory"])
@@ -85,30 +85,6 @@ class FactoryStartRequest(BaseModel):
 _background_tasks: set = set()
 
 
-async def _check_db_run_limits(org_id: str) -> None:
-    """DB-level concurrent run gate — authoritative (Redis may drift on crash).
-
-    Raises 429 if org >= 3 active runs; 503 if platform >= 10.  Fails open on
-    DB error so a slow DB at startup doesn't block all pipeline starts.
-    """
-    try:
-        from aether_os.core.db import get_session_factory as _gsf_rl
-        from aether_os.core.services.run_service import count_active_runs, _ORG_RUN_LIMIT, _PLATFORM_RUN_LIMIT
-        async with _gsf_rl()() as _s:
-            org_ct, plat_ct = await count_active_runs(_s, org_id)
-        if org_ct >= _ORG_RUN_LIMIT:
-            raise HTTPException(status_code=429, detail={
-                "detail": "Rate limit: maximum 3 concurrent pipeline runs per organization. Please wait for a run to complete.",
-                "running_count": org_ct, "limit": _ORG_RUN_LIMIT,
-            })
-        if plat_ct >= _PLATFORM_RUN_LIMIT:
-            raise HTTPException(status_code=503, detail="Platform is at capacity. Please try again in a few minutes.")
-    except HTTPException:
-        raise
-    except Exception as _e:
-        logger.warning("DB run limit check failed (allowing request): %s", _e)
-
-
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.post("/factory/estimate")
@@ -149,8 +125,8 @@ async def start_factory_run(
     org_id = user.get("org_id")
 
     # ── Policy: org active, role, plan quota, concurrent runs (denials are ledgered) ──
-    # Before rate limits so an org out of quota sees 402 (upgrade), not 429.
-    # The atomic trial increment below still guards against TOCTOU races.
+    # Checked first so an org out of quota sees 402 (upgrade), not 429. Nothing is
+    # consumed here: admit_run_start below takes the trial run once the request is valid.
     await enforce("run.start", user)
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
@@ -171,13 +147,8 @@ async def start_factory_run(
             detail=f"Max concurrent runs reached ({_rl.max_concurrent_runs}). Wait for a run to complete.",
         )
 
-    # ── DB-level per-org and global limits (authoritative — Redis may drift) ──
-    await _check_db_run_limits(org_id)
-
     await _rl.record_factory_start(org_id)
 
-    # B9: Atomic trial run check — single UPDATE prevents TOCTOU race
-    from sqlalchemy import update as _sa_update
     session_factory = get_session_factory()
     async with session_factory() as session:
         stmt = select(Organisation).where(Organisation.id == org_id)
@@ -197,20 +168,6 @@ async def start_factory_run(
                 detail={"error": "storage_limit_reached", "used_mb": org.storage_used_mb, "limit_mb": limit}
             )
 
-        if org.plan == "trial":
-            # Atomic increment — only succeeds if still under limit (B9: no TOCTOU)
-            upd_result = await session.execute(
-                _sa_update(Organisation)
-                .where(Organisation.id == org_id)
-                .where(Organisation.trial_runs_used < Organisation.trial_runs_limit)
-                .values(trial_runs_used=Organisation.trial_runs_used + 1)
-            )
-            await session.commit()
-            if upd_result.rowcount == 0:
-                raise HTTPException(
-                    status_code=402,
-                    detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"}
-                )
 
     factory = get_factory()
 
@@ -269,6 +226,10 @@ async def start_factory_run(
     _safe, _reason = _guard(raw_input)
     if not _safe:
         raise HTTPException(status_code=400, detail=_reason)
+
+    # Policy again plus the atomic trial consume (platform capacity, concurrency and
+    # the last trial run are all decided here, in one place, after the request is valid).
+    await admit_run_start(user)
 
     # Pre-generate run_id and insert Run record immediately so the client
     # can poll /factory/runs/{run_id} without a 30s+ 404 window.

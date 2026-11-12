@@ -15,12 +15,23 @@ from aether_os.core.encryption import encrypt
 from aether_os.core.models import Webhook
 from sqlalchemy import select
 import httpx
-import ipaddress as _ip
+import json
 import secrets as _secrets
 import time
-import urllib.parse as _urlparse
+from aether_os.core.security.safe_http import UnsafeURL, check_url_shape, safe_request
+from aether_os.core.webhooks.delivery import _delivery, _signing_secret
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["webhooks"])
+
+
+def _check_url_or_422(url: str) -> None:
+    """Reject URLs that could reach internal networks (SSRF). DNS is checked at send time."""
+    try:
+        check_url_shape(url)
+    except UnsafeURL as exc:
+        raise HTTPException(status_code=422, detail=f"Webhook URL refused: {exc}") from exc
+
+
 def _current_user():
     return Depends(get_current_user)
 @router.get("/webhooks")
@@ -46,26 +57,7 @@ async def create_webhook(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     url = req.get("url", "").strip()
     if not url:
         raise HTTPException(status_code=422, detail="url is required")
-    # T2-11: SSRF allowlist — block private/internal networks and metadata endpoints
-    try:
-        _parsed = _urlparse.urlparse(url)
-        if _parsed.scheme not in ("http", "https"):
-            raise HTTPException(status_code=422, detail="Webhook URL must use http or https")
-        _host = _parsed.hostname or ""
-        _blocked_hosts = {"localhost", "metadata.google.internal", "169.254.169.254"}
-        if _host in _blocked_hosts:
-            raise HTTPException(status_code=422, detail="Webhook URL targets a blocked host")
-        try:
-            _addr = _ip.ip_address(_host)
-            if _addr.is_private or _addr.is_loopback or _addr.is_link_local or _addr.is_reserved:
-                raise HTTPException(status_code=422, detail="Webhook URL must not target a private or reserved IP")
-        except ValueError as e:
-            logger.warning("webhooks_router: %r is not a raw IP (hostname, DNS resolves at delivery time): %s", _host, e)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning("webhooks_router: invalid webhook URL rejected: %s", e)
-        raise HTTPException(status_code=422, detail="Invalid webhook URL")
+    _check_url_or_422(url)
     events = req.get("events", [])
     # M3: generate raw secret, return it ONCE. HMAC signing needs the key itself, so it
     # is stored Fernet-encrypted (AETHER_FIELD_KEY); with only the bcrypt hash kept,
@@ -113,6 +105,7 @@ async def update_webhook(webhook_id: str, req: Dict[str, Any], user: Dict[str, A
         if not wh:
             raise HTTPException(status_code=404, detail="Webhook not found")
         if url:
+            _check_url_or_422(url)
             wh.url = url
         if events is not None:
             wh.events = events
@@ -129,10 +122,20 @@ async def test_webhook(webhook_id: str, user: Dict[str, Any] = _current_user()):
         )).scalar_one_or_none()
         if not wh:
             raise HTTPException(status_code=404, detail="Webhook not found")
-    payload = {"event": "webhook.test", "timestamp": time.time(), "message": "AetherOS test ping"}
+    # Same signed, SSRF-checked, address-pinned sender as real deliveries.
+    secret = _signing_secret(wh.secret)
+    if not secret:
+        return {"ok": False, "status_code": None,
+                "message": "This webhook has no recoverable signing secret; re-create it."}
+    body = json.dumps({"event": "webhook.test", "timestamp": time.time(),
+                       "message": "AetherOS test ping"}, separators=(",", ":")).encode()
+    headers = {"Content-Type": "application/json", "X-AetherOS-Event": "webhook.test",
+               "X-AetherOS-Signature-256": f"sha256={_delivery._sign(body, secret)}"}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(wh.url, json=payload, headers={"X-AetherOS-Event": "webhook.test"})
-        return {"ok": resp.status_code < 400, "status_code": resp.status_code, "message": f"HTTP {resp.status_code}"}
-    except Exception as exc:
-        return {"ok": False, "status_code": None, "message": str(exc)[:200]}
+        resp = await safe_request("POST", wh.url, content=body, headers=headers, timeout=10)
+    except UnsafeURL as exc:
+        return {"ok": False, "status_code": None, "message": f"Refused: {exc}"}
+    except httpx.HTTPError as exc:
+        logger.warning("webhook test %s failed: %s", webhook_id, exc)
+        return {"ok": False, "status_code": None, "message": "Could not reach the endpoint"}
+    return {"ok": resp.status_code < 400, "status_code": resp.status_code, "message": f"HTTP {resp.status_code}"}

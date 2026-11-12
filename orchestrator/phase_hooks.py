@@ -20,6 +20,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from aether_os.orchestrator.spec_review_gate import apply_spec_review
 from aether_os.orchestrator.phase_hooks_helpers import (
     hook_persist_live_url,
     hook_load_research,
@@ -190,22 +191,16 @@ async def _hook_p01_intake(
     except Exception as _exc_p01:
         logger.debug("[pipeline] Could not extract project name from p01: %s", _exc_p01)
 
-    # Spec review gate: pause here if decision_mode != "autonomous"
-    if accumulated_context.get("decision_mode") != "autonomous":
-        try:
-            from aether_os.orchestrator.spec_review_gate import run_spec_review_gate
-            await run_spec_review_gate(
-                run_id=run_id,
-                accumulated_context=accumulated_context,
-                emit_fn=emit_fn,
-                get_control_fn=get_control_fn,
-                set_control_fn=set_control_fn,
-                publish_event_fn=publish_event_fn,
-            )
-        except RuntimeError:
-            raise
-        except Exception as _sr_exc:
-            logger.warning("[pipeline] Spec review gate error (non-fatal): %s", _sr_exc)
+    # Spec review gate. Any error here blocks the run (s01 is critical): a gate that
+    # cannot run must not be treated as passed. Only autonomous_mode skips it.
+    await apply_spec_review(
+        run_id=run_id,
+        accumulated_context=accumulated_context,
+        emit_fn=emit_fn,
+        get_control_fn=get_control_fn,
+        set_control_fn=set_control_fn,
+        publish_event_fn=publish_event_fn,
+    )
 
 
 async def _hook_p02_architecture(

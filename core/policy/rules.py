@@ -15,6 +15,9 @@ from typing import Any, Dict, Optional
 # Rolling window for the runs-per-period quota.
 QUOTA_PERIOD_SECONDS = 30 * 86400
 
+# Builds running at once across every org: the host's capacity, not a plan entitlement.
+PLATFORM_CONCURRENT_RUNS = 10
+
 # "api" is an organisation API key: it may do what a member may, never admin actions.
 ROLE_RANK: Dict[str, int] = {"viewer": 0, "member": 1, "api": 1, "admin": 2, "owner": 3, "superadmin": 4}
 
@@ -67,6 +70,7 @@ class Facts:
     runs_in_period: int = 0
     trial_runs_used: int = 0
     trial_runs_limit: int = 0
+    platform_active_runs: int = 0
 
 
 @dataclass(frozen=True)
@@ -109,4 +113,6 @@ def evaluate(action: str, facts: Facts) -> Decision:
                          period_days=QUOTA_PERIOD_SECONDS // 86400)
     if rule.occupies_slot and facts.active_runs >= entitlement.concurrent_runs:
         return _deny("quota_concurrent_runs", running=facts.active_runs, limit=entitlement.concurrent_runs)
+    if rule.occupies_slot and facts.platform_active_runs >= PLATFORM_CONCURRENT_RUNS:
+        return _deny("platform_at_capacity", running=facts.platform_active_runs, limit=PLATFORM_CONCURRENT_RUNS)
     return Decision(True, "ok")

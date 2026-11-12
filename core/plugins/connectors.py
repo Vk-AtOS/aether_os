@@ -343,7 +343,7 @@ class SlackConnector(BaseConnector):
 # Extended connectors (Figma, Vercel, Sentry, Supabase, AWS, GCP, Stripe,
 # PlanetScale) and the factory function live in connectors_registry.py.
 # They are re-exported here so all existing callers continue to work.
-from core.plugins.connectors_registry import (  # noqa: F401
+from aether_os.core.plugins.connectors_registry import (  # noqa: F401
     FigmaConnector,
     VercelConnector,
     SentryConnector,
