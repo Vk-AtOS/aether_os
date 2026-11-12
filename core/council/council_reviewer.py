@@ -24,6 +24,9 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.api_key_store import get_api_key
+from aether_os.core.llm._org_context import _current_org_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -248,9 +251,18 @@ async def _call_via_bedrock(code: str, domain: str, role_key: str) -> Optional[C
         return None
 
 
-async def _call_claude(code: str, domain: str) -> Optional[CouncilReview]:
+async def _org_key(provider: str, org_id: Optional[str]) -> str:
+    """This org's key for the provider, else the platform key, resolved per call.
+
+    Same rule as the model router: an org's key comes from the key store for that
+    one call, never from the process environment (which every tenant shares).
+    """
+    return (await get_api_key(provider, org_id or _current_org_id.get()) or "").strip()
+
+
+async def _call_claude(code: str, domain: str, org_id: Optional[str] = None) -> Optional[CouncilReview]:
     """Call Anthropic Claude for a security-focused review. Falls back to Bedrock."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    api_key = await _org_key("anthropic", org_id)
     if api_key:
         try:
             import anthropic  # type: ignore
@@ -280,9 +292,9 @@ async def _call_claude(code: str, domain: str) -> Optional[CouncilReview]:
     return await _call_via_bedrock(code, domain, "claude")
 
 
-async def _call_gemini(code: str, domain: str) -> Optional[CouncilReview]:
+async def _call_gemini(code: str, domain: str, org_id: Optional[str] = None) -> Optional[CouncilReview]:
     """Call Google Gemini for an architecture-focused review. Falls back to Bedrock Haiku."""
-    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    api_key = await _org_key("google", org_id)
     if api_key and len(api_key) > 10 and not api_key.startswith("REPLACE"):
         try:
             from google import genai  # type: ignore
@@ -456,9 +468,12 @@ async def run_council(
     run_id: str,
     project_name: str = "",
     domain: str = "general",
+    org_id: Optional[str] = None,
 ) -> CouncilReport:
     """
     Run the LLM Council: up to 3 parallel model reviews of generated source_code.
+
+    `org_id` selects whose provider keys are used (defaults to the active run's org).
 
     Gracefully skips any model whose API key is absent or whose service is unreachable.
     Returns a CouncilReport with per-model reviews and consensus issues.
@@ -469,8 +484,8 @@ async def run_council(
     )
 
     # Run all three reviewers in parallel; each returns None on skip/failure
-    claude_task = asyncio.create_task(_call_claude(source_code, domain))
-    gemini_task = asyncio.create_task(_call_gemini(source_code, domain))
+    claude_task = asyncio.create_task(_call_claude(source_code, domain, org_id))
+    gemini_task = asyncio.create_task(_call_gemini(source_code, domain, org_id))
     ollama_task = asyncio.create_task(_call_ollama(source_code, domain))
 
     results = await asyncio.gather(claude_task, gemini_task, ollama_task, return_exceptions=True)
