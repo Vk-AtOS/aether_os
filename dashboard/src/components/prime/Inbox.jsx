@@ -59,10 +59,20 @@ const RequestDetail = ({ r, onDone }) => {
         ['Decided', fmtDate(r.decided_at)],
         ['Reason given', r.decision_reason],
       ]} />
-      <div>
-        <p className={labelClass}>Arguments</p>
-        <Json value={a.params} />
-      </div>
+      {a.type === 'velaris.flow.call' ? (
+        <div className="space-y-2">
+          <p className={labelClass}>Velaris step</p>
+          <Facts rows={[['Tool', a.params.tool], ['Run', a.params.run_id], ['Why it waits', a.params.reason],
+                        ['Call hash', a.params.call_hash]]} />
+          <p className={labelClass}>Arguments</p>
+          <Json value={a.params.args} />
+        </div>
+      ) : (
+        <div>
+          <p className={labelClass}>Arguments</p>
+          <Json value={a.params} />
+        </div>
+      )}
       {r.execution && (
         <div>
           <p className={labelClass}>Result</p>

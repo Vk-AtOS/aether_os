@@ -3,6 +3,7 @@ import { Briefcase, RefreshCw, Loader2, ChevronDown, ChevronRight, Search } from
 import { api } from '../api';
 import EmptyState from '../components/EmptyState';
 import { apiError } from '../apiError';
+import AgentRunner from '../components/operations/AgentRunner';
 
 // One honest status per agent, as reported by Velaris itself.
 const STATUS = {
@@ -22,8 +23,9 @@ const StatusBar = ({ counts, total }) => (
   </div>
 );
 
-const Department = ({ dept, query }) => {
+const Department = ({ dept, query, catalog }) => {
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(null);
   const agents = useMemo(
     () => dept.agents.filter((a) => a.name.toLowerCase().includes(query)),
     [dept.agents, query],
@@ -51,10 +53,23 @@ const Department = ({ dept, query }) => {
       {expanded && (
         <ul className="border-t border-border px-5 py-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
           {agents.map((a) => (
-            <li key={a.name} className="flex items-center gap-2 min-w-0">
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS[a.status].dot}`} aria-hidden="true" />
-              <span className="text-xs font-mono text-bright/90 truncate">{a.name}</span>
-              <span className={`ml-auto text-[10px] shrink-0 ${STATUS[a.status].text}`}>{STATUS[a.status].label}</span>
+            <li key={a.name} className="min-w-0">
+              <button
+                type="button"
+                onClick={() => setPicked(picked === a.name ? null : a.name)}
+                aria-expanded={picked === a.name}
+                className="w-full flex items-center gap-2 min-w-0 text-left"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS[a.status].dot}`} aria-hidden="true" />
+                <span className="text-xs font-mono text-bright/90 truncate">{a.name}</span>
+                <span className={`ml-auto text-[10px] shrink-0 ${STATUS[a.status].text}`}>{STATUS[a.status].label}</span>
+              </button>
+              {picked === a.name && catalog[a.name] && (
+                <div className="mt-2 mb-2 space-y-2 sm:col-span-2">
+                  <p className="text-xs text-muted">{catalog[a.name].summary}</p>
+                  <AgentRunner agent={catalog[a.name]} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -68,11 +83,16 @@ const Operations = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [catalog, setCatalog] = useState({});
 
   // Promise chain: state is only set after the request settles, so the effect below
   // never triggers a synchronous re-render.
-  const load = useCallback(() => api.getVelarisInventory()
-    .then((res) => { setData(res.data); setError(''); })
+  const load = useCallback(() => Promise.all([api.getVelarisInventory(), api.getVelarisAgents()])
+    .then(([inv, agents]) => {
+      setData(inv.data);
+      setCatalog(Object.fromEntries(agents.data.agents.map((a) => [a.name, a])));
+      setError('');
+    })
     .catch((e) => setError(apiError(e) || 'Could not load the operations platform.'))
     .finally(() => setLoading(false)), []);
 
@@ -135,7 +155,7 @@ const Operations = () => {
           </div>
 
           <div className="space-y-3">
-            {data.departments.map((d) => <Department key={d.name} dept={d} query={query} />)}
+            {data.departments.map((d) => <Department key={d.name} dept={d} query={query} catalog={catalog} />)}
           </div>
         </>
       )}

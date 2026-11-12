@@ -189,6 +189,14 @@ class ApprovalService:
         row = await self._visible(request_id, uid, list(identities), org_id)
         return await self._view(row, uid, list(identities))
 
+    async def service_view(self, request_id: str, org_id: str, executor: str) -> Dict[str, Any]:
+        """The request as GET /prime/requests/{id} shows it, for a system acting for `org_id`
+        (an organisation API key). Only requests of that organisation and executor; else 404."""
+        row = await self._load(request_id)
+        if row is None or row.org_id != org_id or row.executor != executor:
+            raise RequestError(404, "Request not found")
+        return await self._view(row, None, ())
+
     # ── decide ────────────────────────────────────────────────────────────────
 
     async def decide(self, request_id: str, uid: str, identities: Iterable[str], org_id: str,
