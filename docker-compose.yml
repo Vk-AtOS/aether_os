@@ -85,15 +85,29 @@ services:
       # INFRA-H2: standardised to AETHER_ADMIN_PASS — matches core/seed.py
       AETHER_ADMIN_EMAIL: ${AETHER_ADMIN_EMAIL:-admin@example.com}
       AETHER_ADMIN_PASS: ${AETHER_ADMIN_PASS:?AETHER_ADMIN_PASS must be set in .env}
+      # Generated apps run in Docker sandbox containers (core/sandbox/docker_backend.py) and are
+      # served only from the preview origin (gateway/preview_server.py, service `preview`).
+      AETHER_SANDBOX: docker
+      AETHER_SANDBOX_IMAGE: ${AETHER_SANDBOX_IMAGE:-aether-sandbox:1}
+      AETHER_PREVIEW_ORIGIN: ${AETHER_PREVIEW_ORIGIN:?AETHER_PREVIEW_ORIGIN is required - e.g. https://preview.yourdomain.com}
+      AETHER_PREVIEW_SECRET: ${AETHER_PREVIEW_SECRET:?AETHER_PREVIEW_SECRET is required - 32+ random characters}
+      AETHER_DASHBOARD_ORIGIN: ${AETHER_DASHBOARD_ORIGIN:-}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # The gateway starts sandbox containers through the host's Docker daemon. Whoever controls
+    # this socket is root on the host: the API image needs the docker CLI, and its user must be
+    # in the socket's group (DOCKER_GID). The run directories are bind-mounted from the host at
+    # the SAME path, because sandbox containers mount them by the path the gateway sees.
+    group_add:
+      - ${DOCKER_GID:?DOCKER_GID is required - the group id owning /var/run/docker.sock}
     volumes:
-      # INFRA-H1: container runs as non-root user 'aether'; mount to that user's home dir
-      # so the service can write its data directory on fresh deploys.
-      - aether_os_data:/home/aether/.aether_os
+      # INFRA-H1: container runs as non-root user 'aether'; the host directory must exist and
+      # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
+      - /home/aether/.aether_os:/home/aether/.aether_os
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -101,7 +115,32 @@ services:
       retries: 3
       start_period: 40s
 
+  # ── Preview server: the only thing that serves generated apps, on its own origin ──
+  # Host network so it reaches the apps' ports published on the host's 127.0.0.1; it listens
+  # on 127.0.0.1:8100 and nginx serves it as the preview domain. No platform keys, no database,
+  # no Docker socket; it reads only the run state files (read-only mount).
+  preview:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    command: ["uvicorn", "aether_os.gateway.preview_server:create_preview_app", "--factory",
+              "--host", "127.0.0.1", "--port", "8100", "--workers", "1"]
+    environment:
+      AETHER_PREVIEW_ORIGIN: ${AETHER_PREVIEW_ORIGIN:?AETHER_PREVIEW_ORIGIN is required}
+      AETHER_PREVIEW_SECRET: ${AETHER_PREVIEW_SECRET:?AETHER_PREVIEW_SECRET is required}
+      AETHER_DASHBOARD_ORIGIN: ${AETHER_DASHBOARD_ORIGIN:-}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
+      ENVIRONMENT: production
+    volumes:
+      - /home/aether/.aether_os:/home/aether/.aether_os:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8100/__preview/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   pg_data:
   redis_data:
-  aether_os_data:

@@ -11,8 +11,8 @@ import os
 from typing import Dict
 
 # Needed to find executables, a home directory for tool caches, locale and temp files.
-# ponytail: HOME is the real home (pip --user packages and the npm cache live there);
-# a host process can read those files regardless. Real isolation is a container.
+# Sandboxed launches replace HOME and TMPDIR with per-run dirs (core/sandbox/runner.sandbox_dirs);
+# file and network isolation is the sandbox's job (core/sandbox/), not this allowlist's.
 _PASSTHROUGH = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR")
 
 

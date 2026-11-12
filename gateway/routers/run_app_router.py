@@ -28,6 +28,7 @@ from fastapi.responses import HTMLResponse
 
 from aether_os.core.app_state import clear_app_state, del_proc
 from aether_os.core.run_app import preview_state
+from aether_os.core.sandbox.docker_backend import remove_container
 from aether_os.gateway.auth import PREVIEW_COOKIE, create_preview_token
 
 from aether_os.gateway.dependencies import get_current_user, require_run_user
@@ -113,6 +114,8 @@ async def stop_run_app(
         except subprocess.TimeoutExpired:
             logger.warning("run-app %s did not stop on SIGTERM, sending SIGKILL", run_id)
             proc.kill()
+    elif app.get("container"):  # Docker sandbox, earlier gateway process; proven by container id + nonce
+        await asyncio.to_thread(remove_container, app["container"])
     elif app["pid"]:  # started by an earlier gateway process; identity proven by pid + nonce
         try:
             os.kill(app["pid"], signal.SIGTERM)

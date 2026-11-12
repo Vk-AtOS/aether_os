@@ -3,6 +3,7 @@
 #
 #   ./scripts/local.sh check   # services, model key, imports, lint
 #   ./scripts/local.sh up      # migrate DB, create local test user, start server on :8000
+#                              # and the preview server (generated apps) on :8100
 #   ./scripts/local.sh e2e [N] # build golden prompt N (default 0) end to end, write a report
 #   ./scripts/local.sh down    # stop the local server
 #
@@ -16,6 +17,9 @@ PY="${PYTHON:-python3.11}"
 PORT="${PORT:-8000}"
 LOG="$REPO/.local/gateway.log"
 PIDFILE="$REPO/.local/gateway.pid"
+PREVIEW_PORT="${PREVIEW_PORT:-8100}"
+PREVIEW_LOG="$REPO/.local/preview.log"
+PREVIEW_PIDFILE="$REPO/.local/preview.pid"
 EMAIL="local-e2e@aetheros.test"
 PASSWORD="${LOCAL_E2E_PASSWORD:-LocalE2e!Pass2026}"   # local-only account, never deployed
 
@@ -23,6 +27,16 @@ mkdir -p "$REPO/.local" "$REPO/benchmarks/results"
 set -a; . "$REPO/.env"; set +a
 # Velaris is a sibling repository; the dashboard's Operations page reads it from here.
 export VELARIS_HOME="${VELARIS_HOME:-$PARENT/Knackforge/velaris_knackforge}"
+# Generated apps are served from their own origin (a different port is a different origin).
+# Open the dashboard at http://127.0.0.1:$PORT so the preview iframe is same-site.
+export AETHER_DASHBOARD_ORIGIN="${AETHER_DASHBOARD_ORIGIN:-http://127.0.0.1:$PORT}"
+export AETHER_PREVIEW_ORIGIN="${AETHER_PREVIEW_ORIGIN:-http://127.0.0.1:$PREVIEW_PORT}"
+if [ -z "${AETHER_PREVIEW_SECRET:-}" ]; then
+  [ -s "$REPO/.local/preview_secret" ] || (umask 077; openssl rand -hex 32 >"$REPO/.local/preview_secret")
+  export AETHER_PREVIEW_SECRET="$(cat "$REPO/.local/preview_secret")"
+fi
+# Generated code runs under sandbox-exec on macOS (core/sandbox/macos_backend.py).
+export AETHER_SANDBOX="${AETHER_SANDBOX:-macos}"
 cd "$PARENT"
 
 ok()   { echo "  ok    $1"; }
@@ -34,6 +48,8 @@ check() {
   [ "$(redis-cli ping 2>/dev/null)" = "PONG" ] && ok "Redis" || bad "Redis is not running"
   $PY -c "from aether_os.gateway.api import create_app" 2>/dev/null \
     && ok "gateway imports" || bad "gateway does not import (run: $PY -c 'from aether_os.gateway.api import create_app')"
+  $PY -c "from aether_os.core.sandbox.runner import get_runner; get_runner()" 2>/dev/null \
+    && ok "sandbox ($AETHER_SANDBOX)" || bad "sandbox $AETHER_SANDBOX unavailable — generated apps will be refused"
   $PY -m ruff check --select F821,E9 -q "$REPO" --exclude .venv >/dev/null 2>&1 \
     && ok "no undefined names" || bad "ruff found undefined names or syntax errors"
   # One real model call. A fallback to Ollama counts as a failure: it is too weak for a build.
@@ -59,20 +75,31 @@ up() {
   down
   nohup $PY -m uvicorn aether_os.gateway.api:create_app --factory --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
+  # One worker: the preview server keeps its spent-token list in memory.
+  nohup $PY -m uvicorn aether_os.gateway.preview_server:create_preview_app --factory \
+      --host 127.0.0.1 --port "$PREVIEW_PORT" --workers 1 >"$PREVIEW_LOG" 2>&1 &
+  echo $! >"$PREVIEW_PIDFILE"
   for _ in $(seq 1 30); do
-    curl -sf "http://127.0.0.1:$PORT/health" >/dev/null && { echo "server up on :$PORT (log: $LOG)"; return 0; }
+    curl -sf "http://127.0.0.1:$PORT/health" >/dev/null \
+      && curl -sf "http://127.0.0.1:$PREVIEW_PORT/__preview/health" >/dev/null \
+      && { echo "server up on :$PORT (log: $LOG), previews on :$PREVIEW_PORT (log: $PREVIEW_LOG)"; return 0; }
     sleep 2
   done
-  echo "server did not become healthy — see $LOG"; exit 1
+  echo "server or preview server did not become healthy — see $LOG and $PREVIEW_LOG"; exit 1
 }
 
-down() {
-  [ -f "$PIDFILE" ] || return 0
-  pid="$(cat "$PIDFILE")"; rm -f "$PIDFILE"
+stop_pidfile() {
+  [ -f "$1" ] || return 0
+  pid="$(cat "$1")"; rm -f "$1"
   kill "$pid" 2>/dev/null || return 0
   # Wait for the old server to release the port, or `up` mistakes it for the new one.
   for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.5; done
   kill -9 "$pid" 2>/dev/null
+}
+
+down() {
+  stop_pidfile "$PIDFILE"
+  stop_pidfile "$PREVIEW_PIDFILE"
 }
 
 e2e() {
