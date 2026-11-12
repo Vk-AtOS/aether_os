@@ -22,6 +22,7 @@ import weakref
 from typing import Any, Dict, List, Optional, Union
 
 from aether_os.core.audit import chain as audit_chain
+from aether_os.core.audit import subjects as audit_subjects
 from aether_os.core import db as core_db  # module ref: tests patch core.db.get_session_factory
 from aether_os.core.models import AuditLog
 from aether_os.core.security.redact import redact_secrets
@@ -145,13 +146,20 @@ class DecisionLedger:
         global _unlinked_audit_events
         ts = time.time()
         entry_hash: Optional[str] = None
-        row_metadata = metadata or {}
+        # Emails and IPs never reach the chain (or the audit_log row) raw: they become
+        # pseudonymous references whose raw value can be erased (core/audit/subjects.py).
+        try:
+            ip_ref, row_metadata = await audit_subjects.scrub(org_id, ip_address, metadata or {})
+        except Exception as exc:
+            # Fail closed: without a reference, drop the personal values rather than store them.
+            logger.error("AUDIT PSEUDONYMISATION FAILED action=%s org=%s: %s", action, org_id, exc)
+            ip_ref, row_metadata = audit_subjects.withhold(ip_address, metadata or {})
         try:
             entry = await audit_chain.append(
                 actor=user_id, action=action, timestamp=ts,
                 payload={"org_id": org_id, "resource_type": resource_type,
-                         "resource_id": resource_id, "metadata": metadata or {},
-                         "ip_address": ip_address},
+                         "resource_id": resource_id, "metadata": row_metadata,
+                         "ip_address": ip_ref},
             )
             entry_hash = entry.entry_hash
         except Exception as exc:
@@ -170,7 +178,8 @@ class DecisionLedger:
                     action=action, resource_type=resource_type,
                     resource_id=resource_id,
                     log_metadata=json.dumps(row_metadata),
-                    ip_address=ip_address, created_at=ts,
+                    ip_address=ip_ref["subject"] if isinstance(ip_ref, dict) else ip_ref,
+                    created_at=ts,
                     # Legacy column name: it now holds the entry_hash of this
                     # event's audit_chain entry, linking the row to the chain.
                     prev_hash=entry_hash,
@@ -204,17 +213,19 @@ class DecisionLedger:
                     .limit(limit).offset((page - 1) * limit)
                 )).scalars().all()
 
+            logs = [
+                {
+                    "id": r.id, "org_id": r.org_id, "user_id": r.user_id,
+                    "action": r.action, "resource_type": r.resource_type,
+                    "resource_id": r.resource_id,
+                    "metadata": _safe_json(r.log_metadata),
+                    "ip_address": r.ip_address, "created_at": r.created_at,
+                }
+                for r in rows
+            ]
             return {
-                "logs": [
-                    {
-                        "id": r.id, "org_id": r.org_id, "user_id": r.user_id,
-                        "action": r.action, "resource_type": r.resource_type,
-                        "resource_id": r.resource_id,
-                        "metadata": _safe_json(r.log_metadata),
-                        "ip_address": r.ip_address, "created_at": r.created_at,
-                    }
-                    for r in rows
-                ],
+                # Resolve pseudonymous references; erased people show as "[erased]".
+                "logs": await audit_subjects.overlay(org_id, logs),
                 "total": total,
                 "page": page,
                 "pages": max(1, (total + limit - 1) // limit),

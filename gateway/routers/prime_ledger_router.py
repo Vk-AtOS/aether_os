@@ -1,7 +1,9 @@
 """Prime API — read-only ledger browser, one organisation at a time.
 
 Organisation admins see every entry of their organisation. Everyone else sees only
-the entries they made themselves. The whole-chain check is GET /prime/ledger/verify.
+the entries they made themselves. Each organisation has its own chain; an entry's
+"previous" is the entry before it in that same chain. Verifying one organisation's
+chain and its signed checkpoints is POST /prime/ledger/anchor/verify.
 """
 from __future__ import annotations
 

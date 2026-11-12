@@ -10,6 +10,7 @@ import aether_os.core.db as db
 from aether_os.core.audit import chain
 from aether_os.core.audit.chain import AuditChainEntry
 from aether_os.core.audit.ledger import DecisionLedger
+from aether_os.core.audit.subjects import AuditOrgPepper, AuditSubject
 from aether_os.core.models import AuditLog
 
 pytestmark = pytest.mark.asyncio
@@ -24,7 +25,8 @@ async def ledger_db(tmp_path, monkeypatch):
     engine = db.get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: db.Base.metadata.create_all(
-            c, tables=[AuditChainEntry.__table__, AuditLog.__table__]))
+            c, tables=[AuditChainEntry.__table__, AuditLog.__table__,
+                       AuditOrgPepper.__table__, AuditSubject.__table__]))
     yield db.get_session_factory()
     await engine.dispose()
 
@@ -101,7 +103,8 @@ async def test_fork_is_rejected_by_the_database(ledger_db):
     async with ledger_db() as s:
         with pytest.raises(IntegrityError):
             await s.execute(insert(AuditChainEntry).values(
-                seq=99, timestamp=1.0, actor="a", action="b", payload="{}",
+                seq=99, chain_id=chain.PLATFORM_CHAIN, chain_seq=99,
+                timestamp=1.0, actor="a", action="b", payload="{}",
                 prev_hash=chain.GENESIS_HASH, entry_hash="d" * 64))
 
 
