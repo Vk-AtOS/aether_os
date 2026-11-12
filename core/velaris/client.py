@@ -128,6 +128,49 @@ class VelarisClient:
             raise VelarisUnavailable("VELARIS_API_SECRET is shorter than 32 bytes")
         return cls(url, secret, _load_key(key_path), timeout=timeout, transport=transport)
 
+    def _signed(self, who: Identity, method: str, path: str, query: str, body: bytes,
+                content_type: Optional[str]) -> Tuple[str, Dict[str, str]]:
+        target = path + (f"?{query}" if query else "")
+        headers = sign_request(self._secret, self._key, who, method, target, body)
+        if body:
+            headers["Content-Type"] = content_type or "application/json"
+        return target, headers
+
+    async def request_raw(self, who: Identity, method: str, path: str, *, body: bytes = b"", query: str = "",
+                          content_type: Optional[str] = None, timeout: Optional[float] = None) -> httpx.Response:
+        """The Velaris response as it is (bytes, any content type): for raw uploads/downloads and
+        pre-serialised JSON. Raises VelarisUnavailable when Velaris cannot be reached or answers 502/503/504."""
+        target, headers = self._signed(who, method, path, query, body, content_type)
+        try:
+            async with httpx.AsyncClient(base_url=self._base, timeout=timeout or self._timeout,
+                                         transport=self._transport, follow_redirects=False) as http:
+                resp = await http.request(method, target, content=body or None, headers=headers)
+        except httpx.HTTPError as e:
+            logger.warning("velaris unreachable: %s", type(e).__name__)
+            raise VelarisUnavailable("Velaris could not be reached") from None
+        if resp.status_code in (502, 503, 504):
+            raise VelarisUnavailable("Velaris is not available")
+        return resp
+
+    async def open_stream(self, who: Identity, path: str, *, query: str = "",
+                          read_timeout: float = 60.0) -> Tuple[httpx.AsyncClient, httpx.Response]:
+        """GET that is read as it arrives (Server-Sent Events). The caller must `await resp.aclose()` and
+        `await http.aclose()`; cancelling the reader and closing drops the upstream connection."""
+        target, headers = self._signed(who, "GET", path, query, b"", None)
+        http = httpx.AsyncClient(base_url=self._base, transport=self._transport, follow_redirects=False,
+                                 timeout=httpx.Timeout(10.0, read=read_timeout))
+        try:
+            resp = await http.send(http.build_request("GET", target, headers=headers), stream=True)
+        except httpx.HTTPError as e:
+            await http.aclose()
+            logger.warning("velaris unreachable: %s", type(e).__name__)
+            raise VelarisUnavailable("Velaris could not be reached") from None
+        if resp.status_code in (502, 503, 504):
+            await resp.aclose()
+            await http.aclose()
+            raise VelarisUnavailable("Velaris is not available")
+        return http, resp
+
     async def request(self, who: Identity, method: str, path: str, *, json_body: Any = None,
                       query: str = "") -> Tuple[int, Any]:
         """(HTTP status, parsed JSON) from Velaris. Raises VelarisUnavailable when it cannot be reached

@@ -190,8 +190,8 @@ def test_every_run_route_hides_other_orgs_runs(env):
     """Org B asks for org A's run on every {run_id} route: all must answer 404."""
     leaks, checked = [], 0
     for method, path in _run_routes(env.app):
-        if path.startswith("/velaris/"):
-            continue    # {run_id} there is a Velaris flow id (checked by the Velaris API per owner/org), not an AetherOS run
+        if path.startswith(("/velaris/", "/chat/", "/control/")):
+            continue    # {run_id} there is a Velaris flow/run id (checked by the Velaris API per owner/org), not an AetherOS run
         url = (path.replace("{run_id}", env.run_a)
                .replace("{trace_id}", "t1").replace("{decision_id}", "d1")
                .replace("{snapshot_id}", "s1").replace("{token_id}", "tok1").replace("{phase_name}", "p01"))

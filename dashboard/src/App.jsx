@@ -49,6 +49,10 @@ const Workspaces        = React.lazy(() => import('./pages/Workspaces'));
 const RunDetail         = React.lazy(() => import('./pages/RunDetail'));
 const Operations        = React.lazy(() => import('./pages/Operations'));
 const Prime             = React.lazy(() => import('./pages/Prime'));
+const Chat              = React.lazy(() => import('./pages/Chat'));
+const Mail              = React.lazy(() => import('./pages/Mail'));
+const Control           = React.lazy(() => import('./pages/Control'));
+const Hr                = React.lazy(() => import('./pages/Hr'));
 
 
 const ProtectedRoute = ({ children }) => {
@@ -150,6 +154,11 @@ function App() {
         <Route path="operations" element={<ErrorBoundary><Operations /></ErrorBoundary>} />
         <Route path="prime" element={<ErrorBoundary><Prime /></ErrorBoundary>} />
         <Route path="prime/:tab" element={<ErrorBoundary><Prime /></ErrorBoundary>} />
+        <Route path="chat" element={<ErrorBoundary><Chat /></ErrorBoundary>} />
+        <Route path="mail" element={<ErrorBoundary><Mail /></ErrorBoundary>} />
+        <Route path="control" element={<ErrorBoundary><Control /></ErrorBoundary>} />
+        <Route path="hr" element={<ErrorBoundary><Hr /></ErrorBoundary>} />
+        <Route path="hr/:tab" element={<ErrorBoundary><Hr /></ErrorBoundary>} />
         <Route path="runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="dashboard/runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />

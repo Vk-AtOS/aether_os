@@ -6,7 +6,9 @@ import {
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
   Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2, BrainCircuit, Briefcase,
+  Mail, UserSquare,
 } from 'lucide-react';
+import { HR_TABS } from './hr/tabs';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
 import { useRuns } from '../contexts/useRuns';
@@ -69,6 +71,15 @@ const Sidebar = () => {
     { name: 'Operations', path: '/operations', icon: Briefcase },
     { name: 'Prime',      path: '/prime',      icon: BrainCircuit },
   ];
+
+  // Velaris products. Roles: Workplace and Operations need a role that may act (not viewer); HR is for owners and
+  // admins (Velaris hr_admin). The server enforces all of it; this only hides what would be refused.
+  const workplaceItems = isViewer ? [] : [
+    { name: 'Chat', path: '/chat', icon: MessageSquare },
+    { name: 'Mail', path: '/mail', icon: Mail },
+  ];
+  const opsItems = isViewer ? [] : [{ name: 'Control', path: '/control', icon: Cpu }];
+  const hrItems = isAdmin ? HR_TABS.map(([slug, name]) => ({ name, path: `/hr/${slug}`, icon: UserSquare })) : [];
 
   const platformItems = [
     { name: 'Intelligence',  path: '/intelligence', icon: Sparkles },
@@ -163,6 +174,21 @@ const Sidebar = () => {
             );
           })}
         </div>
+
+        {[['Workplace', workplaceItems], ['Operations', opsItems], ['HR', hrItems]].filter(([, items]) => items.length > 0).map(([title, items]) => (
+          <div key={title} className="pt-2" role="group" aria-label={title}>
+            <p className="px-3 pb-1 text-[10px] font-bold text-slate-600 uppercase tracking-widest">{title}</p>
+            {items.map((item) => {
+              const active = location.pathname.startsWith(item.path);
+              return (
+                <NavLink key={item.path} to={item.path} className={subLinkClass(active)} aria-current={active ? 'page' : undefined}>
+                  <item.icon className={`w-3.5 h-3.5 mr-2.5 flex-shrink-0 ${active ? 'text-violet-400' : ''}`} aria-hidden="true" />
+                  {item.name}
+                </NavLink>
+              );
+            })}
+          </div>
+        ))}
 
         {/* Platform section */}
         <div className="pt-2">
