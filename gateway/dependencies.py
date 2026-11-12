@@ -20,7 +20,8 @@ from sqlalchemy import select
 
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
-from aether_os.gateway.auth_refresh import family_key
+from aether_os.core.billing.payments import expire_if_due
+from aether_os.gateway.auth_refresh import assert_access_token_live
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -51,6 +52,10 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="MFA verification required. Complete sign-in at /auth/mfa/confirm.",
             )
+
+        # Revocation (logout, replay, password change/reset). Fails closed: 503 if the
+        # store cannot answer, whether or not Redis was up when the process started.
+        await assert_access_token_live(payload)
 
         # email_verified and is_active check
         user_id = payload.get("user_id")
@@ -87,25 +92,10 @@ async def get_current_user(
                             detail="password_change_required",
                         )
 
-        jti = payload.get("jti")
-        if jti:
-            try:
-                from aether_os.core.pipeline_state import get_redis
-                r = await get_redis()
-                # One round trip: this token blacklisted, or its whole family
-                # revoked (logout elsewhere / refresh-token replay).
-                if r and await r.exists(f"jwt:blacklist:{jti}", family_key(payload.get("fam") or jti)):
-                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
-            except HTTPException:
-                raise
-            except Exception as exc:
-                # SEC-C1: Redis blacklist unavailable — fail CLOSED to prevent
-                # revoked tokens from silently passing auth during an outage.
-                logger.warning("JWT blacklist check failed (Redis unavailable) — denying request: %s", exc)
-                raise HTTPException(
-                    status_code=503,
-                    detail="Auth service temporarily unavailable — please retry",
-                )
+                # The plan claim is as old as the token; the org row (and whether its
+                # paid period has ended) is the truth for this request.
+                payload["plan"] = await expire_if_due(session, db_org)
+
         return payload
 
     # 2. Try API Key
@@ -119,6 +109,8 @@ async def get_current_user(
             stmt = select(APIKey, Organisation).join(Organisation).where(
                 APIKey.key_hash == hashed,
                 APIKey.is_active == True,
+                # A deleted organisation's keys die with it (the JWT path refuses it above).
+                Organisation.is_deleted.isnot(True),
             )
             result = await session.execute(stmt)
             row = result.fetchone()
@@ -130,7 +122,7 @@ async def get_current_user(
                     "sub": "api_key",
                     "org_id": org.id,
                     "org_slug": org.slug,
-                    "plan": org.plan,
+                    "plan": await expire_if_due(session, org),
                     "role": "api",
                 }
 

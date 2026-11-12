@@ -300,26 +300,24 @@ def test_portal_feedback_writes_file(tmp_path):
     import os
     from aether_os.core.projects import ProjectManager
     import aether_os.core.projects as pm_mod
-    from aether_os.gateway.client_portal.routes import _get_portal_token
 
     os.environ.setdefault("AETHER_SECRET_KEY", "test-secret-key-32-chars-minimum")
     pm_mod._manager = ProjectManager(root=tmp_path / "projects")
     pid = pm_mod._manager.create_project("c1", "FeedbackTest")
 
-    # Create portal token (writes .portal_token file into project_dir)
-    portal_token = _get_portal_token(pid)
-    assert portal_token, "Portal token must be generated"
-
     from fastapi.testclient import TestClient
     from fastapi import FastAPI
-    from aether_os.gateway.client_portal.routes import router
+    from aether_os.gateway.client_portal.routes import router, _portal_auth
 
     app = FastAPI()
     app.include_router(router)
+    # Portal tokens live in the database now (hash only; tests/test_portal_tokens.py
+    # covers them through the real gateway). This test is about the feedback file.
+    app.dependency_overrides[_portal_auth] = lambda: {
+        "kind": "portal_token", "id": "t1", "label": "client", "org_id": "org_x"}
     client = TestClient(app)
     resp = client.post(
         f"/portal/{pid}/feedback",
-        params={"portal_token": portal_token},
         json={"feedback": "Looks great!", "phase": "p02_architecture"},
     )
 

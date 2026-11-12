@@ -3,15 +3,15 @@ import io
 import json
 import logging
 import re
-import secrets
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from aether_os.core.identity import portal_access
 from aether_os.core.projects import get_project_manager
 from aether_os.gateway.client_portal.provenance import _build_provenance
 from aether_os.gateway.dependencies import assert_run_in_org, get_current_user, security_scheme
@@ -27,23 +27,7 @@ class FeedbackBody(BaseModel):
 
 class ApproveBody(BaseModel):
     approved: bool
-    comment: Optional[str] = None
-
-
-def _get_portal_token(project_id: str) -> str:
-    """Return (or generate) a persistent portal access token for a run, stored next to the project."""
-    try:
-        project_dir = get_project_manager().get_project_dir(project_id)
-        token_file = project_dir / ".portal_token"
-        if token_file.exists():
-            return token_file.read_text().strip()
-        token = secrets.token_urlsafe(32)
-        project_dir.mkdir(parents=True, exist_ok=True)
-        token_file.write_text(token)
-        return token
-    except Exception as exc:
-        logger.debug("Failed to get/create portal token for project %s: %s", project_id, exc)
-        return ""
+    comment: Optional[str] = Field(default=None, max_length=2000)
 
 
 # A run / project id as a single safe path component: these ids are joined onto the
@@ -51,27 +35,19 @@ def _get_portal_token(project_id: str) -> str:
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
-def _stored_portal_token(project_id: str) -> str:
-    """Read the project's portal token without creating anything; "" if there is none."""
-    try:
-        token_file = get_project_manager()._root / project_id / ".portal_token"
-        return token_file.read_text().strip() if token_file.is_file() else ""
-    except Exception as exc:
-        logger.warning("Could not read portal token for project %s: %s", project_id, exc)
-        return ""
-
-
 async def _portal_auth(
     request: Request,
     portal_token: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
-) -> None:
-    """Auth for every /portal/{id}/... route. Accepts either:
-      - the project's own portal token: X-Portal-Token header, or ?portal_token=
-        (query form kept for plain download links; it does end up in access logs)
+) -> Dict[str, Any]:
+    """Auth for every /portal/{id}/... route; returns who is calling. Accepts either:
+      - a portal token issued for this project (POST /factory/runs/{id}/portal-tokens):
+        X-Portal-Token header, or ?portal_token= (query form kept for plain
+        download links; it does end up in access logs)
       - a signed-in user (or API key) of the organisation that owns the run.
     A valid session from another organisation is not enough: 404, same as any
-    other run route, so run ids cannot be probed.
+    other run route, so run ids cannot be probed. A token is checked before the
+    project is looked up, so a bad token learns nothing about which ids exist.
     """
     project_id = request.path_params.get("project_id") or request.path_params.get("run_id") or ""
     if not _SAFE_NAME.match(project_id):
@@ -79,15 +55,18 @@ async def _portal_auth(
 
     supplied = request.headers.get("x-portal-token") or portal_token
     if supplied:
-        stored = _stored_portal_token(project_id)
-        if stored and secrets.compare_digest(stored.encode(), supplied.encode()):
-            return
-        raise HTTPException(status_code=401, detail="Portal authentication required")
+        route = request.url.path.rstrip("/").rsplit("/", 1)[-1]
+        principal = await portal_access.verify_token(project_id, supplied, request.method, route)
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Portal authentication required")
+        return principal
 
     if credentials is None:
         raise HTTPException(status_code=401, detail="Portal authentication required")
     user = await get_current_user(request, credentials)
     await assert_run_in_org(project_id, user)
+    return {"kind": "user", "id": user.get("user_id") or user.get("sub") or "-",
+            "label": user.get("email") or user.get("sub") or "", "org_id": user["org_id"]}
 
 
 def _portal_error(what: str, project_id: str, exc: Exception) -> HTTPException:
@@ -145,7 +124,7 @@ async def _resolve_run(project_id: str) -> dict:
 
 
 @router.get("/{project_id}/status")
-async def get_project_status(project_id: str, _auth: None = Depends(_portal_auth)):
+async def get_project_status(project_id: str, _auth: Dict[str, Any] = Depends(_portal_auth)):
     try:
         rec = await _resolve_run(project_id)
         project_dir = rec["project_dir"]
@@ -234,7 +213,7 @@ async def get_project_status(project_id: str, _auth: None = Depends(_portal_auth
 
 
 @router.get("/{project_id}/phase/{phase_name}")
-async def get_phase_output(project_id: str, phase_name: str, _auth: None = Depends(_portal_auth)):
+async def get_phase_output(project_id: str, phase_name: str, _auth: Dict[str, Any] = Depends(_portal_auth)):
     # phase_name is joined onto the project directory: ".." would list every
     # project's files, and get_output_dir() would create whatever name is sent.
     if not _SAFE_NAME.match(phase_name):
@@ -259,27 +238,33 @@ async def get_phase_output(project_id: str, phase_name: str, _auth: None = Depen
 async def approve_phase(
     project_id: str,
     body: ApproveBody,
-    _auth: None = Depends(_portal_auth),
+    principal: Dict[str, Any] = Depends(_portal_auth),
 ):
+    """Record the client's sign-off (or change request) for this project.
+
+    Stored in portal_approvals and ledgered. An approval while the build is
+    waiting at spec review releases that gate; otherwise it is a record only —
+    nothing is re-run on a change request.
+    """
+    await _resolve_run(project_id)  # 404 for an unknown project, after authentication
     try:
-        from aether_os.core.approval.store import get_approvals_store
-        store = get_approvals_store()
-        ticket_id = f"portal-{project_id}-approval"
-        # Record the approval decision
-        logger.info("Client approval for %s: approved=%s comment=%s",
-                    project_id, body.approved, body.comment)
-        return {"project_id": project_id, "approved": body.approved,
-                "message": "Approval recorded. Next phase will start shortly." if body.approved
-                           else "Change request noted. Re-running affected phases."}
+        approval, created = await portal_access.record_approval(project_id, principal, body.approved, body.comment)
     except Exception as e:
         raise _portal_error("approve", project_id, e)
+    if approval["applied_to"] == "spec_review":
+        message = "Approval recorded. The build continues past spec review."
+    else:
+        message = "Approval recorded." if body.approved else "Change request recorded."
+    return {"project_id": project_id, "approved": approval["approved"], "approval_id": approval["id"],
+            "recorded_at": approval["created_at"], "recorded_by": approval["actor_label"],
+            "applied_to": approval["applied_to"], "duplicate": not created, "message": message}
 
 
 @router.post("/{project_id}/feedback")
 async def submit_feedback(
     project_id: str,
     body: FeedbackBody,
-    _auth: None = Depends(_portal_auth),
+    _auth: Dict[str, Any] = Depends(_portal_auth),
 ):
     try:
         import time
@@ -300,7 +285,7 @@ async def submit_feedback(
 # ── Download endpoints ────────────────────────────────────────────────────────
 
 @router.get("/{run_id}/download")
-async def portal_download_zip(run_id: str, _auth: None = Depends(_portal_auth)):
+async def portal_download_zip(run_id: str, _auth: Dict[str, Any] = Depends(_portal_auth)):
     """Download all project artifacts as a ZIP file (portal token or owning-org user)."""
     rec = await _resolve_run(run_id)
     project_dir: Path = rec["project_dir"]
@@ -375,7 +360,7 @@ async def portal_download_zip(run_id: str, _auth: None = Depends(_portal_auth)):
 
 
 @router.get("/{run_id}/provenance")
-async def portal_provenance(run_id: str, _auth: None = Depends(_portal_auth)):
+async def portal_provenance(run_id: str, _auth: Dict[str, Any] = Depends(_portal_auth)):
     """Return the build provenance Markdown document."""
     rec = await _resolve_run(run_id)
 

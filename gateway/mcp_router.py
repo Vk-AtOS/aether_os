@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from aether_os.gateway.dependencies import get_current_user as _get_current_user, require_run_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ async def mcp_start_pipeline(
     import asyncio
     from aether_os.orchestrator.factory_pipeline import get_factory
     org_id = user.get("org_id")
+    await enforce("run.start", user)  # this route used to start builds with no org, plan or quota check
     run_id = str(uuid.uuid4())
     factory = get_factory()
     asyncio.create_task(factory.run(

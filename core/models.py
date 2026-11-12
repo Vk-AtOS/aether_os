@@ -28,6 +28,9 @@ class Organisation(Base):
     scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated — use scim_token_hash
     scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Unix time the paid period ends (core.billing.payments). NULL = no period on record
+    # (trial/free, or a plan not bought through a one-off payment).
+    plan_period_end: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking

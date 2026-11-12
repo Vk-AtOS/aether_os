@@ -8,21 +8,25 @@ a new pair in the same family and spends the old refresh token.
 Redis keys (same store and conventions as the access-token blacklist):
   jwt:blacklist:{jti}          spent or revoked token (shared with access tokens)
   jwt:family_revoked:{fam}     whole family revoked (logout, or a spent token was replayed)
-  jwt:refresh_cutoff:{user_id} "<unix_ts>:<exempt_fam>" — refresh tokens issued at or
-                               before the timestamp are dead (password change/reset)
+  jwt:refresh_cutoff:{user_id} "<unix_ts>:<exempt_fam>" — every token of the user (access
+                               and refresh) issued at or before the timestamp is dead,
+                               except family <exempt_fam> (password change/reset)
 
-Fail closed: if Redis cannot answer, nothing is refreshed or reported as revoked.
+Fail closed: if Redis cannot answer, nothing is refreshed, no access token is
+accepted (503), and nothing is reported as revoked.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
 from typing import Any, Dict, Optional, Tuple
 
+import redis.asyncio as aioredis
 from fastapi import HTTPException
 
-from aether_os.core.pipeline_state import get_redis
+from aether_os.core.pipeline_state import REDIS_URL, get_redis
 from aether_os.gateway.auth import create_access_token, create_refresh_token
 
 logger = logging.getLogger(__name__)
@@ -50,11 +54,59 @@ def issue_token_pair(claims: Dict[str, Any], family: Optional[str] = None) -> Tu
     return create_access_token(data), create_refresh_token(data)
 
 
+_own_client: Optional[Tuple[Any, Any]] = None  # (event loop, client)
+
+
 async def _redis():
+    """The token-state store. Never None: if it is down, the command that follows raises.
+
+    get_redis() decides once, at its first call (startup), whether Redis exists,
+    and answers None for the rest of the process if it did not. Revocation must
+    not hang on that one moment — a gateway that started during a Redis blip
+    would otherwise accept revoked tokens forever — so in that case this module
+    talks to Redis through its own client, which connects per command.
+    """
+    global _own_client
     r = await get_redis()
-    if not r:
-        raise RuntimeError("Redis unavailable")
-    return r
+    if r is not None:
+        return r
+    loop = asyncio.get_running_loop()
+    if _own_client is None or _own_client[0] is not loop:  # a client is bound to the loop that made it
+        _own_client = (loop, aioredis.from_url(REDIS_URL, decode_responses=True))
+    return _own_client[1]
+
+
+def _before_cutoff(cutoff: Optional[str], claims: Dict[str, Any], family: str) -> bool:
+    """True if the user's sessions were ended (password change/reset) after this token was issued."""
+    if not cutoff:
+        return False
+    ts, _, exempt = str(cutoff).partition(":")
+    # <= : iat has one-second resolution, so a token minted in the same second
+    # as the password change is treated as older (fail closed).
+    return family != exempt and int(claims.get("iat", 0)) <= int(ts)
+
+
+async def assert_access_token_live(claims: Dict[str, Any]) -> None:
+    """Every authenticated request passes here: 401 if the token was revoked, 503 if we cannot tell.
+
+    Revoked means: this token blacklisted (logout), its family revoked (logout
+    elsewhere, refresh-token replay), or the user's sessions ended by a password
+    change/reset after it was issued. One round trip.
+    """
+    jti = claims.get("jti")
+    if not jti:
+        # Every token we mint has a jti; one without it cannot be revoked, so it is not accepted.
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+    family, user_id = claims.get("fam") or jti, claims.get("user_id")
+    keys = [f"jwt:blacklist:{jti}", family_key(family)] + ([_cutoff_key(user_id)] if user_id else [])
+    try:
+        r = await _redis()
+        values = await r.mget(keys)
+    except Exception as exc:
+        logger.warning("Token revocation check failed (Redis unavailable) — denying request: %s", exc)
+        raise _UNAVAILABLE
+    if values[0] or values[1] or (user_id and _before_cutoff(values[2], claims, family)):
+        raise HTTPException(status_code=401, detail="Token has been revoked")
 
 
 async def consume_refresh_token(claims: Dict[str, Any]) -> str:
@@ -72,13 +124,8 @@ async def consume_refresh_token(claims: Dict[str, Any]) -> str:
         r = await _redis()
         if await r.exists(family_key(family)):
             raise _REJECTED
-        cutoff = await r.get(_cutoff_key(user_id))
-        if cutoff:
-            ts, _, exempt = str(cutoff).partition(":")
-            # <= : iat has one-second resolution, so a token minted in the same
-            # second as the password change is treated as older (fail closed).
-            if family != exempt and int(claims.get("iat", 0)) <= int(ts):
-                raise _REJECTED
+        if _before_cutoff(await r.get(_cutoff_key(user_id)), claims, family):
+            raise _REJECTED
         ttl = max(1, int(exp - time.time()))
         # SET NX is the atomic "first use wins": two concurrent refreshes cannot both pass.
         if not await r.set(f"jwt:blacklist:{jti}", "used", nx=True, ex=ttl):
@@ -107,12 +154,16 @@ async def revoke_session(claims: Dict[str, Any]) -> None:
         raise _UNAVAILABLE
 
 
-async def revoke_user_refresh_tokens(user_id: str, keep_family: Optional[str] = None) -> None:
-    """Kill every refresh token the user holds now, except `keep_family` (the
-    session that is changing the password stays signed in)."""
+async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) -> None:
+    """Kill every access and refresh token the user holds now, except family
+    `keep_family` (the session that is changing the password stays signed in).
+
+    Access tokens used to survive this for up to their one-hour lifetime: only
+    the refresh path read the cutoff. assert_access_token_live reads it too.
+    """
     try:
         r = await _redis()
         await r.set(_cutoff_key(user_id), f"{int(time.time())}:{keep_family or ''}", ex=_REFRESH_TTL_SECONDS)
     except Exception as exc:
-        logger.warning("Could not revoke refresh tokens for user %s: %s", user_id, exc)
+        logger.warning("Could not revoke sessions for user %s: %s", user_id, exc)
         raise _UNAVAILABLE

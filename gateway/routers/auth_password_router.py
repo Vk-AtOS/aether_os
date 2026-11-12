@@ -23,7 +23,7 @@ from aether_os.core.notifications.email import get_email_notifier
 from aether_os.core.pipeline_state import get_redis
 from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter as _get_rl
 from aether_os.gateway.auth import verify_password, get_password_hash
-from aether_os.gateway.auth_refresh import revoke_user_refresh_tokens
+from aether_os.gateway.auth_refresh import revoke_user_sessions
 from sqlalchemy import select
 import secrets
 logger = logging.getLogger(__name__)
@@ -184,7 +184,7 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
         user.password_hash = await loop.run_in_executor(None, get_password_hash, req.new_password)
         # A reset means the old password may be known to someone else: end every
         # session. Before commit, so a failed revocation (503) changes nothing.
-        await revoke_user_refresh_tokens(user.id)
+        await revoke_user_sessions(user.id)
         await session.commit()
         # Audit: password_reset_confirm
         asyncio.create_task(get_ledger().async_log_audit_event(
@@ -228,7 +228,7 @@ async def change_password(req: Dict[str, Any], request: Request, user: Dict[str,
         # Other devices must sign in again with the new password; this session
         # (its token family) stays. Before commit, so a failed revocation (503)
         # changes nothing.
-        await revoke_user_refresh_tokens(db_user.id, keep_family=user.get("fam"))
+        await revoke_user_sessions(db_user.id, keep_family=user.get("fam"))
         await session.commit()
         # Audit: password_change
         asyncio.create_task(get_ledger().async_log_audit_event(

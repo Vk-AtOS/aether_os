@@ -281,6 +281,7 @@ def create_app() -> FastAPI:
         # Auth is attached at mount time: the router itself (phases/) declares none.
         ("cicd_webhook",  "aether_os.phases.p08_cicd.webhook",              "router",       {"tags": ["CI/CD"], "dependencies": [Depends(require_ci_auth)]}, False),
         ("client_portal", "aether_os.gateway.client_portal.routes",         "router",       {},                        False),
+        ("portal_admin",  "aether_os.gateway.routers.portal_admin_router",  "router",       {},                        False),
         ("mcp",           "aether_os.gateway.mcp_router",                   "router",       {},                        False),
         ("saml",          "aether_os.gateway.auth_saml",                    "saml_router",  {},                        False),
         ("oauth",         "aether_os.gateway.auth_oauth",                   "oauth_router", {},                        False),

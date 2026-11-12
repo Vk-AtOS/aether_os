@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["factory"])
@@ -147,22 +148,10 @@ async def start_factory_run(
 
     org_id = user.get("org_id")
 
-    # ── Trial limit pre-check (read-only, no increment) ──────────────────────
-    # Check before rate limits so trial orgs see 402 (upgrade), not 429 (rate limit).
-    # The atomic increment below still guards against TOCTOU races.
-    from sqlalchemy import select as _sa_select
-    from aether_os.core.models import Organisation as _Org
-    _session_factory_pre = get_session_factory()
-    async with _session_factory_pre() as _pre_sess:
-        _pre_result = await _pre_sess.execute(
-            _sa_select(_Org).where(_Org.id == org_id)
-        )
-        _pre_org = _pre_result.scalar_one_or_none()
-        if _pre_org and _pre_org.plan == "trial" and _pre_org.trial_runs_used >= _pre_org.trial_runs_limit:
-            raise HTTPException(
-                status_code=402,
-                detail={"error": "trial_limit_reached", "upgrade_url": "/pricing"},
-            )
+    # ── Policy: org active, role, plan quota, concurrent runs (denials are ledgered) ──
+    # Before rate limits so an org out of quota sees 402 (upgrade), not 429.
+    # The atomic trial increment below still guards against TOCTOU races.
+    await enforce("run.start", user)
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     _rl = get_rate_limiter()

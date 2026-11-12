@@ -76,14 +76,7 @@ def test_refresh_token_is_not_a_portal_credential(gw, portal):
 
 
 def _assert_let_in(method, url, resp):
-    if url.endswith("/approve"):
-        # Known, separate defect: approve imports a function that does not exist and
-        # answers 500 for everyone. Here it only has to get past authentication, and
-        # the 500 must not carry the exception text.
-        assert resp.status_code not in (401, 403, 404), (method, url, resp.status_code)
-        assert "import" not in resp.text and "/Users/" not in resp.text
-    else:
-        assert resp.status_code == 200, (method, url, resp.status_code, resp.text[:200])
+    assert resp.status_code == 200, (method, url, resp.status_code, resp.text[:200])
 
 
 def test_owning_org_reaches_every_route(gw, portal):
@@ -94,9 +87,9 @@ def test_owning_org_reaches_every_route(gw, portal):
 
 
 def test_portal_token_grants_its_own_project_only(gw, portal):
-    from aether_os.gateway.client_portal.routes import _get_portal_token
-    token = _get_portal_token(portal.run_a)
-    assert token
+    issued = gw.client.post(f"/factory/runs/{portal.run_a}/portal-tokens", headers=portal.a.auth, json={})
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["token"]
     for method, url in _portal_calls(gw.app, portal.run_a):
         _assert_let_in(method, url, _call(gw, method, url, headers={"X-Portal-Token": token}))
     assert gw.client.get(f"/portal/{portal.run_a}/download", params={"portal_token": token}).status_code == 200

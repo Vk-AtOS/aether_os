@@ -12,7 +12,8 @@ import time
 from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Request
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.core.billing.payments import apply_paid_order
+from aether_os.gateway.policy_guard import enforce
+from aether_os.core.billing.payments import apply_paid_order, billing_status
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
 from sqlalchemy import select as _sel
@@ -55,10 +56,9 @@ def _razorpay_client():
     return razorpay.Client(auth=(key_id, key_secret))
 def _current_user():
     return Depends(get_current_user)
-def _require_billing_admin(user: Dict[str, Any]) -> None:
+async def _require_billing_admin(user: Dict[str, Any]) -> None:
     """Plan changes affect the whole org — owner/admin only (API keys have role 'api')."""
-    if user.get("role") not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Only org owners and admins can change the plan")
+    await enforce("billing.change_plan", user)
 @router.get("/billing/plans")
 async def list_plans():
     """Return available subscription plans (public endpoint)."""
@@ -102,6 +102,7 @@ async def list_plans():
 @router.post("/billing/create-order")
 async def create_order(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     """Create a Razorpay order for a plan upgrade."""
+    await _require_billing_admin(user)
     plan_id = req.get("plan", "pro").lower()
     if plan_id not in RAZORPAY_PLANS:
         raise HTTPException(status_code=422, detail=f"Unknown plan: {plan_id}. Choose pro or enterprise.")
@@ -129,6 +130,7 @@ async def create_order(req: Dict[str, Any], user: Dict[str, Any] = _current_user
 @router.post("/billing/verify-payment")
 async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     """Verify Razorpay payment signature and upgrade org plan."""
+    await _require_billing_admin(user)
     order_id   = req.get("razorpay_order_id", "")
     payment_id = req.get("razorpay_payment_id", "")
     signature  = req.get("razorpay_signature", "")
@@ -165,8 +167,16 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
     return {
         "success": True,
         "plan":    plan_id,
+        "period_end": ((await billing_status(user["org_id"])) or {}).get("period_end"),
         "message": f"Successfully upgraded to {RAZORPAY_PLANS[plan_id]['name']}",
     }
+@router.get("/billing/status")
+async def get_billing_status(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """The org's plan in force and when its paid period ends (unix seconds, or null)."""
+    status = await billing_status(user["org_id"])
+    if status is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    return status
 @router.get("/billing/invoices")
 async def list_invoices(user: Dict[str, Any] = _current_user()):
     """Return invoices for the authenticated org.
@@ -209,7 +219,7 @@ async def list_invoices(user: Dict[str, Any] = _current_user()):
 @router.post("/billing/cancel")
 async def cancel_subscription(user: Dict[str, Any] = _current_user()):
     """Cancel active subscription via Stripe (if configured) then downgrade org to free."""
-    _require_billing_admin(user)
+    await _require_billing_admin(user)
     org_id = user["org_id"]
     # If Stripe is configured, cancel the active subscription there first
     stripe_key = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -236,7 +246,7 @@ async def cancel_subscription(user: Dict[str, Any] = _current_user()):
             await session.execute(
                 _upd_cancel(Organisation)
                 .where(Organisation.id == org_id)
-                .values(plan="free")
+                .values(plan="free", plan_period_end=None)
             )
             await session.commit()
     except Exception as _e:
@@ -251,7 +261,7 @@ async def downgrade_subscription(req: Dict[str, Any], user: Dict[str, Any] = _cu
     target_plan = req.get("target_plan", "").lower()
     if target_plan not in _VALID_DOWNGRADE_PLANS:
         raise HTTPException(status_code=400, detail=f"Invalid target_plan: {target_plan}. Choose from: {sorted(_VALID_DOWNGRADE_PLANS)}")
-    _require_billing_admin(user)
+    await _require_billing_admin(user)
     # Compare against the plan in the DB (the JWT claim can be an hour stale).
     async with get_session_factory()() as session:
         current_plan = (await session.execute(
