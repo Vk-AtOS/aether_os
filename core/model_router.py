@@ -29,6 +29,8 @@ from aether_os.core.model_router_providers import (
     _is_provider_configured,
     _classify_error,
     _mark_provider_dead,
+    _is_provider_dead,
+    PLATFORM_SCOPE,
     _apply_org_chain_overrides,
     _DEAD_PROVIDERS,
     _DEAD_MODELS,
@@ -64,6 +66,18 @@ async def _provider_key(provider: str, org_id: Optional[str]) -> Optional[str]:
     if name is None:
         return None
     return await get_api_key(name, org_id or _current_org_id.get())
+
+
+async def _breaker_scope(provider: str, org_id: Optional[str], api_key: Optional[str]) -> str:
+    """Whose credentials this call uses: the org id for the org's own key, else the platform.
+
+    A failure of an org's own key must only open the breaker for that org.
+    """
+    name = _KEY_PROVIDERS.get(provider)
+    org = org_id or _current_org_id.get()
+    if not (name and org and api_key) or api_key == await get_api_key(name, None):
+        return PLATFORM_SCOPE
+    return org
 
 
 def _get_ahm():
@@ -227,11 +241,10 @@ class ModelRouter:
             if not _api_key and not _is_provider_configured(spec):
                 logger.debug("Router: skipping %s — not configured", spec.provider)
                 continue
-            if spec.provider in _DEAD_PROVIDERS:
-                logger.debug("Router: skipping %s — circuit-breaker open (permanent failure)", spec.provider)
-                continue
-            if f"{spec.provider}/{spec.model}" in _DEAD_MODELS:
-                logger.debug("Router: skipping %s/%s — model-specific circuit-breaker open", spec.provider, spec.model)
+            _scope = await _breaker_scope(spec.provider, org_id, _api_key)
+            if _is_provider_dead(spec.provider, spec.model, _scope):
+                logger.debug("Router: skipping %s/%s — circuit-breaker open (scope=%s)",
+                             spec.provider, spec.model, _scope[:8] or "platform")
                 continue
 
             # Every model after the first one is a fallback
@@ -439,7 +452,7 @@ class ModelRouter:
                     error_class = _classify_error(exc)
                     # Open circuit breaker for permanent failures (bad key, no payment)
                     if error_class == "fallback":
-                        _mark_provider_dead(spec.provider, exc, model=spec.model)
+                        _mark_provider_dead(spec.provider, exc, model=spec.model, scope=_scope)
                     # ── AHM: record exception as a failure ────────────────────
                     try:
                         _ahm_e = _get_ahm()
