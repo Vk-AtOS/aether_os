@@ -40,6 +40,7 @@ ACTION_TYPES: Dict[str, bool] = {
     "leave.approve": False,
     "deploy.staging": False,
     "run.spec.approve": False,   # release a build waiting at its specification review gate
+    "velaris.flow.call": False,  # a step of a Velaris flow, approved here before Velaris runs it
     "invoice.approve": True,
     "expense.approve": True,
     "payment.execute": True,
@@ -56,6 +57,7 @@ AUTHORITY: Dict[str, FrozenSet[str]] = {
     "leave.approve": OWNER_ADMIN,
     "deploy.staging": ANY_MEMBER,
     "run.spec.approve": ANY_MEMBER,   # the executor checks the run is in the request's org
+    "velaris.flow.call": ANY_MEMBER,  # Velaris re-checks the person's own roles when it runs the step
     "invoice.approve": OWNER_ADMIN,
     "expense.approve": OWNER_ADMIN,
     "payment.execute": OWNER_ADMIN,
@@ -63,11 +65,13 @@ AUTHORITY: Dict[str, FrozenSet[str]] = {
 EXECUTOR_AUTHORITY: Dict[str, FrozenSet[str]] = {
     "dry_run": ANY_MEMBER,            # carries nothing out
     "aetheros.run_gate": ANY_MEMBER,
+    "velaris.flow": ANY_MEMBER,
     "webhook": OWNER_ADMIN,           # org-configured endpoint, signed with the org's secret
 }
 # Executors whose effect leaves AetherOS. With monetary action types they never run
 # on the requester's word alone: a second person must approve.
-EXTERNAL_EFFECT: FrozenSet[str] = frozenset({"webhook"})
+# ponytail: velaris.flow is here by default (a second person must approve); owner decision pending.
+EXTERNAL_EFFECT: FrozenSet[str] = frozenset({"webhook", "velaris.flow"})
 
 # Refused whatever any delegation says. Payments above PAYMENT_CEILING are the
 # one NEVER rule that depends on the amount; it is enforced in authorize().

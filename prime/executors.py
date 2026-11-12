@@ -11,7 +11,9 @@ Executors never retry. A name that is not in the registry is refused.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol
@@ -27,11 +29,19 @@ from aether_os.core.models import Webhook
 # they retry, and an approved action must be attempted exactly once.
 from aether_os.core.security.safe_http import UnsafeURL, safe_request
 from aether_os.core.spec_approval import decide_spec
+from aether_os.core.velaris.client import VelarisClient, VelarisUnavailable
+from aether_os.core.velaris.identity import identity_for
 from aether_os.core.webhooks.delivery import _DELIVERY_TIMEOUT, _delivery
 from aether_os.prime.authz import Action
 
 WEBHOOK_EVENT = "prime.execute"
 SPEC_GATE_ACTION = "run.spec.approve"
+VELARIS_FLOW_ACTION = "velaris.flow.call"
+# Tests replace this to fake Velaris; production leaves it None (real HTTP).
+velaris_transport: Optional[httpx.AsyncBaseTransport] = None
+_RUN_ID = re.compile(r"[A-Za-z0-9]{1,64}\Z")
+_HASH = re.compile(r"[0-9a-f]{64}\Z")
+_ARGS_SHOWN = 2000
 
 
 class ExecutionFailed(Exception):
@@ -163,9 +173,80 @@ class RunGateExecutor:
         return {"run_id": run_id, "gate": "spec_review", "control": "spec_approved"}
 
 
+def velaris_call_hash(tool: str, args: Dict[str, Any]) -> str:
+    """Velaris's own call hash (velaris.intel.flow.call_hash), recomputed here so the arguments an
+    approver is shown are provably the ones the hash, and so request_hash, covers."""
+    return hashlib.sha256(json.dumps([tool, args], sort_keys=True, default=str).encode()).hexdigest()
+
+
+class VelarisFlowExecutor:
+    """Nudges a Velaris run whose waiting step was approved here.
+
+    Velaris asked for this approval (velaris/core/prime.py PrimeGate) and keeps the step until
+    it has read, from Prime, that the request is approved AND this executor finished with
+    "succeeded". So this executor carries no authority: it GETs /flows/{run_id} signed as the
+    person the run is for, which makes Velaris look. While it runs, Prime's own state is still
+    "running", so Velaris cannot yet see "succeeded" and the run is normally still
+    waiting_approval here; it moves on the next time anyone reads the run (the dashboard's
+    pending list does). Success therefore means: the run exists for this person, waits on
+    exactly the approved call (or has already moved past it), and Velaris answered.
+    """
+    name = "velaris.flow"
+
+    def _params(self, ctx: ExecutionContext) -> Dict[str, Any]:
+        p = ctx.action.params
+        run_id, call_hash, tool, args = (p.get(k) for k in ("run_id", "call_hash", "tool", "args"))
+        if ctx.action.type != VELARIS_FLOW_ACTION:
+            raise ExecutionFailed(f"only '{VELARIS_FLOW_ACTION}' is supported")
+        if not (isinstance(run_id, str) and _RUN_ID.match(run_id) and isinstance(call_hash, str)
+                and _HASH.match(call_hash) and isinstance(tool, str) and tool and isinstance(args, dict)):
+            raise ExecutionFailed("params need run_id, call_hash, tool and args")
+        if velaris_call_hash(tool, args) != call_hash:
+            raise ExecutionFailed("call_hash does not match the tool and arguments")
+        return p
+
+    async def describe(self, ctx: ExecutionContext) -> str:
+        try:
+            p = self._params(ctx)
+        except ExecutionFailed as e:
+            return f"Would fail: {e}."
+        args = json.dumps(p["args"], sort_keys=True, default=str)
+        if len(args) > _ARGS_SHOWN:
+            args = f"{args[:_ARGS_SHOWN]}... ({len(args)} characters; the full arguments are in the request)"
+        return (f"Run {p['tool']} with {args} in Velaris on behalf of {ctx.action.on_behalf_of}. "
+                "Velaris runs it only after it has read this approval from Prime.")
+
+    async def execute(self, ctx: ExecutionContext) -> Dict[str, Any]:
+        p = self._params(ctx)
+        who = await identity_for(ctx.org_id, ctx.action.on_behalf_of)
+        if who is None:
+            raise ExecutionFailed("the person this run is for is not an active member of the organisation")
+        try:
+            client = VelarisClient.from_env(transport=velaris_transport)
+        except VelarisUnavailable as e:
+            raise ExecutionFailed(f"Velaris is not set up: {e}") from None
+        try:
+            status, run = await client.request(who, "GET", f"/flows/{p['run_id']}")
+        except VelarisUnavailable as e:
+            raise RuntimeError(f"Velaris could not be asked: {e}") from None  # unknown: needs attention
+        if status == 409:
+            raise RuntimeError("Velaris was busy with this run")
+        if status != 200 or not isinstance(run, dict):
+            raise ExecutionFailed(f"Velaris would not show this run to that person (HTTP {status})")
+        state = run.get("status")
+        if state == "waiting_approval":
+            pending = run.get("pending") if isinstance(run.get("pending"), dict) else {}
+            if pending.get("call_hash") != p["call_hash"]:
+                raise ExecutionFailed("the run waits on a different call than the one approved")
+            return {"run_id": p["run_id"], "run_status": state, "advanced": False}
+        if state in ("done", "stopped"):
+            return {"run_id": p["run_id"], "run_status": state, "advanced": True}
+        raise RuntimeError(f"Velaris reported run state {str(state)[:40]!r}")  # unknown: needs attention
+
+
 DEFAULT_EXECUTOR = DryRunExecutor.name
 REGISTRY: Dict[str, Executor] = {
-    e.name: e for e in (DryRunExecutor(), WebhookExecutor(), RunGateExecutor())
+    e.name: e for e in (DryRunExecutor(), WebhookExecutor(), RunGateExecutor(), VelarisFlowExecutor())
 }
 
 
