@@ -15,6 +15,8 @@ import secrets
 import textwrap
 from typing import Optional, Tuple
 
+from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -187,7 +189,7 @@ def patch_generated_project(
     # ── Patch main.py ──────────────────────────────────────────────────────
     main_py = backend_dir / "src" / "main.py"
     if main_py.exists():
-        content = main_py.read_text()
+        content = safe_read_text(root_dir, main_py)
         content = content.replace("class_=typing.AsyncSession", "class_=AsyncSession")
 
         if re.search(r"^import timezone\b", content, re.MULTILINE):
@@ -284,7 +286,7 @@ def _spa_catchall(path: str = ""):
             )
             content = _boilerplate + content
 
-        main_py.write_text(content)
+        safe_write_text(root_dir, main_py, content)
 
         # Write run_preview.py helper
         run_preview_py = root_dir / "run_preview.py"
@@ -326,12 +328,12 @@ def _spa_catchall(path: str = ""):
                 import uvicorn
                 uvicorn.run(app, host="0.0.0.0", port=8000)
         """)
-        run_preview_py.write_text(preview_content)
+        safe_write_text(root_dir, run_preview_py, preview_content)
 
     # ── Patch models.py ────────────────────────────────────────────────────
     _models_py = backend_dir / "src" / "models.py"
     if _models_py.exists():
-        _m_src = _models_py.read_text()
+        _m_src = safe_read_text(root_dir, _models_py)
         _m_lines = _m_src.splitlines()
         _m_out = []
         for _line in _m_lines:
@@ -349,10 +351,10 @@ def _spa_catchall(path: str = ""):
             _m_out.append(_line)
         _m_fixed = "\n".join(_m_out)
         if _m_fixed != _m_src:
-            _models_py.write_text(_m_fixed)
+            safe_write_text(root_dir, _models_py, _m_fixed)
 
         # Fix ForeignKey nullable
-        _fk_src = _models_py.read_text()
+        _fk_src = safe_read_text(root_dir, _models_py)
         _fk_lines = []
         for _ln in _fk_src.splitlines():
             if "ForeignKey" in _ln and "nullable=False" in _ln:
@@ -360,12 +362,12 @@ def _spa_catchall(path: str = ""):
             _fk_lines.append(_ln)
         _fk_fixed = "\n".join(_fk_lines)
         if _fk_fixed != _fk_src:
-            _models_py.write_text(_fk_fixed)
+            safe_write_text(root_dir, _models_py, _fk_fixed)
 
     # ── Patch schemas.py ───────────────────────────────────────────────────
     _schemas_py = backend_dir / "src" / "schemas.py"
     if _schemas_py.exists():
-        _s_src = _schemas_py.read_text()
+        _s_src = safe_read_text(root_dir, _schemas_py)
         _s_src = re.sub(
             r"(\n    (?:created_by|workspace_id|org_id|agent_id|member_id"
             r"|organization_id|user_id)): int(?! =)",
@@ -378,12 +380,12 @@ def _spa_catchall(path: str = ""):
         _s_src = re.sub(
             r"(\n    tools_json): str(?! =)", r"\1: Optional[str] = None", _s_src
         )
-        _schemas_py.write_text(_s_src)
+        safe_write_text(root_dir, _schemas_py, _s_src)
 
     # ── Patch crud.py ──────────────────────────────────────────────────────
     _crud_py = backend_dir / "src" / "routers" / "crud.py"
     if _crud_py.exists():
-        _c_src = _crud_py.read_text()
+        _c_src = safe_read_text(root_dir, _crud_py)
         _c_src = _c_src.replace(
             'getattr(current_user, "role", None)', 'current_user.get("role")'
         )
@@ -395,36 +397,36 @@ def _spa_catchall(path: str = ""):
             "",
             _c_src,
         )
-        _crud_py.write_text(_c_src)
+        safe_write_text(root_dir, _crud_py, _c_src)
 
     # ── Patch main.py: add /api prefix for entity routers ─────────────────
     _main_py_crud = backend_dir / "src" / "main.py"
     if _main_py_crud.exists():
-        _mp = _main_py_crud.read_text()
+        _mp = safe_read_text(root_dir, _main_py_crud)
         if "for _router in all_routers:" in _mp and 'prefix="/api"' not in _mp:
             _mp = _mp.replace(
                 "    app.include_router(_router)",
                 '    app.include_router(_router, prefix="/api")',
             )
-            _main_py_crud.write_text(_mp)
+            safe_write_text(root_dir, _main_py_crud, _mp)
 
     # ── Patch react-router-dom → @tanstack/react-router ──────────────────
     _fe_src_dir = frontend_dir / "src" if frontend_dir else None
     if _fe_src_dir and _fe_src_dir.is_dir():
         for _tsx in _fe_src_dir.rglob("*.tsx"):
-            _tsx_src = _tsx.read_text()
+            _tsx_src = safe_read_text(root_dir, _tsx)
             if "react-router-dom" in _tsx_src:
                 _tsx_src = (
                     _tsx_src
                     .replace("from 'react-router-dom'", "from '@tanstack/react-router'")
                     .replace('from "react-router-dom"', 'from "@tanstack/react-router"')
                 )
-                _tsx.write_text(_tsx_src)
+                safe_write_text(root_dir, _tsx, _tsx_src)
 
     # ── Patch auth.py: replace passlib with direct bcrypt ─────────────────
     _auth_py = backend_dir / "src" / "auth.py"
     if _auth_py.exists():
-        _auth = _auth_py.read_text()
+        _auth = safe_read_text(root_dir, _auth_py)
         if "AetherOS: bcrypt direct" not in _auth and "CryptContext" in _auth:
             _bcrypt_patch = (
                 "\n# AetherOS: bcrypt direct — passlib CryptContext incompatible with bcrypt >= 4.x\n"
@@ -438,12 +440,12 @@ def _spa_catchall(path: str = ""):
                 "except ImportError:\n"
                 "    pass  # fall back to passlib\n"
             )
-            _auth_py.write_text(_auth + _bcrypt_patch)
+            safe_write_text(root_dir, _auth_py, _auth + _bcrypt_patch)
 
     # ── Patch seed.py: enforce predictable demo password ──────────────────
     _seed_py = backend_dir / "src" / "seed.py"
     if _seed_py.exists():
-        _seed = _seed_py.read_text()
+        _seed = safe_read_text(root_dir, _seed_py)
         _email_m = re.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', _seed)
         if _email_m:
             _preview_email = _email_m.group(1)
@@ -458,11 +460,11 @@ def _spa_catchall(path: str = ""):
             _seed_patched,
         )
         if _seed_patched != _seed:
-            _seed_py.write_text(_seed_patched)
+            safe_write_text(root_dir, _seed_py, _seed_patched)
 
     # Write credentials file
     _creds_path = root_dir / "preview_credentials.json"
-    _creds_path.write_text(json.dumps({
+    safe_write_text(root_dir, _creds_path, json.dumps({
         "email": _preview_email,
         "password": _PREVIEW_PASSWORD,
         "note": "Demo credentials for the AetherOS preview — change before production",

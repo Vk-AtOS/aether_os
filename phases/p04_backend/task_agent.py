@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -22,7 +21,8 @@ from aether_os.phases.p04_backend.go_generator import (
 from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
 from aether_os.orchestrator.events import emit as _global_emit
-from aether_os.core.run_app.child_env import child_env
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -100,15 +100,12 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
         errors = []
 
         # Step 1: syntax check via py_compile
-        proc = await asyncio.create_subprocess_exec(
-            "python3", "-m", "py_compile", str(main_py),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(src_dir),
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
-        if proc.returncode != 0:
-            errors.append(f"SyntaxError: {stderr.decode()[:500]}")
+        # py_compile only parses; it still goes through the sandbox with the rest, so no
+        # generated file is ever handed to a host interpreter.
+        compiled = await phase_exec.run(["python3", "-m", "py_compile", str(main_py)],
+                                        cwd=src_dir, timeout=15, text=True)
+        if compiled.returncode != 0:
+            errors.append(f"SyntaxError: {compiled.stderr[:500]}")
 
         # Step 2: import check (only if syntax OK)
         # Override DATABASE_URL so create_all() targets an isolated temp SQLite
@@ -125,21 +122,15 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
                 "globals_ns = {'__file__': os.path.abspath('main.py'), '__name__': '__main__'}; "
                 "exec(compile(parts[0], 'main.py', 'exec'), globals_ns)"
             )
-            _db_fd, _db_tmp = tempfile.mkstemp(suffix=".db")
-            os.close(_db_fd)
-            smoke_env = {**child_env(), "DATABASE_URL": f"sqlite:///{_db_tmp}"}
+            # The temp DB lives in the run dir (the sandbox's only writable place).
+            _db_tmp = str(src_dir / f".smoke_{os.getpid()}.db")
+            smoke_env = {"DATABASE_URL": f"sqlite:///{_db_tmp}"}
             try:
-                proc2 = await asyncio.create_subprocess_exec(
-                    "python3", "-c", check_code,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(src_dir),
-                    env=smoke_env,
-                )
                 try:
-                    _, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=20)
-                    if proc2.returncode != 0:
-                        stderr_text = stderr2.decode()
+                    done2 = await phase_exec.run(["python3", "-c", check_code], cwd=src_dir,
+                                                 env=smoke_env, timeout=20, text=True)
+                    if done2.returncode != 0:
+                        stderr_text = done2.stderr
                         # Relative import errors are expected in package-structured code;
                         # uvicorn runs via `python -m` so they resolve correctly at runtime.
                         if "attempted relative import" in stderr_text or \
@@ -162,7 +153,7 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
             finally:
                 # Clean up temp DB file
                 try:
-                    os.unlink(_db_tmp)
+                    Path(_db_tmp).unlink(missing_ok=True)
                 except OSError as e:
                     logger.warning("p04 task_agent: failed to remove temp DB file %s: %s", _db_tmp, e)
 
@@ -366,6 +357,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                             smoke.get("attempts", 0),
                             smoke.get("errors", []),
                         )
+                except SandboxUnavailable:
+                    raise  # generated code was not run: fail the phase, never fall back to the host
                 except Exception as _se:  # noqa: BLE001
                     logger.debug("p04 smoke test error (non-fatal): %s", _se)
 

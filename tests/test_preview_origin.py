@@ -1,9 +1,8 @@
 """Generated apps live on their own origin.
 
-  * preview tokens: bound to run, purpose and the preview origin; expire; the
+  * preview tokens: bound to run, purpose and the run's own origin; expire; the
     one-time enter token cannot be replayed; platform tokens are not accepted;
-  * the dashboard origin never serves generated content (/app-preview redirects
-    to the preview origin, or 404 when none is configured);
+  * the dashboard origin never serves generated content (/app-preview is a 404 there);
   * the exchange endpoint issues links only for the caller's org's runs, and
     refuses when the configuration would put the preview on the dashboard's side;
   * the preview server sets its session only on its own origin, sends strict
@@ -27,6 +26,9 @@ from aether_os.gateway.preview_server import create_preview_app, forward_headers
 from aether_os.tests.gateway_env import gateway_env
 
 ORIGIN = "http://preview.test:8100"
+RUN_A = "11111111-1111-4111-8111-111111111111"
+RUN_B = "22222222-2222-4222-8222-222222222222"
+RUN_ORIGIN = f"http://{RUN_A}.preview.test:8100"
 DASH = "http://dash.test:8000"
 ENV = {"AETHER_PREVIEW_ORIGIN": ORIGIN, "AETHER_PREVIEW_SECRET": "s" * 40,
        "AETHER_DASHBOARD_ORIGIN": DASH, "CORS_ORIGINS": DASH}
@@ -43,31 +45,32 @@ def preview_env(monkeypatch):
 # ── tokens ────────────────────────────────────────────────────────────────────
 
 def test_token_is_bound_to_run_purpose_and_audience():
-    tok = pt.issue("run-a", "org-1", "user-1", pt.ENTER, 60)
-    claims = pt.verify(tok, pt.ENTER)
-    assert (claims["run_id"], claims["org_id"], claims["sub"], claims["aud"]) == ("run-a", "org-1", "user-1", ORIGIN)
-    assert pt.verify(tok, pt.SESSION) is None                    # an enter token is not a session
+    tok = pt.issue(RUN_A, "org-1", "user-1", pt.ENTER, 60)
+    claims = pt.verify(tok, pt.ENTER, RUN_ORIGIN)
+    assert (claims["run_id"], claims["org_id"], claims["sub"], claims["aud"]) == (RUN_A, "org-1", "user-1", RUN_ORIGIN)
+    assert pt.verify(tok, pt.SESSION, RUN_ORIGIN) is None                    # an enter token is not a session
 
 
 def test_expired_token_is_refused():
-    old = pt.issue("run-a", "org-1", "u", pt.SESSION, 60, now=time.time() - 3600)
-    assert pt.verify(old, pt.SESSION) is None
-    fresh = pt.issue("run-a", "org-1", "u", pt.SESSION, 60)
-    assert pt.verify(fresh, pt.SESSION, now=time.time() + 61) is None
+    old = pt.issue(RUN_A, "org-1", "u", pt.SESSION, 60, now=time.time() - 3600)
+    assert pt.verify(old, pt.SESSION, RUN_ORIGIN) is None
+    fresh = pt.issue(RUN_A, "org-1", "u", pt.SESSION, 60)
+    assert pt.verify(fresh, pt.SESSION, RUN_ORIGIN, now=time.time() + 61) is None
 
 
 def test_wrong_audience_is_refused(monkeypatch):
-    tok = pt.issue("run-a", "org-1", "u", pt.SESSION, 60)
+    tok = pt.issue(RUN_A, "org-1", "u", pt.SESSION, 60)
     monkeypatch.setenv("AETHER_PREVIEW_ORIGIN", "http://other-preview.test:8100")
-    assert pt.verify(tok, pt.SESSION) is None
+    assert pt.verify(tok, pt.SESSION, "http://other-preview.test:8100") is None
+    assert pt.verify(tok, pt.SESSION, f"http://{RUN_B}.preview.test:8100") is None   # another run's origin
 
 
 def test_wrong_key_and_platform_tokens_are_refused(monkeypatch):
-    platform = create_access_token({"token_type": "access", "run_id": "run-a", "org_id": "org-1"})
-    assert pt.verify(platform, pt.SESSION) is None
-    tok = pt.issue("run-a", "org-1", "u", pt.SESSION, 60)
+    platform = create_access_token({"token_type": "access", "run_id": RUN_A, "org_id": "org-1"})
+    assert pt.verify(platform, pt.SESSION, RUN_ORIGIN) is None
+    tok = pt.issue(RUN_A, "org-1", "u", pt.SESSION, 60)
     monkeypatch.setenv("AETHER_PREVIEW_SECRET", "t" * 40)
-    assert pt.verify(tok, pt.SESSION) is None
+    assert pt.verify(tok, pt.SESSION, RUN_ORIGIN) is None
 
 
 def test_enter_token_is_single_use():
@@ -97,23 +100,23 @@ def test_cors_allowing_the_preview_origin_is_a_misconfiguration():
 
 @pytest.fixture
 def preview():
-    return TestClient(create_preview_app(), base_url=ORIGIN, follow_redirects=False)
+    return TestClient(create_preview_app(), base_url=RUN_ORIGIN, follow_redirects=False)
 
 
 def test_enter_sets_session_on_the_preview_origin_once(preview):
-    tok = pt.issue("run-a", "org-1", "user-1", pt.ENTER, 60)
+    tok = pt.issue(RUN_A, "org-1", "user-1", pt.ENTER, 60)
     first = preview.get(f"/__preview/enter?t={tok}")
     assert first.status_code == 303 and first.headers["location"] == "/app-preview/"
     cookie = first.headers["set-cookie"]
     assert cookie.startswith(pt.SESSION_COOKIE + "=") and "HttpOnly" in cookie and "Domain" not in cookie
-    session = pt.verify(first.cookies[pt.SESSION_COOKIE], pt.SESSION)
-    assert session["run_id"] == "run-a" and session["sub"] == "user-1"
+    session = pt.verify(first.cookies[pt.SESSION_COOKIE], pt.SESSION, RUN_ORIGIN)
+    assert session["run_id"] == RUN_A and session["sub"] == "user-1"
     assert preview.get(f"/__preview/enter?t={tok}").status_code == 401        # replay
 
 
 @pytest.mark.parametrize("make", [
-    lambda: pt.issue("run-a", "o", "u", pt.SESSION, 60),                           # session is not enter
-    lambda: pt.issue("run-a", "o", "u", pt.ENTER, 60, now=time.time() - 600),       # expired
+    lambda: pt.issue(RUN_A, "o", "u", pt.SESSION, 60),                           # session is not enter
+    lambda: pt.issue(RUN_A, "o", "u", pt.ENTER, 60, now=time.time() - 600),       # expired
     lambda: create_access_token({"token_type": "access", "org_id": "o"}),          # platform token
     lambda: "garbage",
 ])
@@ -129,7 +132,9 @@ def test_proxy_needs_a_session_and_sends_strict_headers(preview):
     assert f"frame-ancestors {DASH}" in csp and "connect-src 'self'" in csp
     assert resp.headers["cross-origin-opener-policy"] == "same-origin"
     assert "access-control-allow-origin" not in resp.headers
-    preview.cookies.set(pt.SESSION_COOKIE, pt.issue(str(uuid.uuid4()), "o", "u", pt.SESSION, 60))
+    preview.cookies.set(pt.SESSION_COOKIE, pt.issue(RUN_B, "o", "u", pt.SESSION, 60))
+    assert preview.get("/app-preview/").status_code == 401                         # another run's session
+    preview.cookies.set(pt.SESSION_COOKIE, pt.issue(RUN_A, "o", "u", pt.SESSION, 60))
     assert preview.get("/app-preview/").status_code == 503                         # never launched
 
 
@@ -174,14 +179,8 @@ def test_dashboard_origin_does_not_serve_generated_content(gw):
     gw.client.cookies.set("aether_preview", "anything")
     for path in ("/app-preview/", f"/app-preview/{run_id}/env", "/app-preview/api/items"):
         resp = gw.client.get(path, headers=gw.auth, follow_redirects=False)
-        assert resp.status_code == 307 and resp.headers["location"] == ORIGIN + path, path
-        assert resp.content == b""
+        assert resp.status_code == 404 and "location" not in resp.headers, path
     gw.client.cookies.clear()
-
-
-def test_dashboard_origin_404s_when_no_preview_origin(gw, monkeypatch):
-    monkeypatch.delenv("AETHER_PREVIEW_ORIGIN")
-    assert gw.client.get("/app-preview/", follow_redirects=False).status_code == 404
 
 
 def test_exchange_issues_a_one_time_link_for_own_runs_only(gw):
@@ -190,8 +189,8 @@ def test_exchange_issues_a_one_time_link_for_own_runs_only(gw):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     url = urlsplit(body["url"])
-    assert f"{url.scheme}://{url.netloc}" == ORIGIN and url.path == "/__preview/enter"
-    claims = pt.verify(parse_qs(url.query)["t"][0], pt.ENTER)
+    assert f"{url.scheme}://{url.netloc}" == f"http://{run_id}.preview.test:8100" and url.path == "/__preview/enter"
+    claims = pt.verify(parse_qs(url.query)["t"][0], pt.ENTER, f"http://{run_id}.preview.test:8100")
     assert claims["run_id"] == run_id and claims["org_id"] == gw.org_id
     assert claims["sub"] == gw.claims["user_id"] and claims["exp"] - claims["iat"] <= 120
     assert "allow-top-navigation" not in body["iframe_sandbox"]
@@ -213,3 +212,54 @@ def test_dashboard_cors_does_not_allow_the_preview_origin(gw):
     assert resp.headers.get("access-control-allow-origin") != ORIGIN
     ok = gw.client.options("/factory/runs", headers={"Origin": DASH, "Access-Control-Request-Method": "GET"})
     assert ok.headers.get("access-control-allow-origin") == DASH
+
+
+# ── per-run origins and hardening (one app must not reach another run's origin) ─────────
+
+def _enter(preview, run=RUN_A):
+    return preview.get(f"/__preview/enter?t={pt.issue(run, 'org-1', 'u', pt.ENTER, 60)}")
+
+
+def test_enter_token_only_works_on_its_own_runs_origin():
+    other = TestClient(create_preview_app(), base_url=f"http://{RUN_B}.preview.test:8100", follow_redirects=False)
+    assert _enter(other, RUN_A).status_code == 401           # run A's link spent on run B's origin
+    bare = TestClient(create_preview_app(), base_url=ORIGIN, follow_redirects=False)
+    assert _enter(bare, RUN_A).status_code == 401            # and on the bare base host
+
+
+def test_session_cookie_of_one_run_is_useless_on_another_runs_origin(preview):
+    cookie = _enter(preview).cookies[pt.SESSION_COOKIE]
+    other = TestClient(create_preview_app(), base_url=f"http://{RUN_B}.preview.test:8100", follow_redirects=False)
+    other.cookies.set(pt.SESSION_COOKIE, cookie)
+    assert other.get("/app-preview/").status_code == 401
+
+
+def test_enter_and_exit_clear_site_data_and_cookie_is_host_only(preview):
+    resp = _enter(preview)
+    assert '"storage"' in resp.headers["clear-site-data"] and "domain" not in resp.headers["set-cookie"].lower()
+    out = preview.get("/__preview/exit")
+    assert '"storage"' in out.headers["clear-site-data"]
+
+
+def test_service_worker_requests_are_refused(preview):
+    preview.cookies.set(pt.SESSION_COOKIE, pt.issue(RUN_A, "o", "u", pt.SESSION, 60))
+    assert preview.get("/app-preview/sw.js", headers={"Service-Worker": "script"}).status_code == 403
+
+
+def test_csp_allows_no_remote_images_styles_or_fonts(preview):
+    csp = preview.get("/app-preview/").headers["content-security-policy"]
+    for directive in ("style-src", "img-src", "font-src"):
+        part = next(p for p in csp.split(";") if p.strip().startswith(directive))
+        assert "https:" not in part
+
+
+def test_set_cookie_filter_compares_the_parsed_name():
+    from aether_os.gateway.preview_server import set_cookie_name, strip_cookie_domain
+    assert set_cookie_name(" aether_preview_session =x; Path=/") == "aether_preview_session"
+    assert set_cookie_name("sid=1") == "sid"
+    assert strip_cookie_domain("sid=1; Domain=preview.test; Path=/; Secure") == "sid=1; Path=/; Secure"
+
+
+def test_dashboard_frame_src_allows_the_run_origins(gw):
+    csp = gw.client.get("/health").headers["content-security-policy"]
+    assert "http://*.preview.test:8100" in csp

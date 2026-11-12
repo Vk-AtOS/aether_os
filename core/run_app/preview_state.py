@@ -20,7 +20,7 @@ import secrets
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from aether_os.core.app_state import get_all_ports, get_all_procs
 from aether_os.core.projects import get_project_manager
@@ -29,8 +29,9 @@ from aether_os.core.sandbox.docker_backend import ContainerProcess, is_launched_
 logger = logging.getLogger(__name__)
 
 STATE_FILE = "run_app_state.json"
-# uvicorn adds this as a default response header; its presence on the command
-# line is what ties a pid to one launch. The proxy strips it from responses.
+STATE_DIR = "_state"  # under the projects root, beside (not inside) the run directories
+# uvicorn adds this as a default response header (set through UVICORN_HEADERS); the proxy
+# checks it and strips it from responses.
 NONCE_HEADER = "x-aether-preview-nonce"
 
 
@@ -38,20 +39,60 @@ def new_nonce() -> str:
     return secrets.token_hex(16)
 
 
-def nonce_args(nonce: str) -> List[str]:
-    """uvicorn arguments that mark the process as this launch."""
-    return ["--header", f"{NONCE_HEADER}:{nonce}"]
+def nonce_env(nonce: str) -> Dict[str, str]:
+    """Environment that makes uvicorn answer every request with the nonce header.
+
+    Via the environment, not `--header` on the command line: other processes (a
+    macOS-sandboxed neighbour) can read command lines with `ps`, never the environment.
+    """
+    return {"UVICORN_HEADERS": f"{NONCE_HEADER}:{nonce}"}
+
+
+def state_dir(run_id: str) -> Path:
+    """Gateway-owned directory for a run's platform files (launch state, platform log).
+
+    It sits beside the run directories, not inside one: the sandbox is mounted on the run
+    dir only, so a generated app can neither forge the launch record nor plant a symlink
+    where the gateway writes.
+    """
+    path = get_project_manager()._root / STATE_DIR / run_id
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
 
 
 def state_path(run_id: str) -> Path:
-    # Same root the launcher writes under (get_project_dir), without creating the directory.
-    return get_project_manager()._root / run_id / STATE_FILE
+    """Where the launch record is (read-only callers, e.g. the preview server, must not create dirs)."""
+    return get_project_manager()._root / STATE_DIR / run_id / STATE_FILE
+
+
+def port_range() -> Tuple[int, int]:
+    return (int(os.environ.get("AETHER_APP_PORT_MIN", "20000")),
+            int(os.environ.get("AETHER_APP_PORT_MAX", "29999")))
+
+
+def port_allowed(port: Any) -> bool:
+    """Apps are only ever started on ports from the allocated range; the proxy refuses any other
+    (so a corrupted record cannot aim it at the gateway, Postgres, Redis or cloud metadata)."""
+    lo, hi = port_range()
+    return isinstance(port, int) and not isinstance(port, bool) and lo <= port <= hi
+
+
+def process_started(pid: int) -> str:
+    """Start time of a process as `ps` prints it: with the pid, identifies one process for good."""
+    try:
+        return subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True,
+                              text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("preview_state: could not read start time of pid %s: %s", pid, exc)
+        return ""
 
 
 def write_state(path: Path, run_id: str, port: int, pid: Optional[int], nonce: str, mode: str,
                 container: Optional[str] = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.write_text(json.dumps({
         "run_id": run_id, "port": port, "pid": pid, "nonce": nonce,
+        "pid_start": process_started(pid) if pid and not container else None,
         "started_at": time.time(), "mode": mode, "container": container,
     }))
 
@@ -64,27 +105,15 @@ def _read_state(path: Path) -> Optional[Dict[str, Any]]:
         return {}  # a file exists but cannot be trusted: stale, not "never launched"
 
 
-def _command_line(pid: int) -> str:
-    proc_file = Path(f"/proc/{pid}/cmdline")
-    try:
-        if proc_file.exists():  # Linux
-            return proc_file.read_bytes().replace(b"\0", b" ").decode(errors="replace")
-        return subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)],
-                              capture_output=True, text=True, timeout=5).stdout
-    except Exception as exc:
-        logger.warning("preview_state: could not read command line of pid %s: %s", pid, exc)
-        return ""
-
-
-def is_launched_process(pid: Any, nonce: Any) -> bool:
-    """True only if `pid` is alive and is the process started with `nonce`."""
-    if not isinstance(pid, int) or pid <= 0 or not isinstance(nonce, str) or len(nonce) < 16:
+def is_launched_process(pid: Any, started: Any) -> bool:
+    """True only if `pid` is alive and is the very process recorded at launch (same start time)."""
+    if not isinstance(pid, int) or pid <= 0 or not isinstance(started, str) or not started:
         return False
     try:
         os.kill(pid, 0)
     except OSError:
         return False  # gone, or a reused pid owned by someone else
-    return f"{NONCE_HEADER}:{nonce}" in _command_line(pid)
+    return process_started(pid) == started
 
 
 def live_app(run_id: str, path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
@@ -107,8 +136,8 @@ def live_app(run_id: str, path: Optional[Path] = None) -> Optional[Dict[str, Any
     if state is not None:
         nonce, container = state.get("nonce"), state.get("container")
         launched = (is_launched_container(container, nonce) if container
-                    else is_launched_process(state.get("pid"), nonce))
-        if launched and int(state.get("port") or 0):
+                    else is_launched_process(state.get("pid"), state.get("pid_start")))
+        if launched and port_allowed(state.get("port")):
             return {"port": int(state["port"]), "pid": state.get("pid"), "mode": state.get("mode"),
                     "container": container}
         return None
@@ -143,8 +172,8 @@ def read_launch(run_id: str) -> Optional[Dict[str, Any]]:
     if not state:
         return None
     port, nonce = state.get("port"), state.get("nonce")
-    if not isinstance(port, int) or not 0 < port < 65536 or not isinstance(nonce, str) or len(nonce) < 16:
+    if not port_allowed(port) or not isinstance(nonce, str) or len(nonce) < 16:
         return None
-    if not state.get("container") and not is_launched_process(state.get("pid"), nonce):
+    if not state.get("container") and not is_launched_process(state.get("pid"), state.get("pid_start")):
         return None
     return {"port": port, "nonce": nonce}

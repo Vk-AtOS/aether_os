@@ -236,6 +236,7 @@ def create_app() -> FastAPI:
         ("admin_quality",     "aether_os.gateway.routers.admin_quality_router",     "router",       {},                        True),
         ("factory_runs",           "aether_os.gateway.routers.factory_runs_router",            "router", {}, True),
         ("run_fork",               "aether_os.gateway.routers.run_fork_router",                "router", {}, True),
+        ("clarifying",             "aether_os.gateway.routers.clarifying_router",              "router", {}, True),
         ("factory_run_files",      "aether_os.gateway.routers.factory_run_files_router",       "router", {}, True),
         ("factory_run_streaming",  "aether_os.gateway.routers.factory_run_streaming_router",   "router", {}, True),
         ("factory_run_compliance", "aether_os.gateway.routers.factory_run_compliance_router",  "router", {}, True),
@@ -278,7 +279,9 @@ def create_app() -> FastAPI:
         ("prime",         "aether_os.gateway.routers.prime_router",         "router",       {},                        False),
         ("prime_inbox",   "aether_os.gateway.routers.prime_inbox_router",   "router",       {},                        False),
         ("prime_ledger",  "aether_os.gateway.routers.prime_ledger_router",  "router",       {},                        False),
+        ("prime_service", "aether_os.gateway.routers.prime_service_router", "router",      {},                        False),
         ("ledger_anchor", "aether_os.gateway.routers.ledger_anchor_router", "router",       {},                        False),
+        ("ledger_ops",    "aether_os.gateway.routers.ledger_ops_router",    "router",       {},                        False),
         ("velaris",       "aether_os.gateway.routers.velaris_router",       "router",       {},                        False),
         # --- Plugin / optional integrations ---
         ("plugins",       "aether_os.gateway.routers.plugins_router",       "router",       {"prefix": "/v2"},         False),

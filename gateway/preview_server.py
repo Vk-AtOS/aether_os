@@ -4,9 +4,17 @@ Run as a separate process on AETHER_PREVIEW_ORIGIN (one worker, see ReplayGuard)
 
     uvicorn aether_os.gateway.preview_server:create_preview_app --factory --port 8100
 
+Every run is served from its own origin, <run-id>.<preview host> (wildcard DNS and
+certificate in production): the Host header names the run, the session cookie is host-only
+(__Host- on https) and the tokens' audience is that exact origin. One generated app thus
+cannot read another run's or org's session or storage, set cookies for them, or register a
+service worker that outlives its run (requests with a Service-Worker header are refused,
+Clear-Site-Data wipes the origin's storage when a session starts and ends).
+
 Routes (nothing else exists here — no platform API, no dashboard):
   GET  /__preview/enter?t=<enter token>  spend the dashboard-issued token, set the
                                          session cookie, redirect to /app-preview/
+  GET  /__preview/exit                   end the session: drop the cookie, clear site data
   GET  /__preview/health                 liveness for nginx / scripts (public: says "ok")
   *    /app-preview/{path}               proxy to the run named in the session cookie
 
@@ -48,7 +56,7 @@ _DROP_REQUEST_HEADERS = {
     "x-org-id", "x-metrics-key", "x-portal-token", "x-api-key",
 }
 _DROP_RESPONSE_HEADERS = {
-    "transfer-encoding", "content-encoding", "content-length", "connection",
+    "transfer-encoding", "content-encoding", "content-length", "connection", "service-worker-allowed",
     "content-security-policy", "x-frame-options", "cross-origin-opener-policy",
     "cross-origin-resource-policy", "referrer-policy", preview_state.NONCE_HEADER,
 }
@@ -61,8 +69,8 @@ def security_headers() -> Dict[str, str]:
     dashboard = preview_token.dashboard_origin()
     ancestors = dashboard if dashboard else "'none'"
     csp = ("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
-           "style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; "
-           "font-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:; "
+           "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+           "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; "
            f"form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors {ancestors}")
     return {
         "content-security-policy": csp,
@@ -73,6 +81,23 @@ def security_headers() -> Dict[str, str]:
         "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
         "cache-control": "no-store",
     }
+
+
+def clear_site_data() -> Dict[str, str]:
+    """Wipe this run origin's storage, caches and service workers (headers for session start/end)."""
+    return {"clear-site-data": '"cache", "storage"'}
+
+
+def set_cookie_name(value: str) -> str:
+    """Cookie name of a Set-Cookie header value: split on the first '=' and strip, never a prefix match."""
+    return value.split("=", 1)[0].strip().lower()
+
+
+def strip_cookie_domain(value: str) -> str:
+    """Drop the Domain attribute: an app may only set host-only cookies, never for the parent
+    domain shared with every other run's origin."""
+    head, *attrs = [part for part in value.split(";")]
+    return "; ".join([head.strip(), *[a.strip() for a in attrs if a.strip().lower().split("=")[0] != "domain"]])
 
 
 def _page(message: str, status_code: int) -> Response:
@@ -124,25 +149,39 @@ def create_preview_app() -> FastAPI:
     async def health() -> Dict[str, str]:  # public on purpose: liveness only, no data
         return {"status": "ok"}
 
+    cookie_name = preview_token.session_cookie_name()
+
     @app.get("/__preview/enter", include_in_schema=False)
-    async def enter(t: str = "") -> Response:
-        claims = preview_token.verify(t, preview_token.ENTER)
+    async def enter(request: Request, t: str = "") -> Response:
+        origin = preview_token.origin_for_host(request.headers.get("host", ""))
+        claims = preview_token.verify(t, preview_token.ENTER, origin)
         if not claims or not replay.first_use(claims["jti"], claims["exp"]):
             return _page("This preview link is invalid, expired or already used. "
                          "Open the preview again from the dashboard.", 401)
         session = preview_token.issue(claims["run_id"], claims["org_id"], claims["sub"],
                                       preview_token.SESSION, preview_token.SESSION_TTL_S)
-        resp = RedirectResponse("/app-preview/", status_code=303, headers=security_headers())
-        resp.set_cookie(preview_token.SESSION_COOKIE, session, max_age=preview_token.SESSION_TTL_S,
-                        path="/", httponly=True, secure=secure, samesite="lax")
+        resp = RedirectResponse("/app-preview/", status_code=303,
+                                headers={**security_headers(), **clear_site_data()})
+        resp.set_cookie(cookie_name, session, max_age=preview_token.SESSION_TTL_S,
+                        path="/", httponly=True, secure=secure, samesite="lax")  # no Domain: host-only
+        return resp
+
+    @app.get("/__preview/exit", include_in_schema=False)
+    async def exit_session() -> Response:
+        resp = _page("Preview closed.", 200)
+        resp.headers.update(clear_site_data())
+        resp.delete_cookie(cookie_name, path="/", secure=secure, httponly=True, samesite="lax")
         return resp
 
     @app.api_route("/app-preview", methods=["GET", "HEAD"], include_in_schema=False)
     @app.api_route("/app-preview/{path:path}", include_in_schema=False,
                    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy(request: Request, path: str = "") -> Response:
-        claims = preview_token.verify(request.cookies.get(preview_token.SESSION_COOKIE, ""),
-                                      preview_token.SESSION)
+        if "service-worker" in request.headers:  # a service worker script fetch: never allowed
+            return _page("Service workers are not allowed in previews.", 403)
+        origin = preview_token.origin_for_host(request.headers.get("host", ""))
+        claims = preview_token.verify(request.cookies.get(cookie_name, ""),
+                                      preview_token.SESSION, origin)
         if not claims:
             return _page("Preview session missing or expired. Open the preview again from the dashboard.", 401)
         # run_id comes from the signed cookie, so the state path is not caller-controlled.
@@ -173,8 +212,10 @@ def create_preview_app() -> FastAPI:
             low = key.lower()
             if low in _DROP_RESPONSE_HEADERS or low.startswith("access-control-"):
                 continue
-            if low == "set-cookie" and value.lstrip().startswith(preview_token.SESSION_COOKIE + "="):
-                continue  # the app may not replace the preview session
+            if low == "set-cookie":
+                if set_cookie_name(value).lstrip("_").endswith(preview_token.SESSION_COOKIE):
+                    continue  # the app may not replace the preview session (with or without __Host-)
+                value = strip_cookie_domain(value)
             resp.headers.append(key, _rewrite_location(value) if low == "location" else value)
         for key, value in security_headers().items():
             resp.headers[key] = value

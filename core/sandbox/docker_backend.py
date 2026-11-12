@@ -24,7 +24,8 @@ Every container (docker_args is the single place the policy lives, unit-tested):
 Decision on install egress: package installs run with public internet egress
 (install hooks of pip/npm packages are untrusted code too, but they run in this
 container, with no route to private addresses, the host or the platform); the
-app itself, its build, tests and probes run without egress. An allowlisted
+app itself, its build, tests and probes run without egress. available() proves the
+firewall is applied (isolation_probe.py) instead of trusting that host_firewall.sh ran. An allowlisted
 package proxy would be stricter; add it if installs must be restricted further.
 
 The run directory is mounted at the path the gateway sees. If the gateway itself
@@ -40,6 +41,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from aether_os.core.errors import SandboxViolation
+from aether_os.core.sandbox.isolation_probe import isolation_problem
 from aether_os.core.sandbox.runner import Limits, SandboxRunner, cap_output
 
 logger = logging.getLogger(__name__)
@@ -132,6 +134,11 @@ def _docker(*args: str, timeout: int = _CLI_TIMEOUT) -> subprocess.CompletedProc
     return subprocess.run([DOCKER, *args], capture_output=True, text=True, timeout=timeout)
 
 
+def _docker_cli(args: Sequence[str]) -> Tuple[int, str]:
+    out = _docker(*args, timeout=60)
+    return out.returncode, out.stdout
+
+
 def remove_container(container: str) -> None:
     try:
         _docker("rm", "-f", container)
@@ -206,6 +213,12 @@ class DockerRunner(SandboxRunner):
                     if created.returncode != 0:
                         logger.error("sandbox: cannot create network %s: %s", net, created.stderr)
                         return False
+            # The networks existing proves nothing: verify host_firewall.sh is really applied.
+            problem = isolation_problem(_docker_cli, image=self._img, user=self._user,
+                                        networks={RUN_NETWORK: False, EGRESS_NETWORK: True})
+            if problem:
+                logger.error("sandbox: refusing to run generated code: %s", problem)
+                return False
             return True
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("sandbox: docker not available: %s", exc)

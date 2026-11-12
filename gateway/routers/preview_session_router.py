@@ -6,7 +6,7 @@ AetherOS — Preview session exchange (dashboard origin).
 The signed-in dashboard asks for a one-time link into the run's generated app on
 the preview origin (core/run_app/preview_token.py has the whole flow). The link
 carries a 2-minute, single-use ENTER token bound to this run, org and user, with
-the preview origin as audience; it is never a platform credential.
+the run's own origin (<run-id>.<preview host>) as audience; it is never a platform credential.
 """
 from __future__ import annotations
 
@@ -32,9 +32,12 @@ async def create_preview_session(
     user_id = user.get("user_id")  # API keys have none: previews are for a signed-in person
     if not user_id:
         raise HTTPException(status_code=403, detail="A signed-in user is required to open a preview")
+    try:
+        origin = preview_token.run_origin(run_id)  # each run has an origin of its own
+    except ValueError:
+        raise HTTPException(status_code=422, detail="This run id cannot be previewed")
     token = preview_token.issue(run_id, user["org_id"], user_id, preview_token.ENTER,
                                 preview_token.ENTER_TTL_S)
-    origin = preview_token.preview_origin()
     return {
         "url": f"{origin}/__preview/enter?t={token}",
         "preview_origin": origin,

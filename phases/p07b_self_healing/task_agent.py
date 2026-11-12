@@ -28,7 +28,9 @@ from aether_os.phases.p07b_self_healing.quality_helpers import (
     apply_deterministic_fallback,
 )
 from aether_os.core.error_registry import ErrorCategory
-from aether_os.core.run_app.child_env import child_env
+from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -278,39 +280,20 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
 
 
 async def _run_tests(test_file: Path) -> Dict[str, Any]:
-    proc = None
+    """Run the generated tests in the sandbox (never on the host)."""
     try:
-        _test_env = {
-            **child_env(),
-            "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
-            "SECRET_KEY": "test-secret-key-not-for-production",
-        }
-        proc = await asyncio.create_subprocess_exec(
-            "python3", "-m", "pytest",
-            str(test_file), "-v", "--tb=short", "--timeout=30",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(test_file.parent.parent),
-            env=_test_env,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=TEST_TIMEOUT)
-        output = stdout.decode() + stderr.decode()
-        return {"passed": proc.returncode == 0, "output": output}
+        done = await phase_exec.run(
+            ["python3", "-m", "pytest", str(test_file), "-v", "--tb=short", "--timeout=30"],
+            cwd=test_file.parent.parent,
+            env={"DATABASE_URL": "sqlite+aiosqlite:///./test.db",
+                 "SECRET_KEY": "test-secret-key-not-for-production"},
+            timeout=TEST_TIMEOUT, text=True)
+        return {"passed": done.returncode == 0, "output": done.stdout + done.stderr}
     except asyncio.TimeoutError:
-        # Kill the subprocess so it doesn't keep holding pipes open
-        if proc is not None:
-            try:
-                proc.kill()
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except Exception as exc:
-                logger.debug("p07b: failed to kill timed-out pytest process (non-fatal): %s", exc)
         return {"passed": False, "output": f"pytest timed out after {TEST_TIMEOUT}s"}
+    except SandboxUnavailable as e:
+        return {"passed": False, "output": str(e)}  # tests were NOT run; the repair loop reports it
     except Exception as e:
-        if proc is not None:
-            try:
-                proc.kill()
-            except Exception as exc:
-                logger.debug("p07b: failed to kill pytest process on error (non-fatal): %s", exc)
         return {"passed": False, "output": str(e)}
 
 
@@ -475,7 +458,7 @@ async def _quality_probe(
     env_file = backend_dir / ".env"
     _wrote_env = False
     if not env_file.exists():
-        env_file.write_text(
+        safe_write_text(backend_dir, env_file,
             f"DATABASE_URL=sqlite+aiosqlite:///{backend_dir}/probe_q.db\n"
             f"SECRET_KEY={secrets.token_hex(32)}\n"
             f"ADMIN_PASSWORD={probe_password}\n"
@@ -485,23 +468,18 @@ async def _quality_probe(
 
     proc = None
     try:
-        _env = child_env()
-        for line in env_file.read_text().splitlines():
+        _env: Dict[str, str] = {}
+        for line in safe_read_text(backend_dir, env_file).splitlines():
             if "=" in line and not line.startswith("#"):
                 k, v = line.split("=", 1)
                 _env[k.strip()] = v.strip()
 
-        log_path = output_dir / "quality_probe.log"
-        with open(log_path, "w") as _lf:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "uvicorn", "src.main:app",
-                "--host", "127.0.0.1", "--port", str(probe_port),
-                "--timeout-graceful-shutdown", "1",
-                cwd=str(backend_dir),
-                stdout=_lf,
-                stderr=_lf,
-                env=_env,
-            )
+        log_path = backend_dir / "quality_probe.log"  # in the run dir: where the sandbox can write
+        proc = await asyncio.to_thread(
+            phase_exec.start_app,
+            ["python3", "-m", "uvicorn", "src.main:app", "--host", "{host}", "--port", str(probe_port),
+             "--timeout-graceful-shutdown", "1"],
+            cwd=backend_dir, port=probe_port, log_path=log_path, env=_env)
 
         # Wait up to 10 s for the server to accept connections
         _ready = False
@@ -574,14 +552,17 @@ async def _quality_probe(
             "fixes_applied": fixes_applied,
         }
 
+    except SandboxUnavailable as exc:
+        logger.error("[p07b quality_probe] %s", exc)  # the app was NOT run; never on the host
+        return {"skipped": True, "reason": f"sandbox_unavailable:{exc}"}
     except Exception as exc:
         logger.warning("[p07b quality_probe] Probe raised unexpected error: %s", exc)
         return {"skipped": True, "reason": f"exception:{exc}"}
     finally:
-        if proc is not None:
+        if proc is not None and proc.poll() is None:
             try:
                 proc.terminate()
-                await asyncio.wait_for(proc.wait(), timeout=5)
+                await asyncio.to_thread(proc.wait, 5)
             except Exception as term_exc:
                 logger.debug("[p07b quality_probe] Failed to terminate probe server: %s", term_exc)
         if _wrote_env and env_file.exists():

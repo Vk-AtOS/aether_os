@@ -24,6 +24,11 @@ import textwrap
 from pathlib import Path
 from typing import Any, Optional
 
+from aether_os.core.run_app.safe_fs import safe_read_text
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.core.services.run_app_service import _free_port
+
 logger = logging.getLogger(__name__)
 
 
@@ -203,18 +208,12 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
     errors = []
     py_files = list(src_dir.rglob("*.py"))
 
-    import sys as _sys_st
     # Pass 1: syntax check via py_compile on every generated .py file
     for f in py_files:
-        proc = await asyncio.create_subprocess_exec(
-            _sys_st.executable, "-m", "py_compile", str(f),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
         try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
-            if proc.returncode != 0:
-                errors.append(f"SyntaxError in {f.name}: {stderr.decode()[:300]}")
+            done = await phase_exec.run(["python3", "-m", "py_compile", str(f)], cwd=src_dir, timeout=10, text=True)
+            if done.returncode != 0:
+                errors.append(f"SyntaxError in {f.name}: {done.stderr[:300]}")
         except asyncio.TimeoutError:
             logger.warning("p04a helpers: py_compile timed out for %s — skipping syntax check", f.name)
 
@@ -260,10 +259,7 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
 
 async def _live_http_probe(src_dir: Path, emit) -> dict:
     """Start uvicorn on a temp port, hit /health, return result. Non-blocking on failure."""
-    # Find a free port
-    with socket.socket() as _s:
-        _s.bind(("127.0.0.1", 0))
-        probe_port = _s.getsockname()[1]
+    probe_port = _free_port()  # from the app port range; the app runs in the sandbox
 
     # Write a temp .env so the app has a valid SECRET_KEY
     _env_file = src_dir.parent / ".env"
@@ -279,24 +275,20 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
     _log_path = src_dir.parent / "probe.log"
     proc = None
     try:
-        _env = {**child_env(), "DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
+        _env = {"DATABASE_URL": f"sqlite+aiosqlite:///{src_dir.parent}/probe.db"}
         if _env_file.exists():
-            # Load .env into subprocess env
-            for line in _env_file.read_text().splitlines():
+            # Load .env into the probe's env
+            for line in safe_read_text(src_dir.parent, _env_file).splitlines():
                 if "=" in line and not line.startswith("#"):
                     k, v = line.split("=", 1)
                     _env[k.strip()] = v.strip()
 
-        with open(_log_path, "w") as _lf:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "uvicorn", "src.main:app",
-                "--host", "127.0.0.1", "--port", str(probe_port),
-                "--timeout-graceful-shutdown", "1",
-                cwd=str(src_dir.parent),
-                stdout=_lf,
-                stderr=_lf,
-                env=_env,
-            )
+        # Generated code runs only in the sandbox (SandboxUnavailable propagates: never on the host).
+        proc = await asyncio.to_thread(
+            phase_exec.start_app,
+            ["python3", "-m", "uvicorn", "src.main:app", "--host", "{host}", "--port", str(probe_port),
+             "--timeout-graceful-shutdown", "1"],
+            cwd=src_dir.parent, port=probe_port, log_path=_log_path, env=_env)
 
         # Wait up to 8 seconds for the server to be ready
         _ready = False
@@ -310,7 +302,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
                 logger.warning("p04a helpers: live HTTP probe connection attempt failed on port %d: %s", probe_port, e)
 
         if not _ready:
-            _log_tail = _log_path.read_text()[-1000:] if _log_path.exists() else ""
+            _log_tail = safe_read_text(src_dir.parent, _log_path)[-1000:] if _log_path.exists() else ""
             return {"passed": False, "skipped": False, "errors": [f"Server did not start in 8s: {_log_tail[-400:]}"], "health_status": "timeout"}
 
         # Hit /health
@@ -337,14 +329,16 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
             "docs_ok": _docs_ok,
             "errors": [] if _health_ok else [f"/health returned {_r.status_code}: {_r.text[:200]}"],
         }
+    except SandboxUnavailable:
+        raise
     except Exception as _pe:
         logger.warning("p04a_backend_codegen: probe failed: %s", _pe)
         return {"passed": False, "skipped": False, "errors": [f"probe error: {_pe}"], "health_status": "error"}
     finally:
-        if proc and proc.returncode is None:
+        if proc is not None and proc.poll() is None:
             try:
                 proc.terminate()
-                await asyncio.wait_for(proc.wait(), timeout=3)
+                await asyncio.to_thread(proc.wait, 3)
             except Exception as _term_exc:
                 logger.debug("[p04a] probe process terminate failed: %s", _term_exc)
                 try:

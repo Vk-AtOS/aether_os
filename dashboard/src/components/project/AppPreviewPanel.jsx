@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Smartphone, Monitor, ExternalLink as OpenTab } from 'lucide-react';
+import PreviewFrame from './PreviewFrame';
+import { isPreviewUrl, openPreviewInTab } from '../../previewSession';
 
 const DEVICES = [
   { id: 'mobile', label: 'Mobile', icon: Smartphone },
@@ -13,7 +15,12 @@ const iframeWidth = (device) => {
   return '100%';
 };
 
-const AppPreviewPanel = ({ appRunning, run, iframeDevice, setIframeDevice, iframeKey, setIframeKey }) => (
+const AppPreviewPanel = ({ appRunning, run, iframeDevice, setIframeDevice, iframeKey, setIframeKey }) => {
+  const runId = run?.run_id || run?.id;
+  const [openError, setOpenError] = useState(null);
+  const openTab = async () => setOpenError(await openPreviewInTab(runId));
+  const frameStyle = { width: iframeWidth(iframeDevice), maxWidth: '100%', margin: '0 auto', display: 'block', flex: 1, border: 'none' };
+  return (
   <div className="flex flex-col" style={{ height: '480px' }}>
     <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-border/10 shrink-0">
       <span className="text-[10px] font-mono text-muted truncate">
@@ -43,13 +50,12 @@ const AppPreviewPanel = ({ appRunning, run, iframeDevice, setIframeDevice, ifram
             ↺
           </button>
         )}
-        {appRunning && (
-          <a href="/app-preview/" target="_blank" rel="noopener noreferrer"
+        {(appRunning || (run?.live_url && isPreviewUrl(run.live_url))) ? (
+          <button onClick={openTab}
             className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0">
             <OpenTab className="w-3 h-3" /> Open in tab
-          </a>
-        )}
-        {!appRunning && run?.live_url && (
+          </button>
+        ) : run?.live_url && (
           <a href={run.live_url} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1 text-[10px] text-accent hover:underline shrink-0 ml-2">
             <OpenTab className="w-3 h-3" /> Open
@@ -57,38 +63,11 @@ const AppPreviewPanel = ({ appRunning, run, iframeDevice, setIframeDevice, ifram
         )}
       </div>
     </div>
+    {openError && <div role="alert" className="px-4 py-2 text-[11px] text-red-300 bg-red-950/30 border-b border-red-900/40">{openError}</div>}
     {appRunning ? (
-      <iframe
-        key={`app-preview-live-${iframeKey}`}
-        src="/app-preview/"
-        style={{
-          width: iframeWidth(iframeDevice),
-          maxWidth: '100%',
-          margin: '0 auto',
-          display: 'block',
-          flex: 1,
-          border: 'none',
-        }}
-        className="bg-white"
-        title="Live App Preview"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-      />
+      <PreviewFrame runId={runId} refreshKey={iframeKey} style={frameStyle} title="Live App Preview" />
     ) : run?.live_url ? (
-      <iframe
-        key={`app-preview-url-${iframeKey}`}
-        src={run.live_url}
-        style={{
-          width: iframeWidth(iframeDevice),
-          maxWidth: '100%',
-          margin: '0 auto',
-          display: 'block',
-          flex: 1,
-          border: 'none',
-        }}
-        className="bg-white"
-        title="Deployed App Preview"
-        sandbox="allow-scripts allow-same-origin allow-forms"
-      />
+      <PreviewFrame runId={runId} liveUrl={run.live_url} refreshKey={iframeKey} style={frameStyle} title="Deployed App Preview" />
     ) : (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted text-sm">
         <span className="text-4xl opacity-30">▶</span>
@@ -96,6 +75,7 @@ const AppPreviewPanel = ({ appRunning, run, iframeDevice, setIframeDevice, ifram
       </div>
     )}
   </div>
-);
+  );
+};
 
 export default AppPreviewPanel;

@@ -11,7 +11,8 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 from sqlalchemy import select
 
 from aether_os.core.db import get_session_factory
-from aether_os.core.models import PhaseConfig
+from aether_os.core.models import PhaseConfig, Run
+from aether_os.core.security.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +89,37 @@ def apply_stage_toggles(
     skipped = [s for s in stages if s in off and s not in MANDATORY_STAGES]
     ignored = {s: MANDATORY_STAGES[s] for s in stages if s in off and s in MANDATORY_STAGES}
     return [s for s in stages if s not in skipped], skipped, ignored
+
+
+def timeout_reason(seconds: float, stage: Optional[str] = None) -> str:
+    """The reason shown on the run's page after a timeout (redacted; never empty).
+
+    `stage` set: that critical stage did not finish. Not set: the whole build ran past its limit.
+    """
+    if stage:
+        text = (f"Stage {stage} did not finish within {int(seconds)} seconds. "
+                "The usual cause is that no model provider is answering: check the model key in Settings.")
+    else:
+        text = (f"The build did not finish within {int(seconds // 60)} minutes and was stopped. "
+                "The usual cause is a model provider that is slow or not answering: "
+                "check the model key in Settings, then restart the run.")
+    return redact_secrets(text)
+
+
+async def record_run_timeout(ledger: Any, run_id: str, seconds: float) -> str:
+    """End a run whose whole-build limit passed: status "timeout" WITH a reason on Run.message.
+
+    The stage it was in (Run.current_phase) is named in the reason. Returns the stored reason.
+    """
+    stage = None
+    try:
+        async with get_session_factory()() as session:
+            run = await session.get(Run, run_id)
+            stage = run.current_phase if run else None
+    except Exception as exc:
+        logger.warning("[stage_gate] could not read the stage of timed-out run %s: %s", run_id, exc)
+    reason = timeout_reason(seconds)
+    if stage:
+        reason = f"{reason} It was in stage {stage}."
+    await ledger.async_update_run_status(run_id, "timeout", message=reason)
+    return reason

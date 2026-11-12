@@ -8,6 +8,8 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
@@ -114,15 +116,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         async with httpx.AsyncClient(timeout=5.0) as client:
             await client.get(frontend_url)
 
-        proc = await asyncio.create_subprocess_exec(
-            "npx", "playwright", "test", str(test_file), "--reporter=json",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(output_dir),
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        output_text = stdout.decode()
-        (output_dir / "playwright_output.json").write_text(output_text or stderr.decode())
+        # The generated e2e spec is untrusted code: sandbox only (no network, so it can only
+        # pass against what runs inside the sandbox; otherwise it is reported as failed).
+        done = await phase_exec.run(
+            ["npx", "playwright", "test", str(test_file), "--reporter=json"],
+            cwd=output_dir, timeout=120, text=True)
+        output_text = done.stdout
+        (output_dir / "playwright_output.json").write_text(output_text or done.stderr)
 
         try:
             report = json.loads(output_text)
@@ -134,6 +134,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             run_results["raw_output"] = output_text[-500:]
 
         logger.info("[p07d] playwright done: %d passed, %d failed", run_results["passed"], run_results["failed"])
+    except SandboxUnavailable:
+        raise  # the generated spec was not run, and never will be on the host
     except Exception as exc:
         logger.info("[p07d] playwright skipped: %s", exc)
         run_results["skipped"] = True

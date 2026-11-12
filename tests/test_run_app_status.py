@@ -1,5 +1,5 @@
 """run-app status, stop and the restore at startup believe only a process that is
-provably this run's launch (own child, or pid + per-launch nonce) — never the
+provably this run's launch (own child, or pid + start time) — never the
 state file on its own.
 
 Real gateway, real processes; nothing in the code under test is stubbed.
@@ -46,7 +46,7 @@ def _new_run(env) -> str:
 
 
 def _write_state(env, run_id, **state):
-    path = env.projects_root / run_id / preview_state.STATE_FILE
+    path = preview_state.state_path(run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"run_id": run_id, "mode": "backend", **state}))
 
@@ -102,14 +102,15 @@ def test_stop_never_signals_a_pid_taken_from_a_stale_state_file(env, other_app):
 
 
 def test_status_and_stop_work_for_an_app_launched_by_an_earlier_gateway_process(env):
-    """No child handle in this process; the pid + nonce in the state file identify the launch."""
+    """No child handle in this process; the pid + start time in the state file identify the launch."""
     run_id = _new_run(env)
     nonce = preview_state.new_nonce()
-    proc = _sleeper(*preview_state.nonce_args(nonce))
+    proc = _sleeper()
     try:
-        _write_state(env, run_id, port=59997, pid=proc.pid, nonce=nonce)
+        _write_state(env, run_id, port=20997, pid=proc.pid, nonce=nonce,
+                     pid_start=preview_state.process_started(proc.pid))
         resp = _status(env, run_id)
-        assert resp.json() == {"running": True, "port": 59997, "pid": proc.pid, "preview_url": "/app-preview/"}
+        assert resp.json() == {"running": True, "port": 20997, "pid": proc.pid, "preview_url": "/app-preview/"}
         assert "aether_preview" in resp.headers.get("set-cookie", "")
 
         stopped = env.client.delete(f"/factory/runs/{run_id}/run-app", headers=env.auth)
@@ -123,7 +124,7 @@ def test_status_and_stop_work_for_an_app_launched_by_an_earlier_gateway_process(
 def test_restore_at_startup_registers_only_a_verified_launch(env, other_app):
     stale_run, live_run = _new_run(env), _new_run(env)
     nonce = preview_state.new_nonce()
-    proc = _sleeper(*preview_state.nonce_args(nonce))
+    proc = _sleeper()
     try:
         # Stale file, newest on disk, naming a port that something else is listening on:
         # the old socket probe registered it.
@@ -131,10 +132,11 @@ def test_restore_at_startup_registers_only_a_verified_launch(env, other_app):
         assert asyncio.run(register_live_run_app(env.projects_root)) is None
         assert stale_run not in app_state.get_all_ports()
 
-        _write_state(env, live_run, port=59996, pid=proc.pid, nonce=nonce)
-        os.utime(env.projects_root / live_run / preview_state.STATE_FILE, (1, 1))  # older than the stale one
+        _write_state(env, live_run, port=20996, pid=proc.pid, nonce=nonce,
+                     pid_start=preview_state.process_started(proc.pid))
+        os.utime(preview_state.state_path(live_run), (1, 1))  # older than the stale one
         assert asyncio.run(register_live_run_app(env.projects_root)) == live_run
-        assert app_state.get_all_ports().get(live_run) == 59996
+        assert app_state.get_all_ports().get(live_run) == 20996
         assert stale_run not in app_state.get_all_ports()
     finally:
         app_state.del_port(live_run)

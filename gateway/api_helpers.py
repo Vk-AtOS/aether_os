@@ -23,6 +23,8 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from aether_os.core.run_app import preview_token
+
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
@@ -167,7 +169,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             if o.strip() and not o.strip().startswith("http://localhost")
             and _urlparse(o.strip()).hostname
         )
-        _frame_src = f"'self' {_cors_hosts} http://localhost:*".strip()
+        # Previews are framed from per-run origins (<run-id>.<preview host>): allow the wildcard.
+        _frame_src = f"'self' {_cors_hosts} http://localhost:* {preview_token.frame_src() or ''}".strip()
         # Nonce replaces unsafe-inline for script-src; unsafe-eval kept for Monaco editor.
         # style-src retains unsafe-inline (CSS injection risk lower than script injection).
         # Landing page (/) uses plain 'self' — no strict-dynamic needed, and it blocks external .js

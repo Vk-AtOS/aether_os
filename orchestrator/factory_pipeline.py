@@ -84,6 +84,8 @@ from aether_os.orchestrator.stage_gate import (
     gate_block_reason,
     load_disabled_stages,
     recorded_status,
+    record_run_timeout,
+    timeout_reason,
 )
 from aether_os.orchestrator.phase_hooks_helpers import hook_persist_live_url
 from aether_os.orchestrator import messages as _messages_module
@@ -163,10 +165,10 @@ class FactoryPipeline:
                 ), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.error("Pipeline %s timed out after %s minutes", run_id, timeout / 60)
+                reason = await record_run_timeout(self.ledger, run_id, timeout) if run_id else None
                 if run_id:
-                    await self.ledger.async_update_run_status(run_id, "timeout")
-                    await publish_event(run_id, {"type": "pipeline_complete", "status": "timeout", "ts": time.time()})
-                return {"run_id": run_id, "status": "timeout"}
+                    await publish_event(run_id, {"type": "pipeline_complete", "status": "timeout", "error": reason, "ts": time.time()})
+                return {"run_id": run_id, "status": "timeout", "error": reason}
 
     async def _execute_pipeline(self,
                   client_id: str,
@@ -749,11 +751,7 @@ class FactoryPipeline:
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
                     return await self._abort_run(
-                        run_id,
-                        (f"Stage {phase_name} did not finish within {int(_phase_timeout)} seconds. "
-                         "The usual cause is that no model provider is answering: "
-                         "check the model key in Settings."),
-                        failed_stage=phase_name)
+                        run_id, timeout_reason(_phase_timeout, phase_name), failed_stage=phase_name)
 
             except Exception as e:
                 logger.error("%s failed: %s", phase_name, redact_secrets(e))

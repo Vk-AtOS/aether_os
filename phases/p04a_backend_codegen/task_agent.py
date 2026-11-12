@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.phases.base import TaskResult
 from aether_os.core.errors import PipelineBlockedError
 
@@ -336,8 +337,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 f"P04a smoke test failed: {smoke.get('errors')}. "
                 "Cannot proceed to frontend generation against a broken backend."
             )
-    except PipelineBlockedError:
-        raise
+    except (PipelineBlockedError, SandboxUnavailable):
+        raise  # no sandbox: generated code was not run, the phase fails with that message
     except Exception as exc:
         logger.debug("[p04a] smoke test error (non-fatal): %s", exc)
 

@@ -14,6 +14,8 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.phases.base import GateOutcome, TaskResult
 
 logger = logging.getLogger(__name__)
@@ -83,11 +85,9 @@ def validate(result: TaskResult) -> GateOutcome:
     tsc = frontend_dir / "node_modules" / ".bin" / "tsc"
     if tsc.exists():
         try:
-            proc = subprocess.run(
-                [str(tsc), "--noEmit", "--skipLibCheck"],
-                capture_output=True, text=True, timeout=60,
-                cwd=str(frontend_dir),
-            )
+            # tsc runs the project's own node_modules code: sandbox only.
+            proc = phase_exec.run_sync([str(tsc), "--noEmit", "--skipLibCheck"], cwd=frontend_dir,
+                                       timeout=60, text=True)
             if proc.returncode != 0:
                 # Collect first 5 distinct error lines
                 ts_lines = [
@@ -100,6 +100,8 @@ def validate(result: TaskResult) -> GateOutcome:
                     # Don't hard-fail — let self-healing patch specific errors
         except subprocess.TimeoutExpired:
             issues.append("tsc --noEmit timed out (60s) — skipped")
+        except SandboxUnavailable:
+            raise
         except Exception as exc:
             logger.warning("p05_frontend gate: tsc check error: %s", exc)
             issues.append(f"tsc check error (non-fatal): {exc}")

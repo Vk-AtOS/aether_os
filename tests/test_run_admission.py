@@ -46,7 +46,7 @@ def _every_start_path(gw, who, parent, profile):
     """status code of each build-starting route for `who`, with no build allowed to start."""
     c, h = gw.client, who.auth
     with patch("aether_os.orchestrator.factory_pipeline.get_factory", side_effect=NO_BUILD), \
-         patch("aether_os.gateway.routers.run_fork_router.get_factory", side_effect=NO_BUILD), \
+         patch("aether_os.gateway.services.run_start.get_factory", side_effect=NO_BUILD), \
          patch("aether_os.core.services.pipeline_service.PipelineService.start_run",
                AsyncMock(side_effect=NO_BUILD)):
         return {
@@ -79,7 +79,7 @@ def test_each_build_path_consumes_one_trial_run(gw):
     fake = MagicMock()
     fake.run = AsyncMock(return_value={})
     with patch("aether_os.orchestrator.factory_pipeline.get_factory", return_value=fake), \
-         patch("aether_os.gateway.routers.run_fork_router.get_factory", return_value=fake), \
+         patch("aether_os.gateway.services.run_start.get_factory", return_value=fake), \
          patch("aether_os.core.services.pipeline_service.PipelineService.start_run",
                AsyncMock(return_value={"run_id": "x"})):
         h = owner.auth
@@ -155,7 +155,7 @@ def test_rerun_and_branch_reject_unknown_stage_ids_before_anything_is_created(gw
     parent = _run(gw, owner.org_id)
     used = _trial_used(gw, owner.org_id)
     runs = gw.sql("SELECT count(*) FROM runs WHERE org_id = ?", (owner.org_id,))[0][0]
-    with patch("aether_os.gateway.routers.run_fork_router.get_factory", side_effect=NO_BUILD):
+    with patch("aether_os.gateway.services.run_start.get_factory", side_effect=NO_BUILD):
         rerun = gw.client.post(f"/factory/runs/{parent}/rerun", headers=owner.auth, json={"from_phase": "p99_nope"})
         branch = gw.client.post(f"/factory/runs/{parent}/branch", headers=owner.auth,
                                 json={"branch_phase": "s13_magic"})
@@ -170,7 +170,7 @@ def test_rerun_accepts_a_legacy_phase_id_and_starts_at_its_stage(gw):
     parent = _run(gw, owner.org_id)
     fake = MagicMock()
     fake.run = AsyncMock(return_value={})
-    with patch("aether_os.gateway.routers.run_fork_router.get_factory", return_value=fake):
+    with patch("aether_os.gateway.services.run_start.get_factory", return_value=fake):
         resp = gw.client.post(f"/factory/runs/{parent}/rerun", headers=owner.auth,
                               json={"from_phase": "p04_backend"})
     assert resp.status_code == 200, resp.text

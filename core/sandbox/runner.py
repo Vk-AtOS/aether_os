@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 from aether_os.core.errors import SandboxViolation
+from aether_os.core.run_app.safe_fs import open_log_fd
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +138,13 @@ class NoSandboxRunner(SandboxRunner):
         return self._host_run(list(argv), cwd or run_dir, env, timeout or self.limits.timeout_s)
 
     def start(self, argv, *, run_dir, cwd, env, log_path, port, labels):
-        log = open(log_path, "a")
-        return subprocess.Popen(list(argv), cwd=str(cwd), env=dict(env), stdout=log, stderr=log,
-                                start_new_session=True)
+        # O_NOFOLLOW: the log sits in the run dir, where the app can plant a symlink.
+        log = open_log_fd(log_path)
+        try:
+            return subprocess.Popen(list(argv), cwd=str(cwd), env=dict(env), stdout=log, stderr=log,
+                                    start_new_session=True)
+        finally:
+            os.close(log)
 
 
 def get_runner(limits: Limits = Limits()) -> SandboxRunner:

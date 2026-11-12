@@ -14,7 +14,7 @@ import pathlib
 import time
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers.factory_run_background import (
@@ -150,29 +150,9 @@ async def get_factory_run(
 
     # Enrich each phase with output files from disk, gate results, and strip server paths.
     # Logic extracted to factory_run_background.enrich_phases_from_disk to keep this router lean.
-    project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+    project_dir = get_project_manager()._root / run_id  # the manager's root, not a hard-coded home path
     _project_prefix = str(project_dir) + "/"
     detail["phases"] = enrich_phases_from_disk(phases, project_dir, _project_prefix)
-
-    # Enrich p06 with actual security findings from security_report.json
-    if "p06_review_security" in detail.get("phases", {}):
-        _sec_report = (
-            project_dir / "p06_review_security" / "security" / "security_report.json"
-        )
-        if _sec_report.exists():
-            try:
-                _sec_data = json.loads(_sec_report.read_text(encoding="utf-8"))
-                detail["phases"]["p06_review_security"].setdefault("output", {})
-                detail["phases"]["p06_review_security"]["output"]["security_findings"] = (
-                    _sec_data.get("findings", [])
-                )
-                detail["phases"]["p06_review_security"]["output"]["security_total"] = (
-                    _sec_data.get("total", 0)
-                )
-            except Exception as exc:
-                logger.debug(
-                    "Failed to load security_report.json for run %s: %s", run_id, exc
-                )
 
     # Load priority and live_url via ORM (FIX-017)
     detail.setdefault("live_url", None)
@@ -191,7 +171,7 @@ async def get_factory_run(
     # Enrich with quality score if project output exists (best-effort, non-blocking)
     try:
 
-        _qdir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+        _qdir = project_dir
         if _qdir.exists():
             _qscore = score_project(_qdir)
             detail["quality"] = _asdict(_qscore)
@@ -259,9 +239,14 @@ async def set_factory_run_priority(
 @router.get("/factory/runs/{run_id}/events")
 async def get_run_events(
     run_id: str,
+    exclude: Optional[str] = Query(None, max_length=500,
+                                   description="Comma-separated event types to leave out, e.g. llm_chunk"),
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Return all pipeline events for a run, ordered by created_at.
+
+    `?exclude=llm_chunk` drops streamed model output, which is most of the rows and none of
+    what the stage/summary views read.
 
     M11: RunDetail.jsx calls this route but no handler existed — events tab was always empty.
     Queries the pipeline_events table (created in DB-C1 migration).
@@ -273,15 +258,13 @@ async def get_run_events(
     if not run_detail:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
+    excluded = [t.strip() for t in (exclude or "").split(",") if t.strip()][:20]
     try:
+        query = _sel_ev(PipelineEvent).where(PipelineEvent.run_id == run_id)
+        if excluded:
+            query = query.where(PipelineEvent.event_type.notin_(excluded))
         async with _gsf_ev()() as _sess_ev:
-            rows = (
-                await _sess_ev.execute(
-                    _sel_ev(PipelineEvent)
-                    .where(PipelineEvent.run_id == run_id)
-                    .order_by(PipelineEvent.created_at.asc())
-                )
-            ).scalars().all()
+            rows = (await _sess_ev.execute(query.order_by(PipelineEvent.created_at.asc()))).scalars().all()
     except Exception as exc:
         logger.warning("get_run_events: DB query failed for run %s: %s", run_id, exc)
         rows = []

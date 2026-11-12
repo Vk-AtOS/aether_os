@@ -7,6 +7,8 @@ import { apiError } from '../apiError';
 import PhaseBadge from '../components/PhaseBadge';
 import LogViewer from './LogViewer';
 import AppPreviewPanel from '../components/project/AppPreviewPanel';
+import PreviewFrame from '../components/project/PreviewFrame';
+import { isPreviewUrl, openPreviewInTab } from '../previewSession';
 import QualityPanel from '../components/project/QualityPanel';
 import FeedbackPanel from '../components/project/FeedbackPanel';
 import CouncilPanel from '../components/project/CouncilPanel';
@@ -262,11 +264,13 @@ const ProjectView = () => {
           <div className="flex items-center space-x-2">
             {run.live_url ? (
               <>
-                <a href={run.live_url} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg transition-colors text-xs animate-pulse">
+                <a href={isPreviewUrl(run.live_url) ? '#' : run.live_url} target="_blank" rel="noopener noreferrer"
+                   onClick={async (e) => { if (!isPreviewUrl(run.live_url)) return; e.preventDefault(); const err = await openPreviewInTab(run.run_id || run.id); if (err) showToast(err); }}
+                   className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg transition-colors text-xs animate-pulse">
                   <span>LAUNCH APP</span>
-                  {!run.live_url.startsWith('/') && <span className="opacity-70">:{run.live_url?.split(':').pop() ?? ''}</span>}
+                  {!isPreviewUrl(run.live_url) && <span className="opacity-70">:{run.live_url?.split(':').pop() ?? ''}</span>}
                 </a>
-                {!run.live_url.startsWith('/') && <button onClick={handleStopDeploy} className="px-3 py-2 bg-red-900/60 hover:bg-red-800 text-red-300 rounded-lg text-xs font-medium transition-colors">Stop</button>}
+                {!isPreviewUrl(run.live_url) && <button onClick={handleStopDeploy} className="px-3 py-2 bg-red-900/60 hover:bg-red-800 text-red-300 rounded-lg text-xs font-medium transition-colors">Stop</button>}
               </>
             ) : run.status === 'completed' ? (
               <button onClick={handleDeploy} disabled={deploying} className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-xs">
@@ -372,7 +376,7 @@ const ProjectView = () => {
           </section>
         )}
 
-        <ClarifyingQuestionsPanel questions={phases?.s02_architecture?.output?.clarifying_questions} />
+        <ClarifyingQuestionsPanel runId={run.run_id || run.id} questions={phases?.s02_architecture?.output?.clarifying_questions} answers={phases?.s02_architecture?.output?.clarifying_answers} canRestart={!isRunning && !isPaused && runStatus !== 'queued'} onChanged={fetchRunDetail} />
 
         <ProjectLivePreviewPanel runId={run.run_id || run.id} currentPhase={run.current_phase} runStatus={runStatus} isRunning={isRunning} isPaused={isPaused} liveUrl={run.live_url} appRunning={appRunning} />
 
@@ -421,8 +425,8 @@ const ProjectView = () => {
                 </div>
                 {previewMode === 'live' && run.live_url && (
                   <div className="flex-1 flex flex-col overflow-hidden">
-                    <div className="bg-black/30 px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0"><span className="text-[10px] font-mono text-emerald-400">{run.live_url}</span><a href={run.live_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted hover:text-bright transition-colors">Open tab</a></div>
-                    <iframe src={run.live_url} className="flex-1 w-full border-none bg-white" title="Live Application" style={{ minHeight: '360px' }} />
+                    <div className="bg-black/30 px-3 py-1.5 border-b border-border flex items-center justify-between shrink-0"><span className="text-[10px] font-mono text-emerald-400">{isPreviewUrl(run.live_url) ? 'Live app (preview origin)' : run.live_url}</span>{isPreviewUrl(run.live_url) ? <button onClick={async () => { const err = await openPreviewInTab(run.run_id || run.id); if (err) showToast(err); }} className="text-[10px] text-muted hover:text-bright transition-colors">Open tab</button> : <a href={run.live_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted hover:text-bright transition-colors">Open tab</a>}</div>
+                    <PreviewFrame runId={run.run_id || run.id} liveUrl={run.live_url} className="flex-1 w-full border-none bg-white" title="Live Application" style={{ minHeight: '360px' }} />
                   </div>
                 )}
                 {previewMode === 'live' && !run.live_url && <div className="flex items-center justify-center flex-1 text-muted text-sm gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Waiting for live URL...</div>}

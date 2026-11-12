@@ -190,6 +190,8 @@ def test_every_run_route_hides_other_orgs_runs(env):
     """Org B asks for org A's run on every {run_id} route: all must answer 404."""
     leaks, checked = [], 0
     for method, path in _run_routes(env.app):
+        if path.startswith("/velaris/"):
+            continue    # {run_id} there is a Velaris flow id (checked by the Velaris API per owner/org), not an AetherOS run
         url = (path.replace("{run_id}", env.run_a)
                .replace("{trace_id}", "t1").replace("{decision_id}", "d1")
                .replace("{snapshot_id}", "s1").replace("{token_id}", "tok1").replace("{phase_name}", "p01"))
@@ -374,7 +376,8 @@ def test_app_preview_requires_preview_session(env, preview):
     from aether_os.core.run_app.preview_token import SESSION_COOKIE
     from aether_os.gateway.auth import create_preview_token
     resp = env.client.get("/app-preview/", headers=env.a.auth, follow_redirects=False)
-    assert resp.status_code == 307 and resp.content == b""          # dashboard origin: never content
+    assert resp.status_code == 404 and b"dashboard" in resp.content   # dashboard origin: never content
+    preview.base_url = f"http://{env.run_a}.preview.test:8100"
     assert preview.get("/app-preview/").status_code == 401
     # A platform bearer token is not a preview session either.
     assert preview.get("/app-preview/", headers=env.a.auth).status_code == 401
@@ -388,8 +391,11 @@ def test_app_preview_requires_preview_session(env, preview):
     preview.cookies.clear()
 
 
-def test_app_preview_is_run_scoped_and_strips_platform_credentials(env, preview, upstream):
+def test_app_preview_is_run_scoped_and_strips_platform_credentials(env, preview, upstream, monkeypatch):
     from urllib.parse import urlsplit
+    monkeypatch.setenv("AETHER_APP_PORT_MIN", "1")       # the echo server's port is ephemeral
+    monkeypatch.setenv("AETHER_APP_PORT_MAX", "65535")
+    preview.base_url = f"http://{env.run_a}.preview.test:8100"   # each run has its own origin
     from aether_os.core.run_app import preview_state
     # Another org cannot obtain a preview link for this run.
     assert env.client.post(f"/factory/runs/{env.run_a}/preview-session", headers=env.b.auth).status_code == 404

@@ -78,10 +78,12 @@ async def test_p05f_full_run_writes_vite_project(tmp_path):
     mock_client.call = AsyncMock(return_value="")  # LLM returns empty → skip optional domain component
     mock_proc = MagicMock()
     mock_proc.returncode = 0
-    mock_proc.stdout = b""
-    mock_proc.stderr = b""
+    mock_proc.stdout = ""
+    mock_proc.stderr = ""
+    # npm / tsc / vite now go through the sandbox runner (core/sandbox/phase_exec.py): stub that boundary.
     with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_client), \
-         patch("subprocess.run", return_value=mock_proc):
+         patch("aether_os.core.sandbox.phase_exec.run", AsyncMock(return_value=mock_proc)), \
+         patch("aether_os.core.sandbox.phase_exec.run_sync", return_value=mock_proc):
         out_dir = tmp_path / "output"
         result = await run(PhaseInput(), [], out_dir)
 

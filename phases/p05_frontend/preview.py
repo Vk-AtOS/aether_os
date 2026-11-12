@@ -7,6 +7,9 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
+
 logger = logging.getLogger(__name__)
 
 _NPM_SHARED_CACHE = Path.home() / ".aether_os" / "npm_cache"
@@ -25,8 +28,11 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
     if not dist_dir.exists():
         try:
             logger.info("p05: Building frontend for screenshot...")
-            subprocess.run(["npm", "install", "--cache", str(_NPM_SHARED_CACHE)], cwd=str(frontend_dir), capture_output=True, timeout=240)
-            subprocess.run(["npm", "run", "build"], cwd=str(frontend_dir), capture_output=True, timeout=180)
+            # Generated project: install (install egress profile) and build in the sandbox only.
+            await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=240, network=True)
+            await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=180)
+        except SandboxUnavailable:
+            raise
         except Exception as build_err:
             logger.warning(f"p05: Build failed before screenshot: {build_err}")
 
