@@ -256,3 +256,16 @@ async def test_path_parameters_are_validated_and_emoji_works(http, velaris):
     r = await http.put("/chat/messages/7/reactions/%F0%9F%91%8D")
     assert r.status_code == 200 and len(velaris.seen) == n + 1
     assert velaris.seen[-1]["raw"] == "/chat/messages/7/reactions/%F0%9F%91%8D"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ctype", ["text/html", "image/svg+xml", "application/xhtml+xml", "text/xml; charset=utf-8", "text/plain"])
+async def test_downloads_are_forced_to_a_safe_download_whatever_velaris_says(ctype):
+    from gateway.velaris_proxy import _safe_download_headers
+    h = _safe_download_headers({"content-type": ctype, "content-disposition": "inline",
+                                "x-content-type-options": "", "content-security-policy": "default-src *"})
+    assert h["content-type"] == "application/octet-stream"
+    assert h["content-disposition"] == "attachment" and h["x-content-type-options"] == "nosniff"
+    assert h["content-security-policy"] == "sandbox; default-src 'none'"
+    pdf = _safe_download_headers({"content-type": "application/pdf", "content-disposition": "attachment; filename=a.pdf"})
+    assert pdf["content-type"] == "application/pdf" and pdf["content-disposition"].startswith("attachment; filename")
