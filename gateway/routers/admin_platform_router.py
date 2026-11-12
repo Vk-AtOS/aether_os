@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from aether_os.core.audit import subjects
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.db_utils import update_run_status
@@ -174,6 +175,9 @@ async def export_audit_logs(
             stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
         stmt = stmt.order_by(AuditLog.created_at.asc())
         rows = (await session.execute(stmt)).all()
+    # Stored values are pseudonymous references; show them as the ledger would (resolved,
+    # or "[erased]"), never raw ids or hmacs.
+    shown = await subjects.display_columns(org_id, [r[0] for r in rows])
     def _generate_csv():
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -183,7 +187,7 @@ async def export_audit_logs(
         ])
         buf.seek(0)
         yield buf.read()
-        for log, email in rows:
+        for (log, email), (ip_text, meta_text) in zip(rows, shown):
             buf = io.StringIO()
             writer = csv.writer(buf)
             ts_str = datetime.fromtimestamp(log.created_at, tz=timezone.utc).isoformat() if log.created_at else ""
@@ -194,7 +198,7 @@ async def export_audit_logs(
                 log.action,
                 log.resource_type,
                 log.resource_id,
-                log.ip_address or "",
+                ip_text,
                 log.org_id,
             ])
             buf.seek(0)

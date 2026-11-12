@@ -11,17 +11,22 @@ pseudonymised on the way in, as for live events.
 Idempotent: each imported row is recorded in `audit_backfill` in the same
 transaction as its chain entry, so re-running imports nothing twice.
 
-Run once after `alembic upgrade head`:  python3.11 -m aether_os.core.audit.backfill
+Run once after `alembic upgrade head`, dry run first (writes nothing):
+    python3.11 -m aether_os.core.audit.backfill --dry-run
+    python3.11 -m aether_os.core.audit.backfill [--batch 500] [--max-batches N]
+Superadmins can do the same over HTTP: POST /prime/ledger/backfill (see
+gateway/routers/ledger_ops_router.py).
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Callable, Dict, List, Optional
 
-from sqlalchemy import Float, String, select
+from sqlalchemy import Float, String, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -78,24 +83,104 @@ async def _import(row: AuditLog) -> bool:
     return True
 
 
+_SAMPLE = 20  # problem ids listed in a report; the counts are always exact
+
+
+def _pending(after: Optional[tuple], batch: int):
+    """audit_log rows with no chain entry and no back-fill marker, oldest first, strictly
+    after the keyset position `after` = (created_at, id). The keyset lets a run move past
+    a row it could not import instead of selecting it forever."""
+    q = (select(AuditLog)
+         .outerjoin(chain.AuditChainEntry, chain.AuditChainEntry.entry_hash == AuditLog.prev_hash)
+         .outerjoin(AuditBackfill, AuditBackfill.audit_log_id == AuditLog.id)
+         .where(chain.AuditChainEntry.seq.is_(None), AuditBackfill.audit_log_id.is_(None)))
+    if after:
+        q = q.where(or_(AuditLog.created_at > after[0],
+                        and_(AuditLog.created_at == after[0], AuditLog.id > after[1])))
+    return q.order_by(AuditLog.created_at, AuditLog.id).limit(batch)
+
+
+async def count_pending() -> int:
+    async with get_session_factory()() as session:
+        sub = (select(AuditLog.id)
+               .outerjoin(chain.AuditChainEntry, chain.AuditChainEntry.entry_hash == AuditLog.prev_hash)
+               .outerjoin(AuditBackfill, AuditBackfill.audit_log_id == AuditLog.id)
+               .where(chain.AuditChainEntry.seq.is_(None), AuditBackfill.audit_log_id.is_(None)))
+        return (await session.execute(select(func.count()).select_from(sub.subquery()))).scalar_one()
+
+
+def _problem(row: AuditLog) -> Optional[str]:
+    """Why this row would not import cleanly, or None. Pure: the dry run uses it."""
+    try:
+        chain.chain_id_for(row.org_id)
+    except ValueError:
+        return "org_id_cannot_name_a_chain"
+    if row.log_metadata:
+        try:
+            if not isinstance(json.loads(row.log_metadata), dict):
+                return "metadata_not_an_object"
+        except ValueError:
+            # Imported as {"raw": text}; free text is never pseudonymised, so look first.
+            return "metadata_not_json"
+    return None
+
+
+async def run(batch: int = 500, *, dry_run: bool = False, max_batches: Optional[int] = None,
+              on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
+    """Back-fill in batches and report. dry_run writes nothing (no chain entry, no
+    pseudonym, no marker) and lists what a real run would do and which rows are problems.
+    max_batches bounds one call; run again to continue (it is idempotent)."""
+    report: Dict[str, Any] = {"dry_run": dry_run, "batches": 0, "pending_before": await count_pending(),
+                              "by_chain": {}, "imported": 0, "failed": 0, "problems": {}}
+    samples: Dict[str, List[str]] = {}
+    after: Optional[tuple] = None
+    while max_batches is None or report["batches"] < max_batches:
+        async with get_session_factory()() as session:
+            rows = (await session.execute(_pending(after, batch))).scalars().all()
+        if not rows:
+            break
+        after = (rows[-1].created_at, rows[-1].id)
+        report["batches"] += 1
+        for row in rows:
+            why = _problem(row)
+            if why:
+                report["problems"][why] = report["problems"].get(why, 0) + 1
+                samples.setdefault(why, [])
+                if len(samples[why]) < _SAMPLE:
+                    samples[why].append(row.id)
+            try:
+                cid = chain.chain_id_for(row.org_id)
+            except ValueError:
+                report["failed"] += 0 if dry_run else 1
+                continue
+            report["by_chain"][cid] = report["by_chain"].get(cid, 0) + 1
+            if dry_run:
+                continue
+            try:
+                report["imported"] += await _import(row)
+            except (ValueError, RuntimeError) as e:  # row stays pending; reported, not retried this run
+                report["failed"] += 1
+                logger.error("back-fill could not import audit_log %s: %s", row.id, type(e).__name__)
+        if on_progress:
+            on_progress({k: report[k] for k in ("batches", "imported", "failed")})
+    report["problem_samples"] = samples
+    report["remaining"] = await count_pending()
+    report["clean"] = not report["problems"] and not report["failed"]
+    return report
+
+
 async def backfill(batch: int = 500) -> int:
     """Import every audit_log row that has no chain entry yet. Returns how many."""
-    imported = 0
-    sf = get_session_factory()
-    while True:
-        async with sf() as session:
-            rows = (await session.execute(
-                select(AuditLog)
-                .outerjoin(chain.AuditChainEntry, chain.AuditChainEntry.entry_hash == AuditLog.prev_hash)
-                .outerjoin(AuditBackfill, AuditBackfill.audit_log_id == AuditLog.id)
-                .where(chain.AuditChainEntry.seq.is_(None), AuditBackfill.audit_log_id.is_(None))
-                .order_by(AuditLog.created_at, AuditLog.id).limit(batch))).scalars().all()
-        if not rows:
-            return imported
-        for row in rows:
-            imported += await _import(row)
+    return (await run(batch))["imported"]
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    print(f"imported {asyncio.run(backfill())} audit_log rows into the audit chains")
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    ap.add_argument("--dry-run", action="store_true", help="report only; write nothing")
+    ap.add_argument("--batch", type=int, default=500)
+    ap.add_argument("--max-batches", type=int, default=None)
+    a = ap.parse_args()
+    out = asyncio.run(run(a.batch, dry_run=a.dry_run, max_batches=a.max_batches,
+                          on_progress=lambda p: logger.info("progress %s", p)))
+    print(json.dumps(out, indent=2, sort_keys=True))

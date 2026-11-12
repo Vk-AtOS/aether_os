@@ -14,11 +14,17 @@ Split from account_router.py to keep that file under 400 lines.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
+from datetime import datetime as _dt
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+
+from aether_os.core.audit.deletion import ErasureIncomplete, erase_organisation
+from aether_os.core.audit.ledger import get_ledger
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import Organisation, User
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -80,19 +86,11 @@ async def delete_organisation(
     """Soft-delete the current organisation and deactivate all its users (owner only)."""
     if user.get("role") != "owner":
         raise HTTPException(status_code=403, detail="Only org owners can delete the organisation")
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation, User
-    from sqlalchemy import select
-    from datetime import datetime as _dt
-
     org_id = user["org_id"]
-    session_factory = get_session_factory()
-    async with session_factory() as session:
+    async with get_session_factory()() as session:
         org = await session.get(Organisation, org_id)
         if not org or org.is_deleted:
             raise HTTPException(status_code=404, detail="Organisation not found")
-
-        # Soft delete org
         org.is_deleted = True
         org.deleted_at = _dt.utcnow()
 
@@ -106,16 +104,21 @@ async def delete_organisation(
 
         await session.commit()
 
-    # Audit: org.deleted
-    from aether_os.core.audit.ledger import get_ledger
-    asyncio.create_task(get_ledger().async_log_audit_event(
-        org_id=org_id,
-        user_id=user.get("user_id", "-"),
-        action="org.deleted",
-        resource_type="organisation",
-        resource_id=org_id,
-    ))
-
+    # Awaited (not fire-and-forget) and BEFORE the erasure: a late event would otherwise
+    # recreate the pepper the erasure deletes.
+    by = user.get("user_id", "-")
+    await get_ledger().async_log_audit_event(
+        org_id=org_id, user_id=by, action="org.deleted",
+        resource_type="organisation", resource_id=org_id)
+    try:
+        await erase_organisation(org_id, by=by)
+    except ErasureIncomplete as e:
+        # The organisation IS deleted (and refuses sign-ins), so only a platform
+        # administrator can finish: erasure is idempotent and recorded as pending.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Organisation deleted, but {e}. A platform administrator can retry: "
+                   "POST /prime/ledger/erasure/retry.") from e
     return {"message": "Organisation scheduled for deletion. All users deactivated."}
 
 

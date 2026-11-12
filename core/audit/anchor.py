@@ -126,6 +126,39 @@ async def check_file() -> List[Dict[str, Any]]:
     return problems
 
 
+# The newest check_file() outcome of this process (None until the first run).
+# ponytail: per process; with several workers each reports its own last run.
+_last_file_check: Optional[Dict[str, Any]] = None
+
+
+async def run_file_check() -> Dict[str, Any]:
+    """check_file(), remembered as the last result. A failure to run the check is
+    itself recorded as not ok, never as a clean pass."""
+    global _last_file_check
+    try:
+        problems = await check_file()
+        result = {"at": time.time(), "ok": not problems, "problems": problems}
+    except Exception as e:  # unreadable file etc.: report it, the next run retries
+        logger.error("ledger anchor file check could not run: %s", type(e).__name__)
+        result = {"at": time.time(), "ok": False,
+                  "problems": [{"chain_id": None, "reason": f"check could not run: {type(e).__name__}"}]}
+    if result["problems"]:
+        logger.critical("AUDIT ANCHOR FILE CHECK FAILED: %s", result["problems"])
+    _last_file_check = result
+    return result
+
+
+def last_file_check(cid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The last file-check result. With `cid`, only that chain's problems (an
+    organisation must not learn about other organisations' chains); without, all."""
+    if _last_file_check is None:
+        return None
+    if cid is None:
+        return _last_file_check
+    mine = [p for p in _last_file_check["problems"] if p.get("chain_id") == cid]
+    return {"at": _last_file_check["at"], "ok": not mine, "problems": mine}
+
+
 def interval_seconds() -> int:
     return int(os.environ.get("AETHER_LEDGER_ANCHOR_INTERVAL", DEFAULT_INTERVAL_SECONDS))
 
@@ -136,6 +169,7 @@ async def run_periodically(interval: int) -> None:
         try:
             summary = await anchor_all()
             logger.info("ledger anchor run: %s", summary)
+            await run_file_check()
         except Exception as e:  # the loop must survive a bad run; the next one retries
             logger.error("ledger anchor run failed: %s", e)
 

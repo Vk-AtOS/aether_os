@@ -5,6 +5,7 @@ import EmptyState from '../EmptyState';
 import { primeApi, useLoad } from './primeApi';
 import { Spinner, ErrorBox, Facts, Json, inputClass, labelClass } from './parts';
 import { fmtDate } from './labels';
+import LedgerAdmin from './LedgerAdmin';
 
 const PAGE = 50;
 const EMPTY = { actor: '', event: '', since: '', until: '' };
@@ -76,11 +77,13 @@ const LedgerBrowser = () => {
         {verify && (
           <p className={`flex items-center gap-2 text-xs font-bold ${verify.ok ? 'text-emerald-400' : 'text-danger'}`}>
             {verify.ok ? <ShieldCheck className="w-4 h-4" aria-hidden="true" /> : <ShieldAlert className="w-4 h-4" aria-hidden="true" />}
-            {verify.ok ? `Whole ledger intact · ${verify.entries_checked} entries` : `Ledger broken at entry ${verify.broken_seq}: ${verify.reason}`}
+            {verify.ok ? `Your organisation’s ledger intact · ${verify.entries_checked} entries` : `Ledger broken at entry ${verify.broken_seq}: ${verify.reason}`}
           </p>
         )}
         {verifyError && <p className="text-xs text-danger">{verifyError}</p>}
       </div>
+
+      <LedgerAdmin isAdmin={Boolean(data?.whole_org)} />
 
       <form onSubmit={apply} className="bg-panel border border-border rounded-xl px-5 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end">
         <div>

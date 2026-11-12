@@ -20,6 +20,7 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
+from aether_os.core.audit.deletion import ErasureIncomplete, erase_person
 from aether_os.gateway.auth_refresh import revoke_user_sessions
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.services.account_service import (
@@ -98,7 +99,9 @@ async def data_export(user: Dict[str, Any] = _current_user()):
     async with get_session_factory()() as session:
         db_user, runs = await get_user_for_export(session, user_id, org_id)
 
-    audit = await get_ledger().async_get_audit_logs(org_id=org_id, page=1, limit=500)
+    # Only this person's own entries (the org-wide log is not theirs to export); the
+    # erasure overlay still applies, so erased values show as "[erased]".
+    audit = await get_ledger().async_get_audit_logs(org_id=org_id, page=1, limit=500, user_id=user_id)
     export = {
         "export_version": "1.0",
         "exported_at": time.time(),
@@ -137,6 +140,17 @@ async def delete_account(user: Dict[str, Any] = _current_user()) -> Dict[str, st
     # that cannot be done (Redis down) this raises 503 and nothing is deleted, so
     # the user can retry — never a deleted account with live tokens.
     await revoke_user_sessions(user_id)
+
+    # Erase their email/IPs from the ledger BEFORE anonymising: the email is needed to
+    # find the pseudonym, and a failure here leaves a live account that can sign in
+    # again and retry (erasure is idempotent). Never a deleted account whose personal
+    # data is still readable.
+    try:
+        await erase_person(org_id, user_id, by=user_id)
+    except ErasureIncomplete as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Account not deleted: {e}. Nothing was removed; sign in again and retry.") from e
 
     async with get_session_factory()() as session:
         await anonymise_and_deactivate_user(session, user_id, org_id)

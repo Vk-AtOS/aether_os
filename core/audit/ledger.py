@@ -152,7 +152,9 @@ class DecisionLedger:
             ip_ref, row_metadata = await audit_subjects.scrub(org_id, ip_address, metadata or {})
         except Exception as exc:
             # Fail closed: without a reference, drop the personal values rather than store them.
-            logger.error("AUDIT PSEUDONYMISATION FAILED action=%s org=%s: %s", action, org_id, exc)
+            # Class name only: a DB error's text can include the raw values being scrubbed.
+            logger.error("AUDIT PSEUDONYMISATION FAILED action=%s org=%s: %s",
+                         action, org_id, type(exc).__name__)
             ip_ref, row_metadata = audit_subjects.withhold(ip_address, metadata or {})
         try:
             entry = await audit_chain.append(
@@ -192,7 +194,8 @@ class DecisionLedger:
 
     async def async_get_audit_logs(self, org_id: str, page: int = 1,
                                    limit: int = 50, action: Optional[str] = None,
-                                   from_ts: Optional[float] = None) -> Dict[str, Any]:
+                                   from_ts: Optional[float] = None,
+                                   user_id: Optional[str] = None) -> Dict[str, Any]:
         try:
             from sqlalchemy import select, func
 
@@ -203,6 +206,8 @@ class DecisionLedger:
                     q = q.where(AuditLog.action == action)
                 if from_ts:
                     q = q.where(AuditLog.created_at >= from_ts)
+                if user_id:
+                    q = q.where(AuditLog.user_id == user_id)
 
                 total = (await session.execute(
                     select(func.count()).select_from(q.subquery())

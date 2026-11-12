@@ -13,6 +13,10 @@ export const primeApi = {
   setLimits: (data) => c.put('/prime/limits', data),
   ledgerEntries: (params) => c.get('/prime/ledger/entries', { params }),
   ledgerEntry: (seq) => c.get(`/prime/ledger/entries/${seq}`),
+  ledgerVerify: () => c.get('/prime/ledger/verify'),
+  anchorLatest: () => c.get('/prime/ledger/anchor/latest'),
+  anchorExport: () => c.get('/prime/ledger/anchor/export', { responseType: 'blob' }),
+  eraseSubject: (subject) => c.post('/prime/ledger/subjects/erase', { subject }),
 };
 
 export const errText = (e, fallback) => {

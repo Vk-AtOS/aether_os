@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
+import json
 import logging
 import secrets
 import time
@@ -120,7 +121,8 @@ async def _ensure_pepper(cid: str) -> str:
                 await s.commit()
                 return pepper
             except IntegrityError as e:  # another writer created it first
-                logger.info("audit pepper for %s created concurrently: %s", cid, e)
+                # Class name only: SQLAlchemy's message can carry the bound parameters.
+                logger.info("audit pepper for %s created concurrently: %s", cid, type(e).__name__)
     raise RuntimeError(f"could not create the audit pepper for {cid}")
 
 
@@ -143,7 +145,8 @@ async def pseudonymise(org_id: Any, kind: str, value: str) -> Dict[str, str]:
                 await s.commit()
                 return {"subject": sid, "hmac": digest}
             except IntegrityError as e:
-                logger.info("audit subject created concurrently: %s", e)
+                # Never str(e): it can include the raw email/IP being pseudonymised.
+                logger.info("audit subject created concurrently: %s", type(e).__name__)
     raise RuntimeError("could not record the audit subject")
 
 
@@ -221,6 +224,25 @@ async def overlay_entries(org_id: Any, entries: List[Dict[str, Any]]) -> List[Di
     to each payload. Hashes are untouched, so verification is unaffected."""
     payloads = await overlay(org_id, [e["payload"] for e in entries])
     return [{**e, "payload": p} for e, p in zip(entries, payloads)]
+
+
+async def display_columns(org_id: Any, rows: List[Any]) -> List[Tuple[str, str]]:
+    """(ip_address, metadata JSON) text for audit_log rows (anything with .ip_address and
+    .log_metadata) as an export may show them: references resolved, erased values
+    "[erased]". Exports must use this, never the stored columns."""
+    recs = []
+    for r in rows:
+        try:
+            meta = json.loads(r.log_metadata) if r.log_metadata else None
+        except ValueError:
+            meta = None
+        recs.append({"ip_address": r.ip_address, "metadata": meta})
+    out: List[Tuple[str, str]] = []
+    for r, shown in zip(rows, await overlay(org_id, recs)):
+        meta = shown["metadata"]
+        out.append((shown["ip_address"] or "",
+                    json.dumps(meta, sort_keys=True) if isinstance(meta, dict) else (r.log_metadata or "")))
+    return out
 
 
 def _event_org(cid: str) -> Optional[str]:
