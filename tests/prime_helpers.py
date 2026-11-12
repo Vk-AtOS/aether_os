@@ -15,17 +15,21 @@ from aether_os.core.audit import chain
 from aether_os.core.audit.chain import AuditChainEntry
 from aether_os.core.models import Organisation, Run, User, Webhook
 from aether_os.prime import Action, AutonomyLevel, Delegation, DelegationRepository, Limits
-from aether_os.prime import executors
+from aether_os.prime import authz, executors
 from aether_os.prime.approvals import ApprovalService
 from aether_os.prime.models import PrimeDelegation, PrimeOrgLimits, PrimeRequest
 
 ORG, OTHER_ORG = "org_a", "org_b"
-ALICE, BOB, CAROL, MALLORY = "alice", "bob", "carol", "mallory"
+# Roles as stored (Prime reads them from the users table, not from the token):
+# alice owner (the absent grantor), bob admin (her deputy), carol admin, dave member.
+ALICE, BOB, CAROL, DAVE, MALLORY = "alice", "bob", "carol", "dave", "mallory"
+ROLES = {ALICE: "owner", BOB: "admin", CAROL: "admin", DAVE: "member", MALLORY: "owner"}
 BOB_IDS = [BOB, "bob@a.test"]
 SYSTEM = "system:api_key"
 ADMIN = {"user_id": CAROL, "org_id": ORG, "role": "admin", "sub": "carol@a.test"}
-MEMBER = {"user_id": ALICE, "org_id": ORG, "role": "member", "sub": "alice@a.test"}
-DEPUTY = {"user_id": BOB, "org_id": ORG, "role": "member", "sub": "Bob@A.test"}
+OWNER = {"user_id": ALICE, "org_id": ORG, "role": "owner", "sub": "alice@a.test"}
+DEPUTY = {"user_id": BOB, "org_id": ORG, "role": "admin", "sub": "Bob@A.test"}
+MEMBER = {"user_id": DAVE, "org_id": ORG, "role": "member", "sub": "dave@a.test"}
 OUTSIDER = {"user_id": MALLORY, "org_id": OTHER_ORG, "role": "owner", "sub": "mallory@b.test"}
 API_KEY = {"sub": "api_key", "org_id": ORG, "role": "api"}
 
@@ -47,8 +51,9 @@ async def svc(tmp_path, monkeypatch):
     async with db.get_session_factory()() as s:
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (ORG, OTHER_ORG)])
         await s.flush()
-        for uid, org in ((ALICE, ORG), (BOB, ORG), (CAROL, ORG), (MALLORY, OTHER_ORG)):
-            s.add(User(id=uid, org_id=org, email=f"{uid}@{org[-1]}.test", password_hash="x"))
+        for uid, org in ((ALICE, ORG), (BOB, ORG), (CAROL, ORG), (DAVE, ORG), (MALLORY, OTHER_ORG)):
+            s.add(User(id=uid, org_id=org, email=f"{uid}@{org[-1]}.test", password_hash="x",
+                       role=ROLES[uid]))
         await s.commit()
     yield ApprovalService(DelegationRepository())
     await engine.dispose()
@@ -100,4 +105,5 @@ class Counting:
 def counting(monkeypatch):
     ex = Counting()
     monkeypatch.setitem(executors.REGISTRY, ex.name, ex)
+    monkeypatch.setitem(authz.EXECUTOR_AUTHORITY, ex.name, authz.ANY_MEMBER)
     return ex

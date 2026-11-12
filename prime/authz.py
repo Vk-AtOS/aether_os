@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum, IntEnum
-from typing import Any, Dict, FrozenSet, Iterable, Literal, Optional
+from typing import Annotated, Any, Dict, FrozenSet, Iterable, Literal, Optional
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
@@ -21,11 +21,19 @@ PRIME = "prime"
 MAX_DELEGATION_DURATION = timedelta(days=30)
 HARD_MAX_DELEGATION_DURATION = timedelta(days=90)
 
-# ponytail: one currency, no FX. Amounts in any other currency can never match a
-# delegation limit, so they go to the deputy. Add a rates table when needed.
+# ponytail: one currency, no FX. Every limit and ceiling is in INR, so an amount in
+# any other currency cannot be compared with them and is refused outright (a
+# small-unit currency would otherwise slip under an INR ceiling). Add a rates table
+# and widen Currency when needed.
 CURRENCY = "INR"
+Currency = Literal["INR"]
 PAYMENT_CEILING = Decimal("500000")
 HARD_PAYMENT_CEILING = Decimal("5000000")
+_PAISA = Decimal("0.01")
+# For every input model that carries money: positive, finite, at most 2 decimal
+# places, never above the hard ceiling.
+Amount = Annotated[Decimal, Field(gt=0, le=HARD_PAYMENT_CEILING, decimal_places=2,
+                                  allow_inf_nan=False)]
 
 # Action types Prime understands. True = monetary (needs amount + a delegation limit).
 ACTION_TYPES: Dict[str, bool] = {
@@ -36,6 +44,30 @@ ACTION_TYPES: Dict[str, bool] = {
     "expense.approve": True,
     "payment.execute": True,
 }
+
+# Who holds authority over each action type and each executor, by organisation role
+# (core/models.py User.role: owner, admin, member, viewer). A person may delegate only
+# what their role holds here; a request is decided and executed only while the person
+# it is for, and any human who approves it, still hold it. A role or name missing from
+# these tables holds nothing (viewer, API keys, unknown executors).
+OWNER_ADMIN: FrozenSet[str] = frozenset({"owner", "admin"})
+ANY_MEMBER: FrozenSet[str] = frozenset({"owner", "admin", "member"})
+AUTHORITY: Dict[str, FrozenSet[str]] = {
+    "leave.approve": OWNER_ADMIN,
+    "deploy.staging": ANY_MEMBER,
+    "run.spec.approve": ANY_MEMBER,   # the executor checks the run is in the request's org
+    "invoice.approve": OWNER_ADMIN,
+    "expense.approve": OWNER_ADMIN,
+    "payment.execute": OWNER_ADMIN,
+}
+EXECUTOR_AUTHORITY: Dict[str, FrozenSet[str]] = {
+    "dry_run": ANY_MEMBER,            # carries nothing out
+    "aetheros.run_gate": ANY_MEMBER,
+    "webhook": OWNER_ADMIN,           # org-configured endpoint, signed with the org's secret
+}
+# Executors whose effect leaves AetherOS. With monetary action types they never run
+# on the requester's word alone: a second person must approve.
+EXTERNAL_EFFECT: FrozenSet[str] = frozenset({"webhook"})
 
 # Refused whatever any delegation says. Payments above PAYMENT_CEILING are the
 # one NEVER rule that depends on the amount; it is enforced in authorize().
@@ -81,8 +113,8 @@ _LEVEL_OUTCOME = {
 class Limits(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    max_amount: Decimal = Field(gt=0)
-    currency: str
+    max_amount: Amount
+    currency: Currency
 
 
 class Delegation(BaseModel):
@@ -161,6 +193,47 @@ def dead_reason(d: Delegation, now: datetime) -> str:
     return ""
 
 
+def authority_reason(role: Optional[str], action_type: str,
+                     executor: Optional[str] = None) -> str:
+    """Why a person with `role` does not hold authority over `action_type` (through
+    `executor`, if given); '' if they do. role None = not an active person in the org."""
+    if role is None:
+        return "not an active person in this organisation"
+    if role not in AUTHORITY.get(action_type, frozenset()):
+        return f"role '{role}' holds no authority over '{action_type}'"
+    if executor is not None and role not in EXECUTOR_AUTHORITY.get(executor, frozenset()):
+        return f"role '{role}' holds no authority to use executor '{executor}'"
+    return ""
+
+
+def needs_second_person(action_type: str, executor: str) -> bool:
+    """Monetary or external-effect: never executed without a person other than the
+    requester approving. Unknown action types count as monetary (fail closed)."""
+    return ACTION_TYPES.get(action_type, True) or executor in EXTERNAL_EFFECT
+
+
+def money_reason(action: Action, payment_ceiling: Decimal) -> str:
+    """Why the amount/currency of `action` is unacceptable; '' if it is fine.
+
+    Any action that carries an amount is held to this, monetary or not."""
+    if action.amount is None and action.currency is None:
+        return (f"'{action.type}' needs an amount and a currency"
+                if ACTION_TYPES.get(action.type, False) else "")
+    if action.amount is None or action.currency is None:
+        return "an amount needs a currency, and a currency needs an amount"
+    if action.currency != CURRENCY:
+        return f"only {CURRENCY} amounts are accepted, not '{action.currency}'"
+    amount = action.amount
+    if not amount.is_finite() or amount <= 0:
+        return "amount must be positive"
+    if amount > min(payment_ceiling, HARD_PAYMENT_CEILING):
+        return (f"amount {amount} is above the hard ceiling "
+                f"{min(payment_ceiling, HARD_PAYMENT_CEILING)} {CURRENCY}; no delegation can allow it")
+    if amount.quantize(_PAISA) != amount:   # safe: amount is bounded by the ceiling here
+        return "amount may have at most 2 decimal places"
+    return ""
+
+
 def authorize(action: Action, now: datetime,
               delegations: Iterable[Delegation] = (),
               payment_ceiling: Decimal = PAYMENT_CEILING) -> Decision:
@@ -180,14 +253,9 @@ def authorize(action: Action, now: datetime,
         return _refuse(f"unknown action type '{action.type}'")
 
     monetary = ACTION_TYPES[action.type]
-    if monetary:
-        if action.amount is None or action.currency is None:
-            return _refuse(f"'{action.type}' needs an amount and a currency")
-        if action.amount <= 0:
-            return _refuse("amount must be positive")
-        if action.amount > payment_ceiling:
-            return _refuse(f"amount {action.amount} is above the hard ceiling "
-                           f"{payment_ceiling} {CURRENCY}; no delegation can allow it")
+    bad_money = money_reason(action, payment_ceiling)
+    if bad_money:
+        return _refuse(bad_money)
 
     mine = sorted((d for d in delegations
                    if d.grantor == action.on_behalf_of and d.grantee == PRIME),
@@ -210,9 +278,8 @@ def authorize(action: Action, now: datetime,
     if monetary:
         if d.limits is None:
             return _to_deputy(f"delegation {d.id} sets no amount limit", d)
-        if action.currency != CURRENCY or d.limits.currency != CURRENCY:
-            return _to_deputy(f"only {CURRENCY} amounts can be checked "
-                              f"(action {action.currency}, limit {d.limits.currency})", d)
+        if d.limits.currency != CURRENCY:   # unreachable through Limits; kept fail-closed
+            return _refuse(f"delegation {d.id} has a limit in '{d.limits.currency}'", d)
         if action.amount > d.limits.max_amount:
             return _to_deputy(f"amount {action.amount} exceeds the delegated limit "
                               f"{d.limits.max_amount} {CURRENCY}", d)

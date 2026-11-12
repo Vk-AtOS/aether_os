@@ -11,13 +11,14 @@ from pydantic import ValidationError
 import aether_os.core.db as db
 from aether_os.core.audit import chain
 from aether_os.core.audit.chain import AuditChainEntry
+from aether_os.core.models import Organisation, User
 from aether_os.prime import (
     ACTION_TYPES, MAX_DELEGATION_DURATION, NEVER, PAYMENT_CEILING, Action,
     AutonomyLevel, Delegation, DelegationRepository, Limits, Outcome, PrimeService,
     authorize,
 )
 from aether_os.prime.authz import HARD_MAX_DELEGATION_DURATION
-from aether_os.prime.models import PrimeDelegation
+from aether_os.prime.models import PrimeDelegation, PrimeOrgLimits
 
 T0 = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
 NOW = T0 + timedelta(days=1)
@@ -143,9 +144,9 @@ def test_malformed_monetary_action_is_refused(bad):
 
 
 def test_other_currency_never_executes():
-    assert authorize(invoice("5", "USD"), NOW, [delegation()]).outcome is Outcome.ROUTE_TO_DEPUTY
-    usd = delegation(limits=Limits(max_amount=Decimal("1000"), currency="USD"))
-    assert authorize(invoice("5", "USD"), NOW, [usd]).outcome is Outcome.ROUTE_TO_DEPUTY
+    assert authorize(invoice("5", "USD"), NOW, [delegation()]).outcome is Outcome.REFUSE
+    with pytest.raises(ValidationError):
+        Limits(max_amount=Decimal("1000"), currency="USD")
 
 
 def test_out_of_scope_action_routes_to_the_deputy():
@@ -226,9 +227,9 @@ def test_delegation_duration_is_capped():
 
 @pytest.mark.asyncio
 async def test_default_duration_limit_is_enforced_when_stored(prime_db):
-    await prime_db.add(delegation(valid_until=T0 + MAX_DELEGATION_DURATION))
+    await prime_db.add(delegation(valid_until=T0 + MAX_DELEGATION_DURATION), ORG_T)
     with pytest.raises(ValueError, match="30 days"):
-        await prime_db.add(delegation(valid_until=T0 + MAX_DELEGATION_DURATION + timedelta(seconds=1)))
+        await prime_db.add(delegation(valid_until=T0 + MAX_DELEGATION_DURATION + timedelta(seconds=1)), ORG_T)
     assert len(await prime_db.for_grantor("ceo")) == 1
 
 
@@ -251,6 +252,9 @@ def test_invalid_delegations_are_rejected(bad):
 
 # ── PrimeService + repository on a real (SQLite) database ─────────────────────
 
+ORG_T = "org_t"
+
+
 @pytest_asyncio.fixture
 async def prime_db(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/prime.db")
@@ -258,8 +262,15 @@ async def prime_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_session_factory", None)
     engine = db.get_engine()
     async with engine.begin() as conn:
-        await conn.run_sync(lambda c: db.Base.metadata.create_all(
-            c, tables=[AuditChainEntry.__table__, PrimeDelegation.__table__]))
+        await conn.run_sync(lambda c: db.Base.metadata.create_all(c, tables=[
+            AuditChainEntry.__table__, PrimeDelegation.__table__, PrimeOrgLimits.__table__,
+            Organisation.__table__, User.__table__]))
+    async with db.get_session_factory()() as s:
+        s.add(Organisation(id=ORG_T, name=ORG_T, slug=ORG_T))
+        await s.flush()
+        for uid in ("ceo", "alice", "bob"):
+            s.add(User(id=uid, org_id=ORG_T, email=f"{uid}@t.test", password_hash="x", role="owner"))
+        await s.commit()
     yield DelegationRepository()
     await engine.dispose()
 
@@ -272,7 +283,7 @@ def live_delegation(**kw) -> Delegation:
 @pytest.mark.asyncio
 async def test_repository_round_trip_and_revoke(prime_db):
     d = live_delegation()
-    await prime_db.add(d)
+    await prime_db.add(d, ORG_T)
     assert await prime_db.for_grantor("ceo") == [d]
     assert await prime_db.for_grantor("cfo") == []
 
@@ -285,9 +296,9 @@ async def test_repository_round_trip_and_revoke(prime_db):
 @pytest.mark.asyncio
 async def test_decide_writes_request_and_decision_for_an_allowed_action(prime_db):
     d = live_delegation()
-    await prime_db.add(d)
+    await prime_db.add(d, ORG_T)
     a = invoice("250")
-    decision = await PrimeService(prime_db).decide(a)
+    decision = await PrimeService(prime_db).decide(a, ORG_T)
 
     assert decision.outcome is Outcome.EXECUTE and decision.delegation_id == d.id
     entries = await chain.read_entries()
@@ -300,15 +311,17 @@ async def test_decide_writes_request_and_decision_for_an_allowed_action(prime_db
     assert logged["actor"] == "prime"
     assert logged["payload"] == {"action_id": a.id, "on_behalf_of": a.on_behalf_of,
                                  "outcome": "EXECUTE", "reason": decision.reason,
-                                 "delegation_id": d.id, "deputy": None}
+                                 "delegation_id": d.id, "deputy": None, "org_id": ORG_T,
+                                 "authority": {"person": "ceo", "role": "owner", "executor": "dry_run",
+                                               "ok": True, "reason": ""}}
     assert (await chain.verify()).ok
 
 
 @pytest.mark.asyncio
 async def test_decide_writes_request_and_decision_for_a_refused_action(prime_db):
-    await prime_db.add(live_delegation(scope=set(NEVER)))
+    await prime_db.add(live_delegation(), ORG_T)
     a = action("person.terminate")
-    decision = await PrimeService(prime_db).decide(a)
+    decision = await PrimeService(prime_db).decide(a, ORG_T)
 
     assert decision.outcome is Outcome.REFUSE
     entries = await chain.read_entries()
@@ -322,12 +335,12 @@ async def test_decide_writes_request_and_decision_for_a_refused_action(prime_db)
 @pytest.mark.asyncio
 async def test_decide_refuses_after_revocation_and_with_no_delegation(prime_db):
     service = PrimeService(prime_db)
-    assert (await service.decide(action())).outcome is Outcome.REFUSE   # nothing stored
+    assert (await service.decide(action(), ORG_T)).outcome is Outcome.REFUSE   # nothing stored
     d = live_delegation()
-    await prime_db.add(d)
-    assert (await service.decide(action())).outcome is Outcome.EXECUTE
+    await prime_db.add(d, ORG_T)
+    assert (await service.decide(action(), ORG_T)).outcome is Outcome.EXECUTE
     await prime_db.revoke(d.id, by="ceo", now=datetime.now(timezone.utc))
-    assert (await service.decide(action())).outcome is Outcome.REFUSE
+    assert (await service.decide(action(), ORG_T)).outcome is Outcome.REFUSE
     # 1 grant + 1 revoke + 3 decisions x (request + decision)
     assert (await chain.verify()).entries_checked == 8
 
@@ -338,7 +351,7 @@ async def test_decide_fails_closed_and_still_logs_when_delegations_cannot_be_loa
         async def for_grantor(self, grantor):
             raise ConnectionError("db down")
 
-    decision = await PrimeService(BrokenRepository()).decide(action())
+    decision = await PrimeService(BrokenRepository()).decide(action(), ORG_T)
     assert decision.outcome is Outcome.REFUSE
     assert [e["action"] for e in await chain.read_entries()] == ["prime.request", "prime.decision"]
 
@@ -350,7 +363,7 @@ async def test_router_isolates_delegations_between_users(prime_db):
     from fastapi import HTTPException
     from aether_os.gateway.routers import prime_router as pr
 
-    alice, bob = {"user_id": "alice"}, {"user_id": "bob"}
+    alice, bob = {"user_id": "alice", "org_id": ORG_T}, {"user_id": "bob", "org_id": ORG_T}
     now = datetime.now(timezone.utc)
     body = pr.DelegationIn(scope=["leave.approve"], autonomy=3, valid_from=now,
                            valid_until=now + timedelta(days=2), deputy="deputy@example.test")

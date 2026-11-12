@@ -22,7 +22,7 @@ from aether_os.prime.approvals import RequestError
 from aether_os.prime.authz import HARD_MAX_DELEGATION_DURATION, HARD_PAYMENT_CEILING
 from aether_os.prime.models import PrimeOrgLimits
 from aether_os.tests.prime_helpers import (  # noqa: F401  (svc and counting are fixtures)
-    act, actions, ADMIN, ALICE, API_KEY, BOB, BOB_IDS, CAROL, counting, grant, MALLORY, MEMBER, ORG, OTHER_ORG, OUTSIDER, svc,
+    act, actions, ADMIN, ALICE, API_KEY, BOB, BOB_IDS, CAROL, counting, grant, MALLORY, MEMBER, ORG, OTHER_ORG, OUTSIDER, OWNER, svc, DAVE,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -70,14 +70,14 @@ async def test_org_limits_are_enforced(svc):
     body = prime_api.DelegationIn(scope=["invoice.approve"], autonomy=4, valid_from=now,
                                   valid_until=now + timedelta(days=45), deputy="Bob@A.test", max_amount=1500)
     with pytest.raises(HTTPException) as e:                     # default: 30 days
-        await prime_api.create_delegation(body, user=MEMBER)
+        await prime_api.create_delegation(body, user=OWNER)
     assert e.value.status_code == 400 and "30 days" in e.value.detail
 
     await limits.set_limits(ORG, CAROL, Decimal("2000"), 60)
     with pytest.raises(HTTPException) as e:                     # limit above the org ceiling
-        await prime_api.create_delegation(body.model_copy(update={"max_amount": Decimal("2001")}), user=MEMBER)
+        await prime_api.create_delegation(body.model_copy(update={"max_amount": Decimal("2001")}), user=OWNER)
     assert e.value.status_code == 400
-    created = await prime_api.create_delegation(body, user=MEMBER)
+    created = await prime_api.create_delegation(body, user=OWNER)
     assert created["deputy"] == "bob@a.test"
 
     ok = await svc.submit(act("invoice.approve", amount=Decimal("1500"), currency="INR"), ORG)
@@ -102,16 +102,18 @@ async def test_hard_bounds_hold_whatever_is_stored_or_passed(svc):
         Delegation(grantor=ALICE, deputy=BOB, autonomy=4, scope={"leave.approve"}, valid_from=now,
                    valid_until=now + HARD_MAX_DELEGATION_DURATION + timedelta(seconds=1))
     d = Delegation(grantor=ALICE, deputy=BOB, autonomy=4, scope={"invoice.approve"},
-                   limits=Limits(max_amount=HARD_PAYMENT_CEILING * 10, currency="INR"),
+                   # Past the bound Limits itself enforces, to show authorize() holds on its own.
+                   limits=Limits.model_construct(max_amount=HARD_PAYMENT_CEILING * 10, currency="INR"),
                    valid_from=now - timedelta(hours=1), valid_until=now + timedelta(days=1))
     a = act("invoice.approve", amount=HARD_PAYMENT_CEILING + 1, currency="INR")
     assert authorize(a, now, [d], payment_ceiling=HARD_PAYMENT_CEILING * 100).outcome.value == "REFUSE"
+    await DelegationRepository().add(
+        d.model_copy(update={"limits": Limits(max_amount=Decimal("5"), currency="INR")}), org_id=ORG)
     # A row written past the bound (not through set_limits) makes Prime refuse, not trust it.
     async with db.get_session_factory()() as s:
         s.add(PrimeOrgLimits(org_id=ORG, payment_ceiling=str(HARD_PAYMENT_CEILING * 2),
                              max_delegation_days=30, updated_by="x"))
         await s.commit()
-    await DelegationRepository().add(d.model_copy(update={"limits": Limits(max_amount=Decimal("5"), currency="INR")}))
     out = await svc.submit(act("invoice.approve", amount=Decimal("1"), currency="INR"), ORG)
     assert out["outcome"] == "REFUSE" and "could not be loaded" in out["reason"]
 
@@ -120,12 +122,12 @@ async def test_hard_bounds_hold_whatever_is_stored_or_passed(svc):
 
 async def test_ledger_browser_is_org_scoped_filtered_and_paginated(svc):
     for i in range(7):
-        await chain.append(actor=ALICE if i % 2 else BOB, action=f"thing.{'a' if i < 4 else 'b'}",
+        await chain.append(actor=DAVE if i % 2 else BOB, action=f"thing.{'a' if i < 4 else 'b'}",
                            payload={"org_id": ORG, "i": i}, timestamp=1000.0 + i)
     await chain.append(actor=MALLORY, action="thing.a", payload={"org_id": OTHER_ORG}, timestamp=1003.5)
     await chain.append(actor=MALLORY, action="thing.a",          # names org_a only in a nested field
                        payload={"org_id": OTHER_ORG, "metadata": {"org_id": ORG}}, timestamp=1003.6)
-    await chain.append(actor="prime", action="prime.decision", payload={"on_behalf_of": ALICE})  # no org
+    await chain.append(actor="prime", action="prime.decision", payload={"on_behalf_of": DAVE})  # no org
 
     full = await ledger_view.browse(ORG)
     assert [e["payload"]["i"] for e in full["entries"]] == [6, 5, 4, 3, 2, 1, 0] and full["next_before"] is None
@@ -137,7 +139,7 @@ async def test_ledger_browser_is_org_scoped_filtered_and_paginated(svc):
     assert [e["payload"]["i"] for p in (first, second, third) for e in p["entries"]] == [6, 5, 4, 3, 2, 1, 0]
     assert third["next_before"] is None
 
-    assert {e["actor"] for e in (await ledger_view.browse(ORG, actor=ALICE))["entries"]} == {ALICE}
+    assert {e["actor"] for e in (await ledger_view.browse(ORG, actor=DAVE))["entries"]} == {DAVE}
     assert [e["payload"]["i"] for e in (await ledger_view.browse(ORG, action_prefix="thing.b"))["entries"]] == [6, 5, 4]
     assert [e["payload"]["i"] for e in (await ledger_view.browse(ORG, since=1002.0, until=1004.0))["entries"]] == [4, 3, 2]
 
@@ -145,7 +147,7 @@ async def test_ledger_browser_is_org_scoped_filtered_and_paginated(svc):
                                          until=None, before=None, limit=50, user=ADMIN)
     assert page["whole_org"] and [e["payload"]["i"] for e in page["entries"]] == [6, 5]
     own = await ledger_api.list_entries(actor=None, event=None, since=None, until=None, before=None, limit=50, user=MEMBER)
-    assert not own["whole_org"] and {e["actor"] for e in own["entries"]} == {ALICE}
+    assert not own["whole_org"] and {e["actor"] for e in own["entries"]} == {DAVE}
     other = await ledger_api.list_entries(actor=BOB, event=None, since=None, until=None, before=None, limit=50, user=MEMBER)
     assert other["entries"] == []
     with pytest.raises(HTTPException) as e:
@@ -155,7 +157,7 @@ async def test_ledger_browser_is_org_scoped_filtered_and_paginated(svc):
 
 async def test_ledger_entry_shows_its_link_and_hides_other_orgs(svc):
     await chain.append(actor=MALLORY, action="thing.a", payload={"org_id": OTHER_ORG, "secret": "theirs"})
-    await chain.append(actor=ALICE, action="thing.a", payload={"org_id": ORG})
+    await chain.append(actor=DAVE, action="thing.a", payload={"org_id": ORG})
     await chain.append(actor=BOB, action="thing.a", payload={"org_id": ORG})
     stored = await chain.read_entries()
 
@@ -169,7 +171,7 @@ async def test_ledger_entry_shows_its_link_and_hides_other_orgs(svc):
         with pytest.raises(HTTPException) as e:
             await ledger_api.get_entry(seq, user=who)
         assert e.value.status_code == 404
-    assert (await ledger_api.get_entry(2, user=MEMBER))["actor"] == ALICE
+    assert (await ledger_api.get_entry(2, user=MEMBER))["actor"] == DAVE
 
     async with db.get_session_factory()() as s:                 # an edited entry is reported
         await s.execute(update(AuditChainEntry).where(AuditChainEntry.seq == 3)
