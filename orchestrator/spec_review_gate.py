@@ -8,8 +8,19 @@ decision_mode != "autonomous".
 Flow:
   1. LLM pre-critique pass (up to 2 rounds via spec_critique.critique_spec)
   2. Emit spec_review_ready SSE event
-  3. Poll Redis for human approval (spec_approved | cancel)
-  4. Auto-approve after SPEC_REVIEW_TIMEOUT seconds if no decision arrives
+  3. Poll Redis for human approval (spec_approved | cancel), which arrives only
+     through core.spec_approval.decide_spec (dashboard, client portal, Prime; ledgered)
+  4. No decision within SPEC_REVIEW_TIMEOUT seconds: the gate EXPIRES and the run
+     ends as failed. Silence is never approval.
+
+Why expire rather than wait forever: a waiting run holds one of the few pipeline
+concurrency slots (PIPELINE_MAX_CONCURRENT) and an in-process task that a restart
+loses anyway. Ending it frees the slot, shows a clear reason, and the run can be
+restarted from its checkpoint, which re-asks for review (phase_selector).
+
+The only way past the gate without a person is the organisation's explicit
+autonomous_mode setting, read from the database at the gate (apply_spec_review)
+and recorded on the run (context, checkpoint, ledger, event).
 
 The critique pass is entirely non-blocking: any failure falls back to
 the original spec and the gate continues normally.
@@ -19,9 +30,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, Dict
+import time
+from typing import Any, Dict, Optional, Tuple
+
+from sqlalchemy import select
+
+from aether_os.core.audit.ledger import get_ledger
+from aether_os.core.db import get_session_factory
+from aether_os.core.errors import PipelineBlockedError
+from aether_os.core.models import Organisation, Run
+from aether_os.orchestrator.run_state import save_checkpoint
 
 logger = logging.getLogger(__name__)
+
+# Context key holding how the gate was passed; a checkpoint without it has not passed.
+REVIEW_KEY = "spec_review"
 
 
 async def _run_spec_critique(accumulated_context: Dict[str, Any], run_id: str) -> None:
@@ -104,15 +127,13 @@ async def run_spec_review_gate(
     # ── Step 1: LLM pre-critique (non-blocking) ───────────────────────────────
     await _run_spec_critique(accumulated_context, run_id)
 
-    # ── Step 2: Check for pre-existing control signal ─────────────────────────
+    # ── Step 2: Report a state the gate did not expect (it still waits afresh) ─
     _ctrl = await get_control_fn(run_id)
-    if _ctrl == "spec_approved":
-        logger.info("[spec_review_gate] Spec already approved — skipping gate (run=%s)", run_id)
-        return
-    # None means first run — normal, no error. Only warn on truly unexpected values.
-    if _ctrl is not None and _ctrl not in ("spec_review", "spec_approved", "cancel"):
+    # A leftover "spec_approved" is NOT taken as approval of this spec: only an
+    # approval given while this gate waits counts.
+    if _ctrl is not None and _ctrl not in ("spec_review", "run", "running"):
         logger.warning(
-            "[spec_review_gate] Unexpected gate state '%s' for run %s — emitting gate_error",
+            "[spec_review_gate] Unexpected gate state '%s' for run %s — waiting for a fresh decision",
             _ctrl, run_id,
         )
         await publish_event_fn(run_id, {
@@ -131,8 +152,8 @@ async def run_spec_review_gate(
     logger.info("[spec_review_gate] Waiting for human approval (run=%s)", run_id)
 
     _spec_timeout = int(os.environ.get("SPEC_REVIEW_TIMEOUT", "600"))
-    _spec_waited = 0
-    while _spec_waited < _spec_timeout:
+    _deadline = time.monotonic() + _spec_timeout
+    while True:
         _ctrl = await get_control_fn(run_id)
         if _ctrl == "spec_approved":
             logger.info("[spec_review_gate] Spec approved — continuing (run=%s)", run_id)
@@ -141,20 +162,79 @@ async def run_spec_review_gate(
         if _ctrl == "cancel":
             logger.warning("[spec_review_gate] Spec review cancelled (run=%s)", run_id)
             raise RuntimeError("Pipeline cancelled at spec review")
+        if time.monotonic() >= _deadline:
+            break
         await asyncio.sleep(3)
-        _spec_waited += 3
 
-    # Timeout: auto-approve (better UX than silently aborting for unmonitored runs)
-    logger.warning(
-        "[spec_review_gate] Timed out after %ds — auto-approving run %s",
-        _spec_timeout, run_id,
-    )
-    await set_control_fn(run_id, "running")
+    # Timeout: fail closed. Late approvals now get 409 (the run is no longer waiting).
+    await set_control_fn(run_id, "spec_expired")
+    logger.warning("[spec_review_gate] No decision within %ds — run %s expires", _spec_timeout, run_id)
     await publish_event_fn(run_id, {
         "type": "spec_review_timeout",
         "run_id": run_id,
         "message": (
-            f"Spec review auto-approved after {_spec_timeout}s. "
-            "Pipeline continuing. Enable autonomous mode to skip this gate."
+            f"Spec review expired: nobody approved the specification within {_spec_timeout}s, "
+            "so nothing was built past intake. Restart the run to review it again."
         ),
     })
+    raise PipelineBlockedError(
+        f"Spec review expired after {_spec_timeout}s with no decision; the run was not approved. "
+        "Restart it to review the specification again.")
+
+
+async def _org_of_run(run_id: str) -> Tuple[Optional[str], bool]:
+    """(org_id, autonomous_mode) for the run, read from the database: the setting in
+    force now, not a copy in the mutable run context."""
+    async with get_session_factory()() as session:
+        row = (await session.execute(
+            select(Run.org_id, Organisation.autonomous_mode)
+            .join(Organisation, Organisation.id == Run.org_id, isouter=True)
+            .where(Run.id == run_id))).first()
+    if row is None:
+        return None, False
+    return row[0], bool(row[1])
+
+
+async def apply_spec_review(
+    run_id: str,
+    accumulated_context: Dict[str, Any],
+    emit_fn: Any,
+    get_control_fn: Any,
+    set_control_fn: Any,
+    publish_event_fn: Any,
+) -> None:
+    """Pass the spec review gate or raise. Called after s01_intake for every run.
+
+    Skipped only when the run's organisation has autonomous_mode on; that skip is
+    recorded on the run. If the setting cannot be read the gate runs (fail closed).
+    Either way the outcome is stored under accumulated_context["spec_review"] and
+    re-checkpointed, so a resumed run knows the gate was passed.
+    """
+    org_id, autonomous = None, False
+    try:
+        org_id, autonomous = await _org_of_run(run_id)
+    except Exception as exc:
+        logger.warning("[spec_review_gate] could not read autonomous_mode for run %s — "
+                       "reviewing: %s", run_id, exc)
+    if autonomous:
+        record = {"status": "skipped", "reason": "autonomous_mode", "at": time.time()}
+        logger.info("[spec_review_gate] run %s: review skipped (organisation autonomous_mode)", run_id)
+        await get_ledger().async_log_audit_event(
+            org_id=org_id or "-", user_id="system", action="run.spec_review_skipped",
+            resource_type="run", resource_id=run_id, metadata={"reason": "autonomous_mode"})
+        await publish_event_fn(run_id, {
+            "type": "spec_review_skipped", "run_id": run_id,
+            "message": "Spec review skipped: the organisation runs in autonomous mode.",
+        })
+    else:
+        await run_spec_review_gate(
+            run_id=run_id,
+            accumulated_context=accumulated_context,
+            emit_fn=emit_fn,
+            get_control_fn=get_control_fn,
+            set_control_fn=set_control_fn,
+            publish_event_fn=publish_event_fn,
+        )
+        record = {"status": "approved", "at": time.time()}
+    accumulated_context[REVIEW_KEY] = record
+    await save_checkpoint(run_id, "s01_intake", accumulated_context)

@@ -28,6 +28,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from aether_os.core.spec_approval import decide_spec
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 
 logger = logging.getLogger(__name__)
@@ -197,20 +198,23 @@ async def approve_spec(
     body: Dict[str, Any] = {},
     user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
-    """Approve (or cancel) the parsed spec so the pipeline continues past the review gate."""
-    from aether_os.core.pipeline_state import set_control as _sc, get_control as _gc
-    ctrl = await _gc(run_id)
-    if ctrl not in ("spec_review", "running", None):
+    """Approve (or cancel) the parsed spec so the pipeline continues past the review gate.
+
+    Goes through core.spec_approval.decide_spec, the same ledgered path the client
+    portal and Prime use: 409 unless the run is waiting at the gate.
+    """
+    action = str(body.get("action", "approve")).lower()
+    outcome = await decide_spec(
+        run_id, user["org_id"], actor=str(user.get("user_id") or user.get("sub") or "-"),
+        via="dashboard", approve=action != "cancel")
+    if outcome == "not_found":
+        raise HTTPException(status_code=404, detail="Run not found")
+    if outcome.startswith("not_waiting:"):
         raise HTTPException(
             status_code=409,
-            detail=f"Run is not at spec_review gate (current: {ctrl})",
+            detail=f"Run is not at spec_review gate (current: {outcome.split(':', 1)[1]})",
         )
-    action = str(body.get("action", "approve")).lower()
-    if action == "cancel":
-        await _sc(run_id, "cancel")
-        return {"status": "cancelled", "run_id": run_id}
-    await _sc(run_id, "spec_approved")
-    return {"status": "approved", "run_id": run_id}
+    return {"status": outcome, "run_id": run_id}
 
 
 @router.post("/factory/runs/{run_id}/council-review")
@@ -271,6 +275,7 @@ async def run_council_review(
         run_id=run_id,
         project_name=_project_name,
         domain=_domain,
+        org_id=user["org_id"],
     )
 
     review_path = project_dir / "council_review.json"
