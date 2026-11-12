@@ -16,6 +16,7 @@ import fnmatch
 import logging
 import os
 import shutil
+import stat
 from pathlib import Path
 from typing import List, Tuple
 
@@ -74,12 +75,94 @@ def plan_copy(src: Path) -> List[Tuple[str, int]]:
     return plan
 
 
+_CHUNK = 1024 * 1024
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _walk(root_fd: int, parts: List[str], create: bool) -> int:
+    """fd of root/parts, each step opened O_NOFOLLOW relative to the previous fd, so a
+    planted symlink in any directory is an OSError, never followed. Caller closes it."""
+    fd = os.dup(root_fd)
+    try:
+        for part in parts:
+            if create:
+                try:
+                    os.mkdir(part, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            nxt = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _copy_one(src_fd: int, dst_fd: int, name: str, budget: int) -> int:
+    """Copy one regular file between directory fds; bytes copied, or -1 if it is not a
+    regular file / is a link (skipped). Raises ProjectTooLarge past `budget` bytes."""
+    try:   # O_NONBLOCK: opening a FIFO must not hang; fstat then rejects it
+        rfd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=src_fd)
+    except OSError:
+        return -1
+    with os.fdopen(rfd, "rb") as src:
+        if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+            return -1
+        wfd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                      0o644, dir_fd=dst_fd)
+        copied = 0
+        with os.fdopen(wfd, "wb") as out:
+            while chunk := src.read(_CHUNK):
+                copied += len(chunk)
+                if copied > budget:   # counted as written, not as planned: the file may have grown
+                    raise ProjectTooLarge("the project grew past the copy limit while copying")
+                out.write(chunk)
+    return copied
+
+
 def copy_project(src: Path, dst: Path, plan: List[Tuple[str, int]]) -> int:
-    """Copy the planned files; returns how many were copied."""
+    """Copy the planned files; returns how many were copied. Every source and destination
+    component is opened without following links at copy time (the plan is only a list of
+    names), non-regular files and links are skipped, bytes are counted as copied, and a
+    failed or oversized copy removes the destination folder."""
+    max_bytes, _ = limits()
+    created = not dst.exists()
     dst.mkdir(parents=True, exist_ok=True)
-    for rel, _size in plan:
-        target = dst / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src / rel, target)
-    logger.info("project_copy: %d files from %s to %s", len(plan), src, dst)
-    return len(plan)
+    copied = skipped = total = 0
+    try:
+        src_root = os.open(src, _DIR_FLAGS)   # the root itself must not be a link
+        try:
+            dst_root = os.open(dst, _DIR_FLAGS)
+            try:
+                for rel, _size in plan:
+                    *dirs, name = Path(rel).parts
+                    try:
+                        sfd = _walk(src_root, dirs, create=False)
+                    except OSError:
+                        skipped += 1
+                        continue
+                    try:
+                        dfd = _walk(dst_root, dirs, create=True)
+                        try:
+                            n = _copy_one(sfd, dfd, name, max_bytes - total)
+                        finally:
+                            os.close(dfd)
+                    finally:
+                        os.close(sfd)
+                    if n < 0:
+                        skipped += 1
+                    else:
+                        total, copied = total + n, copied + 1
+            finally:
+                os.close(dst_root)
+        finally:
+            os.close(src_root)
+    except BaseException:
+        if created:
+            shutil.rmtree(dst, ignore_errors=True)
+        raise
+    if skipped:
+        logger.warning("project_copy: skipped %d links or non-regular files in %s", skipped, src)
+    logger.info("project_copy: %d files from %s to %s", copied, src, dst)
+    return copied
