@@ -16,6 +16,7 @@ import os
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from aether_os.core.billing.stripe_events import apply_event
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
         )
     except Exception as exc:
         logger.error("Stripe checkout session creation failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"Stripe error: {exc}")
+        raise HTTPException(status_code=502, detail="Payment provider error; try again later")
 
     logger.info("Stripe checkout session created: org=%s plan=%s session=%s", org_id, plan_id, session.id)
     return {
@@ -108,55 +109,33 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
 
 @router.post("/billing/stripe/webhook")
 async def stripe_webhook(request: Request):
-    """Handle Stripe webhook events.
+    """Handle Stripe webhook events (public: Stripe calls it; the stripe-signature
+    header, checked against STRIPE_WEBHOOK_SECRET, is the authentication).
 
-    Stripe sends events to this endpoint; we verify the stripe-signature header
-    with STRIPE_WEBHOOK_SECRET and process checkout.session.completed and
-    customer.subscription.deleted to update org plan in the database.
+    Paid checkouts and renewals are confirmed with Stripe and applied once
+    (core.billing.stripe_events); a canceled subscription moves the org to free.
     """
-    import json as _json
-
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     if not webhook_secret:
-        raise HTTPException(status_code=500, detail="STRIPE_WEBHOOK_SECRET not configured")
+        raise HTTPException(status_code=503, detail="Stripe webhooks are not configured")
+    stripe = _stripe_client()   # 503 when the SDK or STRIPE_SECRET_KEY is missing
 
-    stripe = _stripe_client()
-
-    payload   = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
+    payload = await request.body()
+    try:
+        event = stripe.Webhook.construct_event(payload, request.headers.get("stripe-signature", ""),
+                                               webhook_secret)
+    except Exception as exc:
+        # Never echo parser or signature errors to the caller.
+        logger.warning("Stripe webhook rejected: %s", type(exc).__name__)
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook")
 
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Stripe webhook signature verification failed")
+        outcome = await apply_event(stripe, event, _stripe_prices())
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Webhook parse error: {exc}")
-
-    event_type = event["type"]
-    logger.info("Stripe webhook received: %s", event_type)
-
-    if event_type == "checkout.session.completed":
-        session   = event["data"]["object"]
-        meta      = session.get("metadata", {})
-        org_id    = meta.get("org_id", "")
-        plan_id   = meta.get("plan", "")
-        if org_id and plan_id:
-            await _upgrade_org_plan(org_id, plan_id)
-            logger.info("Stripe checkout complete: org=%s plan=%s", org_id, plan_id)
-
-    elif event_type == "customer.subscription.deleted":
-        subscription = event["data"]["object"]
-        meta         = subscription.get("metadata", {})
-        org_id       = meta.get("org_id", "")
-        if org_id:
-            await _upgrade_org_plan(org_id, "free")
-            logger.info("Stripe subscription deleted: org=%s → free", org_id)
-
-    elif event_type in ("invoice.payment_failed", "invoice.payment_action_required"):
-        invoice = event["data"]["object"]
-        # Log for alerting — do not immediately downgrade (grace period policy)
-        logger.warning("Stripe payment issue (%s): customer=%s", event_type, invoice.get("customer"))
-
+        # 5xx makes Stripe deliver the event again later.
+        logger.warning("Stripe webhook %s could not be confirmed: %s", event.get("type"), exc)
+        raise HTTPException(status_code=502, detail="Could not confirm the event with Stripe")
+    logger.info("Stripe webhook %s %s: %s", event.get("type"), event.get("id"), outcome)
     return {"received": True}
 
 
@@ -183,29 +162,12 @@ async def stripe_portal(user: Dict[str, Any] = _current_user()):
         )
     except Exception as exc:
         logger.error("Stripe portal session creation failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"Stripe error: {exc}")
+        raise HTTPException(status_code=502, detail="Payment provider error; try again later")
 
     return {"portal_url": portal_session.url}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-async def _upgrade_org_plan(org_id: str, plan_id: str) -> None:
-    """Persist plan change to the Organisation row."""
-    try:
-        from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation
-        from sqlalchemy import update as _upd
-        sf = get_session_factory()
-        async with sf() as session:
-            await session.execute(
-                # Stripe subscriptions end through Stripe's own webhook, not the one-off payment period.
-                _upd(Organisation).where(Organisation.id == org_id).values(plan=plan_id, plan_period_end=None)
-            )
-            await session.commit()
-    except Exception as exc:
-        logger.error("_upgrade_org_plan failed: org=%s plan=%s err=%s", org_id, plan_id, exc)
-
 
 async def _get_or_create_stripe_customer(org_id: str, email: str, stripe) -> str:
     """Return the Stripe customer ID for this org, creating one if needed.
