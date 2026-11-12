@@ -16,6 +16,7 @@ from aether_os.prime import (
     AutonomyLevel, Delegation, DelegationRepository, Limits, Outcome, PrimeService,
     authorize,
 )
+from aether_os.prime.authz import HARD_MAX_DELEGATION_DURATION
 from aether_os.prime.models import PrimeDelegation
 
 T0 = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
@@ -216,9 +217,19 @@ def test_open_ended_delegation_is_rejected():
 
 
 def test_delegation_duration_is_capped():
-    assert delegation(valid_until=T0 + MAX_DELEGATION_DURATION)
+    # The model holds the bound no setting can pass; the organisation's limit
+    # (default MAX_DELEGATION_DURATION) is enforced when the delegation is stored.
+    assert delegation(valid_until=T0 + HARD_MAX_DELEGATION_DURATION)
     with pytest.raises(ValidationError):
-        delegation(valid_until=T0 + MAX_DELEGATION_DURATION + timedelta(seconds=1))
+        delegation(valid_until=T0 + HARD_MAX_DELEGATION_DURATION + timedelta(seconds=1))
+
+
+@pytest.mark.asyncio
+async def test_default_duration_limit_is_enforced_when_stored(prime_db):
+    await prime_db.add(delegation(valid_until=T0 + MAX_DELEGATION_DURATION))
+    with pytest.raises(ValueError, match="30 days"):
+        await prime_db.add(delegation(valid_until=T0 + MAX_DELEGATION_DURATION + timedelta(seconds=1)))
+    assert len(await prime_db.for_grantor("ceo")) == 1
 
 
 @pytest.mark.parametrize("bad", [

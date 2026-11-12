@@ -17,10 +17,14 @@ from pydantic import AwareDatetime, BaseModel, Field, ValidationError
 from aether_os.core.audit import chain as audit_chain
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.prime import (
-    ACTION_TYPES, MAX_DELEGATION_DURATION, NEVER, PAYMENT_CEILING,
+    ACTION_TYPES, NEVER,
     Action, AutonomyLevel, Delegation, DelegationRepository, Limits, PrimeService,
 )
-from aether_os.prime.authz import CURRENCY
+from aether_os.prime.authz import (
+    CURRENCY, HARD_MAX_DELEGATION_DURATION, HARD_PAYMENT_CEILING,
+)
+from aether_os.prime.executors import DEFAULT_EXECUTOR, REGISTRY
+from aether_os.prime.limits import OrgLimits, get_limits, set_limits
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/prime", tags=["prime"])
@@ -40,6 +44,11 @@ class DelegationIn(BaseModel):
     valid_until: AwareDatetime
     deputy: str = Field(min_length=1, max_length=255)
     max_amount: Optional[Decimal] = Field(default=None, gt=0)
+
+
+class LimitsIn(BaseModel):
+    payment_ceiling: Decimal = Field(gt=0)
+    max_delegation_days: int = Field(ge=1)
 
 
 class ActionIn(BaseModel):
@@ -65,7 +74,7 @@ def _delegation_out(d: Delegation, now: datetime) -> Dict[str, Any]:
     else:
         state = "active"
     return {
-        "id": d.id, "scope": sorted(d.scope), "autonomy": int(d.autonomy),
+        "id": d.id, "grantor": d.grantor, "scope": sorted(d.scope), "autonomy": int(d.autonomy),
         "autonomy_name": d.autonomy.name, "deputy": d.deputy, "state": state,
         "valid_from": d.valid_from.isoformat(), "valid_until": d.valid_until.isoformat(),
         "max_amount": str(d.limits.max_amount) if d.limits else None,
@@ -81,9 +90,38 @@ async def meta(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, An
         "action_types": [{"type": t, "monetary": m} for t, m in sorted(ACTION_TYPES.items())],
         "never": sorted(NEVER),
         "autonomy_levels": [{"level": int(a), "name": a.name} for a in AutonomyLevel],
-        "payment_ceiling": str(PAYMENT_CEILING), "currency": CURRENCY,
-        "max_delegation_days": MAX_DELEGATION_DURATION.days,
+        "executors": sorted(REGISTRY), "default_executor": DEFAULT_EXECUTOR,
+        "currency": CURRENCY, **_limits_out(await get_limits(user.get("org_id"))),
     }
+
+
+def _limits_out(limits: OrgLimits) -> Dict[str, Any]:
+    return {"payment_ceiling": str(limits.payment_ceiling),
+            "max_delegation_days": limits.max_delegation_days}
+
+
+@router.get("/limits")
+async def read_limits(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """This organisation's Prime limits and the bounds no setting can pass."""
+    return {**_limits_out(await get_limits(user.get("org_id"))), "currency": CURRENCY,
+            "hard_payment_ceiling": str(HARD_PAYMENT_CEILING),
+            "hard_max_delegation_days": HARD_MAX_DELEGATION_DURATION.days,
+            "can_edit": user.get("role") in ("owner", "admin")}
+
+
+@router.put("/limits")
+async def write_limits(
+    body: LimitsIn, user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Change the organisation's limits. Organisation admins only; ledgered."""
+    uid = _uid(user)
+    if user.get("role") not in ("owner", "admin") or not user.get("org_id"):
+        raise HTTPException(status_code=403, detail="Only an organisation admin can change Prime limits")
+    try:
+        new = await set_limits(user["org_id"], uid, body.payment_ceiling, body.max_delegation_days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _limits_out(new)
 
 
 @router.get("/delegations")
@@ -104,12 +142,16 @@ async def create_delegation(
     try:
         d = Delegation(
             grantor=_uid(user), scope=frozenset(body.scope), autonomy=body.autonomy,
-            valid_from=body.valid_from, valid_until=body.valid_until, deputy=body.deputy,
+            valid_from=body.valid_from, valid_until=body.valid_until,
+            # Lower-cased so the deputy's sign-in email matches it in the inbox.
+            deputy=body.deputy.strip().lower(),
             limits=Limits(max_amount=body.max_amount, currency=CURRENCY) if body.max_amount else None,
         )
+        await _repo.add(d, org_id=user.get("org_id"))
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.errors()[0]["msg"]) from e
-    await _repo.add(d)
+    except ValueError as e:  # the organisation's own limits
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return _delegation_out(d, datetime.now(timezone.utc))
 
 
@@ -122,7 +164,8 @@ async def revoke_delegation(
     # delegation that belongs to someone else is indistinguishable from a missing one.
     if delegation_id not in {d.id for d in await _repo.for_grantor(uid)}:
         raise HTTPException(status_code=404, detail="Delegation not found")
-    await _repo.revoke(delegation_id, by=uid, now=datetime.now(timezone.utc))
+    await _repo.revoke(delegation_id, by=uid, now=datetime.now(timezone.utc),
+                       org_id=user.get("org_id"))
     return {"id": delegation_id, "state": "revoked"}
 
 
@@ -138,7 +181,7 @@ async def check_action(
     uid = _uid(user)
     action = Action(type=body.type, on_behalf_of=uid, requested_by=uid,
                     amount=body.amount, currency=body.currency or (CURRENCY if body.amount else None))
-    decision = await _service.decide(action)
+    decision = await _service.decide(action, user.get("org_id"))
     return {"action_id": action.id, **decision.model_dump(mode="json")}
 
 

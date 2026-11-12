@@ -274,6 +274,8 @@ def create_app() -> FastAPI:
         ("guardian_snapshots", "aether_os.gateway.routers.guardian_snapshots_router", "router", {},                    False),
         ("app_preview",   "aether_os.gateway.routers.app_preview_router",   "router",       {},                        False),
         ("prime",         "aether_os.gateway.routers.prime_router",         "router",       {},                        False),
+        ("prime_inbox",   "aether_os.gateway.routers.prime_inbox_router",   "router",       {},                        False),
+        ("prime_ledger",  "aether_os.gateway.routers.prime_ledger_router",  "router",       {},                        False),
         ("velaris",       "aether_os.gateway.routers.velaris_router",       "router",       {},                        False),
         # --- Plugin / optional integrations ---
         ("plugins",       "aether_os.gateway.routers.plugins_router",       "router",       {"prefix": "/v2"},         False),
