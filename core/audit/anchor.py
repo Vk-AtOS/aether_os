@@ -23,7 +23,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from aether_os.core.audit import chain, checkpoints
@@ -109,6 +109,12 @@ async def check_file() -> List[Dict[str, Any]]:
     path = checkpoints.anchor_file_path()
     newest: Dict[str, Dict[str, Any]] = {}
     problems: List[Dict[str, Any]] = []
+    if not path.exists():
+        async with get_session_factory()() as session:
+            stored = (await session.execute(select(func.count()).select_from(AuditCheckpoint))).scalar_one()
+        if stored:  # a missing file is only fine while there is nothing to compare against
+            problems.append({"chain_id": None,
+                             "reason": f"anchor file missing while {stored} checkpoints exist in the database"})
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     for n, line in enumerate(lines, 1):
         try:
@@ -148,14 +154,25 @@ async def run_file_check() -> Dict[str, Any]:
     return result
 
 
-def last_file_check(cid: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """The last file-check result. With `cid`, only that chain's problems (an
-    organisation must not learn about other organisations' chains); without, all."""
+GENERIC_REASON = "anchor file check incomplete"
+
+
+def last_file_check(cid: Optional[str] = None, detail: bool = False) -> Optional[Dict[str, Any]]:
+    """The last file-check result. Without `cid`, everything. With `cid`, that chain's
+    problems (an organisation must not learn about other organisations' chains) plus any
+    problem that names no chain (missing/unreadable file, the check itself failed): that
+    affects EVERY chain, so none is reported ok. Its detail is shown only with `detail`
+    (superadmin); everyone else gets a generic reason."""
     if _last_file_check is None:
         return None
     if cid is None:
         return _last_file_check
-    mine = [p for p in _last_file_check["problems"] if p.get("chain_id") == cid]
+    mine = []
+    for p in _last_file_check["problems"]:
+        if p.get("chain_id") == cid:
+            mine.append(p)
+        elif p.get("chain_id") is None:
+            mine.append(p if detail else {"chain_id": cid, "reason": GENERIC_REASON})
     return {"at": _last_file_check["at"], "ok": not mine, "problems": mine}
 
 

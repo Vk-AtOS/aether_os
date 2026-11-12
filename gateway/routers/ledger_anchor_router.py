@@ -67,7 +67,7 @@ async def latest_checkpoint(user: Dict[str, Any] = Depends(get_current_user)) ->
     # file_check: the last scheduled check of the local anchor file (this chain's
     # problems only; None until the first run, 600 s by default).
     return {"chain_id": cid, "checkpoint": await anchor.latest(cid),
-            "file_check": anchor.last_file_check(cid),
+            "file_check": anchor.last_file_check(cid, detail=user.get("role") == "superadmin"),
             "key_id": checkpoints.key_id(key) if key else None,
             "public_key_pem": checkpoints.public_key_pem(key) if key else None}
 

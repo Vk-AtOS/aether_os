@@ -194,3 +194,47 @@ async def test_gateway_runs_the_anchor_lifespan(tmp_path, monkeypatch):
     monkeypatch.setenv("AETHER_LEDGER_SIGNING_KEY", str(tmp_path / "ledger.pem"))
     await asyncio.to_thread(_run_gateway)
     assert started == [3600]
+
+
+# ── a problem that names no chain counts against every chain ─────────────────
+
+async def test_missing_anchor_file_with_checkpoints_is_a_problem(ledger_sqlite, monkeypatch):
+    await _fill(2)
+    await anchor.anchor_chain(ORG)
+    checkpoints.anchor_file_path().unlink()
+    problems = await anchor.check_file()
+    assert any(p["chain_id"] is None and "missing" in p["reason"] for p in problems)
+    monkeypatch.setattr(anchor, "_last_file_check", None)
+    await anchor.run_file_check()
+    other = anchor.last_file_check("org-zzz")                  # a chain that has no problem of its own
+    assert not other["ok"] and other["problems"] == [{"chain_id": "org-zzz", "reason": anchor.GENERIC_REASON}]
+    assert "missing" in anchor.last_file_check("org-zzz", detail=True)["problems"][0]["reason"]
+
+
+async def test_missing_anchor_file_without_checkpoints_is_fine(ledger_sqlite):
+    assert await anchor.check_file() == []
+
+
+async def test_unreadable_anchor_file_fails_every_chain(ledger_sqlite, monkeypatch):
+    await _fill(1)
+    await anchor.anchor_chain(ORG)
+    monkeypatch.setattr(anchor, "_last_file_check", None)
+    os.chmod(checkpoints.anchor_file_path(), 0)
+    try:
+        res = await anchor.run_file_check()
+    finally:
+        os.chmod(checkpoints.anchor_file_path(), 0o600)
+    if os.geteuid() == 0:
+        pytest.skip("root reads anything")
+    assert not res["ok"]
+    for cid in (ORG, "org-b"):
+        view = anchor.last_file_check(cid)
+        assert not view["ok"] and view["problems"][0]["reason"] == anchor.GENERIC_REASON
+    assert "could not run" in anchor.last_file_check(ORG, detail=True)["problems"][0]["reason"]
+
+
+def test_a_chain_problem_only_affects_its_own_chain(monkeypatch):
+    monkeypatch.setattr(anchor, "_last_file_check", {"at": 1.0, "ok": False, "problems": [
+        {"chain_id": "a", "reason": "cut"}]})
+    assert not anchor.last_file_check("a")["ok"]
+    assert anchor.last_file_check("b") == {"at": 1.0, "ok": True, "problems": []}
