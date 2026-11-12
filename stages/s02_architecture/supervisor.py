@@ -155,6 +155,20 @@ class ArchitectureStageSupervisor(PhaseBase):
                 if key in ir_result.metadata:
                     phase_input.input_data[key] = ir_result.metadata[key]
 
+        # Clarifying questions: the domain model lists every field it could not
+        # infer. Carry the full list (not just p02b's count) in the stage metadata,
+        # and write it to this stage's summary file, which the run-detail endpoint
+        # serves as phases.s02_architecture.output.
+        questions = self._read_clarifying_questions(ir_result.output_path)
+        phase_input.input_data["clarifying_questions"] = questions
+        phase_input.input_data["has_questions"] = bool(questions)
+        (output_dir / f"{self.phase_name}.json").write_text(json.dumps({
+            "clarifying_questions": questions,
+            "has_questions": bool(questions),
+            **{k: ir_result.metadata[k] for k in ("entity_count", "field_count")
+               if k in (ir_result.metadata or {})},
+        }, indent=2))
+
         # ── Step 3: Permission modeling (non-critical) ────────────────────────
         perm_result = await self._run_sub_phase(
             "p02c_permission_modeling", phase_input, memory_ctx, pm
@@ -197,6 +211,15 @@ class ArchitectureStageSupervisor(PhaseBase):
         )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _read_clarifying_questions(ir_path: str) -> List[Dict[str, Any]]:
+        """The clarifying questions saved in domain_ir.json ([] if there are none)."""
+        try:
+            return list(json.loads(Path(ir_path).read_text()).get("clarifying_questions") or [])
+        except Exception as exc:
+            logger.warning("s02: could not read clarifying questions from %s: %s", ir_path, exc)
+            return []
 
     async def _run_sub_phase(
         self, phase_name: str, phase_input: Any, memory_ctx: list, pm
