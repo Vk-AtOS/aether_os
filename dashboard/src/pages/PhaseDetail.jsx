@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import PhaseBadge from '../components/PhaseBadge';
+import StageActions from '../components/project/StageActions';
+import {
+  PHASE_LABELS, STAGE_DIRS, stageStates, summariseRunEvents,
+} from '../components/project/projectConstants';
+import { useRole } from '../hooks/useRole';
+import { apiError } from '../apiError';
 import {
   ArrowLeft,
   FileText,
@@ -12,10 +18,9 @@ import {
   Download,
   Copy,
   File,
-  Folder,
-  FolderOpen,
-  ChevronDown,
   Loader2,
+  Pencil,
+  Save,
 } from 'lucide-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -36,8 +41,7 @@ const formatDuration = (ms) => {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 };
 
-const JsonBlock = ({ data, collapsed = false }) => {
-  const [open, setOpen] = useState(!collapsed);
+const JsonBlock = ({ data }) => {
   const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
   return (
     <div className="relative group">
@@ -57,12 +61,12 @@ const JsonBlock = ({ data, collapsed = false }) => {
   );
 };
 
-// Flat file list from tree, filtering by phase prefix
-const flattenTree = (items, prefix) => {
+// Flat file list from tree, keeping files under any of the given folder prefixes
+const flattenTree = (items, prefixes) => {
   const result = [];
   const walk = (nodes) => {
     for (const node of nodes) {
-      if (node.type === 'file' && node.path.startsWith(prefix)) {
+      if (node.type === 'file' && prefixes.some((p) => node.path.startsWith(p))) {
         result.push(node);
       }
       if (node.children) walk(node.children);
@@ -77,7 +81,15 @@ const flattenTree = (items, prefix) => {
 const PhaseDetail = () => {
   const { id, name } = useParams();
   const navigate = useNavigate();
+  const { canWrite } = useRole();
   const [activeTab, setActiveTab] = useState('output');
+  const [loadError, setLoadError] = useState('');
+  const [stageState, setStageState] = useState(null);
+  // Artifact editing (PATCH /factory/runs/{id}/file-content)
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
   const [run, setRun] = useState(null);
   const [phaseData, setPhaseData] = useState(null);
 
@@ -91,21 +103,23 @@ const PhaseDetail = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const [runRes, filesRes] = await Promise.all([
+        const [runRes, filesRes, eventsRes] = await Promise.all([
           api.getRun(id),
-          api.getRunFiles(id),
+          api.getRunFiles(id).catch(() => ({ data: { tree: [] } })),
+          api.getRunEvents(id).catch(() => ({ data: { events: [] } })),
         ]);
         const r = runRes.data;
         setRun(r);
-        const phaseEntry = r.phases?.[name] ?? null;
-        setPhaseData(phaseEntry);
+        setPhaseData(r.phases?.[name] ?? {});
+        setStageState(stageStates(r, summariseRunEvents(eventsRes.data?.events))[name] || null);
 
         const tree = filesRes.data?.tree || [];
         setFileTree(tree);
-        // Filter files to those under this phase's directory
-        setPhaseFiles(flattenTree(tree, name + '/'));
+        // A stage writes into its sub-phase folders (STAGE_DIRS); older runs used the phase id itself.
+        setPhaseFiles(flattenTree(tree, [name, ...(STAGE_DIRS[name] || [])].map((d) => d + '/')));
       } catch (err) {
         if (import.meta.env.DEV) console.error('PhaseDetail load failed', err);
+        setLoadError(apiError(err) || 'This stage could not be loaded.');
         setPhaseData({});
       }
     };
@@ -116,6 +130,8 @@ const PhaseDetail = () => {
     setSelectedFile(file);
     setFileLoading(true);
     setFileContent(null);
+    setEditing(false);
+    setSaveMsg('');
     try {
       const res = await api.getFileContent(id, file.path);
       setFileContent(res.data);
@@ -125,6 +141,20 @@ const PhaseDetail = () => {
       setFileLoading(false);
     }
   }, [id]);
+
+  const saveFile = async () => {
+    setSaving(true); setSaveMsg('');
+    try {
+      await api.patchFileContent(id, selectedFile.path, draft);
+      setFileContent((c) => ({ ...c, content: draft }));
+      setEditing(false);
+      setSaveMsg('Saved to this run.');
+    } catch (e) {
+      setSaveMsg(apiError(e) || 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // ── Loading guard ─────────────────────────────────────────────────────────
   // FIXED: `!phaseData && phaseData !== null` is always false (undefined !== null but
@@ -142,7 +172,8 @@ const PhaseDetail = () => {
 
   // ── Derived values ────────────────────────────────────────────────────────
 
-  const status = phaseData.status || 'unknown';
+  const status = stageState?.status || phaseData.status || 'unknown';
+  const stageReason = stageState?.reason || '';
 
   // Duration: phase.updated_at is Unix seconds; run.started_at is JS ms
   const updatedAtMs = phaseData.updated_at ? phaseData.updated_at * 1000 : null;
@@ -177,7 +208,7 @@ const PhaseDetail = () => {
           </button>
           <div>
             <div className="flex items-center space-x-3">
-              <h1 className="text-xl font-bold">{name.replace(/_/g, ' ').replace(/^p\d+ /i, '').replace(/\b\w/g, c => c.toUpperCase())}</h1>
+              <h1 className="text-xl font-bold">{PHASE_LABELS[name] || name}</h1>
               <span className="text-xs font-mono text-muted">{name}</span>
               <PhaseBadge status={status} />
             </div>
@@ -188,6 +219,17 @@ const PhaseDetail = () => {
           </div>
         </div>
       </header>
+
+      {loadError && <div role="alert" className="panel p-4 text-sm text-danger">{loadError}</div>}
+      {stageReason && (
+        <div role={status === 'failed' ? 'alert' : undefined}
+          className={`panel p-4 text-sm ${status === 'failed' ? 'border-danger/40 bg-danger/10 text-danger' : 'text-muted'}`}>
+          <span className="font-bold">{status === 'failed' ? 'Why this stage stopped the run: ' : 'Why it was skipped: '}</span>
+          <span className="break-words">{stageReason}</span>
+        </div>
+      )}
+
+      {run && <StageActions runId={id} stage={name} runStatus={run.status} canWrite={canWrite} />}
 
       {/* Tab bar */}
       <div className="flex border-b border-border space-x-8">
@@ -322,7 +364,7 @@ const PhaseDetail = () => {
         {activeTab === 'artifacts' && (
           <div className="panel overflow-hidden">
             <div className="bg-border/20 px-4 py-3 border-b border-border text-xs font-bold text-muted uppercase tracking-wider">
-              Output Directory: {name}/ &nbsp;·&nbsp; {phaseFiles.length} file{phaseFiles.length !== 1 ? 's' : ''}
+              Output folders: {(STAGE_DIRS[name] || [name]).join(', ')} &nbsp;·&nbsp; {phaseFiles.length} file{phaseFiles.length !== 1 ? 's' : ''}
             </div>
             {phaseFiles.length === 0 ? (
               <div className="p-8 text-center text-muted italic">
@@ -344,7 +386,7 @@ const PhaseDetail = () => {
                     >
                       <File className="w-3.5 h-3.5 shrink-0" />
                       <span className="flex-1 font-mono truncate">
-                        {file.path.replace(name + '/', '')}
+                        {file.path}
                       </span>
                       <span className="text-[9px] text-muted shrink-0 ml-1">
                         {langFromExt(file.name).toUpperCase()}
@@ -380,12 +422,31 @@ const PhaseDetail = () => {
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
+                          {canWrite && !fileContent?.truncated && (editing ? (
+                            <>
+                              <button onClick={saveFile} disabled={saving} className="flex items-center gap-1 text-[11px] text-success disabled:opacity-50">
+                                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+                              </button>
+                              <button onClick={() => setEditing(false)} disabled={saving} className="text-[11px] text-muted hover:text-bright">Cancel</button>
+                            </>
+                          ) : (
+                            <button onClick={() => { setDraft(fileContent?.content || ''); setEditing(true); setSaveMsg(''); }}
+                              className="flex items-center gap-1 text-[11px] text-muted hover:text-bright" title="Edit this file">
+                              <Pencil className="w-3.5 h-3.5" /> Edit
+                            </button>
+                          ))}
                         </div>
                       </div>
+                      {saveMsg && <div role="status" className="px-4 py-1.5 text-[11px] text-muted border-b border-border">{saveMsg}</div>}
                       <div className="flex-1 overflow-auto bg-[#0a0c10]">
-                        <pre className="p-4 font-mono text-[11px] text-bright/90 leading-relaxed whitespace-pre-wrap break-words">
-                          {fileContent?.content || '(empty file)'}
-                        </pre>
+                        {editing ? (
+                          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`Edit ${selectedFile.path}`}
+                            className="w-full h-full p-4 bg-transparent font-mono text-[11px] text-bright/90 leading-relaxed focus:outline-none resize-none" />
+                        ) : (
+                          <pre className="p-4 font-mono text-[11px] text-bright/90 leading-relaxed whitespace-pre-wrap break-words">
+                            {fileContent?.content || '(empty file)'}
+                          </pre>
+                        )}
                       </div>
                     </>
                   )}

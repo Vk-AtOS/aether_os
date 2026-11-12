@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Rocket, Loader2, Zap, Settings, CreditCard, HeartPulse, Cloud, ShoppingCart, Truck, BookOpen, Shield } from 'lucide-react';
 import { api } from '../api';
 import { useNavigate } from 'react-router-dom';
+import ErrorText from './ErrorText';
+import { apiErrorState } from '../apiError';
 
 const DOMAIN_DATA = {
   general: {
@@ -72,17 +74,6 @@ const NewProjectModal = ({ open, onClose }) => {
 
   const currentDomain = DOMAIN_DATA[domain] || DOMAIN_DATA.general;
 
-  // Reset on open
-  useEffect(() => {
-    if (open) {
-      setName('');
-      setRequirements('');
-      setDomain('general');
-      setError(null);
-      setLoading(false);
-    }
-  }, [open]);
-
   // Close on Escape
   useEffect(() => {
     if (!open) return;
@@ -119,7 +110,7 @@ const NewProjectModal = ({ open, onClose }) => {
         navigate('/projects');
       }
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to start run.');
+      setError(apiErrorState(err, 'Failed to start run.'));
       setLoading(false);
     }
   };
@@ -248,7 +239,7 @@ const NewProjectModal = ({ open, onClose }) => {
           {/* Error */}
           {error && (
             <div className="bg-danger/10 border border-danger/30 rounded-lg px-4 py-3 text-sm text-danger">
-              {error}
+              <ErrorText error={error} />
             </div>
           )}
 

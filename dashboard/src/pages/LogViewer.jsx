@@ -14,7 +14,7 @@
  *   feedLines {string[]} — raw SSE terminal lines (from ProjectView)
  *   isRunning {boolean}
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ChevronDown, ChevronRight, CheckCircle2, XCircle, Clock,
   Loader2, Copy, Check, FileText, Cpu, AlertTriangle,
@@ -51,13 +51,10 @@ const StatusBadge = ({ status }) => {
 // ── Phase Row ─────────────────────────────────────────────────────────────────
 
 const PhaseRow = ({ phaseKey, phaseData, phaseLines, isActive, autoExpand }) => {
-  const [open, setOpen] = useState(autoExpand || isActive);
+  // Follows the run (open while active) until the user toggles it.
+  const [picked, setOpen] = useState(null);
+  const open = picked ?? Boolean(autoExpand || isActive);
   const rowRef = useRef(null);
-
-  // Auto-expand when this phase becomes active
-  useEffect(() => {
-    if (isActive && !open) setOpen(true);
-  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll into view when active
   useEffect(() => {
@@ -96,7 +93,7 @@ const PhaseRow = ({ phaseKey, phaseData, phaseLines, isActive, autoExpand }) => 
       {/* Phase header row */}
       <button
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-border/20 transition-colors group"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
       >
         <span className="text-muted group-hover:text-bright transition-colors shrink-0">
@@ -181,8 +178,8 @@ const LogViewer = ({ run, feedLines = [], isRunning }) => {
   const [copied, setCopied] = useState(false);
   const bottomRef = useRef(null);
 
-  const phases  = run?.phases  || {};
-  const events  = run?.events  || [];
+  const phases  = useMemo(() => run?.phases || {}, [run?.phases]);
+  const events  = useMemo(() => run?.events || [], [run?.events]);
   const current = run?.current_phase || null;
 
   // Build ordered phase list: known phases first, then any extras from run.phases

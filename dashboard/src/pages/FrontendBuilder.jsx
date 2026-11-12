@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { api } from '../api';
 import { Monitor, Smartphone, Tablet, Save, ChevronRight, Layout, Palette, Layers, Grid } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const LAYOUTS = [
   { id: 'sidebar-dashboard', label: 'Sidebar Dashboard', desc: 'Left nav + main content area' },
@@ -34,7 +35,6 @@ const DEFAULT_PAGES = [
 
 const FrontendBuilder = () => {
   const { id: runId } = useParams();
-  const navigate = useNavigate();
 
   const [spec, setSpec] = useState({
     framework: 'react',
@@ -51,11 +51,11 @@ const FrontendBuilder = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(runId));
   const [newPage, setNewPage] = useState({ name: '', route: '' });
 
   useEffect(() => {
-    if (!runId) { setLoading(false); return; }
+    if (!runId) return;
     api.client.get(`/factory/runs/${runId}/frontend-spec`)
       .then(r => { if (r.data?.spec && Object.keys(r.data.spec).length) setSpec(r.data.spec); })
       .catch(() => {})
@@ -72,7 +72,7 @@ const FrontendBuilder = () => {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      setSaveError('Save failed: ' + (e.response?.data?.detail || e.message));
+      setSaveError('Save failed: ' + (apiError(e) || e.message));
     } finally {
       setSaving(false);
     }

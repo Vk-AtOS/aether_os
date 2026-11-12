@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
+import { apiError } from '../../apiError';
 
 // Prime endpoints beyond the ones in src/api.js, on the same axios client.
 const c = api.client;
@@ -15,8 +16,7 @@ export const primeApi = {
 };
 
 export const errText = (e, fallback) => {
-  const d = e.response?.data?.detail;
-  return typeof d === 'string' ? d : fallback;
+  return apiError(e) || fallback;
 };
 
 // Loads `fetcher()` (memoise it with useCallback) and again on reload().

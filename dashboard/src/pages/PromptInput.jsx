@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { Send, Loader2, Bot, User, AlertCircle, Sparkles } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const SCOPE_GUARD = "I'm focused on your project. What aspect of the project should I help you with?";
 
@@ -75,7 +76,7 @@ const PromptInput = () => {
         setTimeout(() => navigate('/projects'), 2000);
       }
     } catch (e) {
-      const detail = e.response?.data?.detail || e.message || 'An error occurred';
+      const detail = apiError(e) || e.message || 'An error occurred';
       setError(detail);
       setMessages(prev => [...prev, { role: 'assistant', content: `Sorry, something went wrong: ${detail}` }]);
     } finally {

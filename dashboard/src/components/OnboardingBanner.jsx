@@ -4,7 +4,7 @@ import { X, CheckCircle2, Circle, Key, Rocket, Settings } from 'lucide-react';
 
 const STORAGE_KEY = 'aether_onboarding_dismissed';
 
-const Step = ({ done, icon: Icon, title, desc, action, actionLabel }) => (
+const Step = ({ done, title, desc, action, actionLabel }) => (
   <div className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${done ? 'border-success/30 bg-success/5' : 'border-border bg-surface/50'}`}>
     <div className={`mt-0.5 ${done ? 'text-success' : 'text-muted'}`}>
       {done ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
@@ -30,14 +30,12 @@ const OnboardingBanner = ({ hasRuns, hasApiKey }) => {
 
   const allDone = hasRuns && hasApiKey;
 
+  // Once both steps are done the banner stays gone, also on later visits.
   useEffect(() => {
-    if (allDone) {
-      localStorage.setItem(STORAGE_KEY, '1');
-      setDismissed(true);
-    }
+    if (allDone) localStorage.setItem(STORAGE_KEY, '1');
   }, [allDone]);
 
-  if (dismissed) return null;
+  if (dismissed || allDone) return null;
 
   const steps = [
     {

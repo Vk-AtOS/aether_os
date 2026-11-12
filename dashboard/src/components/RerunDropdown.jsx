@@ -87,7 +87,8 @@ const EditModal = ({ rawInput, onConfirm, onClose }) => {
 //   onContinue()  — called for "Continue from here"
 //   onEditRestart(editedReq) — called after user confirms Edit & Restart
 //   onRerunPhase(phase)      — called with a phase key
-//   onFullRestart()          — called for Full restart (p01)
+//   onFullRestart()          — called for Full restart (new run from s01_intake)
+//   onRestart()              — failed/cancelled only: resume this run at its blocked stage
 //   loading       — show spinner on trigger
 //   variant       — 'compact' (icon-only, for table rows) | 'button' (full pill, for detail view)
 
@@ -98,6 +99,7 @@ const RerunDropdown = ({
   onEditRestart,
   onRerunPhase,
   onFullRestart,
+  onRestart,
   loading = false,
   variant = 'compact',
 }) => {
@@ -119,6 +121,7 @@ const RerunDropdown = ({
   }, []);
 
   const canContinue = status === 'paused' || status === 'interrupted';
+  const canRestart = Boolean(onRestart) && (status === 'failed' || status === 'cancelled');
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -184,6 +187,21 @@ const RerunDropdown = ({
               </button>
             )}
 
+            {canRestart && (
+              <button
+                onClick={() => { closeAll(); onRestart(); }}
+                className="w-full flex items-start space-x-3 px-4 py-3 hover:bg-white/[0.05] transition-colors text-left group"
+              >
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                  <Play className="w-3.5 h-3.5 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-bright leading-tight">Restart this run</div>
+                  <div className="text-[11px] text-muted mt-0.5">Resume at the stage that stopped it</div>
+                </div>
+              </button>
+            )}
+
             {/* 2. Edit & Restart */}
             <button
               onClick={() => { closeAll(); setEditOpen(true); }}
@@ -208,8 +226,8 @@ const RerunDropdown = ({
                   <Layers className="w-3.5 h-3.5 text-indigo-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-bright leading-tight">Re-run from phase</div>
-                  <div className="text-[11px] text-muted mt-0.5">Pick a specific phase to restart from</div>
+                  <div className="text-[13px] font-semibold text-bright leading-tight">Re-run from stage</div>
+                  <div className="text-[11px] text-muted mt-0.5">New run starting at the stage you pick</div>
                 </div>
                 <ChevronRight
                   className={`w-3.5 h-3.5 text-muted shrink-0 mt-1 transition-transform ${phaseExpanded ? 'rotate-90' : ''}`}
@@ -246,7 +264,7 @@ const RerunDropdown = ({
               </div>
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold text-bright leading-tight">Full restart</div>
-                <div className="text-[11px] text-muted mt-0.5">Re-run all 10 phases from scratch</div>
+                <div className="text-[11px] text-muted mt-0.5">New run through all 12 stages</div>
               </div>
             </button>
 

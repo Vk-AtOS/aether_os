@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { api } from '../../api';
 import { AUTONOMY } from './labels';
+import { apiError } from '../../apiError';
 
 const inputClass =
   'w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent';
@@ -44,8 +45,7 @@ const DelegationForm = ({ meta, onCreated }) => {
       setScope([]); setDeputy(''); setMaxAmount('');
       onCreated();
     } catch (err) {
-      const d = err.response?.data?.detail;
-      setError(typeof d === 'string' ? d : 'Could not grant the delegation. Check the dates and the deputy.');
+      setError(apiError(err) || 'Could not grant the delegation. Check the dates and the deputy.');
     } finally {
       setSaving(false);
     }

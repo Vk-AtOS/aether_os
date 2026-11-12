@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Settings, Plus, Trash2, Loader2,
   GitBranch, MessageSquare, Pen, Globe, Database, Cloud, Bell, CreditCard, Search
 } from "lucide-react";
 import api from "../api";
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 const ICON_MAP = {
   github: GitBranch, gitlab: GitBranch, slack: MessageSquare, figma: Pen,
@@ -154,7 +155,7 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
                   setEditingConfig(false);
                   setConfigValues({});
                 } catch (e) {
-                  alert('Update failed: ' + (e.response?.data?.detail || e.message));
+                  alert('Update failed: ' + (apiError(e) || e.message));
                 } finally {
                   setSaving(false);
                 }
@@ -215,25 +216,21 @@ export default function ConnectorHub() {
   const [filter, setFilter] = useState("");
   const [error, setError] = useState(null);
 
-  const load = async () => {
-    try {
-      setLoading(true);
-      const [catRes, instRes] = await Promise.all([
-        api.client.get("/v2/plugins/catalog", { params: { type: "connector" } }),
-        api.client.get("/v2/plugins/installed"),
-      ]);
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => Promise.all([
+    api.client.get("/v2/plugins/catalog", { params: { type: "connector" } }),
+    api.client.get("/v2/plugins/installed"),
+  ])
+    .then(([catRes, instRes]) => {
       setCatalog(catRes.data);
       const instMap = {};
       for (const p of instRes.data) instMap[p.plugin_id] = p;
       setInstalled(instMap);
-    } catch (e) {
-      setError(e.response?.data?.detail || "Failed to load connectors");
-    } finally {
-      setLoading(false);
-    }
-  };
+    })
+    .catch((e) => setError(apiError(e) || "Failed to load connectors"))
+    .finally(() => setLoading(false)), []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const handleInstall = async (pluginId, config) => {
     await api.client.post("/v2/plugins/install", { plugin_id: pluginId, config });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useSettings } from '../contexts/SettingsContext';
+import { useSettings } from '../contexts/useSettings';
 
 const PROVIDER_STYLES = {
   anthropic:  { dot: 'bg-orange-400', pill: 'bg-orange-500/10 border-orange-500/20 text-orange-400' },

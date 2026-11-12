@@ -8,6 +8,7 @@ import {
   Cpu, Server, HardDrive, Wifi, Lock, Unlock, Info, Zap,
 } from 'lucide-react';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 // ── Threat level config ───────────────────────────────────────────────────────
 const THREAT_CONFIG = {
@@ -189,28 +190,25 @@ export default function Guardian() {
   const [severityFilter, setSeverityFilter] = useState('');
   const [scanning, setScanning] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [statusRes, statsRes, eventsRes, snapshotsRes] = await Promise.all([
-        api.client.get('/guardian/status'),
-        api.client.get('/guardian/stats'),
-        api.client.get('/guardian/events', { params: { limit: 50, ...(severityFilter ? { severity: severityFilter } : {}) } }),
-        // Snapshots are super-admin only; other admins still get the rest of the page.
-        isSuperadmin
-          ? api.client.get('/guardian/snapshots?limit=20')
-          : Promise.resolve({ data: { snapshots: [] } }),
-      ]);
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => Promise.all([
+    api.client.get('/guardian/status'),
+    api.client.get('/guardian/stats'),
+    api.client.get('/guardian/events', { params: { limit: 50, ...(severityFilter ? { severity: severityFilter } : {}) } }),
+    // Snapshots are super-admin only; other admins still get the rest of the page.
+    isSuperadmin
+      ? api.client.get('/guardian/snapshots?limit=20')
+      : Promise.resolve({ data: { snapshots: [] } }),
+  ])
+    .then(([statusRes, statsRes, eventsRes, snapshotsRes]) => {
       setStatus(statusRes.data);
       setStats(statsRes.data);
       setEvents(eventsRes.data?.items || []);
       setSnapshots(snapshotsRes.data?.snapshots || []);
       setError(null);
-    } catch (e) {
-      setError(e.response?.data?.detail || e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [severityFilter, isSuperadmin]);
+    })
+    .catch((e) => setError(apiError(e) || e.message))
+    .finally(() => setLoading(false)), [severityFilter, isSuperadmin]);
 
   useEffect(() => {
     load();
@@ -223,7 +221,7 @@ export default function Guardian() {
       await api.client.post(`/guardian/events/${id}/resolve`);
       setEvents(ev => ev.map(e => e.id === id ? { ...e, resolved: true } : e));
     } catch (e) {
-      alert('Failed to resolve: ' + (e.response?.data?.detail || e.message));
+      alert('Failed to resolve: ' + (apiError(e) || e.message));
     }
   };
 
@@ -233,7 +231,7 @@ export default function Guardian() {
       await api.client.post('/guardian/snapshots', { note: 'Manual snapshot' });
       setTimeout(load, 3000);
     } catch (e) {
-      alert('Snapshot failed: ' + (e.response?.data?.detail || e.message));
+      alert('Snapshot failed: ' + (apiError(e) || e.message));
     } finally {
       setSnapshotting(false);
     }
@@ -259,7 +257,7 @@ export default function Guardian() {
       await api.client.post(`/guardian/restore/${snapId}`);
       alert('Restore started. AetherOS will restart. Please wait 30–60 seconds then refresh.');
     } catch (e) {
-      alert('Restore failed: ' + (e.response?.data?.detail || e.message));
+      alert('Restore failed: ' + (apiError(e) || e.message));
     } finally {
       setRestoring(null);
     }
@@ -272,7 +270,7 @@ export default function Guardian() {
       const res = await api.client.post('/guardian/update-baseline');
       alert(`Baseline refreshed for: ${res.data.updated_files?.join(', ')}`);
     } catch (e) {
-      alert('Failed: ' + (e.response?.data?.detail || e.message));
+      alert('Failed: ' + (apiError(e) || e.message));
     } finally {
       setBaselineRefreshing(false);
     }

@@ -73,6 +73,24 @@ client.interceptors.response.use(
   }
 );
 
+// Client portal calls. The portal token comes from the link fragment (#t=...), is
+// held in memory only (never localStorage) and is sent as X-Portal-Token. Without one,
+// a signed-in member of the owning org is sent with their session. A separate axios
+// instance: a 401 here means "this link is not valid", not "sign in again", so the
+// refresh-and-redirect interceptor above must not run.
+let _portalToken = null;
+export const setPortalToken = (token) => { _portalToken = token || null; };
+const portalClient = axios.create({ baseURL: BASE });
+portalClient.interceptors.request.use((config) => {
+  if (_portalToken) {
+    config.headers['X-Portal-Token'] = _portalToken;
+  } else {
+    const token = localStorage.getItem('aether_token');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export const api = {
   // Expose the raw axios instance so pages can call api.client.get/post directly
   client,
@@ -116,6 +134,7 @@ export const api = {
   startPipeline: (data) => client.post('/factory/start', data),
   listRuns: (page = 1, limit = 50) => client.get('/factory/runs', { params: { page, limit } }),
   getRun: (runId) => client.get(`/factory/runs/${runId}`),
+  getRunEvents: (runId) => client.get(`/factory/runs/${runId}/events`),
   getRunFiles: (runId) => client.get(`/factory/runs/${runId}/files`),
   getFileContent: (runId, path) => client.get(`/factory/runs/${runId}/file-content`, { params: { path } }),
   patchFileContent: (runId, path, content) => client.patch(`/factory/runs/${runId}/file-content`, { path, content }),
@@ -142,6 +161,8 @@ export const api = {
   cancelRun: (runId) => client.post(`/factory/runs/${runId}/cancel`),
   setRunPriority: (runId, priority) =>
     client.post(`/factory/runs/${runId}/priority`, { priority }),
+  // Resume a failed/cancelled run in place from its checkpoint (the blocked stage).
+  restartRun: (runId) => client.post(`/factory/runs/${runId}/restart`),
   rerunFromPhase: (runId, fromPhase, extraInput) =>
     client.post(`/factory/runs/${runId}/rerun`, { from_phase: fromPhase, extra_input: extraInput }),
   branchRun: (runId, branchPhase, extraInput) =>
@@ -152,13 +173,17 @@ export const api = {
   stopDeploy:      (runId) => client.delete(`/factory/runs/${runId}/deploy`),
   listDeployments: ()      => client.get('/factory/deployments'),
 
-  // Portal (Public — uses client so auth token is included if present)
-  getPortalStatus: (projectId) => client.get(`/portal/${projectId}/status`),
-  getPortalPhase: (projectId, phase) => client.get(`/portal/${projectId}/phase/${phase}`),
-  approvePortalPhase: (projectId, approved, comment) =>
-    client.post(`/portal/${projectId}/approve`, { approved, comment }),
-  sendPortalFeedback: (projectId, feedback, phase) =>
-    client.post(`/portal/${projectId}/feedback`, { feedback, phase }),
+  // Client portal: see portalClient below.
+  getPortalStatus: (projectId) => portalClient.get(`/portal/${projectId}/status`),
+  approvePortal: (projectId, approved, comment) =>
+    portalClient.post(`/portal/${projectId}/approve`, { approved, comment }),
+
+  // Client access (owning org, owner/admin)
+  listPortalTokens: (runId) => client.get(`/factory/runs/${runId}/portal-tokens`),
+  issuePortalToken: (runId, label, expiresInDays) =>
+    client.post(`/factory/runs/${runId}/portal-tokens`, { label, expires_in_days: expiresInDays }),
+  revokePortalToken: (runId, tokenId) => client.delete(`/factory/runs/${runId}/portal-tokens/${tokenId}`),
+  listPortalApprovals: (runId) => client.get(`/factory/runs/${runId}/portal-approvals`),
 
   // Compliance
   getComplianceReport: () => client.get('/compliance/org-report'),
@@ -237,6 +262,7 @@ export const api = {
   resetUserPassword: (userId) => client.post(`/admin/users/${userId}/reset-password`),
 
   // Billing (extended)
+  getBillingStatus: () => client.get('/billing/status'),
   getInvoices: () => client.get('/billing/invoices'),
   cancelSubscription: () => client.post('/billing/cancel'),
 

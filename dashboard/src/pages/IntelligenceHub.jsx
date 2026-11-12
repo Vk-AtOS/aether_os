@@ -5,9 +5,11 @@ import {
   TrendingUp, Shield, Scale, Brain, GitMerge, Wrench, RotateCcw,
 } from 'lucide-react';
 import {
-  normPct, ScoreBadge, Card, InsightItem, ExpandableSection, ToolCard,
+  ScoreBadge, Card, InsightItem, ExpandableSection, ToolCard,
   ConflictResolverTool, MaintenanceEngineTool, ImprovementLoopTool,
 } from '../components/intelligence/IntelligenceTools';
+import { normPct } from '../components/intelligence/normPct';
+import { apiError } from '../apiError';
 
 const ANALYSIS_TIMEOUT_MS = 20000;
 
@@ -24,26 +26,24 @@ const IntelligenceHub = () => {
   const [tradeoff, setTradeoff]         = useState(null);
   const [truth, setTruth]               = useState(null);
   const [errors, setErrors]             = useState({});
-  const [loading, setLoading]           = useState({});
+  const [loading, setLoading]           = useState({ insights: true, benchmark: true });
   const [analysisRun, setAnalysisRun]   = useState(false);
   const [lastRefresh, setLastRefresh]   = useState(null);
 
   const setL = (key, v) => setLoading(p => ({ ...p, [key]: v }));
   const setE = (key, v) => setErrors(p => ({ ...p, [key]: v }));
 
+  // Runs from an effect, so it sets state only when the requests settle; the
+  // refresh button (load below) shows the spinners itself.
   const loadGets = useCallback(() => {
-    setLastRefresh(new Date());
-
-    setL('insights', true);
     api.client.get('/intelligence/global-insights')
-      .then(r => setInsights(r.data))
-      .catch(e => setE('insights', e.response?.data?.detail || 'Failed to load insights'))
+      .then(r => { setInsights(r.data); setLastRefresh(new Date()); })
+      .catch(e => setE('insights', apiError(e) || 'Failed to load insights'))
       .finally(() => setL('insights', false));
 
-    setL('benchmark', true);
     api.client.get('/intelligence/quality-benchmark')
       .then(r => setBenchmark(r.data))
-      .catch(e => setE('benchmark', e.response?.data?.detail || 'Failed to load benchmark'))
+      .catch(e => setE('benchmark', apiError(e) || 'Failed to load benchmark'))
       .finally(() => setL('benchmark', false));
   }, []);
 
@@ -55,25 +55,29 @@ const IntelligenceHub = () => {
     setE('arch', null);
     withTimeout(api.client.post('/intelligence/arch-governor/review', { run_id: 'global' }), ANALYSIS_TIMEOUT_MS)
       .then(r => setArchReview(r.data))
-      .catch(e => setE('arch', e.message || e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('arch', e.message || apiError(e) || 'Failed'))
       .finally(() => setL('arch', false));
 
     setL('tradeoff', true);
     setE('tradeoff', null);
     withTimeout(api.client.post('/intelligence/tradeoff-engine/analyze', { scope: 'platform' }), ANALYSIS_TIMEOUT_MS)
       .then(r => setTradeoff(r.data))
-      .catch(e => setE('tradeoff', e.message || e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('tradeoff', e.message || apiError(e) || 'Failed'))
       .finally(() => setL('tradeoff', false));
 
     setL('truth', true);
     setE('truth', null);
     withTimeout(api.client.post('/intelligence/truth-engine/validate', { scope: 'platform' }), ANALYSIS_TIMEOUT_MS)
       .then(r => setTruth(r.data))
-      .catch(e => setE('truth', e.message || e.response?.data?.detail || 'Failed'))
+      .catch(e => setE('truth', e.message || apiError(e) || 'Failed'))
       .finally(() => setL('truth', false));
   }, []);
 
-  const load = useCallback(() => { loadGets(); runAnalysis(); }, [loadGets, runAnalysis]);
+  const load = useCallback(() => {
+    setLoading(p => ({ ...p, insights: true, benchmark: true }));
+    loadGets();
+    runAnalysis();
+  }, [loadGets, runAnalysis]);
 
   useEffect(() => { loadGets(); }, [loadGets]);
 

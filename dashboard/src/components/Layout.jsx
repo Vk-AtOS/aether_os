@@ -1,9 +1,10 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import NewProjectModal from './NewProjectModal';
-import { RunsProvider, useRuns } from '../contexts/RunsContext';
+import { RunsProvider } from '../contexts/RunsContext';
+import { useRuns } from '../contexts/useRuns';
 import { SettingsProvider } from '../contexts/SettingsContext';
 import { Menu, X } from 'lucide-react';
 
@@ -22,12 +23,14 @@ const PageSkeleton = () => (
 
 function LayoutInner() {
   const [modalOpen, setModalOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The mobile sidebar is open for the path it was opened on, so navigating closes it.
+  const [sidebarOpenAt, setSidebarOpenAt] = useState(null);
   const { activeRunCount } = useRuns();
   const location = useLocation();
 
   // Close sidebar on route change (mobile)
-  useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
+  const sidebarOpen = sidebarOpenAt === location.pathname;
+  const setSidebarOpen = (open) => setSidebarOpenAt(open ? location.pathname : null);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#050507]">
@@ -49,7 +52,7 @@ function LayoutInner() {
         <div className="flex items-center">
           {/* Hamburger — mobile only */}
           <button
-            onClick={() => setSidebarOpen(v => !v)}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-3 text-muted hover:text-bright transition-colors shrink-0"
             aria-label="Toggle sidebar"
           >
@@ -72,10 +75,8 @@ function LayoutInner() {
         </footer>
       </div>
 
-      <NewProjectModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-      />
+      {/* Mounted only while open, so every opening starts with an empty form. */}
+      {modalOpen && <NewProjectModal open onClose={() => setModalOpen(false)} />}
     </div>
   );
 }

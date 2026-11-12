@@ -13,17 +13,16 @@ const Legal = () => {
   const [active, setActive] = useState(searchParams.get('doc') || 'tos');
   const [content, setContent] = useState('');
   const [meta, setMeta] = useState({});
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     const doc = DOCS.find(d => d.key === active);
     if (!doc) return;
-    setLoading(true);
-    setError('');
     fetch(doc.path)
       .then(r => r.json())
       .then(data => {
+        setError('');
         setContent(data.text || '');
         setMeta({ version: data.version, effective_date: data.effective_date });
       })
@@ -32,6 +31,7 @@ const Legal = () => {
   }, [active]);
 
   const switchDoc = (key) => {
+    if (key !== active) setLoading(true);
     setActive(key);
     setSearchParams({ doc: key });
   };

@@ -9,7 +9,7 @@ export function TraceTab({ runId }) {
 
   useEffect(() => {
     if (!runId) return
-    setLoading(true)
+    // loading starts true and is cleared once; switching runs replaces the list when it arrives
     api.getRunTraces(runId)
       .then(r => setTraces(r.data || []))
       .catch(() => setTraces([]))

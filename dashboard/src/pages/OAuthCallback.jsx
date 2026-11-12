@@ -1,31 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 const OAuthCallback = () => {
-  const [error, setError] = useState('');
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const token = searchParams.get('token');
+  const err = searchParams.get('error');
+  const error = err ? decodeURIComponent(err) : (!token ? 'No authentication token received.' : '');
 
   useEffect(() => {
-    const token = searchParams.get('token');
-    const refreshToken = searchParams.get('refresh_token');
-    const err = searchParams.get('error');
-
-    if (err) {
-      setError(decodeURIComponent(err));
-      return;
-    }
-
-    if (!token) {
-      setError('No authentication token received.');
-      return;
-    }
-
-    api.setToken(token, refreshToken);
+    if (error) return;
+    api.setToken(token, searchParams.get('refresh_token'));
     navigate('/', { replace: true });
-  }, [searchParams, navigate]);
+  }, [error, token, searchParams, navigate]);
 
   if (error) {
     return (

@@ -5,14 +5,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { PHASES, countFiles, findIndexHtml, formatEvent } from '../components/project/projectConstants';
+import {
+  PHASES, countFiles, findIndexHtml, formatEvent, stageStates, summariseRunEvents,
+} from '../components/project/projectConstants';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 export function useProjectView(id) {
   const navigate = useNavigate();
 
   const [run, setRun]                   = useState(null);
-  const [elapsed, setElapsed]           = useState(0);
+  const [nowMs, setNowMs]               = useState(0); // ticks while a run is live
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
   const [fileTree, setFileTree]         = useState(null);
@@ -21,11 +24,12 @@ export function useProjectView(id) {
   const [priority, setPriority]             = useState('normal');
   const [deploying, setDeploying]           = useState(false);
 
-  const [activeArtifactTab, setActiveArtifactTab] = useState('artifacts');
+  // Tabs follow the run (live while running, live preview once deployed) until the user picks one.
+  const [pickedTab, setActiveArtifactTab] = useState(null);
   const [viewMode, setViewMode]     = useState('desktop');
-  const [previewMode, setPreviewMode] = useState('static');
+  const [pickedPreviewMode, setPreviewMode] = useState(null);
   const [previewHtml, setPreviewHtml] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewDoneFor, setPreviewDoneFor] = useState(null); // the file tree the preview was loaded from
   const [previewFile, setPreviewFile] = useState(null);
   const [iframeDevice, setIframeDevice] = useState('desktop');
   const [iframeKey, setIframeKey]       = useState(0);
@@ -53,64 +57,81 @@ export function useProjectView(id) {
   const [addFeatureText, setAddFeatureText]           = useState('');
   const [addingFeature, setAddingFeature]             = useState(false);
   const [branchPhaseState, setBranchPhaseState]       = useState('s03_backend');
+  const [eventSummary, setEventSummary]               = useState({});
+
+  // Skip reasons and the stopping stage are only in the event log; reload it when the status changes.
+  useEffect(() => {
+    if (!run?.status) return undefined;
+    let alive = true;
+    api.getRunEvents(id)
+      .then((r) => { if (alive) setEventSummary(summariseRunEvents(r.data?.events)); })
+      .catch((e) => console.warn('Could not load run events', e));
+    return () => { alive = false; };
+  }, [id, run?.status]);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  const fetchRunDetail = useCallback(async () => {
-    try {
-      const res = await api.getRun(id);
+  // Promise chains with no state set before the request: these run from effects.
+  const fetchRunDetail = useCallback(() => api.getRun(id)
+    .then((res) => {
       if (!res.data) throw new Error('Empty response from server');
       setRun(res.data);
       setPriority(res.data.priority || 'normal');
-    } catch (err) {
-      setError(err.response?.status === 404
-        ? 'Project not found (404). It may have been archived or deleted.'
-        : err.message || 'Failed to fetch project details.');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+    })
+    .catch((err) => setError(err.response?.status === 404
+      ? 'Project not found (404). It may have been archived or deleted.'
+      : apiError(err) || err.message || 'Failed to fetch project details.'))
+    .finally(() => setLoading(false)), [id]);
 
-  const fetchFileTree = useCallback(async () => {
-    try { const res = await api.getRunFiles(id); setFileTree(res.data?.tree || []); }
-    catch { setFileTree([]); }
-  }, [id]);
+  const fetchFileTree = useCallback(() => api.getRunFiles(id)
+    .then((res) => setFileTree(res.data?.tree || []))
+    .catch(() => setFileTree([])), [id]);
 
-  const loadPreview = useCallback(async () => {
-    if (!fileTree) return;
-    const indexFile = findIndexHtml(fileTree);
-    if (!indexFile) { setPreviewHtml(null); setPreviewFile(null); return; }
-    setPreviewFile(indexFile.path);
-    setPreviewLoading(true);
-    try { const res = await api.getFileContent(id, indexFile.path); setPreviewHtml(res.data?.content || ''); }
-    catch { setPreviewHtml(null); }
-    finally { setPreviewLoading(false); }
+  // previewTried stops the effect below from asking again for a tree with no index.html.
+  const previewTried = useRef(null);
+  const loadPreview = useCallback(() => {
+    const indexFile = fileTree && findIndexHtml(fileTree);
+    previewTried.current = fileTree;
+    if (!indexFile) return;
+    const tree = fileTree;
+    api.getFileContent(id, indexFile.path)
+      .then((res) => { setPreviewFile(indexFile.path); setPreviewHtml(res.data?.content || ''); })
+      .catch(() => setPreviewHtml(null))
+      .finally(() => setPreviewDoneFor(tree));
   }, [fileTree, id]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
+  // Poll while the run is live (or not loaded yet); the timer reads the latest status from a ref.
+  const pollRef = useRef(true);
+  useEffect(() => {
+    pollRef.current = !error && (!run || run.status === 'running' || run.status === 'paused');
+  }, [error, run]);
   useEffect(() => {
     fetchRunDetail();
     fetchFileTree();
-    const interval = setInterval(() => {
-      if (!error && (!run || run.status === 'running' || run.status === 'paused')) fetchRunDetail();
-    }, 4000);
+    const interval = setInterval(() => { if (pollRef.current) fetchRunDetail(); }, 4000);
     return () => clearInterval(interval);
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchRunDetail, fetchFileTree]);
 
+  const runIsDone = ['completed', 'failed', 'cancelled', 'interrupted'].includes(run?.status);
   useEffect(() => {
-    if (!run?.started_at) return;
-    const isDone = ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status);
-    if (isDone && run.finished_at) { setElapsed(Math.floor((run.finished_at - run.started_at) / 1000)); return; }
-    const tick = () => setElapsed(Math.floor((Date.now() - run.started_at) / 1000));
-    tick();
-    const timer = setInterval(tick, 1000);
+    if (!run?.started_at || (runIsDone && run.finished_at)) return undefined;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [run?.started_at, run?.finished_at, run?.status]);
+  }, [run?.started_at, run?.finished_at, runIsDone]);
+  const elapsed = !run?.started_at ? 0
+    : runIsDone && run.finished_at ? Math.floor((run.finished_at - run.started_at) / 1000)
+      : nowMs ? Math.max(0, Math.floor((nowMs - run.started_at) / 1000)) : 0;
+
+  const activeArtifactTab = pickedTab ?? (run?.status === 'running' ? 'live' : 'artifacts');
+  const previewMode = pickedPreviewMode ?? (run?.live_url ? 'live' : 'static');
+  const previewLoading = activeArtifactTab === 'preview' && Boolean(fileTree && findIndexHtml(fileTree))
+    && previewDoneFor !== fileTree;
 
   useEffect(() => {
-    if (activeArtifactTab === 'preview' && fileTree && previewHtml === null && !previewLoading) loadPreview();
-  }, [activeArtifactTab, fileTree, previewHtml, previewLoading, loadPreview]);
+    if (activeArtifactTab === 'preview' && fileTree && previewTried.current !== fileTree) loadPreview();
+  }, [activeArtifactTab, fileTree, loadPreview]);
 
   useEffect(() => {
     if (!run) return;
@@ -193,11 +214,6 @@ export function useProjectView(id) {
     return () => { cancelled = true; if (esRef.current) { esRef.current.close(); esRef.current = null; } };
   }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (run?.status === 'running' && activeArtifactTab !== 'live') setActiveArtifactTab('live');
-  }, [run?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { if (run?.live_url) setPreviewMode('live'); }, [run?.live_url]);
 
   useEffect(() => {
     if (activeArtifactTab === 'live' && feedContainerRef.current) {
@@ -239,15 +255,21 @@ export function useProjectView(id) {
 
   const handleRerun = useCallback(async (fromPhase) => {
     try { const res = await api.rerunFromPhase(id, fromPhase); navigate(`/project/${res.data.run_id}`); }
-    catch (e) { showToast('Failed to start rerun: ' + (e.message || 'unknown error')); }
+    catch (e) { showToast('Failed to start rerun: ' + (apiError(e) || e.message || 'unknown error')); }
   }, [id, navigate, showToast]);
+
+  // Failed/cancelled: continue this same run from its checkpoint (the stage that stopped it).
+  const handleRestart = useCallback(async () => {
+    try { await api.restartRun(id); showToast('Run restarted'); fetchRunDetail(); }
+    catch (e) { showToast('Restart failed: ' + (apiError(e) || e.message || 'unknown error')); }
+  }, [id, showToast, fetchRunDetail]);
 
   const handleEditRestart = useCallback(async (editedReq) => {
     try {
       const res = await api.startPipeline({ raw_input: editedReq, project_name: run?.project_name, domain: run?.domain || 'general', client_id: run?.client_id || 'client-001' });
       navigate(`/project/${res.data.run_id}`);
-    } catch (e) { showToast('Failed to start run: ' + (e.message || 'unknown error')); }
-  }, [id, run, navigate, showToast]);
+    } catch (e) { showToast('Failed to start run: ' + (apiError(e) || e.message || 'unknown error')); }
+  }, [run, navigate, showToast]);
 
   const handleDeploy = useCallback(async () => {
     setDeploying(true);
@@ -255,13 +277,13 @@ export function useProjectView(id) {
       const res = await api.deployRun(id);
       if (res.data?.live_url) { setRun((p) => p ? { ...p, live_url: res.data.live_url } : p); setPreviewMode('live'); showToast('App is live at ' + res.data.live_url); }
       else showToast('Deploy failed: ' + (res.data?.error || 'unknown error'));
-    } catch (e) { showToast('Deploy error: ' + (e.message || 'unknown')); }
+    } catch (e) { showToast('Deploy error: ' + (apiError(e) || e.message || 'unknown')); }
     finally { setDeploying(false); }
   }, [id, showToast]);
 
   const handleStopDeploy = useCallback(async () => {
     try { await api.stopDeploy(id); setRun((p) => p ? { ...p, live_url: null } : p); setPreviewMode('static'); showToast('Container stopped'); }
-    catch (e) { showToast('Stop failed: ' + (e.message || 'unknown')); }
+    catch (e) { showToast('Stop failed: ' + (apiError(e) || e.message || 'unknown')); }
   }, [id, showToast]);
 
   const handleDownload = useCallback(async () => {
@@ -270,7 +292,7 @@ export function useProjectView(id) {
       const url = URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }));
       const a = document.createElement('a'); a.href = url; a.download = `${run?.project_name || id}.zip`; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { showToast('Download failed: ' + (e.message || 'unknown')); }
+    } catch (e) { showToast('Download failed: ' + (apiError(e) || e.message || 'unknown')); }
   }, [id, run, showToast]);
 
   const handlePushGitHub = useCallback(async () => {
@@ -280,7 +302,7 @@ export function useProjectView(id) {
       const res = await api.pushToGitHub(id, { github_token: gitHubToken, repo_name: gitHubRepoName });
       showToast('Pushed to GitHub: ' + (res.data?.html_url || gitHubRepoName));
       setShowGitHubModal(false);
-    } catch (e) { showToast('Push failed: ' + (e.response?.data?.detail || e.message)); }
+    } catch (e) { showToast('Push failed: ' + (apiError(e) || e.message)); }
     finally { setGitHubPushing(false); }
   }, [id, gitHubToken, gitHubRepoName, showToast]);
 
@@ -290,28 +312,14 @@ export function useProjectView(id) {
     try {
       const res = await api.branchRun(id, branchPhaseState || 's03_backend', addFeatureText.trim());
       showToast('Branch run started'); setShowAddFeatureModal(false); navigate(`/project/${res.data?.run_id}`);
-    } catch (e) { showToast('Failed: ' + (e.response?.data?.detail || e.message)); }
+    } catch (e) { showToast('Failed: ' + (apiError(e) || e.message)); }
     finally { setAddingFeature(false); }
   }, [id, addFeatureText, branchPhaseState, navigate, showToast]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
-  const getPhaseStatus = useCallback((phaseId) => {
-    const rowStatus = run?.phases?.[phaseId]?.status;
-    // A failed run stopped at current_phase (the stage the failure banner names). That stage's
-    // own row can still say "running" (crash) or "timeout" (critical stage timed out); neither is a pass.
-    if (run?.status === 'failed' && run.current_phase === phaseId
-        && !['passed', 'completed', 'skipped'].includes(rowStatus)) return 'failed';
-    // Once the run has stopped, a leftover "running" row means the stage never finished.
-    if (rowStatus === 'running' && ['failed', 'cancelled', 'interrupted'].includes(run?.status)) return 'pending';
-    if (rowStatus) return rowStatus;
-    if (['completed', 'passed'].includes(run?.status) && !Object.keys(run?.phases || {}).length) return 'passed';
-    if (run?.current_phase === phaseId) return 'running';
-    const currentIdx = PHASES.indexOf(run?.current_phase);
-    const thisIdx    = PHASES.indexOf(phaseId);
-    if (currentIdx > 0 && thisIdx < currentIdx) return 'passed';
-    return 'pending';
-  }, [run]);
+  const stages = useMemo(() => stageStates(run, eventSummary), [run, eventSummary]);
+  const getPhaseStatus = useCallback((phaseId) => stages[phaseId]?.status || 'pending', [stages]);
 
   const completedPhases = useMemo(() =>
     PHASES.filter((p) => ['passed', 'completed'].includes(getPhaseStatus(p))).length,
@@ -347,10 +355,10 @@ export function useProjectView(id) {
     gitHubToken, setGitHubToken, gitHubRepoName, setGitHubRepoName, gitHubPushing,
     addFeatureText, setAddFeatureText, addingFeature, branchPhaseState, setBranchPhaseState,
     // derived
-    getPhaseStatus, completedPhases, progressPercent, phasesCompleted, totalPhases, eta, artifactCount,
+    getPhaseStatus, stages, completedPhases, progressPercent, phasesCompleted, totalPhases, eta, artifactCount,
     // handlers
     fetchRunDetail, fetchFileTree, showToast,
-    handlePause, handleResume, handleCancel, handlePriorityCycle, handleRerun, handleEditRestart,
+    handlePause, handleResume, handleCancel, handlePriorityCycle, handleRerun, handleEditRestart, handleRestart,
     handleDeploy, handleStopDeploy, handleDownload, handlePushGitHub, handleAddFeature,
     navigate,
   };

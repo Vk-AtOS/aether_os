@@ -4,7 +4,7 @@
 import React from 'react';
 import { Pause, Play, X, Loader2 } from 'lucide-react';
 import RerunDropdown from '../RerunDropdown';
-import { formatTime, PRIORITY_CONFIG } from './projectConstants';
+import { formatTime } from './projectConstants';
 
 const RunControlPanel = ({
   run,
@@ -17,17 +17,15 @@ const RunControlPanel = ({
   isRunning,
   isPaused,
   isDone,
-  priority,
   controlLoading,
-  progressPercent,
   onPause,
   onResume,
   onCancel,
   onRerun,
   onFullRestart,
   onEditRestart,
+  onRestart,
 }) => {
-  const priConf = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.normal;
   const runStatus = run.status;
 
   return (
@@ -116,6 +114,7 @@ const RunControlPanel = ({
               onRerunPhase={onRerun}
               onFullRestart={onFullRestart}
               onEditRestart={onEditRestart}
+              onRestart={onRestart}
             />
           )}
         </div>

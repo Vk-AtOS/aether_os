@@ -4,6 +4,7 @@ import {
   CheckCircle2, X, RefreshCw, ChevronDown,
 } from "lucide-react";
 import api from "../api";
+import { apiError } from '../apiError';
 
 const DOMAINS = ["general", "fintech", "healthcare", "saas_multitenant", "ecommerce",
   "industrial", "logistics", "real_estate", "education", "social", "media"];
@@ -145,19 +146,15 @@ export default function GlobalPatternsTuning() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.client.get("/intelligence/global-insights");
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => api.client.get("/intelligence/global-insights")
+    .then((res) => {
       setPatterns(res.data?.global_patterns ?? []);
       setStats(res.data?.stats ?? []);
-    } catch {
-      setError("Could not load patterns — check your connection.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      setError(null);
+    })
+    .catch(() => setError("Could not load patterns — check your connection."))
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -169,7 +166,7 @@ export default function GlobalPatternsTuning() {
       setModal(null);
       await load();
     } catch (e) {
-      showToast(e?.response?.data?.detail ?? "Create failed.", "error");
+      showToast(apiError(e) || "Create failed.", "error");
     } finally {
       setSaving(false);
     }
@@ -183,7 +180,7 @@ export default function GlobalPatternsTuning() {
       setModal(null);
       await load();
     } catch (e) {
-      showToast(e?.response?.data?.detail ?? "Update failed.", "error");
+      showToast(apiError(e) || "Update failed.", "error");
     } finally {
       setSaving(false);
     }
@@ -198,7 +195,7 @@ export default function GlobalPatternsTuning() {
       showToast("Pattern deleted.");
       setPatterns((p) => p.filter((x) => x.id !== id));
     } catch (e) {
-      showToast(e?.response?.data?.detail ?? "Delete failed.", "error");
+      showToast(apiError(e) || "Delete failed.", "error");
     } finally {
       setDeleting(null);
     }

@@ -1,13 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 
-const SettingsContext = createContext(null);
+import { SettingsContext } from './useSettings';
 
-export const useSettings = () => {
-  const ctx = useContext(SettingsContext);
-  if (!ctx) throw new Error('useSettings must be used within SettingsProvider');
-  return ctx;
-};
 
 export const SettingsProvider = ({ children }) => {
   const [llmConfig, setLlmConfig] = useState(null);      // { provider, primary_model, ... }

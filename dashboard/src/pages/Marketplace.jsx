@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Search, Package, Star, Zap, Shield, Database, Cpu, Globe, PlusCircle, X, Loader2, CheckCircle2 } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 const CATEGORY_ICONS = {
   auth: Shield,
@@ -30,20 +31,18 @@ const Marketplace = () => {
   const [installingId, setInstallingId] = useState(null);
   const [installedIds, setInstalledIds] = useState(new Set());
 
-  const fetchProfiles = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getMarketplaceProfiles?.() ?? { data: [] };
+  // Promise chain with no state set before the request: this runs from an effect.
+  const fetchProfiles = useCallback(() => (api.getMarketplaceProfiles?.() ?? Promise.resolve({ data: [] }))
+    .then((res) => {
       const data = res.data;
       setProfiles(Array.isArray(data) ? data : (data?.items ?? data?.profiles ?? []));
-    } catch (err) {
+      setError(null);
+    })
+    .catch((err) => {
       if (import.meta.env.DEV) console.error('Failed to load marketplace profiles', err);
       setError('Failed to load marketplace. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    })
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => {
     fetchProfiles();
@@ -72,7 +71,7 @@ const Marketplace = () => {
       setShowPublish(false);
       fetchProfiles();
     } catch (err) {
-      setError('Publish failed: ' + (err.response?.data?.detail || err.message));
+      setError('Publish failed: ' + (apiError(err) || err.message));
     } finally {
       setPublishing(false);
     }
@@ -85,7 +84,7 @@ const Marketplace = () => {
       setInstalledIds(prev => { const n = new Set(prev); n.delete(profileId); return n; });
       setInstallMessage({ text: `${profileName} uninstalled.`, type: 'success' });
     } catch (err) {
-      setInstallMessage({ text: 'Uninstall failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
+      setInstallMessage({ text: 'Uninstall failed: ' + (apiError(err) || err.message), type: 'error' });
     }
   };
 
@@ -288,7 +287,7 @@ const Marketplace = () => {
                           setInstalledIds(prev => new Set([...prev, p.id]));
                           setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
                         } catch (err) {
-                          setInstallMessage({ text: 'Install failed: ' + (err.response?.data?.detail || err.message), type: 'error' });
+                          setInstallMessage({ text: 'Install failed: ' + (apiError(err) || err.message), type: 'error' });
                         } finally {
                           setInstallingId(null);
                         }

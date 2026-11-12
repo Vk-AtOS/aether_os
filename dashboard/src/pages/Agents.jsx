@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Bot, Play, RefreshCw, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronRight, Cpu, Zap } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import { useRole } from '../hooks/useRole';
+import { apiError } from '../apiError';
 
 const KIND_COLORS = {
   code:     'text-blue-400',
@@ -24,7 +25,7 @@ const RESTRICTED_AGENTS = new Set([
   'red_team_safety_agent',
 ]);
 
-const AgentCard = ({ agent, onRun, recentRuns = [], userRole = 'member' }) => {
+const AgentCard = ({ agent, recentRuns = [], userRole = 'member' }) => {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -54,7 +55,7 @@ const AgentCard = ({ agent, onRun, recentRuns = [], userRole = 'member' }) => {
       setResult(res.data);
     } catch (e) {
       clearTimeout(timeoutId);
-      setError(e.response?.data?.detail || 'Agent run failed');
+      setError(apiError(e) || 'Agent run failed');
     } finally {
       setRunning(false);
     }
@@ -183,22 +184,18 @@ const Agents = () => {
   const [filter, setFilter] = useState('');
   const { role: userRole } = useRole();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [agentsRes, runsRes] = await Promise.all([
-        api.client.get('/agents'),
-        api.listRuns(1, 20).catch(() => ({ data: { runs: [] } })),
-      ]);
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => Promise.all([
+    api.client.get('/agents'),
+    api.listRuns(1, 20).catch(() => ({ data: { runs: [] } })),
+  ])
+    .then(([agentsRes, runsRes]) => {
       setAgents(agentsRes.data?.agents ?? []);
       setRecentRuns(runsRes.data?.runs ?? []);
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to load agents');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      setError('');
+    })
+    .catch((e) => setError(apiError(e) || 'Failed to load agents'))
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => { load(); }, [load]);
 

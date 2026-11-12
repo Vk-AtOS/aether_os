@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { api } from '../../api';
 import { OUTCOME } from './labels';
+import { apiError } from '../../apiError';
 
 const inputClass =
   'w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent';
@@ -26,8 +27,7 @@ const ActionCheck = ({ meta, onChecked }) => {
       setResult(res.data);
       onChecked();
     } catch (err) {
-      const d = err.response?.data?.detail;
-      setError(typeof d === 'string' ? d : 'Could not check the action.');
+      setError(apiError(err) || 'Could not check the action.');
     } finally {
       setBusy(false);
     }

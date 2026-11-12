@@ -15,31 +15,31 @@ const AuditLogs = () => {
   const [userFilter, setUserFilter] = useState('');
   const LIMIT = 50;
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
-    setFetchError(null);
-    try {
-      const params = { page, limit: LIMIT };
-      if (search) params.action = search;
-      if (fromDate) params.from_date = fromDate;
-      if (toDate) params.to_date = toDate;
-      if (userFilter) params.user_id = userFilter;
-      const res = await api.client.get('/audit/logs', { params });
-      const data = res.data;
-      if (Array.isArray(data)) {
-        setLogs(data);
-        setTotal(data.length);
-      } else {
-        setLogs(data.items ?? data.logs ?? []);
-        setTotal(data.total ?? 0);
-      }
-    } catch (e) {
-      console.warn('Failed to load audit logs:', e);
-      setLogs([]);
-      setFetchError('Failed to load audit logs. Please refresh.');
-    } finally {
-      setLoading(false);
-    }
+  // Promise chain with no state set before the request: this runs from an effect.
+  const fetchLogs = useCallback(() => {
+    const params = { page, limit: LIMIT };
+    if (search) params.action = search;
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
+    if (userFilter) params.user_id = userFilter;
+    return api.client.get('/audit/logs', { params })
+      .then((res) => {
+        const data = res.data;
+        if (Array.isArray(data)) {
+          setLogs(data);
+          setTotal(data.length);
+        } else {
+          setLogs(data.items ?? data.logs ?? []);
+          setTotal(data.total ?? 0);
+        }
+        setFetchError(null);
+      })
+      .catch((e) => {
+        console.warn('Failed to load audit logs:', e);
+        setLogs([]);
+        setFetchError('Failed to load audit logs. Please refresh.');
+      })
+      .finally(() => setLoading(false));
   }, [page, search, fromDate, toDate, userFilter]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);

@@ -1,96 +1,42 @@
 import React from 'react';
-import { api } from '../../api';
+import { HelpCircle } from 'lucide-react';
 
-const ClarifyingQuestionsPanel = ({ runId, questionCount, onAnswered }) => {
-  const [answers, setAnswers] = React.useState({});
-  const [submitting, setSubmitting] = React.useState(false);
-  const [questions, setQuestions] = React.useState(null);
-
-  React.useEffect(() => {
-    api.getRun(runId).then(res => {
-      const meta = res.data?.phases?.p02b_domain_ir?.metadata
-                || res.data?.phases?.p02b_domain_ir?.output?.metadata;
-      const qs = meta?.clarifying_questions_detail || [];
-      if (qs.length > 0) {
-        setQuestions(qs);
-      } else {
-        setQuestions(Array.from({ length: questionCount }, (_, i) => ({
-          field_path: `field_${i + 1}`,
-          question: `Please clarify ambiguous field ${i + 1}`,
-          options: [],
-        })));
-      }
-    }).catch(() => {
-      setQuestions([]);
-    });
-  }, [runId, questionCount]);
-
-  if (!questions || questions.length === 0) return null;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await onAnswered(answers);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+// Clarifying questions from the architecture stage's domain model
+// (phases.s02_architecture.output.clarifying_questions: [{field_path, confidence, question, options}]).
+// Read-only: the server has no endpoint that feeds answers back into a run (POST /resume
+// takes no body), so offering an answer form would pretend. To act on a question,
+// edit the requirement and start a new run.
+const ClarifyingQuestionsPanel = ({ questions }) => {
+  if (!Array.isArray(questions) || questions.length === 0) return null;
   return (
-    <section className="panel p-5 border-accent/30 space-y-4">
+    <section className="panel p-5 border-accent/30 space-y-4" aria-labelledby="cq-h">
       <div className="flex items-start gap-3">
-        <span className="text-xl">🤔</span>
+        <HelpCircle className="w-5 h-5 text-accent shrink-0 mt-0.5" aria-hidden="true" />
         <div>
-          <h3 className="text-sm font-bold text-accent">Clarification Needed</h3>
+          <h3 id="cq-h" className="text-sm font-bold text-accent">Open questions from the domain model</h3>
           <p className="text-xs text-muted mt-0.5">
-            The IR extraction found {questions.length} ambiguous field{questions.length !== 1 ? 's' : ''}.
-            Answer these before the pipeline continues.
+            The architecture stage could not settle {questions.length} field{questions.length !== 1 ? 's' : ''} from
+            the requirement and used its best guess. These are for information: answers cannot be sent back into
+            this run yet. To change the result, use Edit &amp; Restart with the answers written into the requirement.
           </p>
         </div>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <ul className="space-y-3">
         {questions.map((q, i) => (
-          <div key={i} className="bg-surface/50 border border-border rounded-lg p-4 space-y-2">
+          <li key={q.field_path || i} className="bg-surface/50 border border-border rounded-lg p-4 space-y-1.5">
             <p className="text-sm font-medium text-bright">
-              <span className="text-xs text-muted mr-2 font-mono">{q.field_path}</span>
-              {q.question}
+              {q.field_path && <span className="text-xs text-muted mr-2 font-mono">{q.field_path}</span>}
+              {q.question || 'No question text recorded.'}
             </p>
-            {q.options && q.options.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {q.options.map((opt, j) => (
-                  <label key={j} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name={q.field_path}
-                      value={opt}
-                      checked={answers[q.field_path] === opt}
-                      onChange={() => setAnswers(a => ({ ...a, [q.field_path]: opt }))}
-                      className="accent-accent"
-                    />
-                    <span className="text-sm text-bright">{opt}</span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <input
-                type="text"
-                placeholder="Your answer…"
-                value={answers[q.field_path] || ''}
-                onChange={e => setAnswers(a => ({ ...a, [q.field_path]: e.target.value }))}
-                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-bright focus:outline-none focus:border-accent"
-              />
+            {typeof q.confidence === 'number' && (
+              <p className="text-[11px] text-muted">Model confidence: {Math.round(q.confidence * 100)}%</p>
             )}
-          </div>
+            {Array.isArray(q.options) && q.options.length > 0 && (
+              <p className="text-[11px] text-muted">Options: {q.options.join(' · ')}</p>
+            )}
+          </li>
         ))}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="px-5 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-40 text-white text-sm font-bold rounded-lg transition-colors"
-        >
-          {submitting ? 'Submitting…' : '✅ Submit Answers & Resume Pipeline'}
-        </button>
-      </form>
+      </ul>
     </section>
   );
 };

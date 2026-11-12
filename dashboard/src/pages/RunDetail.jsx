@@ -17,22 +17,27 @@ import {
   Rocket,
   Globe,
   Loader2,
+  XCircle,
 } from 'lucide-react';
 import RerunDropdown from '../components/RerunDropdown';
-import { PHASES } from '../components/project/projectConstants';
+import { PHASES, PHASE_NAMES, stageStates, summariseRunEvents } from '../components/project/projectConstants';
+import ClientAccessPanel from '../components/project/ClientAccessPanel';
+import { useRole } from '../hooks/useRole';
+import { fmtTime } from '../components/run-detail/format';
 import {
-  fmtTime,
   StatusBadge,
   PhaseRow,
   LiveEventLog,
 } from '../components/run-detail/RunDetailComponents';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const RunDetail = () => {
   const { runId } = useParams();
   const navigate = useNavigate();
+  const { role, isAdmin } = useRole();
 
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
@@ -44,24 +49,18 @@ const RunDetail = () => {
   const [deploying, setDeploying] = useState(false);
   const [rerunning, setRerunning] = useState(false);
 
-  const loadRun = useCallback(async () => {
-    try {
-      const [runRes, eventsRes] = await Promise.allSettled([
-        api.getRun(runId),
-        api.client.get(`/factory/runs/${runId}/events`).catch(() => ({ data: [] })),
-      ]);
-      if (runRes.status === 'fulfilled') setRun(runRes.value.data);
-      else setError(runRes.reason?.response?.data?.detail || 'Failed to load run');
-      if (eventsRes.status === 'fulfilled') {
-        const raw = eventsRes.value.data;
-        setEvents(Array.isArray(raw) ? raw : raw?.events ?? []);
-      }
-    } catch (e) {
-      setError(e.response?.data?.detail || e.message || 'Failed to load run');
-    } finally {
-      setLoading(false);
+  // Promise chain with no state set before the requests: this runs from an effect.
+  const loadRun = useCallback(() => Promise.allSettled([
+    api.getRun(runId),
+    api.getRunEvents(runId).catch(() => ({ data: [] })),
+  ]).then(([runRes, eventsRes]) => {
+    if (runRes.status === 'fulfilled') setRun(runRes.value.data);
+    else setError(apiError(runRes.reason) || 'Failed to load run');
+    if (eventsRes.status === 'fulfilled') {
+      const raw = eventsRes.value.data;
+      setEvents(Array.isArray(raw) ? raw : raw?.events ?? []);
     }
-  }, [runId]);
+  }).finally(() => setLoading(false)), [runId]);
 
   // FE-H4: use a ref to hold the interval ID so there is always exactly one active
   // interval. The previous pattern re-created the interval on every status change
@@ -86,8 +85,7 @@ const RunDetail = () => {
       if (st === 'running' || st === 'needs_review') loadRun();
     }, 10_000);
     return () => clearInterval(iv);
-    // loadRun is stable (useCallback with [runId]) — only restart poll when runId changes
-  }, [loadRun]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadRun]);
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -115,7 +113,7 @@ const RunDetail = () => {
       await api.cancelRun(runId);
       await loadRun();
     } catch (e) {
-      alert('Cancel failed: ' + (e.response?.data?.detail || e.message));
+      alert('Cancel failed: ' + (apiError(e) || e.message));
     } finally {
       setCancelling(false);
     }
@@ -127,7 +125,7 @@ const RunDetail = () => {
       await api.pauseRun(runId);
       await loadRun();
     } catch (e) {
-      alert('Pause failed: ' + (e.response?.data?.detail || e.message));
+      alert('Pause failed: ' + (apiError(e) || e.message));
     } finally {
       setPausing(false);
     }
@@ -139,7 +137,7 @@ const RunDetail = () => {
       await api.resumeRun(runId);
       await loadRun();
     } catch (e) {
-      alert('Resume failed: ' + (e.response?.data?.detail || e.message));
+      alert('Resume failed: ' + (apiError(e) || e.message));
     } finally {
       setPausing(false);
     }
@@ -151,7 +149,7 @@ const RunDetail = () => {
       await api.deployRun(runId);
       await loadRun();
     } catch (e) {
-      alert('Deploy failed: ' + (e.response?.data?.detail || e.message));
+      alert('Deploy failed: ' + (apiError(e) || e.message));
     } finally {
       setDeploying(false);
     }
@@ -164,7 +162,7 @@ const RunDetail = () => {
       await api.stopDeploy(runId);
       await loadRun();
     } catch (e) {
-      alert('Undeploy failed: ' + (e.response?.data?.detail || e.message));
+      alert('Undeploy failed: ' + (apiError(e) || e.message));
     } finally {
       setDeploying(false);
     }
@@ -173,10 +171,10 @@ const RunDetail = () => {
   const handleRerunPhase = async (phase) => {
     setRerunning(true);
     try {
-      await api.rerunFromPhase(runId, phase);
-      await loadRun();
+      const res = await api.rerunFromPhase(runId, phase);
+      navigate(`/runs/${res.data.run_id}`);
     } catch (e) {
-      alert('Rerun failed: ' + (e.response?.data?.detail || e.message));
+      alert('Rerun failed: ' + (apiError(e) || e.message));
     } finally {
       setRerunning(false);
     }
@@ -185,10 +183,22 @@ const RunDetail = () => {
   const handleFullRestart = async () => {
     setRerunning(true);
     try {
-      await api.rerunFromPhase(runId, 'p01_intake_requirements');
+      const res = await api.rerunFromPhase(runId, 's01_intake');
+      navigate(`/runs/${res.data.run_id}`);
+    } catch (e) {
+      alert('Restart failed: ' + (apiError(e) || e.message));
+    } finally {
+      setRerunning(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    setRerunning(true);
+    try {
+      await api.restartRun(runId);
       await loadRun();
     } catch (e) {
-      alert('Restart failed: ' + (e.response?.data?.detail || e.message));
+      alert('Restart failed: ' + (apiError(e) || e.message));
     } finally {
       setRerunning(false);
     }
@@ -223,7 +233,10 @@ const RunDetail = () => {
   // Build phase progress from run.phases or run.phase_results
   const phaseMap = run.phases || run.phase_results || {};
   // The 12 stages; a run recorded before the stage pipeline lists the phases it actually has.
-  const phaseList = Object.keys(phaseMap).every(k => PHASES.includes(k)) ? PHASES : Object.keys(phaseMap);
+  const isStageRun = Object.keys(phaseMap).every(k => PHASES.includes(k));
+  const phaseList = isStageRun ? PHASES : Object.keys(phaseMap);
+  const stages = isStageRun ? stageStates(run, summariseRunEvents(events)) : {};
+  const failedStage = PHASES.find(p => stages[p]?.status === 'failed');
 
   // Derive council verdict from run
   const councilVerdict = run.council_verdict || run.council?.verdict || null;
@@ -231,7 +244,7 @@ const RunDetail = () => {
   const qualityScore   = run.quality_score   ?? run.quality?.score   ?? null;
   const llmCostUsd     = run.llm_cost_usd    ?? run.cost_usd         ?? null;
   const liveUrl        = run.live_url        || run.preview_url      || run.app_url || null;
-  const errorMsg       = run.error_message   || run.error            || null;
+  const errorMsg       = run.message || run.error_message || run.error || null;
   const suggestions    = run.suggestions     || run.recovery_suggestions || [];
 
   return (
@@ -308,6 +321,7 @@ const RunDetail = () => {
               onEditRestart={(req) => { navigate('/new-project', { state: { prefill: req } }); }}
               onRerunPhase={handleRerunPhase}
               onFullRestart={handleFullRestart}
+              onRestart={handleRestart}
               loading={rerunning}
               variant="button"
             />
@@ -422,13 +436,14 @@ const RunDetail = () => {
       )}
 
       {/* Error + suggestions (when failed) */}
-      {run.status === 'failed' && errorMsg && (
+      {run.status === 'failed' && (errorMsg || failedStage) && (
         <div className="bg-danger/5 border border-danger/30 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <XCircle className="w-4 h-4 text-danger shrink-0" />
-            <h3 className="text-sm font-bold text-danger">Pipeline Failed</h3>
+            <h3 className="text-sm font-bold text-danger">Build failed{failedStage ? ` at ${PHASE_NAMES[failedStage]}` : ''}</h3>
           </div>
-          <p className="text-xs text-bright/80 font-mono whitespace-pre-wrap">{errorMsg}</p>
+          <p className="text-xs text-bright/80 font-mono whitespace-pre-wrap">{errorMsg || stages[failedStage]?.reason || 'No reason was recorded.'}</p>
+          <p className="text-[11px] text-muted">Restart this run (Re-run options) to continue from the stage that stopped it.</p>
           {suggestions.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] font-bold text-muted uppercase tracking-wider">Suggestions</p>
@@ -482,12 +497,15 @@ const RunDetail = () => {
             </thead>
             <tbody>
               {phaseList.map(p => (
-                <PhaseRow key={p} name={p} phaseData={phaseMap[p]} />
+                <PhaseRow key={p} name={p} phaseData={phaseMap[p]} state={stages[p]}
+                  href={isStageRun ? `/project/${runId}/phase/${p}` : null} />
               ))}
             </tbody>
           </table>
         </div>
       </section>
+
+      {(isAdmin || role === 'superadmin') && <ClientAccessPanel runId={runId} />}
 
       {/* Recent events log (non-running) */}
       {run.status !== 'running' && events.length > 0 && (
@@ -495,17 +513,24 @@ const RunDetail = () => {
           <h2 className="text-xs font-bold text-muted uppercase tracking-widest mb-3">Event Log</h2>
           <div className="bg-panel border border-border rounded-xl overflow-hidden">
             <div className="divide-y divide-border/50 max-h-80 overflow-y-auto custom-scrollbar">
-              {events.slice(-50).map((ev, i) => (
-                <div key={i} className="px-4 py-2 flex items-start gap-3 text-xs">
-                  <span className="text-muted font-mono text-[10px] shrink-0 mt-0.5">{fmtTime(ev.created_at || ev.timestamp)}</span>
-                  <span className={`shrink-0 mt-0.5 text-[10px] font-bold uppercase ${
-                    ev.type === 'phase_complete' ? 'text-success' :
-                    ev.type === 'phase_failed' || ev.type === 'error' ? 'text-danger' :
-                    ev.type === 'phase_start' ? 'text-accent' : 'text-muted'
-                  }`}>{ev.type || 'event'}</span>
-                  <span className="text-bright/80">{ev.message || ev.text || JSON.stringify(ev)}</span>
-                </div>
-              ))}
+              {/* Streamed model output (llm_chunk) is the Live view's job, not the log's. */}
+              {events.filter((ev) => (ev.event_type || ev.type) !== 'llm_chunk').slice(-50).map((ev, i) => {
+                // GET /factory/runs/{id}/events rows: {event_type, phase, payload, created_at}
+                const type = ev.event_type || ev.type || 'event';
+                const p = ev.payload || {};
+                const failed = p.status === 'failed' || p.status === 'timeout' || type === 'error';
+                const text = p.error || p.reason || p.message
+                  || [ev.phase || p.phase, p.status].filter(Boolean).join(' ') || ev.message || '';
+                return (
+                  <div key={ev.id || i} className="px-4 py-2 flex items-start gap-3 text-xs">
+                    <span className="text-muted font-mono text-[10px] shrink-0 mt-0.5">{fmtTime(ev.created_at || ev.timestamp)}</span>
+                    <span className={`shrink-0 mt-0.5 text-[10px] font-bold uppercase ${
+                      failed ? 'text-danger' : type === 'phase_complete' ? 'text-success' : type === 'phase_start' ? 'text-accent' : 'text-muted'
+                    }`}>{type}</span>
+                    <span className="text-bright/80 break-words min-w-0">{text}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>

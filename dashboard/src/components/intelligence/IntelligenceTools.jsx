@@ -4,15 +4,10 @@ import {
   ChevronDown, ChevronRight, GitMerge, Wrench, RotateCcw, Play, Sparkles,
 } from 'lucide-react';
 import { api } from '../../api';
+import { apiError } from '../../apiError';
+import { normPct } from './normPct';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-// API returns scores either as 0-1 fractions OR 0-100 integers — normalise either way
-export const normPct = (score) => {
-  if (score == null) return 0;
-  return score > 1 ? Math.round(score) : Math.round(score * 100);
-};
-
-// ── Small reusable components ──────────────────────────────────────────────────
 export const ScoreBadge = ({ score }) => {
   const pct = normPct(score);
   const color = pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-yellow-400' : 'text-red-400';
@@ -112,7 +107,7 @@ export const ConflictResolverTool = () => {
       });
       setConflicts(res.data);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Detection failed');
+      setError(apiError(e) || 'Detection failed');
     } finally {
       setDetecting(false);
     }
@@ -130,7 +125,7 @@ export const ConflictResolverTool = () => {
       setResolveInputId(null);
       setResolveText('');
     } catch (e) {
-      setResolveError('Resolve failed: ' + (e.response?.data?.detail || e.message));
+      setResolveError('Resolve failed: ' + (apiError(e) || e.message));
     } finally {
       setResolving(null);
     }
@@ -246,7 +241,7 @@ export const MaintenanceEngineTool = () => {
       const res = await api.client.post('/intelligence/maintenance-engine/scan', payload);
       setResult(res.data);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Scan failed');
+      setError(apiError(e) || 'Scan failed');
     } finally {
       setScanning(false);
     }
@@ -343,7 +338,7 @@ export const ImprovementLoopTool = () => {
       const res = await api.client.post(`/intelligence/improvement-loop/cycle?run_id=${encodeURIComponent(runId.trim())}`);
       setResult(res.data);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Improvement loop failed');
+      setError(apiError(e) || 'Improvement loop failed');
     } finally {
       setRunning(false);
     }

@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { StepIndicator, TemplateCard } from '../components/new-project/WizardShared';
 import {
   DEFAULT_TEMPLATES, DEFAULT_MODELS, PRIORITIES, BACKEND_OPTIONS, FRONTEND_OPTIONS, DB_OPTIONS,
-  StepIndicator, TemplateCard,
-} from '../components/new-project/WizardShared';
+} from '../components/new-project/wizardData';
 import WizardStep2 from '../components/new-project/WizardStep2';
+import ErrorText from '../components/ErrorText';
+import { apiError, apiErrorState } from '../apiError';
 
 const NewProjectWizard = () => {
   const navigate = useNavigate();
@@ -22,7 +24,6 @@ const NewProjectWizard = () => {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [domain, setDomain] = useState('general');
-  const [uploadedText, setUploadedText] = useState('');
   const [uploadFilename, setUploadFilename] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -125,12 +126,13 @@ const NewProjectWizard = () => {
     }
   }, [step, domain, backendFw, dbChoice]);
 
-  // Compile wizard answers → prompt + auto-detect domain
-  useEffect(() => {
-    const { who, scale, money, industry, mobile, problem, features } = wizardAnswers;
+  // Compile wizard answers → prompt + auto-detect domain. Called from the handlers that
+  // change the answers or the template (not an effect: it only reacts to user input).
+  const applyAnswers = (answers, tplId) => {
+    const { who, scale, money, industry, mobile, problem, features } = answers;
     if (!problem.trim()) return;
     const lines = [];
-    const tpl = templates.find(t => t.id === selectedTpl);
+    const tpl = templates.find(t => t.id === tplId);
     if (tpl && tpl.id !== 'custom') lines.push(`Build a ${tpl.label} application.`);
     lines.push(`Main goal: ${problem.trim()}`);
     const whoMap = { internal: 'Internal team only', customers: 'Customers / end-users', both: 'Both internal team and customers' };
@@ -151,13 +153,20 @@ const NewProjectWizard = () => {
     setPrompt(lines.join('\n'));
     const domainMap = { healthcare: 'healthcare', finance: 'fintech', education: 'education' };
     if (domainMap[industry]) setDomain(domainMap[industry]);
-  }, [wizardAnswers, selectedTpl, templates]);
+  };
+
+  const updateAnswers = (updater) => {
+    const next = typeof updater === 'function' ? updater(wizardAnswers) : updater;
+    setWizardAnswers(next);
+    applyAnswers(next, selectedTpl);
+  };
 
   const selectTemplate = (tpl) => {
     setSelectedTpl(tpl.id);
     setName(tpl.name || tpl.label || '');
     if (tpl.id !== 'custom') setPrompt(tpl.prompt || '');
     setDomain(tpl.domain || 'general');
+    applyAnswers(wizardAnswers, tpl.id);
   };
 
   const handleFileUpload = async (e) => {
@@ -171,11 +180,10 @@ const NewProjectWizard = () => {
       const res = await api.uploadRequirementFile(fd);
       if (res.data?.error) { setUploadError(res.data.error); return; }
       const text = res.data?.text || '';
-      setUploadedText(text);
       setUploadFilename(file.name);
-      if (text) setWizardAnswers(a => ({ ...a, features: a.features ? a.features + '\n\n' + text : text }));
+      if (text) updateAnswers(a => ({ ...a, features: a.features ? a.features + '\n\n' + text : text }));
     } catch (e) {
-      setUploadError('Upload failed: ' + (e.message || 'unknown'));
+      setUploadError('Upload failed: ' + (apiError(e) || e.message || 'unknown'));
     } finally {
       setUploading(false);
     }
@@ -195,7 +203,7 @@ const NewProjectWizard = () => {
       setRepoContext(res.data?.context || '');
       setRepoFetched(res.data?.url || repoUrl);
     } catch (e) {
-      setUploadError('Repo fetch failed: ' + (e.response?.data?.detail || e.message));
+      setUploadError('Repo fetch failed: ' + (apiError(e) || e.message));
     } finally {
       setFetchingRepo(false);
     }
@@ -214,7 +222,7 @@ const NewProjectWizard = () => {
         setImportedSchema(res.data);
       }
     } catch (e) {
-      setSchemaError('Import failed: ' + (e.response?.data?.detail || e.message));
+      setSchemaError('Import failed: ' + (apiError(e) || e.message));
     } finally {
       setImportingSchema(false);
     }
@@ -251,7 +259,7 @@ const NewProjectWizard = () => {
       const res = await api.startPipeline(payload);
       navigate(res.data?.run_id ? `/project/${res.data.run_id}` : '/projects');
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to start run.');
+      setError(apiErrorState(err, 'Failed to start run.'));
       setLoading(false);
     }
   };
@@ -296,7 +304,7 @@ const NewProjectWizard = () => {
       {step === 2 && (
         <WizardStep2
           name={name} setName={setName}
-          wizardAnswers={wizardAnswers} setWizardAnswers={setWizardAnswers}
+          wizardAnswers={wizardAnswers} setWizardAnswers={updateAnswers}
           uploading={uploading} uploadFilename={uploadFilename}
           uploadError={uploadError} fileInputRef={fileInputRef} handleFileUpload={handleFileUpload}
           projectMode={projectMode}
@@ -438,7 +446,7 @@ const NewProjectWizard = () => {
           )}
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">{error}</div>
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400"><ErrorText error={error} /></div>
           )}
 
           <div className="flex flex-col gap-3">

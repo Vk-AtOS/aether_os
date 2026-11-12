@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Briefcase, RefreshCw, Loader2, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { api } from '../api';
 import EmptyState from '../components/EmptyState';
+import { apiError } from '../apiError';
 
 // One honest status per agent, as reported by Velaris itself.
 const STATUS = {
@@ -68,19 +69,12 @@ const Operations = () => {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
 
-  // State is only set after the request settles, so the effect below never
-  // triggers a synchronous re-render.
-  const load = useCallback(async () => {
-    try {
-      const res = await api.getVelarisInventory();
-      setData(res.data);
-      setError('');
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Could not load the operations platform.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Promise chain: state is only set after the request settles, so the effect below
+  // never triggers a synchronous re-render.
+  const load = useCallback(() => api.getVelarisInventory()
+    .then((res) => { setData(res.data); setError(''); })
+    .catch((e) => setError(apiError(e) || 'Could not load the operations platform.'))
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => { load(); }, [load]);
 

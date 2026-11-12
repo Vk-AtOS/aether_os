@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, ExternalLink, Copy, Check } from 'lucide-react';
 import { api } from '../../api';
+import { apiError } from '../../apiError';
 
 const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
   const [appRunning, setAppRunning] = useState(false);
@@ -16,7 +17,8 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
     api.getRunAppStatus(runId)
       .then(r => {
         if (r.data?.running) {
-          setRunning(true);
+          setAppRunning(true);
+          onRunningChange?.(true);
           setAppOutput(['[AetherOS] App is already running — preview available.']);
         }
       })
@@ -24,7 +26,7 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
     api.getPreviewCredentials(runId)
       .then(r => setPreviewCreds(r.data))
       .catch(() => {});
-  }, [runId]);
+  }, [runId, onRunningChange]);
 
   const handleStart = async () => {
     try {
@@ -43,7 +45,7 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
       ]);
       onToast('App starting — demo credentials shown below.');
     } catch (e) {
-      onToast('Failed to start app: ' + (e.response?.data?.detail || e.message));
+      onToast('Failed to start app: ' + (apiError(e) || e.message));
     }
   };
 

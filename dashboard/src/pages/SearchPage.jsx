@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { Search, Loader2, FileCode, GitBranch, Clock, ChevronRight, X } from 'lucide-react';
@@ -61,34 +61,36 @@ const SearchPage = () => {
   const initialQ = searchParams.get('q') || '';
   const [query, setQuery] = useState(initialQ);
   const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
+  const [loading, setLoading] = useState(Boolean(initialQ.trim()));
+  const [searched, setSearched] = useState(Boolean(initialQ.trim()));
+  const [firstQ] = useState(initialQ); // the query the page was opened with
   const [total, setTotal] = useState(0);
   const inputRef = useRef(null);
   const navigate = useNavigate();
 
-  const doSearch = async (q) => {
-    if (!q.trim()) { setResults([]); setSearched(false); return; }
-    setLoading(true);
-    setSearched(true);
-    setSearchParams({ q });
-    try {
-      const res = await api.client.get('/factory/search', { params: { q, limit: 30 } });
+  // Promise chain with no state set before the request: the mount effect calls it.
+  const fetchResults = useCallback((q) => api.client.get('/factory/search', { params: { q, limit: 30 } })
+    .then((res) => {
       const data = res.data;
       const items = data.results || data.items || (Array.isArray(data) ? data : []);
       setResults(items);
       setTotal(data.total || items.length);
-    } catch {
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
+    })
+    .catch(() => setResults([]))
+    .finally(() => setLoading(false)), []);
+
+  const doSearch = (q) => {
+    if (!q.trim()) { setResults([]); setSearched(false); return; }
+    setLoading(true);
+    setSearched(true);
+    setSearchParams({ q });
+    fetchResults(q);
   };
 
   useEffect(() => {
     inputRef.current?.focus();
-    if (initialQ) doSearch(initialQ);
-  }, []);
+    if (firstQ.trim()) fetchResults(firstQ);
+  }, [firstQ, fetchResults]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') { setQuery(''); setResults([]); setSearched(false); }

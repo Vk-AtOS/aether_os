@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { TrendingDown, DollarSign, Zap, Database, Target, RefreshCw } from "lucide-react";
 import api from "../api";
+import { apiError } from '../apiError';
 
 const COST_TARGET = 0.35;
 
@@ -59,20 +60,13 @@ export default function CostDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const load = async () => {
-    try {
-      setLoading(true);
-      const res = await api.client.get("/system/costs");
-      setData(res.data);
-      setError(null);
-    } catch (e) {
-      setError(e.response?.data?.detail || "Failed to load cost data");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => api.client.get("/system/costs")
+    .then((res) => { setData(res.data); setError(null); })
+    .catch((e) => setError(apiError(e) || "Failed to load cost data"))
+    .finally(() => setLoading(false)), []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">

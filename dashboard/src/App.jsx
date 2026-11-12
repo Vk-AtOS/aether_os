@@ -7,7 +7,7 @@ import OAuthCallback from './pages/OAuthCallback';
 import { api, setNavigate } from './api';
 import { useRole } from './hooks/useRole';
 import ErrorBoundary from './components/ErrorBoundary';
-import { ConfirmHost } from './components/confirmAction';
+import ConfirmHost from './components/ConfirmHost';
 
 // Lazy (all other pages)
 const Dashboard         = React.lazy(() => import('./pages/Dashboard'));

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, PlusCircle, List, Users, Settings,
@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
-import { useRuns } from '../contexts/RunsContext';
-import { useSettings } from '../contexts/SettingsContext';
+import { useRuns } from '../contexts/useRuns';
+import { useSettings } from '../contexts/useSettings';
 
 const decodeToken = (token) => {
   try {
@@ -27,27 +27,21 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const { latestRunId } = useRuns();
   const { orgName } = useSettings();
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [platformOpen, setPlatformOpen] = useState(false);
-  const [userRole, setUserRole] = useState('member');
-  const [userEmail, setUserEmail] = useState('');
+  // Identity for display only; the server enforces roles.
+  const payload = useMemo(() => decodeToken(api.getToken() || '') || {}, []);
+  const userRole = payload.role || 'member';
+  const userEmail = payload.sub || '';
 
-  useEffect(() => {
-    const token = api.getToken();
-    if (token) {
-      const payload = decodeToken(token);
-      if (payload?.role) setUserRole(payload.role);
-      if (payload?.sub) setUserEmail(payload.sub);
-    }
-
-    if (['/connectors', '/skills', '/memory', '/costs', '/learning', '/settings/webhooks',
-         '/frontend-builder', '/backend-builder', '/prompt'].some(p => location.pathname.startsWith(p))) {
-      setToolsOpen(true);
-    }
-    if (['/intelligence', '/health', '/guardian', '/agents', '/compliance'].some(p => location.pathname.startsWith(p))) {
-      setPlatformOpen(true);
-    }
-  }, [location.pathname]);
+  // A section opens by itself on a page inside it; a click overrides that until the next navigation.
+  const inTools = ['/connectors', '/skills', '/memory', '/costs', '/learning', '/settings/webhooks',
+    '/frontend-builder', '/backend-builder', '/prompt'].some(p => location.pathname.startsWith(p));
+  const inPlatform = ['/intelligence', '/health', '/guardian', '/agents', '/compliance'].some(p => location.pathname.startsWith(p));
+  const [toggled, setToggled] = useState({ path: null, tools: false, platform: false });
+  const here = toggled.path === location.pathname;
+  const toolsOpen = here ? toggled.tools : toggled.tools || inTools;
+  const platformOpen = here ? toggled.platform : toggled.platform || inPlatform;
+  const setToolsOpen = (v) => setToggled({ path: location.pathname, tools: v, platform: platformOpen });
+  const setPlatformOpen = (v) => setToggled({ path: location.pathname, tools: toolsOpen, platform: v });
 
   const handleLogout = async () => {
     try { await api.client.post('/auth/logout'); } catch { /* ignore */ }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GitPullRequest, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { api } from '../../api';
+import { apiError } from '../../apiError';
 
 const DecisionsPanel = ({ runId }) => {
   const [decisions, setDecisions] = useState([]);
@@ -15,7 +16,7 @@ const DecisionsPanel = ({ runId }) => {
       const res = await api.listDecisions(runId);
       setDecisions(res.data ?? []);
     } catch (e) {
-      setDecisionsError(e.response?.data?.detail || 'Failed to load decisions');
+      setDecisionsError(apiError(e) || 'Failed to load decisions');
     } finally {
       setDecisionsLoading(false);
     }
@@ -29,7 +30,7 @@ const DecisionsPanel = ({ runId }) => {
         prev.map(x => x.id === decisionId ? { ...x, status: approve ? 'approved' : 'rejected' } : x)
       );
     } catch (e) {
-      setDecisionsError(e.response?.data?.detail || 'Decision failed');
+      setDecisionsError(apiError(e) || 'Decision failed');
     } finally {
       setDecidingId(null);
     }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { Webhook, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { apiError } from '../apiError';
 
 const EVENT_OPTIONS = [
   'run.started', 'run.completed', 'run.failed', 'run.cancelled',
@@ -33,7 +34,7 @@ const WebhookSettings = () => {
       const res = await api.getWebhooks();
       setWebhooks(res.data ?? []);
     } catch (err) {
-      setLoadError(err.response?.data?.detail || 'Failed to load webhooks.');
+      setLoadError(apiError(err) || 'Failed to load webhooks.');
     } finally {
       setLoading(false);
     }
@@ -52,7 +53,7 @@ const WebhookSettings = () => {
       setAdding(false);
       await fetchWebhooks();
     } catch (e) {
-      setAddError('Failed to add webhook: ' + (e.response?.data?.detail || e.message));
+      setAddError('Failed to add webhook: ' + (apiError(e) || e.message));
     } finally {
       setSaving(false);
     }
@@ -66,7 +67,7 @@ const WebhookSettings = () => {
       await api.deleteWebhook(id);
       setWebhooks(prev => prev.filter(w => w.id !== id));
     } catch (err) {
-      setDeleteError(err.response?.data?.detail || 'Failed to delete webhook.');
+      setDeleteError(apiError(err) || 'Failed to delete webhook.');
     } finally {
       setDeleting(prev => ({ ...prev, [id]: false }));
     }
@@ -91,7 +92,7 @@ const WebhookSettings = () => {
       setEditingId(null);
       await fetchWebhooks();
     } catch (e) {
-      setEditError(e.response?.data?.detail || 'Failed to update webhook');
+      setEditError(apiError(e) || 'Failed to update webhook');
     } finally {
       setEditSaving(false);
     }
@@ -104,7 +105,7 @@ const WebhookSettings = () => {
       const res = await api.client.post(`/webhooks/${id}/test`);
       setTestResults(p => ({ ...p, [id]: res.data }));
     } catch (e) {
-      setTestResults(p => ({ ...p, [id]: { ok: false, message: e.response?.data?.detail || e.message } }));
+      setTestResults(p => ({ ...p, [id]: { ok: false, message: apiError(e) || e.message } }));
     } finally {
       setTesting(p => ({ ...p, [id]: false }));
     }
