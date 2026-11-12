@@ -39,6 +39,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from aether_os.core.security.redact import redact_secrets
+from aether_os.orchestrator.stage_gate import recorded_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,11 +114,14 @@ async def _run_one_phase_in_wave(
             run_phase_fn(phase_name, phase_input),
             timeout=timeout,
         )
-        p_status = "passed" if phase_result.get("status") == "passed" else "completed"
+        # The stage row says what happened; a failed gate is never stored as "completed".
+        p_status = recorded_status(phase_result)
         await update_state_fn(run_id, phase_name, p_status)
         await emit_fn(
             {"type": "phase_complete", "phase": phase_name, "status": p_status,
-             "parallel": True, "duration": phase_result.get("duration_s")},
+             "parallel": True, "duration": phase_result.get("duration_s"),
+             **({"issues": phase_result.get("issues") or [phase_result.get("error", "")]}
+                if p_status == "failed" else {})},
             run_id=run_id,
         )
         logger.info("[parallel_runner] %s completed (status=%s)", phase_name, p_status)
@@ -136,7 +142,7 @@ async def _run_one_phase_in_wave(
             "[parallel_runner] %s failed during parallel wave: %s",
             phase_name, e,
         )
-        result = {"status": "failed", "error": str(e), "output_path": "", "artifacts": {}, "metadata": {}}
+        result = {"status": "failed", "error": redact_secrets(e), "output_path": "", "artifacts": {}, "metadata": {}}
         await update_state_fn(run_id, phase_name, "failed")
         await emit_fn(
             {"type": "phase_complete", "phase": phase_name, "status": "failed",

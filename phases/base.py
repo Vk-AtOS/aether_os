@@ -27,7 +27,7 @@ class TaskResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     issues: List[str] = field(default_factory=list)
     success: bool = True
-    escalated: bool = False  # True when all retries failed and a human ticket was filed
+    escalated: bool = False  # True when the gate still failed after all retries; the run stops here
     confidence_reason: str = ""  # Human-readable explanation of confidence score
 
 
@@ -266,13 +266,11 @@ class PhaseBase:
         )
 
     async def _escalate(self, phase_input: Any, reason: str) -> None:
-        """Signal the pipeline that human approval is required.
+        """Tell the pipeline and the live view that the gate failed after all retries.
 
-        Publishes an "escalated" phase message to the bus so SSE clients see it
-        immediately. The pipeline loop in factory_pipeline.py detects the
-        "escalated" status on the returned TaskResult and calls
-        _await_human_approval() which registers the Decision and blocks until
-        an operator resolves it via POST /decisions/{id}/approve.
+        Publishes an "escalated" phase message to the bus. The pipeline sees the
+        "escalated" status on the returned TaskResult and ends the run as failed
+        at this stage (orchestrator/stage_gate.gate_block_reason): gates block.
         """
         self.logger.warning("[%s] All retries exhausted — escalating to human. reason=%s",
                             self.phase_name, reason)

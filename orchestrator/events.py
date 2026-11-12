@@ -12,7 +12,10 @@ import asyncio
 import logging
 import time
 from contextvars import ContextVar
-from typing import Optional
+from typing import Any, Optional
+
+from aether_os.core import pipeline_state
+from aether_os.core.security.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,34 @@ ACTIVE_PHASE: ContextVar[Optional[str]] = ContextVar("active_phase", default=Non
 ACTIVE_ORG_ID: ContextVar[Optional[str]] = ContextVar("active_org_id", default=None)
 
 
+# Event fields that carry free text built from exceptions or gate issues.
+_TEXT_KEYS = frozenset({"error", "message", "reason", "detail", "warning", "issues"})
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, (list, tuple)):
+        return [_redact(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _redact(v) for k, v in value.items()}
+    return value
+
+
+def redact_event(event: dict) -> dict:
+    """Copy of `event` with credentials masked in its free-text fields.
+
+    Exception text routinely carries connection URLs and keys, and the event
+    stream is shown live in the browser and stored in pipeline_events.
+    """
+    return {k: _redact(v) if k in _TEXT_KEYS else v for k, v in event.items()}
+
+
+async def publish_event(run_id: str, event: dict) -> None:
+    """The one path from the orchestrator to the live event stream: redact, then publish."""
+    await pipeline_state.publish_event(run_id, redact_event(event))
+
+
 def emit_sync(event: dict, run_id: Optional[str] = None) -> None:
     """Non-async version — schedules Redis publish on the running event loop if available."""
     if run_id is None:
@@ -32,7 +63,6 @@ def emit_sync(event: dict, run_id: Optional[str] = None) -> None:
         return
     try:
         loop = asyncio.get_running_loop()
-        from aether_os.core.pipeline_state import publish_event
         loop.create_task(publish_event(run_id, {**event, "ts": time.time()}))
     except RuntimeError as e:
         logger.warning("orchestrator/events: no running event loop in emit_sync for run_id=%s: %s", run_id, e)
@@ -45,7 +75,6 @@ async def emit(event: dict, run_id: Optional[str] = None) -> None:
     if not run_id:
         return
     try:
-        from aether_os.core.pipeline_state import publish_event
         await publish_event(run_id, {**event, "ts": time.time()})
     except Exception as exc:
         logger.debug("emit failed for run_id=%s (non-fatal): %s", run_id, exc)
