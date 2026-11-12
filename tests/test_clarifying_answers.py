@@ -129,6 +129,34 @@ def test_restart_is_refused_while_running_or_without_a_checkpoint_and_records_no
         assert clarifying.load_answers(run_id) == {}
 
 
+def test_two_restarts_that_both_passed_the_busy_check_start_exactly_one_build(gw, projects_root):
+    """Both requests read the run as 'failed' (the stale read of a real race); the single
+    conditional UPDATE lets only the first one claim it and start a build."""
+    import asyncio
+    from aether_os.gateway.routers import clarifying_router
+    owner = gw.register("clarrace")
+    ckpt = {"last_completed_phase": "s05_quality", "accumulated_context": {"raw_input": "x"}}
+    run_id = _run(gw, projects_root, owner.org_id, status="failed", checkpoint=ckpt)
+    stale = SimpleNamespace(id=run_id, org_id=owner.org_id, status="failed", checkpoint_data=ckpt,
+                            raw_input="a rota app", command=None)
+
+    async def stale_read(_run_id, _org):
+        return stale
+    started = []
+
+    class FakeFactory:
+        async def run(self, **kw):
+            started.append(kw["run_id"])
+
+    with patch.object(clarifying_router, "_run_or_404", stale_read), \
+            patch("aether_os.gateway.services.run_start.get_factory", return_value=FakeFactory()):
+        codes = [_post(gw, owner, run_id, {"answers": {"Employee.notes": "x"}, "restart": True}).status_code
+                 for _ in range(2)]
+        gw.client.portal.call(asyncio.sleep, 0.2)
+    assert sorted(codes) == [200, 409] and started == [run_id]
+    assert gw.sql("SELECT status FROM runs WHERE id = ?", (run_id,))[0][0] == "running"
+
+
 # ── feeding the answers into the domain model ──────────────────────────────────
 
 def _ir():
