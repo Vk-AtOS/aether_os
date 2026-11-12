@@ -149,7 +149,9 @@ async def hook(svc, monkeypatch):
 async def pay(svc, webhook_id):
     out = await svc.submit(act("invoice.approve", amount=Decimal("500"), currency="INR",
                                params={"webhook_id": webhook_id, "invoice": "INV-7"}), ORG, "webhook")
-    return out["request"]
+    req = out["request"]   # an external effect is never auto-approved: the deputy approves
+    assert out["outcome"] == "NEEDS_APPROVAL" and req["state"] == "pending"
+    return await svc.decide(req["id"], BOB, BOB_IDS, ORG, req["request_hash"], approve=True)
 
 
 async def test_webhook_executor_sends_one_signed_message(svc, hook):
@@ -166,7 +168,7 @@ async def test_webhook_executor_sends_one_signed_message(svc, hook):
     body = json.loads(r.content)
     assert body["event"] == "prime.execute" and body["id"] == key
     assert body["payload"]["type"] == "invoice.approve" and body["payload"]["amount"] == "500"
-    assert body["payload"]["params"]["invoice"] == "INV-7" and body["payload"]["approved_by"] == "prime"
+    assert body["payload"]["params"]["invoice"] == "INV-7" and body["payload"]["approved_by"] == BOB
     assert SECRET not in json.dumps(await chain.read_entries())
 
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from aether_os.core.audit import chain as audit_chain
 from aether_os.prime.authz import (
-    PRIME, Action, Decision, Outcome, authority_reason, authorize, needs_second_person,
+    PRIME, Action, Decision, Outcome, EXTERNAL_EFFECT, authority_reason, authorize, needs_second_person,
 )
 from aether_os.prime.executors import DEFAULT_EXECUTOR
 from aether_os.prime.limits import get_limits
@@ -50,10 +50,17 @@ class PrimeService:
                 # A delegation cannot pass on authority its grantor no longer holds.
                 decision = Decision(outcome=Outcome.REFUSE, delegation_id=decision.delegation_id,
                                     reason=f"{action.on_behalf_of}: {auth['reason']}")
+            elif decision.outcome in _ACTING and executor in EXTERNAL_EFFECT:
+                # An effect that leaves AetherOS is never auto-approved, at any autonomy
+                # level: Prime acting on a delegation is no second person.
+                decision = Decision(
+                    outcome=Outcome.NEEDS_APPROVAL, delegation_id=decision.delegation_id,
+                    reason=f"{decision.reason}; '{executor}' has an external effect, so a "
+                           "human other than the requester and the grantor must approve")
             elif decision.outcome in _ACTING and needs_second_person(action.type, executor) \
                     and action.requested_by.lower() in {action.on_behalf_of.lower(), person[1]}:
-                # Money or an external effect asked for by the grantor themselves: the
-                # delegation is no second person, so someone else must approve.
+                # Money asked for by the grantor themselves: the delegation is no second
+                # person, so someone else must approve.
                 decision = Decision(
                     outcome=Outcome.NEEDS_APPROVAL, delegation_id=decision.delegation_id,
                     reason=f"{decision.reason}; requested by the grantor, so a second "

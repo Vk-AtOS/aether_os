@@ -22,7 +22,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import User
 from aether_os.core.security.redact import redact_secrets
 from aether_os.prime.authz import (
-    ACTION_TYPES, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
+    ACTION_TYPES, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
 )
 from aether_os.prime.executors import (
     DEFAULT_EXECUTOR, ExecutionContext, ExecutionFailed, get_executor,
@@ -255,6 +255,12 @@ class ApprovalService:
         dead = dead_reason(delegation, _aware_utc(now)) if delegation else "delegation missing"
         if dead:
             return 409, f"cannot approve: {dead}"
+        if row.executor in EXTERNAL_EFFECT:
+            # Not Prime, the requester or the person acted for: 409 (they may still reject).
+            grantor = await self._grantor_ids(row)
+            if uid.lower() == PRIME or {uid.lower(), *(i.lower() for i in ids)} & grantor:
+                return 409, ("cannot approve: an external effect needs a human other than "
+                             "the requester and the person it is for")
         violation, checks = await self._violation(row, uid)
         if violation:
             # 403 when the approver themselves lacks authority; they may still reject.
@@ -281,13 +287,19 @@ class ApprovalService:
         denied = next((f"{c['person']}: {c['reason']}" for c in checks if not c["ok"]), "")
         return denied, checks
 
+    async def _grantor_ids(self, row: PrimeRequest) -> set:
+        person = await person_in_org(row.org_id, row.on_behalf_of)
+        return {row.on_behalf_of.lower(), person[1] if person else row.on_behalf_of.lower()}
+
     async def _no_second_person(self, row: PrimeRequest) -> bool:
-        """Money or an external effect approved only by whoever asked for it."""
+        """Money or an external effect approved only by whoever asked for it. For an
+        external effect the approver must also not be Prime or the person acted for."""
         if not needs_second_person(row.action_type, row.executor):
             return False
-        person = await person_in_org(row.org_id, row.on_behalf_of)
-        grantor = {row.on_behalf_of.lower(), person[1] if person else row.on_behalf_of.lower()}
+        grantor = await self._grantor_ids(row)
         requester, approver = row.requested_by.lower(), (row.decided_by or "").lower()
+        if row.executor in EXTERNAL_EFFECT and (not approver or approver == PRIME or approver in grantor):
+            return True
         return approver == requester or (approver == PRIME and requester in grantor)
 
     # ── execute ───────────────────────────────────────────────────────────────

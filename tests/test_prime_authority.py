@@ -18,12 +18,14 @@ from aether_os.core.audit import chain
 from aether_os.core.models import User
 from aether_os.gateway.routers import prime_inbox_router as inbox_api
 from aether_os.gateway.routers import prime_router as prime_api
+from aether_os.prime import executors
+from aether_os.prime.authz import PRIME
 from aether_os.prime import Action, AutonomyLevel, Delegation, Limits, Outcome, authorize
 from aether_os.prime.approvals import RequestError, compute_hash
 from aether_os.prime.models import PrimeDelegation, PrimeRequest
 from aether_os.prime.repository import _naive_utc
 from aether_os.tests.prime_helpers import (  # noqa: F401  (svc and counting are fixtures)
-    act, ALICE, API_KEY, BOB, BOB_IDS, counting, DAVE, grant, MEMBER, ORG, set_row, svc,
+    act, ALICE, API_KEY, BOB, BOB_IDS, counting, DAVE, grant, MEMBER, ORG, set_row, SYSTEM, svc,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -213,3 +215,52 @@ async def test_currency_is_hashed_and_rechecked_at_approval_and_execution(svc, c
     row = await load(reqs[1]["id"])
     assert row.exec_status == "failed" and "only INR" in row.exec_result["error"]
     assert counting.calls == []
+
+
+# ── external effect: a human who is neither requester nor the person it is for ──
+
+@pytest.fixture
+def velaris(counting, monkeypatch):
+    monkeypatch.setitem(executors.REGISTRY, "velaris.flow", counting)
+    return counting
+
+
+async def _ext(svc, level=AutonomyLevel.ACT_WITH_APPROVAL, requested_by=SYSTEM):
+    await grant(level)
+    out = await svc.submit(act(requested_by=requested_by), ORG, "velaris.flow")
+    return out, out["request"]
+
+
+@pytest.mark.parametrize("level", [AutonomyLevel.ACT_THEN_NOTIFY, AutonomyLevel.ACT_SILENTLY])
+async def test_external_effect_is_never_auto_approved(svc, velaris, level):
+    out, req = await _ext(svc, level)
+    assert out["outcome"] == "NEEDS_APPROVAL" and req["state"] == "pending" and velaris.calls == []
+    assert req["decided_by"] is None
+
+
+async def test_external_effect_approver_cannot_be_the_person_it_is_for(svc, velaris):
+    _, req = await _ext(svc)
+    with pytest.raises(RequestError) as e:
+        await svc.decide(req["id"], ALICE, [ALICE, "alice@a.test"], ORG, req["request_hash"], approve=True)
+    assert e.value.status == 409 and velaris.calls == []
+    assert (await svc.get(req["id"], ALICE, [ALICE], ORG))["can_approve"] is False
+    done = await svc.decide(req["id"], BOB, BOB_IDS, ORG, req["request_hash"], approve=True)
+    assert done["execution"]["status"] == "succeeded" and len(velaris.calls) == 1
+
+
+async def test_external_effect_approver_cannot_be_the_requester(svc, velaris):
+    _, req = await _ext(svc, requested_by=BOB)
+    with pytest.raises(RequestError) as e:
+        await svc.decide(req["id"], BOB, BOB_IDS, ORG, req["request_hash"], approve=True)
+    assert e.value.status == 403 and velaris.calls == []
+
+
+async def test_external_effect_rechecked_before_execution(svc, velaris):
+    _, req = await _ext(svc)
+    for who in (ALICE, PRIME):      # a row whose approver is the grantor, or Prime itself
+        await set_row(req["id"], status="approved", decided_by=who, exec_status=None,
+                      decided_hash=req["request_hash"])
+        await svc._execute(req["id"])
+        row = await svc._load(req["id"])
+        assert row.exec_status != "succeeded" and velaris.calls == []
+        await set_row(req["id"], exec_status=None, exec_result=None)
