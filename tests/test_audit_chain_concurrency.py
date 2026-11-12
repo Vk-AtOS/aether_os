@@ -109,7 +109,7 @@ async def test_postgres_advisory_lock_alone_serialises_writers(postgres_db, monk
     """Writers in different processes do not share the in-process lock. Give every
     append its own lock (as separate processes would have) and the advisory lock
     alone must still make all of them link — with no retries to hide a race."""
-    monkeypatch.setattr(chain, "_local_lock", asyncio.Lock)
+    monkeypatch.setattr(chain, "_local_lock", lambda _chain: asyncio.Lock())
     monkeypatch.setattr(chain, "_APPEND_ATTEMPTS", 1)
     await asyncio.gather(*(chain.append(f"user-{i}", "thing.done", {"i": i}) for i in range(N)))
     await _assert_all_linked(N)

@@ -161,9 +161,13 @@ async def test_ledger_entry_shows_its_link_and_hides_other_orgs(svc):
     await chain.append(actor=BOB, action="thing.a", payload={"org_id": ORG})
     stored = await chain.read_entries()
 
+    # Each organisation has its own chain: org_a's first entry links to the genesis,
+    # not to org_b's entry 1, and its second entry links to its first.
     got = await ledger_api.get_entry(2, user=ADMIN)
-    assert got["link_ok"] and got["hash_ok"] and got["prev_hash"] == stored[0]["entry_hash"]
-    assert got["previous"] == {"seq": 1, "entry_hash": stored[0]["entry_hash"]}   # nothing else of org_b's
+    assert got["link_ok"] and got["hash_ok"] and got["prev_hash"] == chain.GENESIS_HASH
+    assert got["previous"] == {"seq": None, "entry_hash": chain.GENESIS_HASH}   # nothing of org_b's
+    nxt = await ledger_api.get_entry(3, user=ADMIN)
+    assert nxt["link_ok"] and nxt["previous"] == {"seq": 2, "entry_hash": stored[1]["entry_hash"]}
     first = await ledger_api.get_entry(1, user=OUTSIDER)
     assert first["previous"] == {"seq": None, "entry_hash": chain.GENESIS_HASH} and first["link_ok"]
 
