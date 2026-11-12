@@ -25,6 +25,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.api_key_store import get_api_key
+from aether_os.core.llm._org_context import _current_org_id
+
 logger = logging.getLogger(__name__)
 
 _COUNCIL_SYSTEM = (
@@ -432,7 +435,10 @@ class FrontendAuditCouncil:
         # straight to Bedrock. The previous code logged a stack of
         # "OPENROUTER_API_KEY not set" warnings — one per (check, model)
         # combination — that drowned out real errors.
-        _have_openrouter = bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+        # Resolved the way call_openrouter resolves it (this org's key, else the
+        # platform key): an org with only its own key must not be sent to Bedrock.
+        _have_openrouter = bool(
+            (await get_api_key("openrouter", _current_org_id.get()) or "").strip())
         code_snippet = tsx_code[:6000]
         failures: List[Dict[str, Any]] = []
         corrections: List[str] = []
