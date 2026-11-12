@@ -9,10 +9,11 @@ Exported:
     get_fallback_chain()    — build fallback chain from environment
     _is_provider_configured() — check if a provider has credentials
     _classify_error()       — retry vs fallback decision
-    _mark_provider_dead()   — open circuit breaker for a provider/model
+    _mark_provider_dead()   — open circuit breaker for a provider/model, per scope
+    _is_provider_dead()     — is the breaker open for this provider/model in a scope
     _apply_org_chain_overrides() — filter chain per org DB settings
-    _DEAD_PROVIDERS         — process-level circuit breaker set (providers)
-    _DEAD_MODELS            — process-level circuit breaker set (models)
+    _DEAD_PROVIDERS         — breaker table {(scope, provider): expiry}
+    _DEAD_MODELS            — breaker table {(scope, provider/model): expiry}
     _RETRY_PATTERNS         — transient error substrings
     _FALLBACK_PATTERNS      — hard failure substrings
     FALLBACK_CHAIN          — legacy alias (do not use; call get_fallback_chain())
@@ -22,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -182,11 +184,36 @@ def _classify_error(exc: Exception) -> str:
     return "fallback"
 
 
-# Process-level circuit breaker — providers that have hit a permanent hard failure
-# (e.g. INVALID_PAYMENT_INSTRUMENT, bad key) are added here and skipped for the
-# remainder of the process lifetime, saving 1-2s per call on every subsequent request.
-_DEAD_PROVIDERS: set[str] = set()
-_DEAD_MODELS: set[str] = set()
+# Circuit breaker for permanent hard failures (bad key, no payment).
+# Keyed by (scope, name) -> monotonic expiry. `scope` is the org id when the call
+# used that org's own key, and PLATFORM_SCOPE when it used the platform key (or a
+# keyless provider): one org's bad key must not disable the provider for the rest.
+# Entries expire so a provider recovers once the key or account is fixed.
+PLATFORM_SCOPE = ""
+_DEAD_PROVIDERS: dict[tuple[str, str], float] = {}
+_DEAD_MODELS: dict[tuple[str, str], float] = {}
+
+
+def _dead_ttl() -> float:
+    return float(os.environ.get("ROUTER_DEAD_PROVIDER_TTL_SECONDS", "600"))
+
+
+def _is_dead(table: dict, scope: str, name: str) -> bool:
+    expiry = table.get((scope, name))
+    if expiry is None:
+        return False
+    if expiry <= time.monotonic():
+        del table[(scope, name)]  # expired: let the next call try again
+        return False
+    return True
+
+
+def _is_provider_dead(provider: str, model: str = "", scope: str = PLATFORM_SCOPE) -> bool:
+    """True while the breaker is open for this provider (or provider/model) in `scope`."""
+    return _is_dead(_DEAD_PROVIDERS, scope, provider) or (
+        bool(model) and _is_dead(_DEAD_MODELS, scope, f"{provider}/{model}"))
+
+
 _PERMANENT_FAILURE_PATTERNS = (
     "invalid_payment_instrument", "invalidpaymentinstrument",
     "invalid_api_key", "invalid api key",
@@ -203,8 +230,9 @@ _MODEL_SPECIFIC_FAILURE_PATTERNS = (
 )
 
 
-def _mark_provider_dead(provider: str, exc: Exception, model: str = "") -> None:
-    """Open the circuit breaker for either a single model or a whole provider.
+def _mark_provider_dead(provider: str, exc: Exception, model: str = "",
+                        scope: str = PLATFORM_SCOPE) -> None:
+    """Open the circuit breaker, within `scope`, for a single model or a whole provider.
 
     Mark only the MODEL dead when the failure is account-specific (Bedrock
     Marketplace subscription missing, invalid payment for one model family) —
@@ -213,22 +241,21 @@ def _mark_provider_dead(provider: str, exc: Exception, model: str = "") -> None:
     Mark the PROVIDER dead only for credential-level failures (invalid key).
     """
     msg = str(exc).lower()
+    where = f"org {scope[:8]}" if scope else "the platform key"
     if model and any(p in msg for p in _MODEL_SPECIFIC_FAILURE_PATTERNS):
         key = f"{provider}/{model}"
-        if key not in _DEAD_MODELS:
-            _DEAD_MODELS.add(key)
+        if not _is_dead(_DEAD_MODELS, scope, key):
             logger.warning(
-                "Router: circuit-breaker OPEN for model %s — account-specific failure, "
-                "skipping for this process", key,
-            )
+                "Router: circuit-breaker OPEN for model %s (%s) — account-specific failure, "
+                "skipping for %.0fs", key, where, _dead_ttl())
+        _DEAD_MODELS[(scope, key)] = time.monotonic() + _dead_ttl()
         return
     if "invalid_api_key" in msg or "invalid api key" in msg:
-        if provider not in _DEAD_PROVIDERS:
-            _DEAD_PROVIDERS.add(provider)
+        if not _is_dead(_DEAD_PROVIDERS, scope, provider):
             logger.warning(
-                "Router: circuit-breaker OPEN for %s — bad credentials, "
-                "skipping for this process", provider,
-            )
+                "Router: circuit-breaker OPEN for %s (%s) — bad credentials, "
+                "skipping for %.0fs", provider, where, _dead_ttl())
+        _DEAD_PROVIDERS[(scope, provider)] = time.monotonic() + _dead_ttl()
 
 
 async def _apply_org_chain_overrides(
