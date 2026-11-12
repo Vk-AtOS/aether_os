@@ -134,7 +134,8 @@ export const api = {
   startPipeline: (data) => client.post('/factory/start', data),
   listRuns: (page = 1, limit = 50) => client.get('/factory/runs', { params: { page, limit } }),
   getRun: (runId) => client.get(`/factory/runs/${runId}`),
-  getRunEvents: (runId) => client.get(`/factory/runs/${runId}/events`),
+  // Streamed model output (llm_chunk) is most of the rows and none of what the views read.
+  getRunEvents: (runId) => client.get(`/factory/runs/${runId}/events`, { params: { exclude: 'llm_chunk' } }),
   getRunFiles: (runId) => client.get(`/factory/runs/${runId}/files`),
   getFileContent: (runId, path) => client.get(`/factory/runs/${runId}/file-content`, { params: { path } }),
   patchFileContent: (runId, path, content) => client.patch(`/factory/runs/${runId}/file-content`, { path, content }),
@@ -144,6 +145,9 @@ export const api = {
   startRunApp: (runId) => client.post(`/factory/runs/${runId}/run-app`),
   stopRunApp: (runId) => client.delete(`/factory/runs/${runId}/run-app`),
   getRunAppStatus: (runId) => client.get(`/factory/runs/${runId}/run-app/status`),
+  createPreviewSession: (runId) => client.post(`/factory/runs/${runId}/preview-session`),
+  getClarifyingAnswers: (runId) => client.get(`/factory/runs/${runId}/clarifying-answers`),
+  submitClarifyingAnswers: (runId, answers, restart = false) => client.post(`/factory/runs/${runId}/clarifying-answers`, { answers, restart }),
   getPreviewCredentials: (runId) => client.get(`/factory/runs/${runId}/preview-credentials`),
   approveAction: (ticketId, decision, reason) =>
     client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
@@ -277,6 +281,8 @@ export const api = {
 
   // Operations (Velaris)
   getVelarisInventory: () => client.get('/velaris/inventory'),
+  getVelarisAgents: () => client.get('/velaris/agents'),
+  callVelarisAgent: (agent, method, args) => client.post(`/velaris/agents/${agent}/${method}`, args),
 
   // Prime
   getPrimeMeta: () => client.get('/prime/meta'),

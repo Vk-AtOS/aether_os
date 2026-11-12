@@ -24,8 +24,10 @@ from __future__ import annotations
 import logging
 import os
 import shlex
-import subprocess
+from pathlib import Path
 from typing import Dict, Any
+
+from aether_os.core.sandbox import phase_exec
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +65,12 @@ def run_tests(project_path: str, command: str = "pytest") -> Dict[str, Any]:
 
     # Split command into args safely
     args = shlex.split(command)
+    if args and args[0] in ("pytest", "py.test"):
+        args = ["python3", "-m", "pytest", *args[1:]]  # the sandbox's interpreter, not a PATH lookup
 
     try:
-        proc = subprocess.run(
-            args,
-            cwd=project_abs,
-            capture_output=True,
-            text=True,
-        )
+        # Generated tests run in the sandbox only; SandboxUnavailable is reported, never bypassed.
+        proc = phase_exec.run_sync(args, cwd=Path(project_abs), env={"PYTHONPATH": project_abs}, text=True)
     except FileNotFoundError as e:
         # E.g. pytest not installed
         return {

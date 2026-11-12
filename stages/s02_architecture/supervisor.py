@@ -39,6 +39,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.orchestrator.clarifying import load_answers
+
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 
 logger = logging.getLogger(__name__)
@@ -89,6 +91,10 @@ class ArchitectureStageSupervisor(PhaseBase):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         issues: List[str] = []
+
+        # Answers to this run's clarifying questions (POST .../clarifying-answers) go into the
+        # context before p02b runs: it feeds them to the extraction and applies them to the IR.
+        phase_input.input_data["clarifying_answers"] = load_answers(phase_input.run_id)
 
         # ── Step 1: Architecture decisions ────────────────────────────────────
         # Writes architecture.json; populates architecture_warnings, decisions,
@@ -164,6 +170,7 @@ class ArchitectureStageSupervisor(PhaseBase):
         phase_input.input_data["has_questions"] = bool(questions)
         (output_dir / f"{self.phase_name}.json").write_text(json.dumps({
             "clarifying_questions": questions,
+            "clarifying_answers": phase_input.input_data.get("clarifying_answers") or {},
             "has_questions": bool(questions),
             **{k: ir_result.metadata[k] for k in ("entity_count", "field_count")
                if k in (ir_result.metadata or {})},

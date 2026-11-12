@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.domain_ir import DomainIR
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p05_frontend.build_loop import run_build_loop
@@ -466,13 +468,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             try:
                 _hash = pkg_hash(frontend_dir_final)
                 if not node_modules_fresh(frontend_dir_final, _hash):
-                    _NPM_SHARED_CACHE.mkdir(parents=True, exist_ok=True)
-                    install_result = await asyncio.to_thread(subprocess.run, ["npm", "install", "--cache", str(_NPM_SHARED_CACHE)], cwd=str(frontend_dir_final), timeout=300)
+                    # Install in the sandbox (install egress profile); build/tsc below have no network.
+                    install_result = await phase_exec.run(["npm", "install"], cwd=frontend_dir_final,
+                                                          timeout=300, network=True)
                     if install_result.returncode != 0:
                         logger.error("p05: npm install failed (exit %s)", install_result.returncode)
                         build_success = False
                     else:
                         stamp_node_modules(frontend_dir_final, _hash)
+            except SandboxUnavailable:
+                raise
             except Exception as exc:
                 logger.error("p05: npm install raised: %s", exc)
                 build_success = False

@@ -19,73 +19,23 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from aether_os.gateway.services.phase_output import enrich_phases
+
 logger = logging.getLogger(__name__)
 
 # ── Phase disk-enrichment helper ───────────────────────────────────────────────
-
-_OUTPUT_FILE_CANDIDATES = [
-    "consolidated.json", "architecture.json", "frontend_meta.json",
-    "review.json", "test_results.json", "delivery.json",
-    "observability.json", "cicd.json",
-]
-
 
 def enrich_phases_from_disk(
     phases: Dict[str, Any],
     project_dir: pathlib.Path,
     project_prefix: str,
 ) -> Dict[str, Any]:
-    """Load phase output + gate_result JSON from disk and strip server paths.
+    """Stage-keyed output, gate result and security findings for GET /factory/runs/{id}.
 
-    Called by get_factory_run to avoid bloating the router with filesystem logic.
-    Returns a new (mutated) phases dict with output/output_file/gate_result injected.
+    The mapping from a stage to the folders that hold its artifacts is explicit, in
+    gateway/services/phase_output.py.
     """
-    for phase_key, phase_val in phases.items():
-        phase_dir = project_dir / phase_key
-        if not phase_dir.exists():
-            continue
-        loaded = False
-        for fname in _OUTPUT_FILE_CANDIDATES + [f"{phase_key}.json"]:
-            fpath = phase_dir / fname
-            if fpath.exists():
-                try:
-                    phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
-                    phase_val["output_file"] = f"{phase_key}/{fname}"
-                    loaded = True
-                    break
-                except Exception as exc:
-                    logger.debug("Failed to parse phase output file %s: %s", fpath, exc)
-        if not loaded:
-            for fpath in sorted(phase_dir.glob("*.json")):
-                try:
-                    phase_val["output"] = json.loads(fpath.read_text(encoding="utf-8"))
-                    phase_val["output_file"] = f"{phase_key}/{fpath.name}"
-                    break
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to parse fallback phase output file %s: %s", fpath, exc
-                    )
-
-    # Load gate_result.json for each phase if it exists
-    for _pk, _pv in phases.items():
-        _gate_file = project_dir / _pk / "gate_result.json"
-        if _gate_file.exists():
-            try:
-                _pv["gate_result"] = json.loads(_gate_file.read_text(encoding="utf-8"))
-            except Exception as exc:
-                logger.debug("Failed to parse gate_result.json for phase %s: %s", _pk, exc)
-
-    # Strip absolute server paths from all phase output (S8 security fix)
-    def _strip(obj: Any) -> Any:
-        if isinstance(obj, str):
-            return obj.replace(project_prefix, "")
-        if isinstance(obj, dict):
-            return {k: _strip(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_strip(v) for v in obj]
-        return obj
-
-    return _strip(phases)
+    return enrich_phases(phases, project_dir, project_prefix)
 
 
 async def load_phase_events(

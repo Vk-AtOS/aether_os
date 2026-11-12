@@ -46,7 +46,7 @@ async def register_live_run_app(projects_root: Path) -> Optional[str]:
     preview proxy uses). An open port proves nothing: ports are reused, and the
     listener may be another run's app — which is what the old socket probe trusted.
     """
-    state_files = sorted(projects_root.glob(f"*/{preview_state.STATE_FILE}"),
+    state_files = sorted((projects_root / preview_state.STATE_DIR).glob(f"*/{preview_state.STATE_FILE}"),
                          key=lambda p: p.stat().st_mtime, reverse=True)
     for state_file in state_files:
         run_id = state_file.parent.name
@@ -55,7 +55,7 @@ async def register_live_run_app(projects_root: Path) -> Optional[str]:
             logger.info("run_app: run %s still up on port %d (pid %s) — registering (no restart)",
                         run_id, app["port"], app["pid"])
             await set_app_state(run_id, port=app["port"], pid=app["pid"],
-                                mode=app["mode"] or "backend", app_dir=str(state_file.parent))
+                                mode=app["mode"] or "backend", app_dir=str(projects_root / run_id))
             return run_id
     return None
 

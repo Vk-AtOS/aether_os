@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
 import { useRuns } from '../contexts/useRuns';
 import { useToast } from '../contexts/useToast';
+import { isPreviewUrl, openPreviewInTab } from '../previewSession';
 import { apiError } from '../apiError';
 import { SkeletonTable } from '../components/Skeleton';
 import { PHASES } from '../components/project/projectConstants';
@@ -345,12 +346,18 @@ const ProjectsList = () => {
                       )}
                       {run.live_url && (
                         <a
-                          href={run.live_url}
+                          href={isPreviewUrl(run.live_url) ? '#' : run.live_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!isPreviewUrl(run.live_url)) return;
+                            e.preventDefault();  // a preview link is single-use: ask for a fresh one
+                            const err = await openPreviewInTab(run.run_id || run.id);
+                            if (err) toast(err, 'error', 8000);
+                          }}
                           className="p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-all"
-                          title={`Open live app — ${run.live_url}`}
+                          title="Open live app"
                         >
                           🌐
                         </a>

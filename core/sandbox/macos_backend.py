@@ -38,6 +38,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, List
 
+from aether_os.core.run_app.safe_fs import open_log_fd
 from aether_os.core.sandbox.runner import Limits, SandboxRunner
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,10 @@ class MacSandboxRunner(SandboxRunner):
                               timeout or self.limits.timeout_s, preexec=self._limits(cpu=True))
 
     def start(self, argv, *, run_dir, cwd, env, log_path, port, labels):
-        log = open(log_path, "a")
-        return subprocess.Popen(self._argv(argv, run_dir), cwd=str(cwd), env=dict(env),
-                                stdout=log, stderr=log, start_new_session=True,
-                                preexec_fn=self._limits(cpu=False))
+        log = open_log_fd(log_path)  # O_NOFOLLOW: the run dir is app-writable
+        try:
+            return subprocess.Popen(self._argv(argv, run_dir), cwd=str(cwd), env=dict(env),
+                                    stdout=log, stderr=log, start_new_session=True,
+                                    preexec_fn=self._limits(cpu=False))
+        finally:
+            os.close(log)

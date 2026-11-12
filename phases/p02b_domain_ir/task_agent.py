@@ -16,6 +16,7 @@ from typing import Any
 
 from aether_os.core.llm.client import get_llm_client
 from aether_os.core.domain_ir import IRClarifyingQuestion
+from aether_os.orchestrator.clarifying import apply_to_ir, requirement_suffix
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p02b_domain_ir.ir_extractor import (
     _seed_entities,
@@ -46,6 +47,11 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
         req_path = Path(data.get("requirements_path", ""))
         if req_path.exists():
             requirements = req_path.read_text()
+
+    # Answers the requester gave to this run's clarifying questions are authoritative input.
+    answers: dict = data.get("clarifying_answers") or {}
+    if requirements:
+        requirements += requirement_suffix(answers)
 
     if not requirements:
         return _TaskResult(
@@ -136,6 +142,10 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
                         options=[],
                     ))
 
+    # Close the questions the requester has answered (after the low-confidence pass above,
+    # which would otherwise re-open them).
+    applied_answers = apply_to_ir(ir, answers) if answers else []
+
     # ── Domain IR structural validation (dict-level, before DomainIR object) ──
     from aether_os.phases.p02b_domain_ir.validator import apply_validation_to_run as _apply_val
     _raw_ir_dict = combined_result if combined_result.get("entities") else (p1 or {})
@@ -190,6 +200,7 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
             "metric_count": len(ir.dashboard_metrics),
             "clarifying_questions": len(ir.clarifying_questions),
             "has_questions": has_questions,
+            "clarifications_applied": applied_answers,
             "pass_errors": errors,
             "domain_ir_path": str(ir_path),
             "domain_validation": _domain_report.as_dict(),

@@ -1,15 +1,17 @@
 """Preview-origin tokens: how a browser gets into ONE run's generated app, and nothing else.
 
-Generated apps are served from AETHER_PREVIEW_ORIGIN, a different origin from
-the dashboard, so their JavaScript cannot read the dashboard's storage or call
-the platform API as the signed-in user. Getting in is a two-step exchange:
+Generated apps are served from their own origin, a different one from the dashboard
+AND from every other run: https://<run-id>.<AETHER_PREVIEW_ORIGIN host> (AETHER_PREVIEW_ORIGIN
+is the base, e.g. https://preview.example.com; locally http://localhost:8100 gives
+http://<run-id>.localhost:8100). One app's JavaScript therefore cannot read another run's
+or org's session, cookies or storage, nor the dashboard's. Getting in is a two-step exchange:
 
   1. dashboard (signed in) → POST /factory/runs/{run_id}/preview-session
-     → an ENTER token: run + org + user, audience = the preview origin,
+     → an ENTER token: run + org + user, audience = THAT RUN's origin,
        2 minutes, single use (it travels in a URL);
-  2. browser → {preview origin}/__preview/enter?t=<enter token>
-     → the preview server spends it and sets a SESSION token as an HttpOnly
-       cookie on the preview origin only (30 minutes).
+  2. browser → {run origin}/__preview/enter?t=<enter token>
+     → the preview server spends it and sets a SESSION token as a host-only HttpOnly
+       cookie on that run's origin (30 minutes).
 
 Tokens are signed with AETHER_PREVIEW_SECRET (HS256), a key used for nothing
 else: the preview server never holds the platform's JWT keys, and no preview
@@ -18,6 +20,7 @@ token can pass as a platform credential (different key, audience and purpose).
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import threading
 import time
@@ -49,6 +52,47 @@ def preview_origin() -> Optional[str]:
     return _origin(os.environ.get("AETHER_PREVIEW_ORIGIN", ""))
 
 
+_RUN_LABEL = re.compile(r"^[a-z0-9][a-z0-9-]{0,61}$")
+
+
+def run_origin(run_id: str) -> str:
+    """The origin that serves this run's app, and nothing else: <run-id>.<preview base host>."""
+    base = preview_origin()
+    if not base:
+        raise RuntimeError("AETHER_PREVIEW_ORIGIN is not configured")
+    if not _RUN_LABEL.match(run_id or ""):
+        raise ValueError("run id cannot be used as a hostname label")
+    scheme, _, netloc = base.partition("://")
+    return f"{scheme}://{run_id}.{netloc}"
+
+
+def origin_for_host(host: str) -> Optional[str]:
+    """The run origin a request's Host header names, or None when it is not `<label>.<base host>`."""
+    base = preview_origin()
+    host = (host or "").strip().lower()
+    if not base or not host:
+        return None
+    scheme, _, netloc = base.partition("://")
+    label, sep, rest = host.partition(".")
+    if not sep or rest != netloc or not _RUN_LABEL.match(label):
+        return None
+    return f"{scheme}://{host}"
+
+
+def session_cookie_name() -> str:
+    """__Host- on https: the browser then refuses any version set with a Domain attribute."""
+    return ("__Host-" if (preview_origin() or "").startswith("https://") else "") + SESSION_COOKIE
+
+
+def frame_src() -> Optional[str]:
+    """CSP frame-src source for the dashboard: every run origin under the preview base."""
+    base = preview_origin()
+    if not base:
+        return None
+    scheme, _, netloc = base.partition("://")
+    return f"{scheme}://*.{netloc}"
+
+
 def dashboard_origin() -> Optional[str]:
     return _origin(os.environ.get("AETHER_DASHBOARD_ORIGIN") or os.environ.get("FRONTEND_URL", ""))
 
@@ -76,9 +120,7 @@ def _secret() -> str:
 
 def issue(run_id: str, org_id: str, user_id: str, purpose: str, ttl_s: int,
           now: Optional[float] = None) -> str:
-    origin = preview_origin()
-    if not origin:
-        raise RuntimeError("AETHER_PREVIEW_ORIGIN is not configured")
+    origin = run_origin(run_id)  # audience = this run's own origin
     now = time.time() if now is None else now
     claims = {"aud": origin, "purpose": purpose, "run_id": run_id, "org_id": org_id,
               "sub": str(user_id), "iat": int(now), "exp": int(now) + ttl_s,
@@ -86,9 +128,9 @@ def issue(run_id: str, org_id: str, user_id: str, purpose: str, ttl_s: int,
     return jwt.encode(claims, _secret(), algorithm=_ALG)
 
 
-def verify(token: str, purpose: str, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """Claims of a valid token for this purpose and THIS preview origin, else None."""
-    origin = preview_origin()
+def verify(token: str, purpose: str, origin: Optional[str],
+           now: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """Claims of a valid token for this purpose and exactly this run origin, else None."""
     if not token or not origin:
         return None
     try:

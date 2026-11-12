@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Play, Pause, ExternalLink, Copy, Check } from 'lucide-react';
 import { api } from '../../api';
 import { apiError } from '../../apiError';
+import { openPreviewInTab } from '../../previewSession';
 
 const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
   const [appRunning, setAppRunning] = useState(false);
@@ -41,7 +42,7 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
       setAppOutput([
         '[AetherOS] Starting app… (builds frontend + installs deps ~15s)',
         credLine,
-        '[AetherOS] Preview available at /app-preview/',
+        '[AetherOS] Preview available in the APP PREVIEW tab (opens on its own origin).',
       ]);
       onToast('App starting — demo credentials shown below.');
     } catch (e) {
@@ -87,14 +88,12 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
             </button>
           )}
           {appRunning && (
-            <a
-              href="/app-preview/"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={async () => { const err = await openPreviewInTab(runId); if (err) onToast(err); }}
               className="flex items-center space-x-1 text-xs text-emerald-400 hover:text-emerald-300"
             >
               <ExternalLink className="w-3 h-3" /> Open App Preview
-            </a>
+            </button>
           )}
         </div>
       </div>

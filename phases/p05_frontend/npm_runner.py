@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from aether_os.core.sandbox import phase_exec
+
 # ── npm build concurrency limiter ─────────────────────────────────────────────
 _NPM_SEMAPHORE: Optional[asyncio.Semaphore] = None
 
@@ -67,17 +69,7 @@ async def run_npm_build(frontend_dir: Path) -> None:
     async with _get_npm_semaphore():
         h = _pkg_hash(frontend_dir)
         if not _node_modules_fresh(frontend_dir, h):
-            _NPM_SHARED_CACHE.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(
-                subprocess.run,
-                ["npm", "install", "--cache", str(_NPM_SHARED_CACHE)],
-                cwd=str(frontend_dir),
-                timeout=300,
-            )
+            # Install = the sandbox's install egress profile; the npm cache lives in the run's own HOME.
+            await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=300, network=True)
             _stamp_node_modules(frontend_dir, h)
-        await asyncio.to_thread(
-            subprocess.run,
-            ["npm", "run", "build"],
-            cwd=str(frontend_dir),
-            timeout=600,
-        )
+        await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=600)

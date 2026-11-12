@@ -11,10 +11,13 @@ import json
 import logging
 import subprocess
 import re
-import tempfile
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -295,20 +298,24 @@ def _check_frontend_complete(project_dir: Path) -> float:
         except Exception as exc:
             logger.debug("_check_frontend_complete: build_status read failed: %s", exc)
 
+    # vite runs the project's own config and plugins: sandbox only, output inside the run dir
+    # (the sandbox's only writable place), removed afterwards.
+    out_dir = frontend_dir / ".aether_quality_build"
     try:
-        with tempfile.TemporaryDirectory() as tmp:
-            result = subprocess.run(
-                ["npx", "vite", "build", "--outDir", tmp, "--logLevel", "silent"],
-                cwd=str(frontend_dir),
-                capture_output=True,
-                timeout=120,
-            )
-            return 1.0 if result.returncode == 0 else 0.6
+        result = phase_exec.run_sync(
+            ["npx", "vite", "build", "--outDir", str(out_dir), "--logLevel", "silent"],
+            cwd=frontend_dir, timeout=120)
+        return 1.0 if result.returncode == 0 else 0.6
     except subprocess.TimeoutExpired:
+        return 0.6
+    except SandboxUnavailable as exc:
+        logger.error("_check_frontend_complete: %s", exc)  # not run, so not scored as built
         return 0.6
     except Exception as exc:
         logger.debug("_check_frontend_complete: vite build attempt failed: %s", exc)
         return 0.6
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
 
 
 def _check_security_bandit(src_dir: Path) -> float:

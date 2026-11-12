@@ -15,6 +15,8 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from aether_os.core.run_app import preview_state
+
 logger = logging.getLogger(__name__)
 
 # Module-level lock prevents two simultaneous calls from grabbing the same port
@@ -30,11 +32,20 @@ def _get_port_lock() -> asyncio.Lock:
 
 
 def _free_port() -> int:
-    """Return an unused TCP port on localhost."""
+    """An unused TCP port on localhost from the app range (the preview proxy refuses any other)."""
+    import random as _random
     import socket as _sock
-    with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    lo, hi = preview_state.port_range()
+    ports = list(range(lo, hi + 1))
+    _random.shuffle(ports)
+    for port in ports[:200]:
+        with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise RuntimeError(f"no free port in the app range {lo}-{hi}")
 
 
 async def acquire_free_port() -> int:

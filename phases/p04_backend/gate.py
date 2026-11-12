@@ -3,8 +3,6 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import subprocess
-import sys
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
 
@@ -74,18 +72,11 @@ def validate(result: TaskResult) -> GateOutcome:
         source = main_py.read_text(encoding="utf-8", errors="ignore")
         if "FastAPI" not in source:
             main_issues.append("main.py: FastAPI() not found — app may not start")
-        # Subprocess import check (catches circular imports, missing deps)
+        # Parse in-process: nothing generated is executed, so no subprocess is needed.
         try:
-            proc = subprocess.run(
-                [sys.executable, "-c",
-                 f"import ast; ast.parse(open({str(main_py)!r}).read()); print('OK')"],
-                capture_output=True, text=True, timeout=8,
-            )
-            if proc.returncode != 0 and proc.stderr:
-                err = proc.stderr.strip()[:300]
-                main_issues.append(f"main.py import-level error: {err}")
-        except Exception as exc:
-            logger.debug("p04 gate: main.py syntax check subprocess failed (non-fatal): %s", exc)
+            ast.parse(source)
+        except SyntaxError as exc:
+            main_issues.append(f"main.py import-level error: {exc}"[:300])
     else:
         main_issues.append("main.py not found — generated app may not be runnable")
 

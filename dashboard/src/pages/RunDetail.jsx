@@ -31,6 +31,7 @@ import {
 } from '../components/run-detail/RunDetailComponents';
 import { confirmAction } from '../components/confirmAction';
 import { apiError } from '../apiError';
+import { isPreviewUrl, openPreviewInTab } from '../previewSession';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -373,9 +374,15 @@ const RunDetail = () => {
           )}
           {liveUrl && (
             <a
-              href={liveUrl}
+              href={isPreviewUrl(liveUrl) ? '#' : liveUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={async (e) => {
+                if (!isPreviewUrl(liveUrl)) return;
+                e.preventDefault();  // single-use preview link: ask for a fresh one
+                const err = await openPreviewInTab(run.run_id || run.id || runId);
+                if (err) window.alert(err);
+              }}
               className="flex items-center gap-1.5 px-3 py-2 bg-success/20 text-success border border-success/30 rounded-lg text-xs font-bold hover:bg-success/30 transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" /> Live App

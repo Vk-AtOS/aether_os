@@ -26,8 +26,9 @@ import logging
 import pathlib
 from typing import Any, Dict, Optional
 
-from aether_os.core.run_app import preview_state, preview_token
+from aether_os.core.run_app import preview_state
 from aether_os.core.run_app.child_env import child_env
+from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
 from aether_os.core.run_app.sandboxed import pip_install, venv_python
 from aether_os.core.sandbox.docker_backend import labels_for
 from aether_os.core.sandbox.runner import SandboxUnavailable, get_runner, sandbox_dirs
@@ -127,7 +128,10 @@ class RunAppManager:
                 detail="Could not locate backend src/main.py in generated project.",
             )
 
-        log_path = root_dir / "run_app.log"
+        log_path = root_dir / "run_app.log"  # the app's own output (sandbox-writable: only ever opened O_NOFOLLOW)
+        # Platform narration goes to a gateway-owned file: a symlink planted at run_app.log
+        # must not redirect the gateway's appends.
+        plat_log = preview_state.state_dir(run_id) / "platform.log"
         # Generated code and its install/build scripts never see the platform's environment.
         _tool_env = child_env(PIP_DISABLE_PIP_VERSION_CHECK="1", **sandbox_dirs(root_dir))
 
@@ -136,14 +140,14 @@ class RunAppManager:
         await asyncio.to_thread(pip_install, runner, root_dir, _py, ["aiosqlite", "httpx"], _tool_env, 60)
         req_file = backend_dir / "requirements.txt"
         if req_file.exists():
-            _req_lines = req_file.read_text().splitlines()
+            _req_lines = safe_read_text(root_dir, req_file).splitlines()
             _lite_reqs = [
                 ln for ln in _req_lines
                 if not any(pkg in ln.lower() for pkg in ("psycopg2", "asyncpg", "pg8000"))
             ]
             _lite_req_path = root_dir / "_preview_requirements.txt"
-            _lite_req_path.write_text("\n".join(_lite_reqs))
-            with open(log_path, "w") as _lf:
+            safe_write_text(root_dir, _lite_req_path, "\n".join(_lite_reqs))
+            with open(plat_log, "w") as _lf:
                 _lf.write("[AetherOS] Installing backend deps (SQLite preview mode)\n")
             await asyncio.to_thread(pip_install, runner, root_dir, _py, ["-r", str(_lite_req_path)],
                                     _tool_env, 120)
@@ -166,24 +170,24 @@ class RunAppManager:
             for _cfg_name in ("vite.config.ts", "vite.config.js"):
                 _cfg_path = frontend_dir / _cfg_name
                 if _cfg_path.exists():
-                    _cfg = _cfg_path.read_text()
+                    _cfg = safe_read_text(root_dir, _cfg_path)
                     if "base:" not in _cfg and "basePath" not in _cfg:
                         _cfg = _cfg.replace(
                             "export default defineConfig({",
                             "export default defineConfig({\n  base: '/app-preview/',",
                         )
-                        _cfg_path.write_text(_cfg)
+                        safe_write_text(root_dir, _cfg_path, _cfg)
                     break
 
             _env_prod = frontend_dir / ".env.production"
             _correct_env = "VITE_API_URL=/app-preview/api\n"
-            _env_changed = not _env_prod.exists() or _env_prod.read_text() != _correct_env
-            _env_prod.write_text(_correct_env)
+            _env_changed = not _env_prod.exists() or safe_read_text(root_dir, _env_prod) != _correct_env
+            safe_write_text(root_dir, _env_prod, _correct_env)
 
             for _api_src in ("src/lib/api.ts", "src/lib/api.tsx", "src/api.ts", "src/api.js"):
                 _api_path = frontend_dir / _api_src
                 if _api_path.exists():
-                    _api_code = _api_path.read_text()
+                    _api_code = safe_read_text(root_dir, _api_path)
                     _patched = False
                     for _wrong in (
                         "baseURL: '/api'", 'baseURL: "/api"',
@@ -193,24 +197,24 @@ class RunAppManager:
                             _api_code = _api_code.replace(_wrong, "baseURL: '/app-preview/api'")
                             _patched = True
                     if _patched:
-                        _api_path.write_text(_api_code)
+                        safe_write_text(root_dir, _api_path, _api_code)
                         _env_changed = True
                     break
 
             for _src_name in ("src/App.tsx", "src/App.jsx", "src/main.tsx", "src/main.jsx"):
                 _src_path = frontend_dir / _src_name
                 if _src_path.exists():
-                    _src = _src_path.read_text()
+                    _src = safe_read_text(root_dir, _src_path)
                     if "createRouter" in _src and "basepath" not in _src and "basePath" not in _src:
                         _src = _src.replace(
                             "createRouter({ routeTree })",
                             "createRouter({ routeTree, basepath: '/app-preview' })",
                         )
-                        _src_path.write_text(_src)
+                        safe_write_text(root_dir, _src_path, _src)
                     elif "BrowserRouter" in _src and "basename" not in _src:
                         _src = _src.replace("BrowserRouter>", "BrowserRouter basename='/app-preview'>")
                         _src = _src.replace("BrowserRouter />", "BrowserRouter basename='/app-preview' />")
-                        _src_path.write_text(_src)
+                        safe_write_text(root_dir, _src_path, _src)
 
             _dist_already_built = (
                 not _env_changed
@@ -219,7 +223,7 @@ class RunAppManager:
                 and any(frontend_dist.iterdir())
             )
             if not _dist_already_built:
-                with open(log_path, "a") as _lf:
+                with open(plat_log, "a") as _lf:
                     _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
                 # npm's cache lives in the sandbox HOME (run dir): no cache shared across runs.
                 _npm_install_r = await asyncio.to_thread(
@@ -228,7 +232,7 @@ class RunAppManager:
                 )
                 if _npm_install_r.returncode != 0:
                     _npm_err = (_npm_install_r.stderr or b"").decode(errors="replace")[-400:]
-                    with open(log_path, "a") as _lf:
+                    with open(plat_log, "a") as _lf:
                         _lf.write(
                             f"[AetherOS] npm install failed (rc={_npm_install_r.returncode}):\n{_npm_err}\n"
                         )
@@ -238,7 +242,7 @@ class RunAppManager:
                     _ts_path = frontend_dir / _ts_name
                     if _ts_path.exists():
                         try:
-                            _ts = _json_ts.loads(_ts_path.read_text())
+                            _ts = _json_ts.loads(safe_read_text(root_dir, _ts_path))
                             _co = _ts.setdefault("compilerOptions", {})
                             _co.update({
                                 "skipLibCheck": True,
@@ -248,21 +252,21 @@ class RunAppManager:
                                 "noUnusedLocals": False,
                                 "noUnusedParameters": False,
                             })
-                            _ts_path.write_text(_json_ts.dumps(_ts, indent=2))
+                            safe_write_text(root_dir, _ts_path, _json_ts.dumps(_ts, indent=2))
                         except Exception as exc:
                             logger.warning("RunAppManager: could not patch %s: %s", _ts_name, exc)
 
                 for _vc_name in ("vite.config.ts", "vite.config.js"):
                     _vc_path = frontend_dir / _vc_name
                     if _vc_path.exists():
-                        _vc = _vc_path.read_text()
+                        _vc = safe_read_text(root_dir, _vc_path)
                         if "plugin-react-swc" in _vc:
                             _swc_installed = (
                                 frontend_dir / "node_modules" / "@vitejs" / "plugin-react-swc"
                             ).is_dir()
                             if not _swc_installed:
                                 _vc = _vc.replace("@vitejs/plugin-react-swc", "@vitejs/plugin-react")
-                                _vc_path.write_text(_vc)
+                                safe_write_text(root_dir, _vc_path, _vc)
                         break
 
                 _npx_bin = runner.tool("npx") or "npx"
@@ -277,7 +281,7 @@ class RunAppManager:
                 )
                 if _vite_result.returncode != 0:
                     _err = (_vite_result.stderr or b"").decode(errors="replace")[-800:]
-                    with open(log_path, "a") as _lf:
+                    with open(plat_log, "a") as _lf:
                         _lf.write(
                             f"[AetherOS] Vite build failed (rc={_vite_result.returncode}):\n{_err}\n"
                         )
@@ -301,14 +305,14 @@ class RunAppManager:
                         for _vc_name2 in ("vite.config.ts", "vite.config.js"):
                             _vc_path2 = frontend_dir / _vc_name2
                             if _vc_path2.exists():
-                                _vc2 = _vc_path2.read_text()
+                                _vc2 = safe_read_text(root_dir, _vc_path2)
                                 if "minify" not in _vc2 and "build:" not in _vc2:
                                     _vc2 = _vc2.replace(
                                         "export default defineConfig({",
                                         "export default defineConfig({\n"
                                         "  build: { minify: false, chunkSizeWarningLimit: 4000 },",
                                     )
-                                    _vc_path2.write_text(_vc2)
+                                    safe_write_text(root_dir, _vc_path2, _vc2)
                                 break
                     _vite_result2 = await asyncio.to_thread(
                         runner.run, [_npx_bin, "vite", "build"],
@@ -316,14 +320,14 @@ class RunAppManager:
                     )
                     if _vite_result2.returncode != 0:
                         _err2 = (_vite_result2.stderr or b"").decode(errors="replace")[-400:]
-                        with open(log_path, "a") as _lf:
+                        with open(plat_log, "a") as _lf:
                             _lf.write(
                                 f"[AetherOS] Frontend build failed after retry:\n{_err2}\n"
                                 "[AetherOS] Using API-explorer fallback\n"
                             )
 
                 if frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir()):
-                    with open(log_path, "a") as _lf:
+                    with open(plat_log, "a") as _lf:
                         _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
                 else:
                     # Build failed: synthesise a lightweight API-explorer page
@@ -332,15 +336,14 @@ class RunAppManager:
                     _project_label = (
                         run_detail.get("project_name") or f"project-{run_id[:8]}"
                     ).replace("'", "\\'")
-                    (frontend_dist / "index.html").write_text(
-                        api_explorer_html(_project_label, run_id)
-                    )
-                    with open(log_path, "a") as _lf:
+                    safe_write_text(root_dir, frontend_dist / "index.html",
+                                    api_explorer_html(_project_label, run_id))
+                    with open(plat_log, "a") as _lf:
                         _lf.write(
                             f"[AetherOS] Using API-explorer fallback UI at {frontend_dist}\n"
                         )
             else:
-                with open(log_path, "a") as _lf:
+                with open(plat_log, "a") as _lf:
                     _lf.write("[AetherOS] Skipping frontend rebuild — dist already exists\n")
 
         # ── Patch all generated source files ───────────────────────────────────
@@ -350,7 +353,7 @@ class RunAppManager:
             root_dir=root_dir,
             frontend_dir=frontend_dir,
             frontend_dist=frontend_dist,
-            log_path=log_path,
+            log_path=plat_log,
         )
 
         # ── Start uvicorn ──────────────────────────────────────────────────────
@@ -359,19 +362,20 @@ class RunAppManager:
             PYTHONPATH=str(backend_dir / "src"),
             **sandbox_dirs(root_dir),
         )
-        # Per-launch marker on the command line: ties the recorded pid to this launch.
+        # Per-launch marker, passed in the environment (UVICORN_HEADERS), never on the command
+        # line where other processes can read it: the app answers with it as a response header.
         _nonce = preview_state.new_nonce()
-        _nonce_args = preview_state.nonce_args(_nonce)
+        _env.update(preview_state.nonce_env(_nonce))
 
         _alembic_ini = backend_dir / "alembic.ini"
         if _alembic_ini.exists():
-            with open(log_path, "a") as _lf:
+            with open(plat_log, "a") as _lf:
                 _lf.write("[AetherOS] Running alembic upgrade head...\n")
             _alembic_result = await asyncio.to_thread(
                 runner.run, [_py, "-m", "alembic", "upgrade", "head"],
                 run_dir=root_dir, cwd=backend_dir, timeout=60, env=_env,
             )
-            with open(log_path, "a") as _lf:
+            with open(plat_log, "a") as _lf:
                 if _alembic_result.returncode == 0:
                     _lf.write("[AetherOS] Alembic migrations applied successfully.\n")
                 else:
@@ -384,10 +388,10 @@ class RunAppManager:
 
         def _uvicorn(app_ref: str) -> list:
             return [_py, "-m", "uvicorn", app_ref,
-                    "--host", runner.bind_host, "--port", str(port), *_nonce_args]
+                    "--host", runner.bind_host, "--port", str(port)]
 
         def _log(line: str) -> None:
-            with open(log_path, "a") as _lf:
+            with open(plat_log, "a") as _lf:
                 _lf.write(line)
 
         def _try_start_backend():
@@ -411,19 +415,21 @@ class RunAppManager:
             )
             _stub_needs_write = (
                 not _stub_main.exists()
-                or '"data": []' in _stub_main.read_text()
-                or "_MOCK_ROWS" not in _stub_main.read_text()
+                or '"data": []' in safe_read_text(root_dir, _stub_main)
+                or "_MOCK_ROWS" not in safe_read_text(root_dir, _stub_main)
             )
             if not _stub_needs_write:
                 _log("[AetherOS] Reusing existing custom preview stub\n")
             else:
-                _stub_main.write_text(stub_main_py(_dist_path))
+                safe_write_text(root_dir, _stub_main, stub_main_py(_dist_path))
                 _log(f"[AetherOS] Starting frontend-only preview server on port {port}\n")
             return runner.start(_uvicorn("main:app"), run_dir=root_dir, cwd=_stub_dir,
-                                env=_tool_env, log_path=log_path, port=port, labels=_labels)
+                                env={**_tool_env, **preview_state.nonce_env(_nonce)},
+                                log_path=log_path, port=port, labels=_labels)
 
-        # Served only by the preview server; opening it needs POST .../preview-session first.
-        _preview_url = f"{preview_token.preview_origin() or ''}/app-preview/"
+        # Marker only: the app is served from its own per-run origin by the preview server, and the
+        # dashboard gets a link by POST .../preview-session (single use), never from live_url.
+        _preview_url = "/app-preview/"
         try:
             proc = await asyncio.to_thread(_try_start_backend)
             await asyncio.sleep(2)
@@ -454,7 +460,7 @@ class RunAppManager:
                 logger.warning("RunAppManager: could not update app_state for %s: %s", run_id, exc)
 
             try:
-                preview_state.write_state(root_dir / preview_state.STATE_FILE, run_id,
+                preview_state.write_state(preview_state.state_path(run_id), run_id,
                                           port, proc.pid, _nonce, mode,
                                           container=getattr(proc, "container_id", None))
             except Exception as exc:

@@ -235,6 +235,7 @@ class DomainIR:
     notifications: list[IRNotification] = field(default_factory=list)
     integrations: list[IRIntegration] = field(default_factory=list)
     clarifying_questions: list[IRClarifyingQuestion] = field(default_factory=list)
+    clarifications: dict[str, str] = field(default_factory=dict)  # answers to clarifying questions (orchestrator/clarifying.py)
     validated: bool = False
     ir_version: str = "1.0"
 
@@ -283,6 +284,7 @@ class DomainIR:
         ir.notifications = [IRNotification(**n) for n in d.get("notifications", [])]
         ir.integrations = [IRIntegration(**i) for i in d.get("integrations", [])]
         ir.clarifying_questions = [IRClarifyingQuestion(**q) for q in d.get("clarifying_questions", [])]
+        ir.clarifications = dict(d.get("clarifications") or {})
         return ir
 
     # -----------------------------------------------------------------------

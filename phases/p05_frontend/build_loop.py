@@ -14,6 +14,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
+
 logger = logging.getLogger(__name__)
 
 _TS_ERROR_RE = re.compile(r"error TS\d+:")
@@ -99,16 +102,13 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
     tsc_errors = 0
     for round_num in range(1, max_rounds + 1):
         try:
-            tsc_result = await asyncio.to_thread(
-                subprocess.run,
-                ["npx", "tsc", "--noEmit", "--skipLibCheck"],
-                cwd=str(frontend_dir), capture_output=True, text=True, timeout=60,
-            )
-            build_result = await asyncio.to_thread(
-                subprocess.run,
-                ["npm", "run", "build"],
-                cwd=str(frontend_dir), capture_output=True, text=True, timeout=300,
-            )
+            # Type-check and build execute the project's own tooling and plugins: sandbox, no network.
+            tsc_result = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"],
+                                              cwd=frontend_dir, timeout=60, text=True)
+            build_result = await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir,
+                                                timeout=300, text=True)
+        except SandboxUnavailable:
+            raise  # generated code was not run: fail the phase with this message
         except Exception as exc:
             logger.error("p05 build_loop: subprocess raised in round %d: %s", round_num, exc)
             return {"success": False, "tsc_errors": tsc_errors, "rounds": round_num}

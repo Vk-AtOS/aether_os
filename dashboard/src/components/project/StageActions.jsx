@@ -24,8 +24,8 @@ const StageActions = ({ runId, stage, runStatus, canWrite }) => {
   const go = async (kind) => {
     const ask = {
       restart: 'Restart this run? It continues in place from the stage that stopped it, using the files in this run (including any you edited).',
-      rerun: `Start a new run from ${name}? It starts from the original requirement in an empty folder: this run's outputs and edits are not carried over.`,
-      branch: `Start a new branch run from ${name}${extra.trim() ? ' with your added requirement' : ''}? This run's outputs and edits are not carried over.`,
+      rerun: `Start a new run from ${name}? It starts from the original requirement on a copy of this run's project folder, including your edits (secrets, .env, node_modules and the running app's state are not copied).`,
+      branch: `Start a new branch run from ${name}${extra.trim() ? ' with your added requirement' : ''}? It starts on a copy of this run's project folder, including your edits (secrets, .env, node_modules and the running app's state are not copied).`,
     }[kind];
     if (!(await confirmAction(ask, 'Re-run'))) return;
     setBusy(kind); setError('');
@@ -74,7 +74,7 @@ const StageActions = ({ runId, stage, runStatus, canWrite }) => {
         </button>
       </div>
       <p className="text-[11px] text-muted">
-        Edits saved under Artifacts change this run&apos;s files. Only &quot;Restart this run&quot; continues with them; new runs start clean.
+        Edits saved under Artifacts change this run&apos;s files. &quot;Restart this run&quot; continues with them, and a new rerun or branch starts on a copy of them (secrets, .env and node_modules are not copied).
       </p>
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
     </section>

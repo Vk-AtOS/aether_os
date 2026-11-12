@@ -24,10 +24,12 @@ import json
 import logging
 import os
 import shlex
-import subprocess
 import time
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from aether_os.core.sandbox import phase_exec
 
 logger = logging.getLogger(__name__)
 
@@ -226,10 +228,9 @@ def run_coverage(
             error=f"project_path is not a directory: {project_abs}",
         )
 
-    env = os.environ.copy()
-    # Ensure project is on PYTHONPATH so tests can import it.
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = project_abs + (os.pathsep + existing_pp if existing_pp else "")
+    # Generated tests run in the sandbox with the allowlisted environment (never os.environ).
+    # The project is on PYTHONPATH so tests can import it.
+    env = {"PYTHONPATH": project_abs}
 
     coverage_file = os.path.join(project_abs, coverage_file_name)
     coverage_json_path = os.path.join(project_abs, coverage_json_name)
@@ -240,7 +241,7 @@ def run_coverage(
     if not module_and_args:
         module_and_args = ["pytest"]
 
-    run_cmd = ["coverage", "run", "-m"] + module_and_args
+    run_cmd = ["python3", "-m", "coverage", "run", "-m"] + module_and_args
 
     tests_stdout = ""
     tests_stderr = ""
@@ -253,13 +254,9 @@ def run_coverage(
 
     start_time = time.time()
     try:
-        run_proc = subprocess.run(
-            run_cmd,
-            cwd=project_abs,
-            env=env,
-            capture_output=True,
-            text=True,
-        )
+        run_proc = phase_exec.run_sync(run_cmd, cwd=Path(project_abs), env=env, text=True)
+        if "No module named coverage" in run_proc.stderr:
+            raise FileNotFoundError("coverage")
         tests_stdout = run_proc.stdout
         tests_stderr = run_proc.stderr
         tests_exit_code = run_proc.returncode
@@ -312,15 +309,9 @@ def run_coverage(
         )
 
     # Even if tests failed, we still attempt to generate coverage JSON.
-    json_cmd = ["coverage", "json", "-o", coverage_json_path]
+    json_cmd = ["python3", "-m", "coverage", "json", "-o", coverage_json_path]
     try:
-        json_proc = subprocess.run(
-            json_cmd,
-            cwd=project_abs,
-            env=env,
-            capture_output=True,
-            text=True,
-        )
+        json_proc = phase_exec.run_sync(json_cmd, cwd=Path(project_abs), env=env, text=True)
         coverage_stdout = json_proc.stdout
         coverage_stderr = json_proc.stderr
         if json_proc.returncode != 0:

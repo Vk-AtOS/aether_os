@@ -7,6 +7,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown, Loader2, Monitor, ExternalLink } from 'lucide-react';
 import { PHASES, formatBytes } from './projectConstants';
 import { api } from '../../api';
+import PreviewFrame from './PreviewFrame';
+import { isPreviewUrl, openPreviewInTab } from '../../previewSession';
 
 const FRONTEND_STAGE = 's04_frontend';
 // Ids from before the 12-stage pipeline, kept so older runs still get the panel.
@@ -36,6 +38,7 @@ const ProjectLivePreviewPanel = ({ runId, currentPhase, runStatus, isRunning, is
   const [showIframe, setShowIframe] = useState(false);
   const [prevCount, setPrevCount] = useState(0);
   const [newPaths, setNewPaths]   = useState(new Set());
+  const [openError, setOpenError] = useState(null);
   const timerRef                  = useRef(null);
 
   const atFrontend      = currentPhase === FRONTEND_STAGE || currentPhase === LEGACY_FRONTEND_PHASE;
@@ -162,18 +165,20 @@ const ProjectLivePreviewPanel = ({ runId, currentPhase, runStatus, isRunning, is
                 <div className="flex flex-col">
                   <div className="flex items-center justify-between px-4 py-2 bg-black/30 border-b border-white/[0.04]">
                     <span className="text-[10px] font-mono text-emerald-400">{liveUrl}</span>
-                    <a href={liveUrl} target="_blank" rel="noopener noreferrer"
-                       className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center gap-1">
-                      <ExternalLink className="w-3 h-3" /> Open tab
-                    </a>
+                    {isPreviewUrl(liveUrl) ? (
+                      <button onClick={async () => setOpenError(await openPreviewInTab(runId))}
+                         className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3" /> Open tab
+                      </button>
+                    ) : (
+                      <a href={liveUrl} target="_blank" rel="noopener noreferrer"
+                         className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3" /> Open tab
+                      </a>
+                    )}
                   </div>
-                  <iframe
-                    src={liveUrl}
-                    className="w-full bg-white border-none"
-                    style={{ height: '320px' }}
-                    title="Live App Preview"
-                    sandbox="allow-scripts allow-same-origin allow-forms"
-                  />
+                  {openError && <div role="alert" className="px-4 py-2 text-[11px] text-red-300 bg-red-950/30">{openError}</div>}
+                  <PreviewFrame runId={runId} liveUrl={liveUrl} title="Live App Preview" className="w-full bg-white border-none" style={{ height: '320px' }} />
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-10 gap-3 text-center px-8">

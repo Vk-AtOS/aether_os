@@ -49,6 +49,7 @@ class ActionRule:
 ACTIONS: Dict[str, ActionRule] = {
     "run.start": ActionRule("member", new_run=True, occupies_slot=True),
     "run.restart": ActionRule("member", occupies_slot=True),
+    "run.clarify": ActionRule("member"),
     "billing.change_plan": ActionRule("admin"),
     "portal.token.issue": ActionRule("admin"),
     "portal.token.list": ActionRule("admin"),

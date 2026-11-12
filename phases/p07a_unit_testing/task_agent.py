@@ -11,7 +11,8 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
-from aether_os.core.run_app.child_env import child_env
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +232,6 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
 
     parent = src_dir.parent  # backend root (has src/ as package)
     env_patch = {"DATABASE_URL": "sqlite+aiosqlite:///./test_exec_validate.db", "SECRET_KEY": "test-secret"}
-    test_env = {**child_env(), **env_patch}
 
     cmd = [
         "python3", "-c",
@@ -245,31 +245,19 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
         ),
     ]
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=str(parent),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=test_env,
-    )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+        done = await phase_exec.run(cmd, cwd=parent, env=env_patch, timeout=20, text=True)
     except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except Exception as exc:
-            logger.debug("p07a: failed to kill timed-out validation process (non-fatal): %s", exc)
         logger.warning("[p07a] exec validation: app startup timed out after 20s — treating as failure")
         return {"passed": False, "error": "App startup timed out after 20 seconds", "fixed": False}
 
-    out = stdout.decode()
-    err = stderr.decode()
+    out, err = done.stdout, done.stderr
 
-    if "IMPORT_OK" in out or proc.returncode == 0:
+    if "IMPORT_OK" in out or done.returncode == 0:
         logger.info("[p07a] exec validation: import OK")
         return {"passed": True, "error": None, "fixed": False}
 
-    error_text = err[:1200] if err else f"return code {proc.returncode}"
+    error_text = err[:1200] if err else f"return code {done.returncode}"
     logger.warning("[p07a] exec validation failed: %s", error_text[:200])
 
     # Attempt LLM-based repair of crud.py if the error is there
@@ -299,20 +287,16 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
                 logger.info("[p07a] LLM fixed crud.py — re-validating")
 
                 # Re-validate
-                proc2 = await asyncio.create_subprocess_exec(
-                    *cmd, cwd=str(parent),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=test_env,
-                )
                 try:
-                    out2, err2 = await asyncio.wait_for(proc2.communicate(), timeout=20)
-                    if "IMPORT_OK" in out2.decode() or proc2.returncode == 0:
+                    done2 = await phase_exec.run(cmd, cwd=parent, env=env_patch, timeout=20, text=True)
+                    if "IMPORT_OK" in done2.stdout or done2.returncode == 0:
                         logger.info("[p07a] exec validation: FIXED by LLM")
                         return {"passed": True, "error": None, "fixed": True}
                 except asyncio.TimeoutError:
                     logger.warning("[p07a] exec validation: re-validation after LLM fix timed out")
                     return {"passed": False, "error": "App startup timed out after LLM fix (20s)", "fixed": False}
+        except SandboxUnavailable:
+            raise
         except Exception as _fix_exc:
             logger.warning("[p07a] LLM fix attempt failed: %s", _fix_exc)
 
@@ -351,21 +335,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     run_dir = src_dir if src_dir else output_dir
     try:
         _test_env = {
-            **child_env(),
             "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
             "SECRET_KEY": "test-secret-key-not-for-production",
             "PYTHONPATH": str(run_dir),
         }
-        proc = await asyncio.create_subprocess_exec(
-            "python3", "-m", "pytest", str(test_file), "-v", "--tb=short",
-            "-p", "no:cacheprovider", "--timeout=30",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(run_dir),
-            env=_test_env,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        output_text = stdout.decode() + stderr.decode()
+        done = await phase_exec.run(
+            ["python3", "-m", "pytest", str(test_file), "-v", "--tb=short",
+             "-p", "no:cacheprovider", "--timeout=30"],
+            cwd=run_dir, project=output_dir, env=_test_env, timeout=60, text=True)
+        output_text = done.stdout + done.stderr
         (output_dir / "pytest_output.txt").write_text(output_text)
 
         if "passed" in output_text:
@@ -374,12 +352,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if "failed" in output_text:
             m = re.search(r"(\d+) failed", output_text)
             test_results["failed"] = int(m.group(1)) if m else 0
-        if proc.returncode not in (0, 1):
+        if done.returncode not in (0, 1):
             test_results["errors"].append(output_text[-500:])
         logger.info("[p07a] pytest done: %s passed, %s failed", test_results["passed"], test_results["failed"])
     except asyncio.TimeoutError:
         test_results["errors"].append("pytest timed out after 60s")
         logger.warning("[p07a] pytest timed out")
+    except SandboxUnavailable:
+        raise  # generated tests were NOT run (never on the host): the phase fails with this message
     except Exception as exc:
         test_results["errors"].append(str(exc))
         logger.warning("[p07a] pytest run failed: %s", exc)
@@ -392,6 +372,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.warning("[p07a] exec validation failed: %s", exec_result.get("error", "")[:200])
         elif exec_result.get("fixed"):
             logger.info("[p07a] exec validation: LLM auto-fixed import error")
+    except SandboxUnavailable:
+        raise
     except Exception as _ev_exc:
         logger.debug("[p07a] exec validation error (non-fatal): %s", _ev_exc)
 
