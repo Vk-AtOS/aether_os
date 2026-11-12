@@ -4,9 +4,9 @@
   * the preview proxy only reaches the process that was launched for the run
     (pid + per-launch nonce); a stale or forged state file means "app down".
 
-Real code throughout: POST /run-app → RunAppManager.start → a real uvicorn child
-→ GET /app-preview. Only the auto-restart launcher is stubbed where a test must
-observe "treated as down" without starting another process.
+Real code throughout: POST /run-app → RunAppManager.start → a real (sandboxed)
+uvicorn child → GET /app-preview on the preview server (its own origin; the
+dashboard origin no longer serves generated content). Nothing is stubbed.
 """
 from __future__ import annotations
 
@@ -19,14 +19,17 @@ import time
 import uuid
 
 import pytest
+from fastapi.testclient import TestClient
 
 import aether_os.core.projects as projects_mod
 from aether_os.core import app_state
-from aether_os.core.run_app import preview_state
+from aether_os.core.run_app import preview_state, preview_token
 from aether_os.core.run_app.child_env import child_env
-from aether_os.gateway.auth import create_preview_token
-from aether_os.gateway.routers import app_preview_router
+from aether_os.gateway.preview_server import create_preview_app
 from aether_os.tests.gateway_env import gateway_env
+
+PREVIEW_ENV = {"AETHER_PREVIEW_ORIGIN": "http://preview.test:8100",
+               "AETHER_PREVIEW_SECRET": "p" * 40, "AETHER_SANDBOX": ""}
 
 PLATFORM_SECRETS = {
     "ANTHROPIC_API_KEY": "sk-ant-platform-secret",
@@ -60,12 +63,14 @@ def env():
 def env(tmp_path_factory):
     root = tmp_path_factory.mktemp("projects")
     saved_manager = projects_mod._manager
-    saved_env = {k: os.environ.get(k) for k in PLATFORM_SECRETS}
+    saved_env = {k: os.environ.get(k) for k in (*PLATFORM_SECRETS, *PREVIEW_ENV)}
     os.environ.update(PLATFORM_SECRETS)
+    os.environ.update(PREVIEW_ENV)
     projects_mod._manager = projects_mod.ProjectManager(root=root)
     try:
         with gateway_env(tmp_path_factory.mktemp("gw")) as e:
             e.projects_root = root
+            e.preview = TestClient(create_preview_app(), base_url="http://preview.test:8100")
             yield e
     finally:
         projects_mod._manager = saved_manager
@@ -83,13 +88,18 @@ def _new_run(env) -> str:
     return run_id
 
 
-def _get_when_up(env, run_id, path, timeout=30.0):
-    """GET through the preview proxy as `run_id`, waiting for the app to finish booting."""
-    env.client.cookies.clear()
-    env.client.cookies.set("aether_preview", create_preview_token(run_id, env.org_id))
+def _preview_as(env, run_id):
+    env.preview.cookies.clear()
+    env.preview.cookies.set(preview_token.SESSION_COOKIE, preview_token.issue(
+        run_id, env.org_id, env.claims["user_id"], preview_token.SESSION, 600))
+
+
+def _get_when_up(env, run_id, path, timeout=60.0):
+    """GET through the preview server as `run_id`, waiting for the app to finish booting."""
+    _preview_as(env, run_id)
     deadline = time.time() + timeout
     while True:
-        resp = env.client.get(path)
+        resp = env.preview.get(path)
         if resp.headers.get("content-type", "").startswith("application/json") or time.time() > deadline:
             return resp
         time.sleep(0.5)
@@ -111,7 +121,7 @@ def launched(env):
         yield {"run_id": run_id, **body}
     finally:
         env.client.delete(f"/factory/runs/{run_id}/run-app", headers=env.auth)
-        env.client.cookies.clear()
+        env.preview.cookies.clear()
 
 
 # ── Item 6: child environment ────────────────────────────────────────────────
@@ -158,23 +168,6 @@ def test_proxy_does_not_expose_the_nonce(env, launched):
     assert preview_state.NONCE_HEADER not in resp.headers
 
 
-@pytest.fixture
-def no_restart(monkeypatch):
-    """Record auto-restart requests instead of launching anything."""
-    calls = []
-
-    async def _fake_launch(run_id, user):
-        calls.append(run_id)
-
-    monkeypatch.setattr(app_preview_router, "_launch_generated_app", _fake_launch)
-    return calls
-
-
-def _preview_as(env, run_id):
-    env.client.cookies.clear()
-    env.client.cookies.set("aether_preview", create_preview_token(run_id, env.org_id))
-
-
 def _write_state(env, run_id, **state):
     path = preview_state.state_path(run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +175,7 @@ def _write_state(env, run_id, **state):
 
 
 @pytest.mark.parametrize("case", ["wrong_nonce", "no_nonce", "wrong_pid"])
-def test_stale_state_pointing_at_another_runs_app_is_treated_as_down(env, launched, no_restart, case):
+def test_stale_state_pointing_at_another_runs_app_is_treated_as_down(env, launched, case):
     """A second run whose stale state file names the first run's live port (port reuse)."""
     up = _get_when_up(env, launched["run_id"], "/app-preview/health")
     assert up.json() == {"status": "ok"}                     # the first run's app is up
@@ -198,15 +191,14 @@ def test_stale_state_pointing_at_another_runs_app_is_treated_as_down(env, launch
 
     _preview_as(env, stale_run)
     try:
-        resp = env.client.get("/app-preview/env")
+        resp = env.preview.get("/app-preview/env")
         assert "application/json" not in resp.headers.get("content-type", "")   # never reached the other app
-        assert "Starting generated app" in resp.text
-        assert no_restart == [stale_run]
+        assert resp.status_code == 503 and "not running" in resp.text
     finally:
-        env.client.cookies.clear()
+        env.preview.cookies.clear()
 
 
-def test_dead_process_is_treated_as_down(env, no_restart):
+def test_dead_process_is_treated_as_down(env):
     run_id = _new_run(env)
     nonce = preview_state.new_nonce()
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
@@ -221,20 +213,19 @@ def test_dead_process_is_treated_as_down(env, no_restart):
 
     _preview_as(env, run_id)
     try:
-        assert "Starting generated app" in env.client.get("/app-preview/").text
-        assert no_restart == [run_id]
+        resp = env.preview.get("/app-preview/")
+        assert resp.status_code == 503 and "not running" in resp.text
     finally:
-        env.client.cookies.clear()
+        env.preview.cookies.clear()
 
 
-def test_never_launched_run_gets_503_and_no_restart(env, no_restart):
+def test_never_launched_run_gets_503(env):
     run_id = _new_run(env)
     _preview_as(env, run_id)
     try:
-        assert env.client.get("/app-preview/").status_code == 503
-        assert no_restart == []
+        assert env.preview.get("/app-preview/").status_code == 503
     finally:
-        env.client.cookies.clear()
+        env.preview.cookies.clear()
 
 
 def test_dead_child_handle_is_not_trusted(env):

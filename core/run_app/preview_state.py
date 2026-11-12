@@ -5,6 +5,11 @@ could send one run's preview traffic to another run's app. The launcher now
 starts the app with a per-launch random nonce on its command line and records
 (pid, nonce, port); the preview proxy only uses the port while that pid is alive
 and still carries that nonce. Anything else is "app down".
+
+Docker-sandboxed apps have no host pid we own: the record holds the container
+id instead, and the container must be running and carry the nonce as a label.
+The preview server (a separate process, no Docker access) checks the nonce a
+third way: the app must answer with it in its response header (gateway/preview_server.py).
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.app_state import get_all_ports, get_all_procs
 from aether_os.core.projects import get_project_manager
+from aether_os.core.sandbox.docker_backend import ContainerProcess, is_launched_container
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +48,11 @@ def state_path(run_id: str) -> Path:
     return get_project_manager()._root / run_id / STATE_FILE
 
 
-def write_state(path: Path, run_id: str, port: int, pid: int, nonce: str, mode: str) -> None:
+def write_state(path: Path, run_id: str, port: int, pid: Optional[int], nonce: str, mode: str,
+                container: Optional[str] = None) -> None:
     path.write_text(json.dumps({
         "run_id": run_id, "port": port, "pid": pid, "nonce": nonce,
-        "started_at": time.time(), "mode": mode,
+        "started_at": time.time(), "mode": mode, "container": container,
     }))
 
 
@@ -81,7 +88,7 @@ def is_launched_process(pid: Any, nonce: Any) -> bool:
 
 
 def live_app(run_id: str, path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    """{"port", "pid", "mode"} of the app launched for this run, or None when it is not (provably) up.
+    """{"port", "pid", "mode", "container"} of this run's launched app, or None when it is not (provably) up.
 
     The one answer to "is this run's app running?" — the preview proxy, the
     status endpoint, stop, and the restore at startup all ask here, so none of
@@ -91,18 +98,24 @@ def live_app(run_id: str, path: Optional[Path] = None) -> Optional[Dict[str, Any
     """
     proc = get_all_procs().get(run_id)
     port = get_all_ports().get(run_id)
-    if isinstance(proc, subprocess.Popen):
-        # Our own child: the handle identifies the process exactly.
-        return {"port": port, "pid": proc.pid, "mode": None} if port and proc.poll() is None else None
+    if isinstance(proc, (subprocess.Popen, ContainerProcess)):
+        # Our own child / container: the handle identifies the process exactly.
+        container = getattr(proc, "container_id", None)
+        return ({"port": port, "pid": proc.pid, "mode": None, "container": container}
+                if port and proc.poll() is None else None)
     state = _read_state(path or state_path(run_id))
     if state is not None:
-        if is_launched_process(state.get("pid"), state.get("nonce")) and int(state.get("port") or 0):
-            return {"port": int(state["port"]), "pid": state["pid"], "mode": state.get("mode")}
+        nonce, container = state.get("nonce"), state.get("container")
+        launched = (is_launched_container(container, nonce) if container
+                    else is_launched_process(state.get("pid"), nonce))
+        if launched and int(state.get("port") or 0):
+            return {"port": int(state["port"]), "pid": state.get("pid"), "mode": state.get("mode"),
+                    "container": container}
         return None
     # No state file was ever written, so nothing can be stale: accept an
     # in-process registration that still has a live handle.
     if proc is not None and port and proc.poll() is None:
-        return {"port": port, "pid": getattr(proc, "pid", None), "mode": None}
+        return {"port": port, "pid": getattr(proc, "pid", None), "mode": None, "container": None}
     return None
 
 
@@ -115,3 +128,23 @@ def live_port(run_id: str, path: Optional[Path] = None) -> Optional[int]:
 def was_launched(run_id: str) -> bool:
     """An app was started for this run at some point (it may be down now)."""
     return run_id in get_all_procs() or state_path(run_id).exists()
+
+
+def read_launch(run_id: str) -> Optional[Dict[str, Any]]:
+    """{"port", "nonce"} of this run's launch for the preview server, or None.
+
+    The preview server is a separate process without the gateway's child handles
+    or Docker access. A host-process launch is checked here (pid alive and
+    carrying the nonce); a container launch cannot be, so the caller must also
+    see the nonce in the app's own response header before trusting the port.
+    Blocking (may run `ps`).
+    """
+    state = _read_state(state_path(run_id))
+    if not state:
+        return None
+    port, nonce = state.get("port"), state.get("nonce")
+    if not isinstance(port, int) or not 0 < port < 65536 or not isinstance(nonce, str) or len(nonce) < 16:
+        return None
+    if not state.get("container") and not is_launched_process(state.get("pid"), nonce):
+        return None
+    return {"port": port, "nonce": nonce}

@@ -23,14 +23,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import pathlib
-import subprocess as _sp
-import sys
 from typing import Any, Dict, Optional
 
-from aether_os.core.run_app import preview_state
+from aether_os.core.run_app import preview_state, preview_token
 from aether_os.core.run_app.child_env import child_env
+from aether_os.core.run_app.sandboxed import pip_install, venv_python
+from aether_os.core.sandbox.docker_backend import labels_for
+from aether_os.core.sandbox.runner import SandboxUnavailable, get_runner, sandbox_dirs
 from aether_os.core.run_app.process_manager_helpers import (
     api_explorer_html,
     stub_main_py,
@@ -82,7 +82,6 @@ class RunAppManager:
         from aether_os.core.projects import get_project_manager
         from aether_os.core.audit.ledger import get_ledger
         from aether_os.core.services.run_app_service import acquire_free_port
-        import shutil as _sh
 
         _run_procs = _get_app_procs()
         _run_ports = _get_app_ports()
@@ -98,6 +97,12 @@ class RunAppManager:
 
         project_id = run_detail.get("project_id") or run_id
         root_dir = get_project_manager().get_project_dir(project_id).resolve()
+        # Every step below runs generated code (install hooks, builds, the app): sandboxed or not at all.
+        try:
+            runner = await asyncio.to_thread(get_runner)
+        except SandboxUnavailable as exc:
+            logger.error("RunAppManager: refusing to run generated code for %s: %s", run_id, exc)
+            raise HTTPException(status_code=503, detail=f"Sandbox unavailable: {exc}")
         port = await acquire_free_port()
 
         # ── Locate backend entry point ─────────────────────────────────────────
@@ -124,14 +129,11 @@ class RunAppManager:
 
         log_path = root_dir / "run_app.log"
         # Generated code and its install/build scripts never see the platform's environment.
-        _tool_env = child_env(PIP_DISABLE_PIP_VERSION_CHECK="1")
+        _tool_env = child_env(PIP_DISABLE_PIP_VERSION_CHECK="1", **sandbox_dirs(root_dir))
 
-        # ── Install Python dependencies ────────────────────────────────────────
-        _sp.run(
-            [sys.executable, "-m", "pip", "install", "aiosqlite", "httpx", "-q",
-             "--no-warn-script-location"],
-            capture_output=True, timeout=60, env=_tool_env,
-        )
+        # ── Install Python dependencies (into the run's venv, never the platform's) ──
+        _py = await asyncio.to_thread(venv_python, runner, root_dir, _tool_env)
+        await asyncio.to_thread(pip_install, runner, root_dir, _py, ["aiosqlite", "httpx"], _tool_env, 60)
         req_file = backend_dir / "requirements.txt"
         if req_file.exists():
             _req_lines = req_file.read_text().splitlines()
@@ -143,11 +145,8 @@ class RunAppManager:
             _lite_req_path.write_text("\n".join(_lite_reqs))
             with open(log_path, "w") as _lf:
                 _lf.write("[AetherOS] Installing backend deps (SQLite preview mode)\n")
-            _sp.run(
-                [sys.executable, "-m", "pip", "install", "-r", str(_lite_req_path), "-q",
-                 "--no-warn-script-location"],
-                capture_output=True, timeout=120, env=_tool_env,
-            )
+            await asyncio.to_thread(pip_install, runner, root_dir, _py, ["-r", str(_lite_req_path)],
+                                    _tool_env, 120)
 
         # ── Locate frontend ────────────────────────────────────────────────────
         _frontend_candidates = [
@@ -160,8 +159,8 @@ class RunAppManager:
         frontend_dist = (frontend_dir / "dist") if frontend_dir else None
 
         # ── Build React frontend ───────────────────────────────────────────────
-        node_bin = _sh.which("node")
-        npm_bin = _sh.which("npm")
+        node_bin = runner.tool("node")
+        npm_bin = runner.tool("npm")
         if node_bin and npm_bin and frontend_dir and frontend_dir.is_dir():
             import re as _re_cfg
             for _cfg_name in ("vite.config.ts", "vite.config.js"):
@@ -222,10 +221,10 @@ class RunAppManager:
             if not _dist_already_built:
                 with open(log_path, "a") as _lf:
                     _lf.write(f"[AetherOS] Building React frontend from {frontend_dir}...\n")
-                _npm_cache = os.path.expanduser("~/.aether_os/npm_cache")
-                _npm_install_r = _sp.run(
-                    [npm_bin, "install", "--silent", "--cache", _npm_cache],
-                    cwd=str(frontend_dir), capture_output=True, timeout=300, env=_tool_env,
+                # npm's cache lives in the sandbox HOME (run dir): no cache shared across runs.
+                _npm_install_r = await asyncio.to_thread(
+                    runner.run, [npm_bin, "install", "--silent"],
+                    run_dir=root_dir, cwd=frontend_dir, timeout=300, env=_tool_env, network=True,
                 )
                 if _npm_install_r.returncode != 0:
                     _npm_err = (_npm_install_r.stderr or b"").decode(errors="replace")[-400:]
@@ -266,15 +265,15 @@ class RunAppManager:
                                 _vc_path.write_text(_vc)
                         break
 
-                _npx_bin = _sh.which("npx") or "npx"
+                _npx_bin = runner.tool("npx") or "npx"
                 _node_env = child_env(
                     NODE_OPTIONS="--max-old-space-size=384",
                     ESBUILD_WORKER_THREADS="false",
+                    **sandbox_dirs(root_dir),
                 )
-                _vite_result = _sp.run(
-                    [_npx_bin, "vite", "build"],
-                    cwd=str(frontend_dir), capture_output=True, timeout=300,
-                    env=_node_env,
+                _vite_result = await asyncio.to_thread(
+                    runner.run, [_npx_bin, "vite", "build"],
+                    run_dir=root_dir, cwd=frontend_dir, timeout=300, env=_node_env,
                 )
                 if _vite_result.returncode != 0:
                     _err = (_vite_result.stderr or b"").decode(errors="replace")[-800:]
@@ -294,10 +293,9 @@ class RunAppManager:
                         "NODE_OPTIONS": "--max-old-space-size=192",
                         "ESBUILD_WORKER_THREADS": "false",
                     } if _oom else _node_env
-                    _sp.run(
-                        [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent",
-                         "--cache", _npm_cache],
-                        cwd=str(frontend_dir), capture_output=True, timeout=120, env=_tool_env,
+                    await asyncio.to_thread(
+                        runner.run, [npm_bin, "install", "--save-dev", "@vitejs/plugin-react", "--silent"],
+                        run_dir=root_dir, cwd=frontend_dir, timeout=120, env=_tool_env, network=True,
                     )
                     if _oom:
                         for _vc_name2 in ("vite.config.ts", "vite.config.js"):
@@ -312,10 +310,9 @@ class RunAppManager:
                                     )
                                     _vc_path2.write_text(_vc2)
                                 break
-                    _vite_result2 = _sp.run(
-                        [_npx_bin, "vite", "build"],
-                        cwd=str(frontend_dir), capture_output=True, timeout=300,
-                        env=_node_env2,
+                    _vite_result2 = await asyncio.to_thread(
+                        runner.run, [_npx_bin, "vite", "build"],
+                        run_dir=root_dir, cwd=frontend_dir, timeout=300, env=_node_env2,
                     )
                     if _vite_result2.returncode != 0:
                         _err2 = (_vite_result2.stderr or b"").decode(errors="replace")[-400:]
@@ -360,6 +357,7 @@ class RunAppManager:
         _env = child_env(
             DATABASE_URL=f"sqlite+aiosqlite:///{root_dir}/preview.db",
             PYTHONPATH=str(backend_dir / "src"),
+            **sandbox_dirs(root_dir),
         )
         # Per-launch marker on the command line: ties the recorded pid to this launch.
         _nonce = preview_state.new_nonce()
@@ -369,12 +367,9 @@ class RunAppManager:
         if _alembic_ini.exists():
             with open(log_path, "a") as _lf:
                 _lf.write("[AetherOS] Running alembic upgrade head...\n")
-            _alembic_result = _sp.run(
-                [sys.executable, "-m", "alembic", "upgrade", "head"],
-                cwd=str(backend_dir),
-                capture_output=True,
-                timeout=60,
-                env=_env,
+            _alembic_result = await asyncio.to_thread(
+                runner.run, [_py, "-m", "alembic", "upgrade", "head"],
+                run_dir=root_dir, cwd=backend_dir, timeout=60, env=_env,
             )
             with open(log_path, "a") as _lf:
                 if _alembic_result.returncode == 0:
@@ -385,29 +380,27 @@ class RunAppManager:
                         f"[AetherOS] Alembic migration failed (falling back to create_all): {_err}\n"
                     )
 
-        def _try_start_backend() -> Optional[_sp.Popen]:
-            log_file = open(log_path, "a")
-            log_file.write(
-                f"[AetherOS] Starting generated backend on port {port} from {backend_dir}\n"
-            )
-            log_file.flush()
-            proc = _sp.Popen(
-                [sys.executable, "-m", "uvicorn", "src.main:app",
-                 "--host", "127.0.0.1", "--port", str(port), *_nonce_args],
-                cwd=str(backend_dir),
-                stdout=log_file,
-                stderr=log_file,
-                shell=False,
-                env=_env,
-                start_new_session=True,
-            )
+        _labels = labels_for(run_id, _nonce)
+
+        def _uvicorn(app_ref: str) -> list:
+            return [_py, "-m", "uvicorn", app_ref,
+                    "--host", runner.bind_host, "--port", str(port), *_nonce_args]
+
+        def _log(line: str) -> None:
+            with open(log_path, "a") as _lf:
+                _lf.write(line)
+
+        def _try_start_backend():
+            _log(f"[AetherOS] Starting generated backend on port {port} from {backend_dir} "
+                 f"(sandbox: {runner.name})\n")
+            proc = runner.start(_uvicorn("src.main:app"), run_dir=root_dir, cwd=backend_dir,
+                                env=_env, log_path=log_path, port=port, labels=_labels)
             if proc.poll() is not None:
-                log_file.write("[AetherOS] Backend crashed — falling back to frontend-only server\n")
-                log_file.flush()
+                _log("[AetherOS] Backend crashed — falling back to frontend-only server\n")
                 return None
             return proc
 
-        def _start_frontend_server() -> _sp.Popen:
+        def _start_frontend_server():
             _stub_dir = root_dir / "_preview_stub"
             _stub_dir.mkdir(exist_ok=True)
             _stub_main = _stub_dir / "main.py"
@@ -422,43 +415,22 @@ class RunAppManager:
                 or "_MOCK_ROWS" not in _stub_main.read_text()
             )
             if not _stub_needs_write:
-                log_file = open(log_path, "a")
-                log_file.write("[AetherOS] Reusing existing custom preview stub\n")
-                log_file.flush()
-                return _sp.Popen(
-                    [sys.executable, "-m", "uvicorn", "main:app",
-                     "--host", "127.0.0.1", "--port", str(port), *_nonce_args],
-                    cwd=str(_stub_dir),
-                    stdout=log_file,
-                    stderr=log_file,
-                    shell=False,
-                    env=_tool_env,
-                    start_new_session=True,
-                )
-            _stub_main.write_text(stub_main_py(_dist_path))
-            log_file = open(log_path, "a")
-            log_file.write(
-                f"[AetherOS] Starting frontend-only preview server on port {port}\n"
-            )
-            log_file.flush()
-            return _sp.Popen(
-                [sys.executable, "-m", "uvicorn", "main:app",
-                 "--host", "127.0.0.1", "--port", str(port), *_nonce_args],
-                cwd=str(_stub_dir),
-                stdout=log_file,
-                stderr=log_file,
-                shell=False,
-                env=_tool_env,
-                start_new_session=True,
-            )
+                _log("[AetherOS] Reusing existing custom preview stub\n")
+            else:
+                _stub_main.write_text(stub_main_py(_dist_path))
+                _log(f"[AetherOS] Starting frontend-only preview server on port {port}\n")
+            return runner.start(_uvicorn("main:app"), run_dir=root_dir, cwd=_stub_dir,
+                                env=_tool_env, log_path=log_path, port=port, labels=_labels)
 
+        # Served only by the preview server; opening it needs POST .../preview-session first.
+        _preview_url = f"{preview_token.preview_origin() or ''}/app-preview/"
         try:
-            proc = _try_start_backend()
+            proc = await asyncio.to_thread(_try_start_backend)
             await asyncio.sleep(2)
             mode = "backend"
             if proc is None:
                 if frontend_dist and frontend_dist.is_dir():
-                    proc = _start_frontend_server()
+                    proc = await asyncio.to_thread(_start_frontend_server)
                     mode = "frontend_only"
                 else:
                     raise HTTPException(
@@ -483,13 +455,14 @@ class RunAppManager:
 
             try:
                 preview_state.write_state(root_dir / preview_state.STATE_FILE, run_id,
-                                          port, proc.pid, _nonce, mode)
+                                          port, proc.pid, _nonce, mode,
+                                          container=getattr(proc, "container_id", None))
             except Exception as exc:
                 logger.warning("RunAppManager: could not write run_app_state.json for %s: %s", run_id, exc)
 
             try:
                 from aether_os.core.db_utils import async_update_run_live_url as _aulul
-                await _aulul(run_id, "/app-preview/")
+                await _aulul(run_id, _preview_url)
             except Exception as exc:
                 logger.warning("RunAppManager: could not update live_url for %s: %s", run_id, exc)
 
@@ -507,8 +480,8 @@ class RunAppManager:
                 "log": str(log_path),
                 "preview_email": _preview_email,
                 "preview_password": _PREVIEW_PASSWORD,
-                "live_url": "/app-preview/",
-                "preview_url": "/app-preview/",
+                "live_url": _preview_url,
+                "preview_url": _preview_url,
             }
         except HTTPException:
             raise
