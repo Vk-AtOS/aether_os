@@ -18,12 +18,13 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import Boolean, Float, String, Text, select, update
+from sqlalchemy import Boolean, Float, String, Text, UniqueConstraint, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.db import Base, get_session_factory
-from aether_os.core.pipeline_state import get_control, set_control
+from aether_os.core.spec_approval import decide_spec
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class PortalToken(Base):
 
 class PortalApproval(Base):
     __tablename__ = "portal_approvals"
+    # One actor's decisions form a chain: each row names the row it follows ("" for the
+    # first). Two requests that read the same latest decision cannot both append.
+    __table_args__ = (UniqueConstraint("project_id", "actor_kind", "actor_id", "prev_approval_id",
+                                       name="uq_portal_approvals_actor_chain"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -64,6 +69,7 @@ class PortalApproval(Base):
     # Set when this approval released a waiting pipeline gate (today: "spec_review").
     applied_to: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    prev_approval_id: Mapped[str] = mapped_column(String(48), nullable=False, default="", server_default="")
 
 
 def _hash(token: str) -> str:
@@ -166,16 +172,24 @@ async def record_approval(project_id: str, principal: Dict[str, Any], approved: 
     """Record the client's decision. Returns (approval, created).
 
     Idempotent: the same actor repeating their latest decision (same verdict and
-    comment) gets that record back and nothing new is written or ledgered.
-    An approval given while the build waits at the spec-review gate releases it —
-    the same control flag POST /factory/runs/{id}/approve-spec sets.
-
-    ponytail: read-then-insert; two identical requests racing each other can both
-    insert. Add an idempotency key column with a unique constraint if that matters.
+    comment) gets that record back and nothing new is written or ledgered. Race-safe:
+    each row names the decision it follows, under a unique constraint, so of two
+    concurrent requests one inserts and the other re-reads and sees it.
+    An approval given while the build waits at the spec-review gate releases it
+    through core.spec_approval.decide_spec (ledgered like every other approver).
     """
     comment = (comment or "").strip() or None
+    for _ in range(3):  # a lost race re-reads; three losses in a row means real contention
+        try:
+            return await _record_approval_once(project_id, principal, approved, comment)
+        except IntegrityError as e:
+            logger.info("portal approval for %s raced another request; re-reading: %s", project_id, e)
+    raise RuntimeError("portal approval could not be recorded: concurrent updates kept conflicting")
+
+
+async def _record_approval_once(project_id: str, principal: Dict[str, Any], approved: bool,
+                                comment: Optional[str]) -> Tuple[Dict[str, Any], bool]:
     org_id, kind, actor_id = principal["org_id"], principal["kind"], principal["id"]
-    now = time.time()
     async with get_session_factory()() as session:
         latest = (await session.execute(
             select(PortalApproval)
@@ -184,18 +198,23 @@ async def record_approval(project_id: str, principal: Dict[str, Any], approved: 
             .order_by(PortalApproval.created_at.desc()).limit(1))).scalar_one_or_none()
         if latest is not None and latest.approved == approved and latest.comment == comment:
             return _approval_view(latest), False
-        applied_to = None
-        if approved and await get_control(project_id) == "spec_review":
-            await set_control(project_id, "spec_approved")
-            applied_to = "spec_review"
         row = PortalApproval(org_id=org_id, project_id=project_id, approved=approved, comment=comment,
                              actor_kind=kind, actor_id=actor_id, actor_label=principal.get("label", "")[:255],
-                             applied_to=applied_to, created_at=now)
+                             created_at=time.time(), prev_approval_id=latest.id if latest else "")
         session.add(row)
-        await session.commit()
+        await session.commit()   # claims this place in the actor's chain before the gate is touched
+    if approved:
+        outcome = await decide_spec(project_id, org_id, actor=f"{kind}:{actor_id}", via="client_portal",
+                                    metadata={"approval_id": row.id, "actor_label": row.actor_label})
+        if outcome == "approved":
+            row.applied_to = "spec_review"
+            async with get_session_factory()() as session:
+                await session.execute(update(PortalApproval).where(PortalApproval.id == row.id)
+                                      .values(applied_to=row.applied_to))
+                await session.commit()
     await _ledger(org_id, f"{kind}:{actor_id}", "portal.client_approval", project_id, {
         "approval_id": row.id, "approved": approved, "comment": comment,
-        "actor_label": row.actor_label, "applied_to": applied_to,
+        "actor_label": row.actor_label, "applied_to": row.applied_to,
     })
     return _approval_view(row), True
 
