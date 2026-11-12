@@ -80,8 +80,12 @@ def is_launched_process(pid: Any, nonce: Any) -> bool:
     return f"{NONCE_HEADER}:{nonce}" in _command_line(pid)
 
 
-def live_port(run_id: str, path: Optional[Path] = None) -> Optional[int]:
-    """Port of the app launched for this run, or None when it is not (provably) up.
+def live_app(run_id: str, path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """{"port", "pid", "mode"} of the app launched for this run, or None when it is not (provably) up.
+
+    The one answer to "is this run's app running?" — the preview proxy, the
+    status endpoint, stop, and the restore at startup all ask here, so none of
+    them can be led to another run's app by a stale state file.
 
     Blocking (may run `ps`): call through asyncio.to_thread from request handlers.
     """
@@ -89,17 +93,23 @@ def live_port(run_id: str, path: Optional[Path] = None) -> Optional[int]:
     port = get_all_ports().get(run_id)
     if isinstance(proc, subprocess.Popen):
         # Our own child: the handle identifies the process exactly.
-        return port if port and proc.poll() is None else None
+        return {"port": port, "pid": proc.pid, "mode": None} if port and proc.poll() is None else None
     state = _read_state(path or state_path(run_id))
     if state is not None:
-        if is_launched_process(state.get("pid"), state.get("nonce")):
-            return int(state.get("port") or 0) or None
+        if is_launched_process(state.get("pid"), state.get("nonce")) and int(state.get("port") or 0):
+            return {"port": int(state["port"]), "pid": state["pid"], "mode": state.get("mode")}
         return None
     # No state file was ever written, so nothing can be stale: accept an
     # in-process registration that still has a live handle.
     if proc is not None and port and proc.poll() is None:
-        return port
+        return {"port": port, "pid": getattr(proc, "pid", None), "mode": None}
     return None
+
+
+def live_port(run_id: str, path: Optional[Path] = None) -> Optional[int]:
+    """Port of the app launched for this run, or None when it is not (provably) up. Blocking, as live_app."""
+    app = live_app(run_id, path)
+    return app["port"] if app else None
 
 
 def was_launched(run_id: str) -> bool:

@@ -8,16 +8,13 @@ function that FastAPI calls at startup and shutdown.
 from __future__ import annotations
 
 import asyncio
-import glob
-import json
 import logging
 import os
-import socket
 import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Set
+from typing import Optional, Set
 
 from sqlalchemy import delete, text
 
@@ -29,6 +26,7 @@ from aether_os.core.pipeline_state import get_redis
 from aether_os.core.queue.pipeline_consumer import start_consumer, stop_consumer
 from aether_os.core.rate_limiter import run_app_port_get
 from aether_os.core.repair_learning import load_validators
+from aether_os.core.run_app import preview_state
 from aether_os.core.seed import ensure_demo_user, ensure_marketplace
 from aether_os.core.telemetry.langsmith_tracer import init_langsmith
 from aether_os.core.workloop_monitor import get_workloop_monitor
@@ -38,6 +36,28 @@ from aether_os.gateway.routers.run_app_router import start_run_app
 from aether_os.phases.p08_cicd.webhook import initialise_call_graph
 
 logger = logging.getLogger(__name__)
+
+
+async def register_live_run_app(projects_root: Path) -> Optional[str]:
+    """After a gateway restart, re-register the newest generated app that is still up; return its run id.
+
+    A state file is only a claim. It is believed when the process it names is
+    alive and carries that launch's nonce (preview_state.live_app, the check the
+    preview proxy uses). An open port proves nothing: ports are reused, and the
+    listener may be another run's app — which is what the old socket probe trusted.
+    """
+    state_files = sorted(projects_root.glob(f"*/{preview_state.STATE_FILE}"),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+    for state_file in state_files:
+        run_id = state_file.parent.name
+        app = await asyncio.to_thread(preview_state.live_app, run_id, state_file)
+        if app:
+            logger.info("run_app: run %s still up on port %d (pid %s) — registering (no restart)",
+                        run_id, app["port"], app["pid"])
+            await set_app_state(run_id, port=app["port"], pid=app["pid"],
+                                mode=app["mode"] or "backend", app_dir=str(state_file.parent))
+            return run_id
+    return None
 
 
 def create_lifespan(background_tasks: Set):
@@ -187,44 +207,14 @@ def create_lifespan(background_tasks: Set):
             try:
                 await asyncio.sleep(5)  # wait for DB + deps to settle
 
-                _state_files = sorted(
-                    glob.glob(str(Path.home() / ".aether_os" / "projects" / "*" / "run_app_state.json")),
-                    key=lambda p: Path(p).stat().st_mtime,
-                    reverse=True,
-                )
-                for _sf in _state_files:
-                    try:
-                        _st = json.loads(Path(_sf).read_text())
-                        _rid = _st.get("run_id") or Path(_sf).parent.name
-                        _rport = int(_st.get("port", 0))
-                        if not _rid or not _rport:
-                            continue
-                        _alive = False
-                        try:
-                            with socket.create_connection(("127.0.0.1", _rport), timeout=1):
-                                _alive = True
-                        except OSError as e:
-                            logger.warning("api: probe connection failed for run %s on port %d: %s", _rid, _rport, e)
-                        if _alive:
-                            logger.info("run_app: port %d still alive for run %s — registering (no restart)", _rport, _rid)
-                            await set_app_state(_rid, port=_rport, pid=_st.get("pid", 0),
-                                         mode=_st.get("mode", "backend"), app_dir=str(Path(_sf).parent))
-                            return
-                    except Exception as exc:
-                        logger.debug("Failed to parse/probe run_app_state.json: %s", exc)
-                        continue
+                if await register_live_run_app(Path.home() / ".aether_os" / "projects"):
+                    return
 
                 _rid, _rport = await run_app_port_get()
                 if not _rid:
                     return
-                _dead = True
-                try:
-                    with socket.create_connection(("127.0.0.1", _rport), timeout=1):
-                        _dead = False
-                except OSError as e:
-                    logger.warning("api: Redis fallback probe failed for run %s on port %d: %s", _rid, _rport, e)
-                if not _dead:
-                    logger.info("run_app: port %d still alive for run %s — no restart needed", _rport, _rid)
+                if await asyncio.to_thread(preview_state.live_app, _rid):
+                    logger.info("run_app: run %s is still up — no restart needed", _rid)
                     return
                 logger.info("run_app: restarting run %s after service restart (old port %d was dead)", _rid, _rport)
                 _system_user = {"org_id": None, "user_id": "system", "role": "admin"}
