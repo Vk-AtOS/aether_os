@@ -24,3 +24,23 @@ export const fmtDate = (value) => {
     ? ''
     : d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
+
+export const STATE_STYLE = {
+  active:    'text-emerald-400 bg-emerald-400/10',
+  scheduled: 'text-sky-400 bg-sky-400/10',
+  expired:   'text-muted bg-border/20',
+  revoked:   'text-danger bg-danger/10',
+  pending:   'text-yellow-400 bg-yellow-400/10',
+  approved:  'text-emerald-400 bg-emerald-400/10',
+  rejected:  'text-danger bg-danger/10',
+};
+
+export const EXECUTION = {
+  running:         { label: 'Being carried out',                  color: 'text-sky-400' },
+  succeeded:       { label: 'Carried out',                        color: 'text-emerald-400' },
+  failed:          { label: 'Not carried out',                    color: 'text-danger' },
+  needs_attention: { label: 'Needs attention: outcome unknown',   color: 'text-yellow-400' },
+};
+
+export const money = (amount, currency) =>
+  amount ? `${currency || ''} ${Number(amount).toLocaleString('en-IN')}`.trim() : '';

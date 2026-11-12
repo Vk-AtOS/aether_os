@@ -1,11 +1,11 @@
-"""Prime — ORM storage for delegations (conventions follow core/models.py)."""
+"""Prime — ORM storage: delegations, organisation limits, requests (conventions follow core/models.py)."""
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aether_os.core.db import Base
@@ -29,3 +29,49 @@ class PrimeDelegation(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class PrimeOrgLimits(Base):
+    """Per-organisation Prime limits. No row means the defaults in prime/authz.py."""
+    __tablename__ = "prime_org_limits"
+
+    org_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    payment_ceiling: Mapped[str] = mapped_column(String(32), nullable=False)
+    max_delegation_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class PrimeRequest(Base):
+    """An action Prime was asked to carry out that reached a person or an executor.
+
+    status:      pending | approved | rejected   (pending past expires_at reads as expired)
+    exec_status: NULL | running | succeeded | failed | needs_attention
+    """
+    __tablename__ = "prime_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    on_behalf_of: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    amount: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    params: Mapped[dict] = mapped_column(JSON, nullable=False)
+    executor: Mapped[str] = mapped_column(String(64), nullable=False)
+    delegation_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    deputy: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    # Hash of everything above plus expires_at. Unique: it is also the idempotency key.
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    decided_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    exec_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    exec_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    exec_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

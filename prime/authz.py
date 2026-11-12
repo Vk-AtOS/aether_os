@@ -16,17 +16,22 @@ from typing import Any, Dict, FrozenSet, Iterable, Literal, Optional
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 PRIME = "prime"
+# Defaults. An organisation may change both (prime/limits.py), never past the
+# HARD_* bounds below, which no setting can raise.
 MAX_DELEGATION_DURATION = timedelta(days=30)
+HARD_MAX_DELEGATION_DURATION = timedelta(days=90)
 
 # ponytail: one currency, no FX. Amounts in any other currency can never match a
 # delegation limit, so they go to the deputy. Add a rates table when needed.
 CURRENCY = "INR"
 PAYMENT_CEILING = Decimal("500000")
+HARD_PAYMENT_CEILING = Decimal("5000000")
 
 # Action types Prime understands. True = monetary (needs amount + a delegation limit).
 ACTION_TYPES: Dict[str, bool] = {
     "leave.approve": False,
     "deploy.staging": False,
+    "run.spec.approve": False,   # release a build waiting at its specification review gate
     "invoice.approve": True,
     "expense.approve": True,
     "payment.execute": True,
@@ -100,9 +105,11 @@ class Delegation(BaseModel):
     def _check(self) -> "Delegation":
         if self.valid_until <= self.valid_from:
             raise ValueError("valid_until must be after valid_from")
-        if self.valid_until - self.valid_from > MAX_DELEGATION_DURATION:
+        # The organisation's own (lower) limit is enforced where the delegation is
+        # stored (DelegationRepository.add); the model enforces the bound nothing can exceed.
+        if self.valid_until - self.valid_from > HARD_MAX_DELEGATION_DURATION:
             raise ValueError(
-                f"delegation may last at most {MAX_DELEGATION_DURATION.days} days")
+                f"delegation may last at most {HARD_MAX_DELEGATION_DURATION.days} days")
         if self.deputy in (self.grantor, PRIME):
             raise ValueError("deputy must be a human other than the grantor")
         return self
@@ -143,7 +150,7 @@ def _to_deputy(reason: str, d: Delegation) -> Decision:
                     reason=f"{reason}; routed to deputy {d.deputy}")
 
 
-def _dead_reason(d: Delegation, now: datetime) -> str:
+def dead_reason(d: Delegation, now: datetime) -> str:
     """Why a delegation confers no authority at `now`; '' if it is live."""
     if d.revoked_at is not None:
         return f"delegation {d.id} was revoked"
@@ -155,7 +162,8 @@ def _dead_reason(d: Delegation, now: datetime) -> str:
 
 
 def authorize(action: Action, now: datetime,
-              delegations: Iterable[Delegation] = ()) -> Decision:
+              delegations: Iterable[Delegation] = (),
+              payment_ceiling: Decimal = PAYMENT_CEILING) -> Decision:
     """Decide what Prime may do with `action` at `now`, given the stored delegations.
 
     Pure and fail-closed. EXECUTE / EXECUTE_AND_NOTIFY are reached only through a
@@ -164,6 +172,7 @@ def authorize(action: Action, now: datetime,
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
+    payment_ceiling = min(payment_ceiling, HARD_PAYMENT_CEILING)
 
     if action.type in NEVER:
         return _refuse(f"'{action.type}' is on the NEVER list; no delegation can allow it")
@@ -176,9 +185,9 @@ def authorize(action: Action, now: datetime,
             return _refuse(f"'{action.type}' needs an amount and a currency")
         if action.amount <= 0:
             return _refuse("amount must be positive")
-        if action.amount > PAYMENT_CEILING:
+        if action.amount > payment_ceiling:
             return _refuse(f"amount {action.amount} is above the hard ceiling "
-                           f"{PAYMENT_CEILING} {CURRENCY}; no delegation can allow it")
+                           f"{payment_ceiling} {CURRENCY}; no delegation can allow it")
 
     mine = sorted((d for d in delegations
                    if d.grantor == action.on_behalf_of and d.grantee == PRIME),
@@ -186,9 +195,9 @@ def authorize(action: Action, now: datetime,
     if not mine:
         return _refuse(f"no delegation from {action.on_behalf_of}")
 
-    live = [d for d in mine if not _dead_reason(d, now)]
+    live = [d for d in mine if not dead_reason(d, now)]
     if not live:
-        return _refuse(_dead_reason(mine[0], now), mine[0])
+        return _refuse(dead_reason(mine[0], now), mine[0])
 
     in_scope = [d for d in live if action.type in d.scope]
     if not in_scope:
