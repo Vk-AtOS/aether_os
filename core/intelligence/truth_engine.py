@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.run_app import safe_fs
+
 logger = logging.getLogger(__name__)
 
 _instance: Optional["TruthEngine"] = None
@@ -65,16 +67,12 @@ class TruthEngine:
                 project_dir = os.path.expanduser(f"~/.aether_os/projects/{run_id}")
                 code_parts: list[str] = []
                 for candidate in [
-                    f"{project_dir}/src/main.py",
-                    f"{project_dir}/main.py",
-                    f"{project_dir}/p04_backend/src/main.py",
-                    f"{project_dir}/p04a_backend_codegen/src/main.py",
+                    "src/main.py", "main.py", "p04_backend/src/main.py", "p04a_backend_codegen/src/main.py",
                 ]:
-                    if os.path.isfile(candidate):
-                        try:
-                            code_parts.append(open(candidate).read(8000))
-                        except Exception as exc:
-                            logger.debug("TruthEngine.audit_run could not read %s: %s", candidate, exc)
+                    # safe_fs: project_dir is writable by the sandboxed app; links are never followed
+                    src = safe_fs.read_text_or_none(project_dir, candidate)
+                    if src is not None:
+                        code_parts.append(src[:8000])
                 code = "\n\n---\n\n".join(code_parts) if code_parts else f"[No generated files found for run {run_id}]"
         except Exception as exc:
             logger.warning("truth_engine.audit_run failed: %s", exc)

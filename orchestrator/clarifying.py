@@ -24,7 +24,7 @@ from typing import Any, Dict, List
 from aether_os.core.domain_ir import DomainIR
 from aether_os.core.projects import get_project_manager
 from aether_os.core.run_app import preview_state
-from aether_os.core.run_app.safe_fs import safe_read_text
+from aether_os.core.run_app.safe_fs import read_text_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,12 @@ def stored_questions(project_id: str) -> List[Dict[str, Any]]:
     """The questions s02 saved for this run ([] when s02 has not produced any)."""
     root = get_project_manager().get_project_dir(project_id)
     summary = root / "s02_architecture" / "s02_architecture.json"
-    if not summary.is_file():
+    text = read_text_or_none(root, summary)   # a planted link reads as "no questions", never a 500
+    if text is None:
         return []
     try:
-        questions = json.loads(safe_read_text(root, summary)).get("clarifying_questions") or []
-    except (OSError, ValueError) as exc:
+        questions = json.loads(text).get("clarifying_questions") or []
+    except (OSError, ValueError, AttributeError) as exc:
         logger.warning("clarifying: unreadable question file %s: %s", summary, exc)
         return []
     return [q for q in questions if isinstance(q, dict) and q.get("field_path")]

@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
 
 from aether_os.core.app_state import clear_app_state, del_proc
-from aether_os.core.run_app import preview_state
+from aether_os.core.run_app import preview_state, safe_fs
 from aether_os.core.sandbox.docker_backend import remove_container
 from aether_os.gateway.auth import PREVIEW_COOKIE, create_preview_token
 
@@ -180,15 +180,13 @@ async def get_preview_credentials(
         )
 
     root_dir = get_project_manager().get_project_dir(run_id).resolve()
-    creds_path = root_dir / "preview_credentials.json"
-    if creds_path.exists():
-        return _json.loads(creds_path.read_text())
+    creds_text = safe_fs.read_text_or_none(root_dir, "preview_credentials.json")  # links never followed
+    if creds_text is not None:
+        return _json.loads(creds_text)
 
-    for seed_candidate in [
-        root_dir / "p04_backend" / "backend_codegen" / "src" / "seed.py",
-    ]:
-        if seed_candidate.exists():
-            txt = seed_candidate.read_text()
+    for seed_candidate in ["p04_backend/backend_codegen/src/seed.py"]:
+        txt = safe_fs.read_text_or_none(root_dir, seed_candidate)
+        if txt is not None:
             _email_m = _re.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', txt)
             _pass_m = _re.search(r'_ADMIN_PASSWORD\s*=\s*["\']([^"\']+)["\']', txt)
             if _email_m or _pass_m:
@@ -226,14 +224,15 @@ async def preview_run_html(
     project_id = run_detail.get("project_id") or run_id
     root_dir = _get_pm().get_project_dir(project_id)
 
-    for candidate in [
-        root_dir / "p05_frontend" / "index.html",
-        root_dir / "index.html",
-    ]:
-        if candidate.exists():
-            return HTMLResponse(content=candidate.read_text(encoding="utf-8"))
+    for candidate in ("p05_frontend/index.html", "index.html"):
+        html = safe_fs.read_text_or_none(root_dir, candidate)
+        if html is not None:
+            return HTMLResponse(content=html)
 
-    for html_file in root_dir.rglob("index.html"):
-        return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
+    for rel in safe_fs.walk_files(root_dir):   # links never entered or followed
+        if rel.name == "index.html":
+            html = safe_fs.read_text_or_none(root_dir, rel)
+            if html is not None:
+                return HTMLResponse(content=html)
 
     raise HTTPException(status_code=404, detail="No index.html found in run artifacts")

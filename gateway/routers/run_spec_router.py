@@ -28,6 +28,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from aether_os.core.run_app import safe_fs
 from aether_os.core.spec_approval import decide_spec
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 
@@ -178,15 +179,16 @@ async def get_run_spec(
     """Return the parsed requirements spec produced by p01_intake_requirements."""
     import pathlib
     project_dir = pathlib.Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
-    _req_path = project_dir / "p01_intake_requirements" / "requirements.json"
-    _intake_path = project_dir / "p01_intake_requirements" / "intake" / "intake.json"
-    spec_path = _req_path if _req_path.exists() else _intake_path
-    if not spec_path.exists():
+    # safe_fs: the sandboxed app writes in project_dir; a planted link reads as "not there".
+    spec_text = safe_fs.read_text_or_none(project_dir, "p01_intake_requirements/requirements.json")
+    if spec_text is None:
+        spec_text = safe_fs.read_text_or_none(project_dir, "p01_intake_requirements/intake/intake.json")
+    if spec_text is None:
         raise HTTPException(
             status_code=404, detail="Spec not ready — p01 has not completed yet"
         )
     import json as _sj
-    spec = _sj.loads(spec_path.read_text())
+    spec = _sj.loads(spec_text)
     from aether_os.core.pipeline_state import get_control as _gc
     control = await _gc(run_id)
     return {"spec": spec, "awaiting_approval": control == "spec_review"}
@@ -229,26 +231,27 @@ async def run_council_review(
         raise HTTPException(status_code=404, detail="Run not found")
 
     main_py_candidates = [
-        project_dir / "src" / "main.py",
-        project_dir / "p04_backend" / "src" / "main.py",
-        project_dir / "p04_backend" / "backend_codegen" / "src" / "main.py",
-        project_dir / "p04a_backend_codegen" / "src" / "main.py",
+        "src/main.py",
+        "p04_backend/src/main.py",
+        "p04_backend/backend_codegen/src/main.py",
+        "p04a_backend_codegen/src/main.py",
     ]
-    main_py = None
+    source_code = None
     for c in main_py_candidates:
-        if c.exists():
-            main_py = c
+        source_code = safe_fs.read_text_or_none(project_dir, c)
+        if source_code is not None:
             break
-    if main_py is None:
-        found = list(project_dir.rglob("main.py"))
-        main_py = found[0] if found else None
-    if main_py is None:
+    if source_code is None:   # links are never entered or followed
+        for rel in safe_fs.walk_files(project_dir):
+            if rel.name == "main.py":
+                source_code = safe_fs.read_text_or_none(project_dir, rel)
+                if source_code is not None:
+                    break
+    if source_code is None:
         raise HTTPException(
             status_code=404,
             detail="No main.py found for this run — run the pipeline first",
         )
-
-    source_code = main_py.read_text(encoding="utf-8", errors="replace")
 
     _project_name = ""
     _domain = "general"
@@ -278,8 +281,8 @@ async def run_council_review(
         org_id=user["org_id"],
     )
 
-    review_path = project_dir / "council_review.json"
-    review_path.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+    safe_fs.safe_write_text(project_dir, project_dir / "council_review.json",
+                            json.dumps(report.to_dict(), indent=2))
 
     return report.to_dict()
 
@@ -292,14 +295,14 @@ async def get_council_review(
     """Get the previously generated council review for a run."""
     import pathlib
     project_dir = pathlib.Path(os.path.expanduser(f"~/.aether_os/projects/{run_id}"))
-    review_path = project_dir / "council_review.json"
-    if not review_path.exists():
+    review_text = safe_fs.read_text_or_none(project_dir, "council_review.json")
+    if review_text is None:
         raise HTTPException(
             status_code=404,
             detail="No council review found — POST to this endpoint first",
         )
     try:
-        return json.loads(review_path.read_text(encoding="utf-8"))
+        return json.loads(review_text)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read council review: {exc}")
 

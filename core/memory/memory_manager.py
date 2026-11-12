@@ -4,29 +4,33 @@ import time
 from pathlib import Path
 from typing import Dict, Any
 
+from aether_os.core.run_app import safe_fs
+
 class MemoryManager:
     @staticmethod
     def save_project_memory(project_dir: Path, data: Dict[str, Any]):
-        memory_dir = project_dir / ".aetheros"
-        memory_dir.mkdir(exist_ok=True)
-        memory_file = memory_dir / "project_memory.json"
-        
+        # safe_fs: the sandboxed app writes in project_dir; links are never followed
+        safe_fs.safe_makedirs(project_dir, ".aetheros")
+        memory_file = project_dir / ".aetheros" / "project_memory.json"
+
         # Merge if exists
         existing = {}
-        if memory_file.exists():
-            existing = json.loads(memory_file.read_text())
-        
+        text = safe_fs.read_text_or_none(project_dir, memory_file)
+        if text is not None:
+            existing = json.loads(text)
+
         existing.update(data)
-        memory_file.write_text(json.dumps(existing, indent=2))
+        safe_fs.safe_write_text(project_dir, memory_file, json.dumps(existing, indent=2))
         return memory_file
 
     @staticmethod
     def add_changelog_entry(project_dir: Path, entry: str, author: str):
         memory_file = project_dir / ".aetheros" / "project_memory.json"
-        if not memory_file.exists():
+        text = safe_fs.read_text_or_none(project_dir, memory_file)
+        if text is None:
             raise FileNotFoundError("Project memory not found")
-            
-        data = json.loads(memory_file.read_text())
+
+        data = json.loads(text)
         changelog = data.get("changelog", [])
         changelog.append({
             "date": time.strftime("%Y-%m-%d"),
@@ -34,4 +38,4 @@ class MemoryManager:
             "author": author
         })
         data["changelog"] = changelog
-        memory_file.write_text(json.dumps(data, indent=2))
+        safe_fs.safe_write_text(project_dir, memory_file, json.dumps(data, indent=2))

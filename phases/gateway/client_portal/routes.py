@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
+from aether_os.core.run_app import safe_fs
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/portal", tags=["client-portal"])
 
@@ -31,9 +33,8 @@ async def get_project_status(project_id: str):
             raise HTTPException(404, f"Project {project_id} not found")
         project_dir = pm.get_project_dir(project_id)
         phases_completed = []
-        for phase_dir in sorted(project_dir.iterdir()):
-            if phase_dir.is_dir() and phase_dir.name.startswith("p"):
-                phases_completed.append(phase_dir.name)
+        phases_completed = [n for n, is_dir in safe_fs.list_dir(project_dir)   # links left out
+                            if is_dir and n.startswith("p")]
         return {
             "project_id": project_id,
             "project_name": project.name,
@@ -55,13 +56,13 @@ async def get_phase_output(project_id: str, phase_name: str):
         from aether_os.core.projects import get_project_manager
         pm = get_project_manager()
         phase_dir = pm.get_output_dir(project_id, phase_name)
+        project_dir = pm.get_project_dir(project_id)
         files = {}
-        for f in phase_dir.rglob("*"):
-            if f.is_file() and f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
-                try:
-                    files[f.name] = f.read_text()[:5000]
-                except Exception as exc:
-                    logger.debug("portal routes: failed to read phase file %s (non-fatal): %s", f.name, exc)
+        for f in safe_fs.walk_files(project_dir, phase_dir):
+            if f.suffix in (".md", ".json", ".txt", ".yml", ".yaml"):
+                text = safe_fs.read_text_or_none(project_dir, f, max_bytes=1024 * 1024)
+                if text is not None:
+                    files[f.name] = text[:5000]
         return {"project_id": project_id, "phase": phase_name, "files": files}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -92,8 +93,7 @@ async def submit_feedback(project_id: str, body: FeedbackBody):
         feedback_file = project_dir / "feedback.jsonl"
         import time
         entry = {"timestamp": time.time(), "feedback": body.feedback, "phase": body.phase}
-        with open(feedback_file, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+        safe_fs.safe_append_text(project_dir, feedback_file, json.dumps(entry) + "\n")
         return {"project_id": project_id, "message": "Feedback recorded", "entry": entry}
     except Exception as e:
         raise HTTPException(500, str(e))

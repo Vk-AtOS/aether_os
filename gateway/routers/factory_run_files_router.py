@@ -22,6 +22,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -86,26 +87,24 @@ async def get_run_files(
     if not root_dir.exists():
         return {"run_id": run_id, "tree": []}
 
-    def build_tree(current_path: pathlib.Path, base_path: pathlib.Path) -> List[Dict]:
+    def build_tree(rel: pathlib.Path) -> List[Dict]:
+        # safe_fs: links (planted by the sandboxed app) are left out, never followed.
         items = []
-        for item in sorted(current_path.iterdir(), key=lambda x: (not x.is_dir(), x.name)):
-            if item.name.startswith("."):
+        entries = safe_fs.list_dir(root_dir, rel)
+        for name, is_dir in sorted(entries, key=lambda e: (not e[1], e[0])):
+            if name.startswith("."):
                 continue
-            rel_path = str(item.relative_to(base_path))
-            if item.is_dir():
-                items.append({
-                    "name": item.name, "type": "directory",
-                    "path": rel_path, "children": build_tree(item, base_path),
-                })
+            item_rel = rel / name
+            if is_dir:
+                items.append({"name": name, "type": "directory",
+                              "path": str(item_rel), "children": build_tree(item_rel)})
             else:
-                items.append({
-                    "name": item.name, "type": "file",
-                    "path": rel_path, "size_bytes": item.stat().st_size,
-                    "extension": item.suffix,
-                })
+                items.append({"name": name, "type": "file", "path": str(item_rel),
+                              "size_bytes": safe_fs.file_size_or_none(root_dir, item_rel) or 0,
+                              "extension": pathlib.Path(name).suffix})
         return items
 
-    return {"run_id": run_id, "tree": build_tree(root_dir, root_dir)}
+    return {"run_id": run_id, "tree": build_tree(pathlib.Path())}
 
 
 def _safe_file_path(root_dir: pathlib.Path, path: str) -> pathlib.Path:
@@ -136,8 +135,9 @@ async def get_file_content(
     """Read file content from the run's project directory."""
     _, root_dir = await _resolve_project_dir(run_id, user.get("org_id"))
     file_path = _safe_file_path(root_dir.resolve(), path)
-
-    if not file_path.exists() or not file_path.is_file():
+    # Read through safe_fs: a link planted by the sandboxed app (file or folder) is a 404.
+    got = safe_fs.read_prefix_or_none(root_dir, file_path, 1_000_001)
+    if got is None:
         raise HTTPException(status_code=404, detail="File not found")
 
     ext = file_path.suffix.lower()
@@ -145,18 +145,9 @@ async def get_file_content(
         return {"path": path, "type": "image", "message": "Image files cannot be previewed"}
 
     language = _LANG_MAP.get(ext, "text")
-    size = file_path.stat().st_size
-    truncated = False
-    content = ""
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            if size > 1_000_000:
-                content = f.read(50_000)
-                truncated = True
-            else:
-                content = f.read()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading file: {e}")
+    raw, size = got
+    truncated = size > 1_000_000
+    content = (raw[:50_000] if truncated else raw).decode("utf-8", errors="replace")
 
     return {
         "path": path, "content": content, "language": language,
@@ -217,28 +208,27 @@ async def get_envvars(
     _, root_dir = await _resolve_project_dir(run_id, user.get("org_id"))
     root_dir = root_dir.resolve()
 
-    env_path = root_dir / ".env"
-    source = ".env"
-    if not env_path.exists():
-        for _candidate, _src in [
-            (root_dir / ".env.example", ".env.example"),
-            (root_dir / "p04_backend" / "backend_codegen" / ".env", ".env"),
-            (root_dir / "p04_backend" / "backend_codegen" / ".env.example", ".env.example"),
+    # safe_fs: .env may be a link planted by the sandboxed app; a link reads as absent.
+    source, text = ".env", safe_fs.read_text_or_none(root_dir, ".env")
+    if text is None:
+        for _rel, _src in [
+            (".env.example", ".env.example"),
+            ("p04_backend/backend_codegen/.env", ".env"),
+            ("p04_backend/backend_codegen/.env.example", ".env.example"),
         ]:
-            if _candidate.exists():
-                env_path = _candidate
+            text = safe_fs.read_text_or_none(root_dir, _rel)
+            if text is not None:
                 source = _src
                 break
 
     vars_list: List[Dict[str, str]] = []
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped:
-                k, _, v = stripped.partition("=")
-                vars_list.append({"key": k.strip(), "value": v.strip()})
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            k, _, v = stripped.partition("=")
+            vars_list.append({"key": k.strip(), "value": v.strip()})
 
     return {"run_id": run_id, "vars": vars_list, "source": source}
 

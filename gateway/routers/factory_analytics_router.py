@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -84,10 +85,11 @@ async def get_quality_trend(
         # Compliance score from pre-built scan JSON
         compliance_score: Optional[int] = None
         run_dir = projects_dir / run_id_qt
-        _comp_json = run_dir / "p06_review_security" / "compliance" / "compliance_scan.json"
-        if _comp_json.exists():
+        # safe_fs: run_dir is writable by the sandboxed app; a planted link reads as absent
+        _comp_text = safe_fs.read_text_or_none(run_dir, "p06_review_security/compliance/compliance_scan.json")
+        if _comp_text is not None:
             try:
-                _cd = json.loads(_comp_json.read_text(encoding="utf-8"))
+                _cd = json.loads(_comp_text)
                 compliance_score = _cd.get("score")
             except Exception as exc:
                 logger.debug("Failed to read compliance_scan.json for run %s: %s", run_id_qt, exc)
