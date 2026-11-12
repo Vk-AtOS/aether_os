@@ -49,6 +49,24 @@ _PASS_HEADERS = ("content-type", "content-disposition", "x-content-type-options"
                  "content-security-policy", "x-declared-content-type")
 
 
+_ACTIVE_TYPES = ("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml",
+                 "text/javascript", "application/javascript")
+
+
+def _safe_download_headers(upstream: Any) -> dict:
+    """Uploaded bytes are untrusted and are served from the dashboard's own origin: whatever Velaris says, force a
+    download, forbid sniffing, sandbox any rendering, and never hand a browser an active content type."""
+    h = {k: upstream[k] for k in _PASS_HEADERS if k in upstream}
+    ctype = h.get("content-type", "application/octet-stream").split(";")[0].strip().lower()
+    if ctype in _ACTIVE_TYPES or ctype.endswith("+xml") or ctype.startswith("text/"):
+        h["content-type"] = "application/octet-stream"
+    disp = h.get("content-disposition", "")
+    h["content-disposition"] = disp if disp.lower().startswith("attachment") else "attachment"
+    h["x-content-type-options"] = "nosniff"
+    h["content-security-policy"] = "sandbox; default-src 'none'"
+    return h
+
+
 @dataclass(frozen=True)
 class Route:
     method: str
@@ -267,8 +285,7 @@ def _endpoint(route: Route, upstream: str) -> Any:
         if route.kind == "download" and resp.status_code < 400:
             if len(resp.content) > MAX_FILE:
                 return safe_error(502, None)
-            return Response(resp.content, status_code=200,
-                            headers={h: resp.headers[h] for h in _PASS_HEADERS if h in resp.headers})
+            return Response(resp.content, status_code=200, headers=_safe_download_headers(resp.headers))
         return reply(resp)
 
     endpoint.__name__ = f"velaris_{route.action.replace('.', '_')}_{route.method.lower()}"
