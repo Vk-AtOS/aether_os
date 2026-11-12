@@ -22,8 +22,8 @@ from aether_os.core.models import Notification as _Notif_cn
 from aether_os.core.models import Run as _Run
 from aether_os.core.models import Run as _Run2
 from aether_os.core.models import Run as _Run2t
-from aether_os.core.pipeline_state import get_control, publish_event
-from aether_os.core.pipeline_state import publish_event
+from aether_os.core.pipeline_state import get_control
+from aether_os.orchestrator.events import publish_event  # redacts error text
 from aether_os.core.services import learning_service as _ls
 from aether_os.core.services.memory_service import get_memory_service
 from aether_os.orchestrator.messages import PhaseInput

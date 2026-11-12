@@ -16,21 +16,14 @@ from sqlalchemy import select as _sel, update as _upd
 from aether_os.integrations.aether2_bridge import ExternalMonitorBridge
 from aether_os.core.services.learning_service import get_user_context
 from aether_os.core.questionnaire.stage_questions import get_stage_questions
-from aether_os.core.models import Run as _Run_fb
-from aether_os.core.models import Run as _Run_fa
 from aether_os.core.models import Run as _Run_canc
 from aether_os.core.models import Run as _Run
 from aether_os.core.models import QuestionnaireSession, Run
 from aether_os.core.models import Organisation
-from aether_os.core.models import Notification as _Notif_esc, Run as _Run_esc
 from aether_os.core.llm.client import init_org_llm_context
 from aether_os.core.identity.zero_trust import issue_ticket as _zt_issue
-from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
 from aether_os.core.db_utils import create_run as _create_run
 from aether_os.core.db import get_session_factory as _gsf_q
-from aether_os.core.db import get_session_factory as _gsf_fb
-from aether_os.core.db import get_session_factory as _gsf_fa
-from aether_os.core.db import get_session_factory as _gsf_esc
 from aether_os.core.db import get_session_factory as _gsf_canc
 from aether_os.core.db import get_session_factory as _gsf
 from aether_os.core.db import get_session_factory
@@ -47,11 +40,10 @@ from typing import Any, Dict, List, Optional
 from aether_os.orchestrator.context_schema import assert_context, validate_context_after_stage
 from aether_os.orchestrator.messages import PhaseInput
 from aether_os.orchestrator.events import (
-    ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID, emit,
+    ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID, emit, publish_event,
 )
-from aether_os.core.pipeline_state import (
-    publish_event, get_control, set_control, clear_run,
-)
+from aether_os.core.pipeline_state import get_control, set_control, clear_run
+from aether_os.core.security.redact import redact_secrets
 from aether_os.core.projects import get_project_manager
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.project_memory import (
@@ -87,6 +79,12 @@ from aether_os.orchestrator.phase_selector import (
     restore_from_checkpoint,
 )
 from aether_os.orchestrator.phase_hooks import run_phase_hooks
+from aether_os.orchestrator.stage_gate import (
+    apply_stage_toggles,
+    gate_block_reason,
+    load_disabled_stages,
+    recorded_status,
+)
 from aether_os.orchestrator.phase_hooks_helpers import hook_persist_live_url
 from aether_os.orchestrator import messages as _messages_module
 from aether_os.orchestrator.bus import release_bus
@@ -362,7 +360,11 @@ class FactoryPipeline:
                 logger.warning("Learning context unavailable — phases will run without personalisation (run=%s): %s", run_id, _le)
 
         # Phase selection: honour start_phase override, then restore from checkpoint.
-        phases_to_run = select_phases(PHASE_SEQUENCE, start_phase)
+        try:
+            phases_to_run = select_phases(PHASE_SEQUENCE, start_phase)
+        except ValueError as _sel_exc:
+            # An unknown start stage must not silently become a full rebuild.
+            return await self._abort_run(run_id, str(_sel_exc))
         phases_to_run, accumulated_context = await restore_from_checkpoint(
             run_id=run_id,
             phase_sequence=PHASE_SEQUENCE,
@@ -370,6 +372,26 @@ class FactoryPipeline:
             accumulated_context=accumulated_context,
             emit_fn=emit,
         )
+        results = {}
+
+        # Per-org stage toggles (Settings → phase_configs): a disabled optional stage
+        # is recorded as skipped and left out of the waves; a disable on a mandatory
+        # stage is ignored, and why is recorded on the run's event stream and context.
+        phases_to_run, _toggled_off, _toggle_ignored = apply_stage_toggles(
+            phases_to_run, await load_disabled_stages(org_id))
+        accumulated_context["stage_toggles"] = {"skipped": _toggled_off, "ignored": _toggle_ignored}
+        for _sk in _toggled_off:
+            logger.info("[pipeline] Skipping %s: disabled in this org's settings", _sk)
+            results[_sk] = {"status": "skipped", "output_path": "", "artifacts": {},
+                            "metadata": {"skipped_reason": "disabled_in_settings"},
+                            "confidence": 1.0, "issues": []}
+            await self._update_state(run_id, _sk, "skipped")
+            await emit({"type": "phase_complete", "phase": _sk, "status": "skipped",
+                        "reason": "disabled_in_settings"}, run_id=run_id)
+        for _ig, _why in _toggle_ignored.items():
+            logger.warning("[pipeline] %s is disabled in settings but mandatory (%s): running it", _ig, _why)
+            await emit({"type": "stage_toggle_ignored", "phase": _ig,
+                        "reason": f"{_ig} cannot be switched off: {_why}"}, run_id=run_id)
 
         # ExternalMonitorBridge — optional external telemetry hook (failure here never blocks pipeline)
         _bridge = None
@@ -385,7 +407,6 @@ class FactoryPipeline:
                 logger.warning("ExternalMonitorBridge init failed — telemetry callbacks will be dropped for run %s: %s", run_id, _br_exc)
                 _bridge = None
 
-        results = {}
         pipeline_start = time.time()
 
         # ── DAG-based execution: compute waves of parallelisable phases ──
@@ -424,19 +445,9 @@ class FactoryPipeline:
                         "[pipeline] Parallel wave %s raised unexpectedly: %s — aborting",
                         _wave, _wave_exc,
                     )
-                    await self.ledger.async_update_run_status(
-                        run_id, "failed", message=f"Stages {', '.join(_wave)} crashed: {_wave_exc}")
-                    await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
-                                                 "error": str(_wave_exc), "ts": time.time()})
-                    return {"run_id": run_id, "status": "failed", "error": str(_wave_exc)}
+                    return await self._abort_run(
+                        run_id, f"Stages {', '.join(_wave)} crashed: {_wave_exc}")
 
-                # Checkpoint the wave once, on its earliest phase in run order.
-                # Resume restarts at index(last_completed)+1, so checkpointing a
-                # later phase (e.g. s12 in [s05, s12]) would skip s06-s11.
-                _run_order = list(phases_to_run)
-                await save_checkpoint(
-                    run_id, min(_wave, key=_run_order.index), accumulated_context
-                )
                 for _wp in _wave:
                     _wr = _wave_results.get(_wp, {})
                     results[_wp] = _wr
@@ -450,18 +461,23 @@ class FactoryPipeline:
                             "duration_s": _wr.get("duration_s"),
                         }
                     })
-                    # Abort if a critical phase failed inside the wave
-                    if _wp in CRITICAL_PHASES and _wr.get("status") in ("failed", "timeout"):
-                        _err = _wr.get("error", f"Phase {_wp} {_wr.get('status')}")
-                        logger.error(
-                            "[pipeline] Critical phase %s failed in parallel wave — aborting run %s",
-                            _wp, run_id,
-                        )
-                        await self.ledger.async_update_run_status(
-                            run_id, "failed", message=f"Stage {_wp} failed: {_err}")
-                        await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
-                                                     "error": _err, "ts": time.time()})
-                        return {"run_id": run_id, "status": "failed", "error": _err}
+
+                # A failed gate (any stage) or a failed critical stage ends the run
+                # here. Checked before the checkpoint, so a restart re-runs this wave
+                # instead of resuming after it.
+                for _wp in _wave:
+                    _block = gate_block_reason(_wp, results[_wp], CRITICAL_PHASES)
+                    if _block:
+                        logger.error("[pipeline] %s blocked run %s in a parallel wave", _wp, run_id)
+                        return await self._abort_run(run_id, _block, failed_stage=_wp)
+
+                # Checkpoint the wave once, on its earliest phase in run order.
+                # Resume restarts at index(last_completed)+1, so checkpointing a
+                # later phase (e.g. s12 in [s05, s12]) would skip s06-s11.
+                _run_order = list(phases_to_run)
+                await save_checkpoint(
+                    run_id, min(_wave, key=_run_order.index), accumulated_context
+                )
 
                 # Control signal check after every wave
                 _wave_control = await get_control(run_id)
@@ -551,6 +567,24 @@ class FactoryPipeline:
 
                 results[phase_name] = phase_result
 
+                # Gates block: a gate that still fails after retries, or a failed
+                # critical stage, ends the run here. Nothing below (context merge,
+                # checkpoint, hooks, later stages) runs, so a restart resumes at
+                # this stage.
+                _block = gate_block_reason(phase_name, phase_result, CRITICAL_PHASES)
+                if _block:
+                    logger.error("[pipeline] %s blocked run %s: %s", phase_name, run_id, redact_secrets(_block))
+                    await self._update_state(run_id, phase_name, "failed")
+                    await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
+                                "error": _block}, run_id=run_id)
+                    if _bridge:
+                        try:
+                            _bridge.report_failure(run_id, phase_name, redact_secrets(_block))
+                            _bridge.report_stage_complete(run_id, phase_name, 0, success=False)
+                        except Exception as _bbe:
+                            logger.debug("bridge.report_failure(block) non-fatal: %s", _bbe)
+                    return await self._abort_run(run_id, _block, failed_stage=phase_name)
+
                 # ── Guided mode: pause and wait for questionnaire answers ──
                 # If the run was started with mode="guided" we pause here after
                 # every phase so an external respondent can fill in a per-stage
@@ -563,43 +597,6 @@ class FactoryPipeline:
                         stage_result=phase_result,
                         accumulated_context=accumulated_context,
                         sem=getattr(self, "_pipeline_sem", None),
-                    )
-
-                # FIX-020: If phase escalated, wait for human approval before continuing
-                if (
-                    phase_result.get("status") == "escalated"
-                    and accumulated_context.get("decision_mode") != "autonomous"
-                ):
-                    _escalation_reason = str((phase_result.get("issues") or ["unknown"])[:1][0])
-                    # Fix 16 + Fix 28: notify run owner of phase escalation + set deadline in metadata
-                    if org_id:
-                        async def _notify_escalation(_rid=run_id, _oid=org_id, _pn=phase_name, _reason=_escalation_reason, _pname=accumulated_context.get("project_name") or f"run-{run_id[:8]}"):
-                            try:
-
-                                _notif_esc = _Notif_esc(
-                                    org_id=_oid,
-                                    type="phase_escalation_required",
-                                    title=f"🔔 Approval required: {_pn} in {_pname}",
-                                    message=f"Phase {_pn} escalated: {_reason[:200]}. Auto-approves in 10 minutes.",
-                                    link=f"/dashboard/runs/{_rid}",
-                                )
-                                async with _gsf_esc()() as _s_esc:
-                                    _s_esc.add(_notif_esc)
-                                    # Previously tried to write a pending_escalations dict to
-                                    # _run_esc.metadata — but Run has no metadata column.
-                                    # The notification + SSE event already carry the deadline,
-                                    # so we skip the (broken) persistence here.
-                                    await _s_esc.commit()
-                            except Exception as _ne_esc:
-                                logger.debug("[pipeline] escalation notification failed: %s", _ne_esc)
-                        _esc_t = asyncio.create_task(_notify_escalation())
-                        self._background_tasks.add(_esc_t)
-                        _esc_t.add_done_callback(self._background_tasks.discard)
-                    await self._await_human_approval(
-                        run_id=run_id,
-                        org_id=org_id or "",
-                        phase_name=phase_name,
-                        reason=_escalation_reason,
                     )
 
                 # Emit file_written events for every file produced by this phase
@@ -715,7 +712,7 @@ class FactoryPipeline:
                 )
 
                 # Update state
-                p_status = "passed" if (phase_result.get("status") == "passed") else "completed"
+                p_status = recorded_status(phase_result)
                 await self._update_state(run_id, phase_name, p_status)
                 # D6: Record phase completion in project memory
                 _pm_update(project_dir, {
@@ -733,7 +730,8 @@ class FactoryPipeline:
                 if _bridge:
                     try:
                         _elapsed = int(phase_result.get("duration_s") or 0)
-                        _bridge.report_stage_complete(run_id, phase_name, _elapsed, success=True)
+                        _bridge.report_stage_complete(
+                            run_id, phase_name, _elapsed, success=p_status != "failed")
                     except Exception as _bce:
                         logger.debug("bridge.report_stage_complete non-fatal: %s", _bce)
 
@@ -750,56 +748,29 @@ class FactoryPipeline:
                         logger.debug("bridge.report_failure(timeout) non-fatal: %s", _btoe)
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
-                    await self.ledger.async_update_run_status(
-                        run_id, "failed",
-                        message=(f"Stage {phase_name} did not finish within {int(_phase_timeout)} seconds. "
-                                 "The usual cause is that no model provider is answering: "
-                                 "check the model key in Settings."))
-                    # Fix 62: persist finished_at on pipeline abort
-                    try:
-
-                        async with _gsf_fa()() as _s_fa:
-                            _r_fa = await _s_fa.get(_Run_fa, run_id)
-                            if _r_fa:
-                                _r_fa.finished_at = time.time()
-                                await _s_fa.commit()
-                    except Exception as exc:
-                        logger.debug("finished_at persist failed on timeout (non-fatal): %s", exc)
-                    await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
-                                                      "error": f"Critical phase {phase_name} timed out", "ts": time.time()})
-
-                    return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} timed out"}
+                    return await self._abort_run(
+                        run_id,
+                        (f"Stage {phase_name} did not finish within {int(_phase_timeout)} seconds. "
+                         "The usual cause is that no model provider is answering: "
+                         "check the model key in Settings."),
+                        failed_stage=phase_name)
 
             except Exception as e:
-                logger.error(f"{phase_name} failed: {e}")
+                logger.error("%s failed: %s", phase_name, redact_secrets(e))
                 await self._update_state(run_id, phase_name, "failed")
-                results[phase_name] = {"status": "failed", "error": str(e), "output_path": ""}
+                results[phase_name] = {"status": "failed", "error": redact_secrets(e), "output_path": ""}
                 await emit({"type": "phase_complete", "phase": phase_name, "status": "failed",
                             "error": str(e)}, run_id=run_id)
                 if _bridge:
                     try:
-                        _bridge.report_failure(run_id, phase_name, str(e))
+                        _bridge.report_failure(run_id, phase_name, redact_secrets(e))
                         _bridge.report_stage_complete(run_id, phase_name, 0, success=False)
                     except Exception as _bfe:
                         logger.debug("bridge.report_failure non-fatal: %s", _bfe)
                 if phase_name in CRITICAL_PHASES:
                     logger.error("Critical phase %s failed — aborting pipeline %s", phase_name, run_id)
-                    await self.ledger.async_update_run_status(
-                        run_id, "failed", message=f"Stage {phase_name} failed: {e}")
-                    # Fix 62: persist finished_at on pipeline abort
-                    try:
-
-                        async with _gsf_fb()() as _s_fb:
-                            _r_fb = await _s_fb.get(_Run_fb, run_id)
-                            if _r_fb:
-                                _r_fb.finished_at = time.time()
-                                await _s_fb.commit()
-                    except Exception as exc:
-                        logger.debug("finished_at persist failed on phase abort (non-fatal): %s", exc)
-                    await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
-                                                  "error": f"Critical phase {phase_name} failed: {e}", "ts": time.time()})
-
-                    return {"run_id": run_id, "status": "failed", "error": f"Critical phase {phase_name} failed: {e}"}
+                    return await self._abort_run(
+                        run_id, f"Stage {phase_name} failed: {e}", failed_stage=phase_name)
 
             finally:
                 # Reset context vars after each phase — must reset all three to
@@ -966,40 +937,29 @@ class FactoryPipeline:
                 Path.home() / ".aether_os" / "projects"
                 / phase_input.run_id / phase_name
             )
-            return {"status": "failed", "error": str(e), "output_path": "", "guess_dir": guess_dir}
+            return {"status": "failed", "error": redact_secrets(f"{type(e).__name__}: {e}"),
+                    "output_path": "", "guess_dir": guess_dir}
 
-    async def _await_human_approval(
-        self, run_id: str, org_id: str, phase_name: str, reason: str
-    ) -> None:
-        """Register a decision ticket and block until approved/denied or timeout."""
+    async def _abort_run(self, run_id: str, message: str,
+                         failed_stage: Optional[str] = None) -> dict:
+        """End the run as failed: store the redacted reason, tell the live view, stop.
+
+        Every abort goes through here so the reason on Run.message, in the event
+        stream and in the returned result is the same redacted text.
+        """
+        reason = redact_secrets(message)
+        await self.ledger.async_update_run_status(run_id, "failed", message=reason)
+        await persist_finished_at(run_id)
         try:
-
-            engine = get_decision_engine()
-            decision = Decision(
-                run_id=run_id,
-                org_id=org_id,
-                decision_type="phase_escalation",
-                title=f"Phase {phase_name} requires approval",
-                what=f"Phase {phase_name} escalated: {reason[:200]}",
-                why="Phase exhausted all retries and requires human sign-off to continue.",
-                phase=phase_name,
-                timeout_seconds=int(os.environ.get("HUMAN_APPROVAL_TIMEOUT", "300")),
-            )
-            decision = await engine.request_approval(decision)
-            await emit(
-                {"type": "approval_required", "phase": phase_name, "decision_id": decision.id},
-                run_id=run_id,
-            )
-            logger.info("[pipeline] Waiting for human approval: run=%s phase=%s decision=%s",
-                        run_id, phase_name, decision.id)
-            resolved = await engine.await_decision(decision.id)
-            if resolved.status == "denied":
-                logger.warning("[pipeline] Approval denied for %s/%s — stopping pipeline", run_id, phase_name)
-                await set_control(run_id, "cancel")
-            elif resolved.status == "timeout":
-                logger.warning("[pipeline] Approval timed out for %s/%s — continuing", run_id, phase_name)
+            await publish_event(run_id, {"type": "pipeline_complete", "status": "failed",
+                                         "error": reason, "failed_stage": failed_stage,
+                                         "ts": time.time()})
+            release_bus(run_id)
         except Exception as exc:
-            logger.error("[pipeline] Human approval gate failed (%s) — continuing pipeline", exc)
+            # The run is already stored as failed; a lost event must not un-stop it.
+            logger.warning("[pipeline] could not publish the failure of run %s: %s", run_id, exc)
+        return {"run_id": run_id, "status": "failed", "error": reason,
+                "failed_stage": failed_stage}
 
     async def _update_state(self, run_id: str, phase: str, status: str):
         """Persist phase status via ORM — delegates to run_state.update_phase_state."""

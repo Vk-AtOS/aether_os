@@ -45,17 +45,63 @@ AREA_TO_PHASE: Dict[str, str] = {
 }
 
 
+# The one mapping from pre-refactor phase ids to the stage that now contains them.
+# The 12 stage ids are canonical; these are accepted only so old runs, old
+# checkpoints and old clients keep working. Built from each stage's sub-phase list.
+_STAGE_SUB_PHASES: Dict[str, Tuple[str, ...]] = {
+    "s01_intake": ("p00_intake", "p00a_intake", "p00_research", "p00b_data_archaeology",
+                   "p00c_architecture_planner", "p01_requirements",
+                   "p01_intake_requirements", "p01b_integration_discovery"),
+    "s02_architecture": ("p02_architecture", "p02b_domain_ir", "p02c_permission_modeling",
+                         "p03_scaffolding"),
+    "s03_backend": ("p04_backend", "p04a_backend_codegen", "p04b_business_logic",
+                    "p04c_integration_codegen"),
+    "s04_frontend": ("p04_uiux_design", "p05_frontend"),
+    "s05_quality": ("p06_review_security", "p06b_formal_verification"),
+    "s06_testing": ("p07_testing", "p07a_unit_testing", "p07b_performance_testing",
+                    "p07c_accessibility_testing", "p07d_e2e_testing"),
+    "s07_healing": ("p07b_self_healing",),
+    "s08_observability": ("p09_observability", "p11a_monitoring", "p11b_error_tracking",
+                          "p11c_analytics", "p11d_alerting"),
+    "s09_devops": ("p08_cicd", "p08_cicd_deployment", "p11_deployment",
+                   "p11e_enterprise_deployment"),
+    "s10_enterprise": ("p12a_feature_flags", "p12b_ab_testing", "p13_app_memory", "p16_iam",
+                       "p17_control_plane", "p18_billing_metering", "p21_sre_agent"),
+    "s11_handoff": ("p09_documentation", "p10_docs_delivery", "p14_client_portal",
+                    "p15_handoff"),
+    "s12_specialist": ("p05b_mobile", "p05c_desktop", "p05d_cli", "p05e_serverless",
+                       "p19_service_catalog", "p20_multiregion"),
+}
+LEGACY_STAGE_IDS: Dict[str, str] = {
+    legacy: stage for stage, subs in _STAGE_SUB_PHASES.items() for legacy in subs
+}
+
+
+def canonical_stage_id(stage_id: str, phase_sequence: List[str]) -> str:
+    """Return the canonical stage id for a stage id or a legacy phase id.
+
+    Raises ValueError for an id that is neither: an unknown id must not silently
+    turn a "re-run from X" into a full rebuild.
+    """
+    resolved = stage_id if stage_id in phase_sequence else LEGACY_STAGE_IDS.get(stage_id)
+    if resolved not in phase_sequence:
+        raise ValueError(
+            f"Unknown stage id {stage_id!r}; expected one of: {', '.join(phase_sequence)}")
+    return resolved
+
+
 def select_phases(
     phase_sequence: List[str],
     start_phase: Optional[str] = None,
 ) -> List[str]:
     """Return the slice of *phase_sequence* that should run for this invocation.
 
-    When *start_phase* is supplied and is present in the sequence, only phases
-    from that point onwards are returned.  Otherwise the full sequence is used.
+    When *start_phase* is supplied, only stages from that point onwards are
+    returned (legacy phase ids start at the stage that contains them); an unknown
+    id raises ValueError. Without it the full sequence is used.
     """
-    if start_phase and start_phase in phase_sequence:
-        return phase_sequence[phase_sequence.index(start_phase):]
+    if start_phase:
+        return phase_sequence[phase_sequence.index(canonical_stage_id(start_phase, phase_sequence)):]
     return list(phase_sequence)
 
 
@@ -122,10 +168,15 @@ async def restore_from_checkpoint(
         if _ckpt and _ckpt.get("last_completed_phase"):
             _last_done = _ckpt["last_completed_phase"]
             _saved_ctx = _ckpt.get("accumulated_context") or {}
-            if _last_done in phase_sequence and _saved_ctx:
+            # A legacy id names one sub-phase of a stage, which says nothing about the
+            # rest of that stage: resume AT the containing stage, not after it.
+            _legacy_stage = LEGACY_STAGE_IDS.get(_last_done)
+            if (_last_done in phase_sequence or _legacy_stage in phase_sequence) and _saved_ctx:
                 accumulated_context.update(_saved_ctx)
                 accumulated_context["run_id"] = run_id
-                _resume_idx = phase_sequence.index(_last_done) + 1
+                _resume_idx = (phase_sequence.index(_last_done) + 1
+                               if _last_done in phase_sequence
+                               else phase_sequence.index(_legacy_stage))
                 phases_to_run = phase_sequence[_resume_idx:]
                 logger.info(
                     "[phase_selector] Resuming run %s from checkpoint after phase %s (%d phases remaining)",
