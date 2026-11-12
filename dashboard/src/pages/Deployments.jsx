@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { Rocket, Loader2, RefreshCw, ExternalLink, Clock, CheckCircle2, AlertTriangle, XCircle, Globe, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 const STATUS_META = {
   deployed:   { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2 },
@@ -31,23 +32,19 @@ const Deployments = () => {
   const [undeploying, setUndeploying] = useState({});
   const navigate = useNavigate();
 
-  const load = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await api.listDeployments();
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => api.listDeployments()
+    .then((res) => {
       const data = res.data;
       const items = Array.isArray(data) ? data : (data?.items || data?.deployments || []);
       setDeployments(items);
+      setError('');
       // The preview is only served to a browser holding that run's preview cookie,
       // which the status call issues. Fetch it now so the "open" links work.
       items.filter((d) => d.run_id).forEach((d) => api.getRunAppStatus(d.run_id).catch(() => {}));
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to load deployments');
-    } finally {
-      setLoading(false);
-    }
-  };
+    })
+    .catch((e) => setError(apiError(e) || 'Failed to load deployments'))
+    .finally(() => setLoading(false)), []);
 
   const handleUndeploy = async (runId, e) => {
     e.preventDefault();
@@ -57,23 +54,22 @@ const Deployments = () => {
       await api.stopDeploy(runId);
       await load();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Undeploy failed');
+      setError(apiError(err) || 'Undeploy failed');
     } finally {
       setUndeploying(p => ({ ...p, [runId]: false }));
     }
   };
 
+  // Poll only while something is deploying or running; the interval reads the latest list from a ref.
+  const activeRef = useRef(false);
+  useEffect(() => {
+    activeRef.current = deployments.some(d => d.status === 'deploying' || d.status === 'running');
+  }, [deployments]);
   useEffect(() => {
     load();
-    const interval = setInterval(() => {
-      setDeployments(prev => {
-        const hasActive = prev.some(d => d.status === 'deploying' || d.status === 'running');
-        if (hasActive) load();
-        return prev;
-      });
-    }, 8000);
+    const interval = setInterval(() => { if (activeRef.current) load(); }, 8000);
     return () => clearInterval(interval);
-  }, []);
+  }, [load]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

@@ -3,7 +3,7 @@ import { LogOut, Plus, Coins, Zap, Search, Building2, ChevronDown, Check } from 
 import { api } from '../api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
-import { useSettings } from '../contexts/SettingsContext';
+import { useSettings } from '../contexts/useSettings';
 
 const PROVIDER_COLORS = {
   anthropic:   { text: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
@@ -97,7 +97,7 @@ const OrgSwitcher = () => {
   );
 };
 
-const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
+const TopBar = ({ activeRunCount = 0 }) => {
   const [health, setHealth] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
   const [costs, setCosts] = useState({ today_usd: 0, tokens_today: '—' });
@@ -108,7 +108,7 @@ const TopBar = ({ onNewProject, activeRunCount = 0 }) => {
   const location = useLocation();
   const isOnWizard = location.pathname === '/new';
 
-  const { activeProvider, activeModel, providerKeyMissing } = useSettings();
+  const { activeProvider, providerKeyMissing } = useSettings();
 
   useEffect(() => {
     const fetchHealth = async () => {

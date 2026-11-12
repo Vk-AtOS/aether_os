@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
-import { Settings as SettingsIcon, FolderTree, Search, FileCode, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings as SettingsIcon, FolderTree, Search, FileCode, ChevronDown, Lock } from 'lucide-react';
+import { MANDATORY_STAGES } from '../project/projectConstants';
+import { apiError } from '../../apiError';
 
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
@@ -15,62 +17,57 @@ hljs.registerLanguage('yaml', yaml);
 hljs.registerLanguage('bash', bash);
 hljs.registerLanguage('sql', sql);
 
-// ── Phase Config Panel ─────────────────────────────────────────────────────────
-// Inline sub-component kept here since it only serves PhaseControls
-const PhaseConfigPanel = ({ config, onSave }) => {
-  const [enabled, setEnabled] = React.useState(config.enabled !== false);
-  const [priority, setPriority] = React.useState(
-    config.priority ? config.priority.charAt(0).toUpperCase() + config.priority.slice(1) : 'Normal'
-  );
-  const [saved, setSaved] = React.useState(false);
+// ── Stage Controls ─────────────────────────────────────────────────────────────
+// Mandatory stages are shown on and locked, with the reason; the optional ones
+// (s08, s10, s12) can be switched off. The pipeline records a switched-off stage as
+// skipped ("disabled_in_settings"). The stored priority is sent back unchanged: the
+// pipeline does not read it.
+const StageToggle = ({ stage, name, config, onSave }) => {
+  const lockedWhy = MANDATORY_STAGES[stage];
+  const enabled = lockedWhy ? true : config.enabled !== false;
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
 
-  const handleSave = async () => {
-    await onSave({ enabled, priority: priority.toLowerCase() });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const toggle = async () => {
+    setSaving(true); setError('');
+    try {
+      await onSave({ enabled: !enabled, priority: config.priority || 'normal' });
+    } catch (e) {
+      setError(apiError(e) || 'Could not save. Try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
+  const label = lockedWhy ? `Always on: ${lockedWhy}` : enabled ? 'On: click to switch off' : 'Off: click to switch on';
   return (
-    <div className="p-6 bg-border/5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-muted uppercase">Execution Status</label>
-          <select
-            value={enabled ? 'Enabled' : 'Disabled'}
-            onChange={(e) => setEnabled(e.target.value === 'Enabled')}
-            className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
-          >
-            <option>Enabled</option>
-            <option>Disabled</option>
-          </select>
+    <div className="flex items-center justify-between gap-4 p-4">
+      <div className="min-w-0">
+        <div className="flex items-center space-x-3">
+          <span className="text-xs font-mono text-accent font-bold">{stage}</span>
+          <span className="text-sm font-medium text-bright">{name}</span>
+          {lockedWhy && <Lock className="w-3 h-3 text-muted" aria-hidden="true" />}
         </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-muted uppercase">Priority Level</label>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-            className="w-full bg-surface border border-border rounded px-3 py-1.5 text-xs text-bright focus:outline-none focus:border-accent"
-          >
-            <option>Normal</option>
-            <option>High</option>
-            <option>Low</option>
-          </select>
-        </div>
+        <p className="text-[11px] text-muted mt-0.5">{lockedWhy ? `Required: ${lockedWhy}.` : 'Optional.'}</p>
+        {error && <p role="alert" className="text-[11px] text-danger mt-0.5">{error}</p>}
       </div>
-      <div className="flex items-center space-x-3 pt-2">
-        <button
-          onClick={handleSave}
-          className="text-[10px] font-bold bg-accent/20 text-accent border border-accent/30 px-3 py-1 rounded uppercase tracking-wider hover:bg-accent/30 transition-colors"
-        >
-          {saved ? '✓ Saved' : 'Save Config'}
-        </button>
-      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={`${name}: ${label}`}
+        title={label}
+        disabled={Boolean(lockedWhy) || saving}
+        onClick={toggle}
+        className={`relative w-10 h-5 rounded-full shrink-0 transition-colors ${enabled ? 'bg-accent' : 'bg-border'} ${lockedWhy ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : ''}`} />
+      </button>
     </div>
   );
 };
 
-// ── Phase Controls Panel ───────────────────────────────────────────────────────
-export const PhaseControlsPanel = ({ PHASES, PHASE_NAMES, phaseConfigs, expandedPhase, setExpandedPhase, onSavePhaseConfig }) => (
+export const PhaseControlsPanel = ({ PHASES, PHASE_NAMES, phaseConfigs, onSavePhaseConfig }) => (
   <section className="panel overflow-hidden">
     <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
       <SettingsIcon className="w-4 h-4 mr-2 text-accent" />
@@ -78,24 +75,8 @@ export const PhaseControlsPanel = ({ PHASES, PHASE_NAMES, phaseConfigs, expanded
     </div>
     <div className="divide-y divide-border">
       {PHASES.map((p) => (
-        <div key={p} className="flex flex-col">
-          <button
-            onClick={() => setExpandedPhase(expandedPhase === p ? null : p)}
-            className="flex items-center justify-between p-4 hover:bg-border/10 transition-colors"
-          >
-            <div className="flex items-center space-x-4">
-              <span className="text-xs font-mono text-accent font-bold">{p}</span>
-              <span className="text-sm font-medium text-bright">{PHASE_NAMES[p]}</span>
-            </div>
-            {expandedPhase === p ? <ChevronUp className="w-4 h-4 text-muted" /> : <ChevronDown className="w-4 h-4 text-muted" />}
-          </button>
-          {expandedPhase === p && (
-            <PhaseConfigPanel
-              config={phaseConfigs[p] || {}}
-              onSave={(cfg) => onSavePhaseConfig(p, cfg)}
-            />
-          )}
-        </div>
+        <StageToggle key={p} stage={p} name={PHASE_NAMES[p]} config={phaseConfigs[p] || {}}
+          onSave={(cfg) => onSavePhaseConfig(p, cfg)} />
       ))}
     </div>
   </section>

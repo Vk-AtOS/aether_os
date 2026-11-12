@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useRole } from '../hooks/useRole';
 import { useProjectView } from '../hooks/useProjectView';
+import { apiError } from '../apiError';
 import PhaseBadge from '../components/PhaseBadge';
 import LogViewer from './LogViewer';
 import AppPreviewPanel from '../components/project/AppPreviewPanel';
@@ -14,6 +15,7 @@ import EnvVarsPanel from '../components/project/EnvVarsPanel';
 import RunAppPanel from '../components/project/RunAppPanel';
 import SpecReviewModal from '../components/project/SpecReviewModal';
 import ClarifyingQuestionsPanel from '../components/project/ClarifyingQuestionsPanel';
+import ClientAccessPanel from '../components/project/ClientAccessPanel';
 import FileExplorer from '../components/project/FileExplorer';
 import RunControlPanel from '../components/project/RunControlPanel';
 import { LiveFeedTab, AgentEventsLog } from '../components/project/RunEventLog';
@@ -25,7 +27,7 @@ import {
   GitBranch, Zap, ShieldCheck, Users, GitPullRequest, CheckCircle2, List,
 } from 'lucide-react';
 import {
-  PHASES, PHASE_NAMES, PRIORITY_CONFIG, PRIORITY_CYCLE,
+  PHASES, PHASE_NAMES, PRIORITY_CONFIG, PRIORITY_CYCLE, STAGE_STATUS_LABEL,
 } from '../components/project/projectConstants';
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -43,7 +45,7 @@ const Toast = ({ message, onDone }) => {
 
 const ProjectView = () => {
   const { id } = useParams();
-  const { isViewer } = useRole();
+  const { isViewer, isAdmin, role } = useRole();
   const pv = useProjectView(id);
 
   const {
@@ -60,9 +62,9 @@ const ProjectView = () => {
     showAddFeatureModal, setShowAddFeatureModal,
     gitHubToken, setGitHubToken, gitHubRepoName, setGitHubRepoName, gitHubPushing,
     addFeatureText, setAddFeatureText, addingFeature, setBranchPhaseState,
-    getPhaseStatus, completedPhases, progressPercent, eta, artifactCount,
+    getPhaseStatus, stages, completedPhases, progressPercent, eta, artifactCount,
     fetchRunDetail, showToast,
-    handlePause, handleResume, handleCancel, handlePriorityCycle, handleRerun, handleEditRestart,
+    handlePause, handleResume, handleCancel, handlePriorityCycle, handleRerun, handleEditRestart, handleRestart,
     handleDeploy, handleStopDeploy, handleDownload, handlePushGitHub, handleAddFeature,
     navigate,
   } = pv;
@@ -118,6 +120,7 @@ const ProjectView = () => {
 
   const priConf   = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.normal;
   const runStatus = run.status;
+  const failedStage = PHASES.find((p) => stages[p]?.status === 'failed');
   const isRunning = runStatus === 'running';
   const isPaused  = runStatus === 'paused';
   const isDone    = ['completed', 'failed', 'cancelled', 'interrupted'].includes(runStatus);
@@ -161,7 +164,7 @@ const ProjectView = () => {
               if (remember) await api.updateOrgSettings({ autonomous_mode: true }).catch(() => {});
               setSpecModalOpen(false);
               showToast(remember ? 'Approved - autonomous mode enabled' : 'Spec approved - starting code generation');
-            } catch (e) { showToast('Failed to approve spec: ' + (e.message || 'unknown error')); }
+            } catch (e) { showToast('Failed to approve spec: ' + (apiError(e) || e.message || 'unknown error')); }
             finally { setSpecApproving(false); }
           }}
           onCancel={async () => {
@@ -181,18 +184,23 @@ const ProjectView = () => {
         <div className="flex-1 overflow-y-auto py-2 px-2 custom-scrollbar space-y-0.5">
           {PHASES.map((p) => {
             const st = getPhaseStatus(p);
+            const why = stages[p]?.reason;
             const pData = phases[p] || {};
             const dur = pData.duration_s != null ? (pData.duration_s < 60 ? `${pData.duration_s}s` : `${Math.round(pData.duration_s / 60)}m`) : null;
             // Nothing is in progress once the run has stopped, so no stage is highlighted as active.
             const isActive = (isRunning || isPaused) && (st === 'running' || run.current_phase === p);
-            const isDone2  = st === 'passed' || st === 'completed' || st === 'timeout';
-            const isFailed = st === 'failed';
+            const isDone2  = st === 'passed' || st === 'completed';
+            const isFailed = st === 'failed' || st === 'timeout';
+            const tip = `${STAGE_STATUS_LABEL[st] || st}${why ? `: ${why}` : ''}`;
             return (
               <div key={p} className="relative group/phase">
-                <button onClick={() => navigate(`/project/${id}/phase/${p}`)}
-                  className={`w-full flex items-center px-3 py-2.5 text-xs rounded-xl transition-all duration-200 text-left ${isActive ? 'bg-violet-500/10 text-violet-300 border border-violet-500/20' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 flex-shrink-0 ${isDone2 ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : isActive ? 'bg-blue-400 animate-pulse' : 'bg-slate-700'}`} />
-                  <span className="flex-1 truncate font-medium">{PHASE_NAMES[p]}</span>
+                <button onClick={() => navigate(`/project/${id}/phase/${p}`)} title={tip} aria-label={`${PHASE_NAMES[p]}: ${tip}`}
+                  className={`w-full flex items-center px-3 py-2.5 text-xs rounded-xl transition-all duration-200 text-left ${isActive ? 'bg-violet-500/10 text-violet-300 border border-violet-500/20' : isFailed ? 'bg-red-500/10 text-red-300 border border-red-500/30' : st === 'not_run' || st === 'skipped' ? 'text-slate-600 hover:bg-white/[0.04]' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 mr-2.5 flex-shrink-0 ${isDone2 ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : isActive ? 'bg-blue-400 animate-pulse' : st === 'skipped' ? 'border border-slate-500' : 'bg-slate-700'}`} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate font-medium">{PHASE_NAMES[p]}</span>
+                    {(st === 'skipped' || st === 'not_run') && <span className="block truncate text-[9px] text-slate-600">{why || STAGE_STATUS_LABEL[st]}</span>}
+                  </span>
                   {(p === 's06_testing' || p === 'p07_testing') && pData?.output?.test_quality_flag && (
                     <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${pData.output.test_quality_flag === 'pass' ? 'bg-green-500/20 text-green-400' : pData.output.test_quality_flag === 'warn' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
                       {pData.output.test_quality_flag === 'pass' ? `${pData.output.passed_tests}/${pData.output.total_tests} passed` : pData.output.test_quality_flag === 'warn' ? 'partial' : `${pData.output.passed_tests || 0}/${pData.output.total_tests || 0} FAILED`}
@@ -227,9 +235,9 @@ const ProjectView = () => {
           <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger/40 bg-danger/10 px-5 py-4">
             <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-danger">This build failed{run.current_phase ? ` at ${PHASE_NAMES[run.current_phase] || run.current_phase}` : ''}</p>
+              <p className="text-sm font-bold text-danger">This build failed{failedStage ? ` at ${PHASE_NAMES[failedStage] || failedStage}` : ''}</p>
               <p className="text-xs text-bright/80 mt-1 break-words">
-                {run.message || events[events.length - 1]?.detail || 'No reason was recorded. Check the Logs and Trace tabs.'}
+                {run.message || stages[failedStage]?.reason || events[events.length - 1]?.detail || 'No reason was recorded. Check the Logs and Trace tabs.'}
               </p>
             </div>
             <button onClick={() => navigate('/new')} className="shrink-0 px-3 py-1.5 text-xs font-bold text-white bg-accent hover:bg-accent/90 rounded-lg">
@@ -307,9 +315,10 @@ const ProjectView = () => {
           run={run} elapsed={elapsed} eta={eta} artifactCount={artifactCount}
           successRate={successRate} secFindings={secFindings}
           isViewer={isViewer} isRunning={isRunning} isPaused={isPaused} isDone={isDone}
-          priority={priority} controlLoading={controlLoading} progressPercent={progressPercent}
+          controlLoading={controlLoading}
           onPause={handlePause} onResume={handleResume} onCancel={handleCancel}
           onRerun={handleRerun} onFullRestart={() => handleRerun('s01_intake')} onEditRestart={handleEditRestart}
+          onRestart={handleRestart}
         />
 
         {(qualityData || complianceData) && (
@@ -343,6 +352,8 @@ const ProjectView = () => {
 
         <FeedbackPanel run={run} />
 
+        {(isAdmin || role === 'superadmin') && <ClientAccessPanel runId={run.run_id || run.id} />}
+
         {isRunning && (
           <section className="panel p-4 flex items-center space-x-3">
             <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />
@@ -361,19 +372,7 @@ const ProjectView = () => {
           </section>
         )}
 
-        {(() => {
-          const p02bMeta = phases?.p02b_domain_ir?.metadata || phases?.p02b_domain_ir?.output?.metadata;
-          const questions = p02bMeta?.clarifying_questions;
-          if (!questions || questions === 0 || !isPaused) return null;
-          return (
-            <ClarifyingQuestionsPanel runId={run.run_id || run.id} questionCount={questions}
-              onAnswered={async (answers) => {
-                try { await api.resumeRun(run.run_id || run.id, { clarifying_answers: answers }); showToast('Answers submitted - pipeline resuming'); }
-                catch (e) { showToast('Failed to submit answers: ' + (e.message || 'unknown error')); }
-              }}
-            />
-          );
-        })()}
+        <ClarifyingQuestionsPanel questions={phases?.s02_architecture?.output?.clarifying_questions} />
 
         <ProjectLivePreviewPanel runId={run.run_id || run.id} currentPhase={run.current_phase} runStatus={runStatus} isRunning={isRunning} isPaused={isPaused} liveUrl={run.live_url} appRunning={appRunning} />
 

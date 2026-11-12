@@ -1,22 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
-import { PHASE_LABELS } from '../project/projectConstants';
+import { Link } from 'react-router-dom';
+import { PHASE_LABELS, STAGE_STATUS_LABEL } from '../project/projectConstants';
 
-export const fmtDuration = (ms) => {
-  if (ms == null) return '—';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
-};
-
-export const fmtTime = (iso) => {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
-  } catch {
-    return iso;
-  }
-};
+import { fmtDuration } from './format';
 
 export const StatusBadge = ({ status }) => {
   const cfg = {
@@ -39,33 +26,41 @@ export const StatusBadge = ({ status }) => {
 const PhasePill = ({ status }) => {
   if (status === 'passed' || status === 'completed' || status === 'complete') return <CheckCircle2 className="w-4 h-4 text-success shrink-0" />;
   if (status === 'running')   return <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />;
-  if (status === 'failed')    return <XCircle className="w-4 h-4 text-danger shrink-0" />;
+  if (status === 'failed' || status === 'timeout') return <XCircle className="w-4 h-4 text-danger shrink-0" />;
   if (status === 'skipped')   return <span className="w-4 h-4 text-muted shrink-0 text-[10px] font-bold flex items-center justify-center">–</span>;
   return <Clock className="w-4 h-4 text-muted/40 shrink-0" />;
 };
 
-export const PhaseRow = ({ name, phaseData }) => {
+// state: {status, reason} from stageStates() (12-stage runs); older runs fall back to the row status.
+export const PhaseRow = ({ name, phaseData, state, href }) => {
   const label = PHASE_LABELS[name] || name;
-  const status = phaseData?.status || 'pending';
-  const duration = phaseData?.duration_ms ?? phaseData?.duration_seconds != null ? (phaseData.duration_ms ?? phaseData.duration_seconds * 1000) : null;
-  const bgCls = status === 'running' ? 'bg-accent/5 border-accent/20' : status === 'failed' ? 'bg-danger/5 border-danger/20' : 'border-transparent';
+  const status = state?.status || phaseData?.status || 'pending';
+  const reason = state?.reason || '';
+  const duration = phaseData?.duration_s != null ? phaseData.duration_s * 1000 : null;
+  const bad = status === 'failed' || status === 'timeout';
+  const grey = status === 'skipped' || status === 'not_run';
+  const bgCls = status === 'running' ? 'bg-accent/5 border-accent/20' : bad ? 'bg-danger/10 border-danger/30' : 'border-transparent';
   return (
-    <tr className={`border-b border-border/50 last:border-0 ${bgCls}`}>
+    <tr className={`border-b border-border/50 last:border-0 ${bgCls} ${grey ? 'opacity-60' : ''}`}>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
           <PhasePill status={status} />
-          <span className="text-xs text-bright font-mono">{name}</span>
+          {href
+            ? <Link to={href} className="text-xs text-bright font-mono hover:text-accent underline-offset-2 hover:underline">{name}</Link>
+            : <span className="text-xs text-bright font-mono">{name}</span>}
         </div>
       </td>
-      <td className="px-4 py-3 text-xs text-muted">{label}</td>
+      <td className="px-4 py-3 text-xs text-muted">
+        {label}
+        {reason && <div className={`mt-0.5 text-[11px] break-words ${bad ? 'text-danger' : 'text-muted'}`}>{reason}</div>}
+      </td>
       <td className="px-4 py-3">
         <span className={`text-[10px] font-bold uppercase tracking-wider ${
           status === 'passed' || status === 'completed' || status === 'complete' ? 'text-success' :
-          status === 'running'   ? 'text-accent' :
-          status === 'failed'    ? 'text-danger' :
-          status === 'skipped'   ? 'text-muted/50' :
-          'text-muted/40'
-        }`}>{status}</span>
+          status === 'running' ? 'text-accent' :
+          bad ? 'text-danger' :
+          'text-muted/50'
+        }`}>{STAGE_STATUS_LABEL[status] || status}</span>
       </td>
       <td className="px-4 py-3 text-xs font-mono text-muted text-right">{fmtDuration(duration)}</td>
     </tr>

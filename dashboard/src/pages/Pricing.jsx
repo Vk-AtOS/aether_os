@@ -4,6 +4,9 @@ import { api } from '../api';
 import { CheckCircle2, Zap, Building2, Rocket, Loader2, Star } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+const MotionDiv = motion.div;
+import { apiError } from '../apiError';
+
 const PLAN_ICONS = { trial: Rocket, pro: Zap, enterprise: Building2 };
 
 const loadRazorpay = () =>
@@ -154,7 +157,7 @@ const Pricing = () => {
     if (isLoggedIn) {
       api.client.get('/account/usage').then(r => setCurrent(r.data.plan || 'trial')).catch(() => {});
     }
-  }, []);
+  }, [isLoggedIn]);
 
   const handleUpgrade = async (planId) => {
     if (!isLoggedIn) { navigate('/signup'); return; }
@@ -190,7 +193,7 @@ const Pricing = () => {
               setSuccess(`You're now on the ${plan_name} plan! Enjoy unlimited builds.`);
               resolve();
             } catch (verifyErr) {
-              reject(new Error(verifyErr.response?.data?.detail || 'Payment verification failed'));
+              reject(new Error(apiError(verifyErr) || 'Payment verification failed'));
             }
           },
           modal: {
@@ -242,7 +245,7 @@ const Pricing = () => {
         <GradientOrb className="w-[300px] h-[300px] bg-purple-600 bottom-[100px] left-[200px] animate-pulse" />
 
         <div className="relative max-w-7xl mx-auto px-6 py-24 grid lg:grid-cols-2 gap-16 items-center">
-          <motion.div initial={{opacity:0, y:30}} animate={{opacity:1, y:0}} transition={{duration:0.8}}>
+          <MotionDiv initial={{opacity:0, y:30}} animate={{opacity:1, y:0}} transition={{duration:0.8}}>
             <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 text-sm text-violet-300 mb-8">
               <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
               29-phase autonomous pipeline · now live
@@ -276,11 +279,11 @@ const Pricing = () => {
               <span className="flex items-center gap-2"><span className="text-emerald-400">✓</span> Free tier available</span>
               <span className="flex items-center gap-2"><span className="text-emerald-400">✓</span> Own your code</span>
             </div>
-          </motion.div>
+          </MotionDiv>
 
-          <motion.div initial={{opacity:0, y:30}} animate={{opacity:1, y:0}} transition={{duration:0.8, delay:0.2}}>
+          <MotionDiv initial={{opacity:0, y:30}} animate={{opacity:1, y:0}} transition={{duration:0.8, delay:0.2}}>
             <LivePipelineDemo />
-          </motion.div>
+          </MotionDiv>
         </div>
       </section>
 
@@ -308,11 +311,11 @@ const Pricing = () => {
       {/* FEATURES */}
       <section className="py-32">
         <div className="max-w-7xl mx-auto px-6">
-          <motion.div initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} className="text-center mb-16">
+          <MotionDiv initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} className="text-center mb-16">
             <div className="text-violet-400 text-sm font-medium uppercase tracking-widest mb-4">Capabilities</div>
             <h2 className="text-4xl font-bold text-white mb-4">Everything a software team needs</h2>
             <p className="text-slate-400 text-lg max-w-2xl mx-auto">From a single requirement to a production-deployed application — every layer generated, tested, and documented.</p>
-          </motion.div>
+          </MotionDiv>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { icon: '⚡', title: '29-Phase Pipeline', desc: 'Research, architecture, domain modeling, backend, frontend, security, testing, CI/CD, deployment — all automated.', color: 'from-violet-500 to-purple-600' },
@@ -322,14 +325,14 @@ const Pricing = () => {
               { icon: '📦', title: 'Enterprise Deployment', desc: 'Helm charts, Terraform (AWS/Azure/GCP), K8s HPA, backup scripts, and air-gap bundle — all generated.', color: 'from-rose-500 to-pink-600' },
               { icon: '📚', title: 'Handoff Package', desc: 'README, architecture docs, API reference, database ERD, runbook, and Postman collection — auto-generated.', color: 'from-cyan-500 to-sky-600' },
             ].map((f, i) => (
-              <motion.div key={f.title} initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} transition={{delay: i * 0.1}}
+              <MotionDiv key={f.title} initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} transition={{delay: i * 0.1}}
                 className="group bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] rounded-2xl p-6 transition-all duration-300 cursor-pointer hover:-translate-y-1">
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${f.color} flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform duration-300`}>
                   {f.icon}
                 </div>
                 <h3 className="text-white font-semibold text-lg mb-2">{f.title}</h3>
                 <p className="text-slate-400 text-sm leading-relaxed">{f.desc}</p>
-              </motion.div>
+              </MotionDiv>
             ))}
           </div>
         </div>
@@ -338,10 +341,10 @@ const Pricing = () => {
       {/* HOW IT WORKS */}
       <section className="py-32 border-t border-white/[0.06]">
         <div className="max-w-4xl mx-auto px-6">
-          <motion.div initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} className="text-center mb-16">
+          <MotionDiv initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} className="text-center mb-16">
             <div className="text-violet-400 text-sm font-medium uppercase tracking-widest mb-4">How it works</div>
             <h2 className="text-4xl font-bold text-white mb-4">From prompt to production in minutes</h2>
-          </motion.div>
+          </MotionDiv>
           <div className="space-y-0">
             {[
               { n: '01', title: 'Describe what you want to build', desc: 'Use the Designer Studio to set your app type, domain, features, brand colors, and integration requirements. No technical spec needed.', color: 'text-violet-400' },
@@ -349,14 +352,14 @@ const Pricing = () => {
               { n: '03', title: 'Download and deploy instantly', desc: 'Get a ZIP with your complete codebase, Helm charts, Terraform, documentation, and Postman collection. Or deploy directly from the dashboard.', color: 'text-cyan-400' },
               { n: '04', title: 'Own it forever', desc: 'Clean, readable code with full documentation. No vendor lock-in. Modify, extend, and ship on your own infrastructure.', color: 'text-emerald-400' },
             ].map((s, i) => (
-              <motion.div key={s.n} initial={{opacity:0,x:-20}} whileInView={{opacity:1,x:0}} viewport={{once:true}} transition={{delay: i*0.15}}
+              <MotionDiv key={s.n} initial={{opacity:0,x:-20}} whileInView={{opacity:1,x:0}} viewport={{once:true}} transition={{delay: i*0.15}}
                 className="flex gap-8 items-start py-8 border-b border-white/[0.04] last:border-0">
                 <div className={`text-5xl font-black ${s.color} opacity-30 min-w-[60px]`}>{s.n}</div>
                 <div>
                   <h3 className="text-white font-semibold text-xl mb-2">{s.title}</h3>
                   <p className="text-slate-400 leading-relaxed">{s.desc}</p>
                 </div>
-              </motion.div>
+              </MotionDiv>
             ))}
           </div>
         </div>
@@ -365,11 +368,11 @@ const Pricing = () => {
       {/* PRICING */}
       <section className="py-32 border-t border-white/[0.06]">
         <div className="max-w-5xl mx-auto px-6">
-          <motion.div initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} className="text-center mb-16">
+          <MotionDiv initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}} className="text-center mb-16">
             <div className="text-violet-400 text-sm font-medium uppercase tracking-widest mb-4">Pricing</div>
             <h2 className="text-4xl font-bold text-white mb-4">Start free, grow when you're ready</h2>
             <p className="text-slate-400 text-lg">No contracts. Cancel anytime.</p>
-          </motion.div>
+          </MotionDiv>
 
           {success && (
             <div className="mb-8 max-w-md mx-auto bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-center gap-3 text-emerald-400">
@@ -457,7 +460,7 @@ const Pricing = () => {
       {/* CTA */}
       <section className="py-32 border-t border-white/[0.06]">
         <div className="max-w-3xl mx-auto px-6 text-center">
-          <motion.div initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}}>
+          <MotionDiv initial={{opacity:0,y:20}} whileInView={{opacity:1,y:0}} viewport={{once:true}}>
             <h2 className="text-5xl font-bold text-white mb-6">Ready to ship faster?</h2>
             <p className="text-slate-400 text-lg mb-10">Join teams using AetherOS to build production software in minutes, not months.</p>
             <div className="flex flex-wrap justify-center gap-4">
@@ -474,7 +477,7 @@ const Pricing = () => {
                 </Link>
               )}
             </div>
-          </motion.div>
+          </MotionDiv>
         </div>
       </section>
 

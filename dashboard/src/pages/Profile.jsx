@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff, ShieldCheck, QrCode, Trash2, AlertTriangle } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
+import { apiError } from '../apiError';
 
 const Profile = () => {
   const [userData, setUserData] = useState(null);
@@ -36,7 +37,7 @@ const Profile = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setExportError('Export failed: ' + (e.response?.data?.detail || e.message));
+      setExportError('Export failed: ' + (apiError(e) || e.message));
     } finally {
       setExporting(false);
     }
@@ -51,7 +52,7 @@ const Profile = () => {
       api.clearToken();
       window.location.href = '/login';
     } catch (e) {
-      setEraseError(e.response?.data?.detail || 'Erasure failed. Please try again.');
+      setEraseError(apiError(e) || 'Erasure failed. Please try again.');
       setErasing(false);
     }
   };
@@ -124,7 +125,7 @@ const Profile = () => {
       setTimeout(() => setPwStatus(null), 3000);
     } catch (err) {
       setPwStatus('error');
-      setPwError(err.response?.data?.detail || 'Failed to change password.');
+      setPwError(apiError(err) || 'Failed to change password.');
     }
   };
 
@@ -136,7 +137,7 @@ const Profile = () => {
       setMfaSetup(res.data);
       setMfaStatus(null);
     } catch (err) {
-      setMfaError(err.response?.data?.detail || 'Failed to initiate MFA setup.');
+      setMfaError(apiError(err) || 'Failed to initiate MFA setup.');
       setMfaStatus('error');
     }
   };
@@ -153,7 +154,7 @@ const Profile = () => {
       setMfaStatus('ok');
       setTimeout(() => setMfaStatus(null), 3000);
     } catch (err) {
-      setMfaError(err.response?.data?.detail || 'Invalid code. Try again.');
+      setMfaError(apiError(err) || 'Invalid code. Try again.');
       setMfaStatus('error');
     }
   };
@@ -168,7 +169,7 @@ const Profile = () => {
       setMfaCode('');
       setMfaStatus(null);
     } catch (err) {
-      setMfaError(err.response?.data?.detail || 'Invalid code. Try again.');
+      setMfaError(apiError(err) || 'Invalid code. Try again.');
       setMfaStatus('error');
     }
   };

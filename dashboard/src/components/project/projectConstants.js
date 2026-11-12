@@ -15,6 +15,108 @@ const STAGE_NAMES = {
   s10_enterprise: 'Enterprise', s11_handoff: 'Handoff', s12_specialist: 'Specialist targets',
 };
 
+// Stages an org cannot switch off, and why (orchestrator/stage_gate.py MANDATORY_STAGES).
+// s08, s10 and s12 are optional. The server ignores a disable on a mandatory stage.
+export const MANDATORY_STAGES = {
+  s01_intake: 'every later stage builds from its requirements',
+  s02_architecture: 'all code generation reads its domain model',
+  s03_backend: 'the frontend, quality, testing and deploy stages need the backend',
+  s04_frontend: "later stages read its output; ask for frontend 'none' to build without a UI",
+  s05_quality: 'security and quality review is a blocking check and feeds healing',
+  s06_testing: 'healing needs its test summary',
+  s07_healing: 'it applies the quality-score gate that decides whether the run may ship',
+  s09_devops: 'a run is done only when the deployed app answers at its live URL',
+  s11_handoff: 'it produces the quality report and the delivery',
+};
+
+// Folders (under the run's project root) each stage writes its sub-phase output to.
+export const STAGE_DIRS = {
+  s01_intake: ['p00_research', 'p00b_data_archaeology', 'p00c_architecture_planner', 'p01_intake_requirements', 'p01b_integration_discovery'],
+  s02_architecture: ['p02_architecture', 'p02b_domain_ir', 'p02c_permission_modeling', 'p03_scaffolding'],
+  s03_backend: ['p04_backend', 'p04b_business_logic', 'p04c_integration_codegen'],
+  s04_frontend: ['p05_frontend'],
+  s05_quality: ['p06_review_security', 'p06b_formal_verification'],
+  s06_testing: ['p07_testing', 'p07a_unit_testing'],
+  s07_healing: ['p07b_self_healing'],
+  s08_observability: ['p09_observability', 'p11a_monitoring', 'p11b_error_tracking', 'p11c_analytics', 'p11d_alerting'],
+  s09_devops: ['p08_cicd_deployment', 'p11_deployment', 'p11e_enterprise_deployment'],
+  s10_enterprise: ['p12a_feature_flags', 'p12b_ab_testing', 'p13_app_memory', 'p16_iam', 'p17_control_plane', 'p18_billing_metering', 'p21_sre_agent'],
+  s11_handoff: ['p10_docs_delivery', 'p14_client_portal', 'p15_handoff'],
+  s12_specialist: ['p05b_mobile', 'p05c_desktop', 'p05d_cli', 'p05e_serverless', 'p19_service_catalog', 'p20_multiregion'],
+};
+
+const SKIP_REASONS = {
+  disabled_in_settings: 'Switched off in Settings',
+  no_frontend_selected: 'No frontend was requested',
+};
+
+const STOPPED = ['failed', 'cancelled', 'interrupted'];
+const FINISHED = ['passed', 'completed', 'skipped', 'failed', 'timeout'];
+
+/** From GET /factory/runs/{id}/events: why each stage was skipped, and the stage that stopped a failed run. */
+export const summariseRunEvents = (events) => {
+  const skipped = {};
+  let failedStage = null;
+  let failedReason = '';
+  for (const e of events || []) {
+    const p = e.payload || e;
+    const type = e.event_type || p.type;
+    if (type === 'phase_complete' && p.status === 'skipped' && p.phase) skipped[p.phase] = p.reason || '';
+    if (type === 'pipeline_complete' && p.status === 'failed') {
+      if (p.failed_stage) failedStage = p.failed_stage;
+      if (p.error) failedReason = p.error;
+    }
+  }
+  return { skipped, failedStage, failedReason };
+};
+
+/**
+ * Display state of each of the 12 stages: {status, reason}. status is a stage-row status
+ * (passed, completed, failed, timeout, skipped, running, pending) or 'not_run' for a stage
+ * a stopped run never reached. A failed run's stopping stage is 'failed' with Run.message.
+ */
+export const stageStates = (run, summary = {}) => {
+  const rows = run?.phases || {};
+  const stopped = STOPPED.includes(run?.status);
+  let stop = null;
+  if (run?.status === 'failed') {
+    stop = (PHASES.includes(summary.failedStage) && summary.failedStage)
+      || [...PHASES].reverse().find((p) => ['failed', 'timeout'].includes(rows[p]?.status))
+      || (PHASES.includes(run.current_phase) ? run.current_phase : null);
+  }
+  const stopIdx = PHASES.indexOf(stop);
+  const curIdx = PHASES.indexOf(run?.current_phase);
+  const noRows = !Object.keys(rows).length;
+  const out = {};
+  PHASES.forEach((p, i) => {
+    let status = rows[p]?.status;
+    let reason = '';
+    if (p === stop) {
+      status = 'failed';
+      reason = run.message || summary.failedReason || '';
+    } else if (status === 'skipped') {
+      const why = summary.skipped?.[p];
+      reason = SKIP_REASONS[why] || (why ? why.replace(/_/g, ' ') : '');
+    } else if (stopped && !FINISHED.includes(status || '')) {
+      // A stopped run left this stage unfinished or never reached it.
+      status = 'not_run';
+    } else if (!status) {
+      if (['completed', 'passed'].includes(run?.status) && noRows) status = 'passed';
+      else if (run?.current_phase === p) status = 'running';
+      else if (curIdx > 0 && i < curIdx) status = 'passed';
+      else status = 'pending';
+    }
+    if (stopIdx >= 0 && i > stopIdx && status === 'pending') status = 'not_run';
+    out[p] = { status, reason };
+  });
+  return out;
+};
+
+export const STAGE_STATUS_LABEL = {
+  passed: 'Passed', completed: 'Completed', failed: 'Failed', timeout: 'Timed out',
+  skipped: 'Skipped', running: 'Running', pending: 'Waiting', not_run: 'Not run',
+};
+
 export const PHASE_NAMES = {
   ...STAGE_NAMES,
   p01_intake_requirements: 'Intake',
@@ -152,3 +254,7 @@ export const formatEvent = (event) => {
       return null;
   }
 };
+
+/** The stage a sub-phase output folder (e.g. 'p04_backend') belongs to, or the id itself if it is a stage. */
+export const stageOfDir = (dir) =>
+  PHASES.includes(dir) ? dir : PHASES.find((s) => STAGE_DIRS[s].includes(dir)) || null;

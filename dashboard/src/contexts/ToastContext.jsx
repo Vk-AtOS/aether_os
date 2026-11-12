@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { CheckCircle, AlertTriangle, Info, X } from 'lucide-react';
 
-const ToastContext = createContext(null);
+import { ToastContext } from './useToast';
 
 const ICONS = { success: CheckCircle, error: AlertTriangle, info: Info };
 const COLORS = {
@@ -40,10 +40,4 @@ export const ToastProvider = ({ children }) => {
       </div>
     </ToastContext.Provider>
   );
-};
-
-export const useToast = () => {
-  const ctx = useContext(ToastContext);
-  if (!ctx) return (msg) => console.log('[toast]', msg); // graceful fallback
-  return ctx;
 };

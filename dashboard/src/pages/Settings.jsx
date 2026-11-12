@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api';
 import StorageWidget from '../components/StorageWidget';
-import { useSettings } from '../contexts/SettingsContext';
+import { useSettings } from '../contexts/useSettings';
 
 // Extracted panel components (split for 600-line limit)
 import { ApiKeyPanel, PlanLimitsPanel, LLMStatusPanel, FactoryStatsPanel, VersionInfoPanel } from '../components/settings/AccountSettings';
@@ -11,6 +11,7 @@ import { SSOPanel, SCIMPanel } from '../components/settings/SecuritySettings';
 import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components/settings/OrgSettings';
 import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
 import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
+import { apiError } from '../apiError';
 
 const Settings = () => {
   const { orgName, updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
@@ -25,7 +26,6 @@ const Settings = () => {
 
   const [health, setHealth] = useState(null);
   const [costs, setCosts] = useState({ total_usd: 0, week_usd: 0, today_usd: 0, tokens_today: '—' });
-  const [expandedPhase, setExpandedPhase] = useState(null);
   const [apiKeys, setApiKeys] = useState({ anthropic: '', gemini: '', openrouter: '' });
   const [keyStatus, setKeyStatus] = useState({ anthropic: null, gemini: null, openrouter: null });
   const [testStatus, setTestStatus] = useState({ anthropic: null, gemini: null, openrouter: null });
@@ -192,12 +192,10 @@ const Settings = () => {
     }
   };
 
+  // Throws on failure so the stage row can show the reason.
   const handleSavePhaseConfig = async (phase, config) => {
-    try {
-      await api.savePhaseConfig(phase, config);
-    } catch (err) {
-      console.warn('Failed to save phase config:', err);
-    }
+    await api.savePhaseConfig(phase, config);
+    setPhaseConfigs(prev => ({ ...prev, [phase]: { ...prev[phase], phase_name: phase, ...config } }));
   };
 
   const handleSaveCouncilConfig = async () => {
@@ -261,7 +259,7 @@ const Settings = () => {
       setBedrockTestStatus(res.data?.success ? 'ok' : 'fail');
       setTimeout(() => setBedrockTestStatus(null), 8000);
     } catch (err) {
-      setBedrockTestResult({ success: false, error: err.response?.data?.detail || err.message });
+      setBedrockTestResult({ success: false, error: apiError(err) || err.message });
       setBedrockTestStatus('fail');
       setTimeout(() => setBedrockTestStatus(null), 8000);
     }
@@ -489,7 +487,6 @@ const Settings = () => {
           <PhaseControlsPanel
             PHASES={PHASES} PHASE_NAMES={PHASE_NAMES}
             phaseConfigs={phaseConfigs}
-            expandedPhase={expandedPhase} setExpandedPhase={setExpandedPhase}
             onSavePhaseConfig={handleSavePhaseConfig}
           />
           <FileBrowserPanel

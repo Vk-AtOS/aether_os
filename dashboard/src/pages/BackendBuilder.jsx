@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api';
 import { Database, Plus, Trash2, Save, Shield, CheckCircle2, AlertCircle, Server } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const FRAMEWORKS = ['fastapi', 'express', 'django', 'rails', 'spring-boot', 'nestjs'];
 const DATABASES = ['postgresql', 'mysql', 'mongodb', 'sqlite', 'mssql'];
@@ -36,7 +37,7 @@ const defaultSpec = () => ({
 const BackendBuilder = () => {
   const { id: runId } = useParams();
   const [spec, setSpec] = useState(defaultSpec());
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(runId));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [validation, setValidation] = useState(null);
@@ -48,7 +49,7 @@ const BackendBuilder = () => {
   const [validateError, setValidateError] = useState(null);
 
   useEffect(() => {
-    if (!runId) { setLoading(false); return; }
+    if (!runId) return;
     api.client.get(`/factory/runs/${runId}/backend-spec`)
       .then(r => { if (r.data?.spec && Object.keys(r.data.spec).length) setSpec(r.data.spec); })
       .catch(() => {})
@@ -64,7 +65,7 @@ const BackendBuilder = () => {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      setSaveError('Save failed: ' + (e.response?.data?.detail || e.message));
+      setSaveError('Save failed: ' + (apiError(e) || e.message));
     } finally {
       setSaving(false);
     }
@@ -77,7 +78,7 @@ const BackendBuilder = () => {
       const r = await api.client.post(`/factory/runs/${runId}/validate-spec`, { spec });
       setValidation(r.data);
     } catch (e) {
-      setValidateError('Validation failed: ' + (e.response?.data?.detail || e.message));
+      setValidateError('Validation failed: ' + (apiError(e) || e.message));
     }
   };
 

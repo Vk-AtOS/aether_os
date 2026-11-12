@@ -5,6 +5,7 @@ import {
   Server, Database, Cpu, HardDrive, Wifi, Clock, Zap, MemoryStick,
   ShieldCheck, Eye,
 } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const STATUS = {
   ok:             { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2,  label: 'OK' },
@@ -98,7 +99,7 @@ const SystemHealth = () => {
       if (obsRes.status === 'fulfilled') setObs(obsRes.value.data);
       setLastTs(new Date());
     } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to load health data');
+      setError(apiError(e) || 'Failed to load health data');
     } finally {
       setLoading(false);
     }

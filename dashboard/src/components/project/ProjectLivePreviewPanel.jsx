@@ -48,21 +48,20 @@ const ProjectLivePreviewPanel = ({ runId, currentPhase, runStatus, isRunning, is
   const frontendReady   = !isRunning && (Boolean(liveUrl) || appRunning || (pastFrontend && !stoppedEarly));
   const shouldShow      = isFrontendPhase || artifacts.length > 0;
 
-  const fetchArtifacts = useCallback(async () => {
-    if (!runId) return;
-    try {
-      const res = await api.getRunArtifacts(runId);
-      const list = Array.isArray(res.data) ? res.data : [];
-      if (list.length > prevCount) {
-        const fresh = new Set(list.slice(prevCount).map(f => f.path));
-        setNewPaths(fresh);
-        setPrevCount(list.length);
-        setTimeout(() => setNewPaths(new Set()), 2000);
-      }
-      setArtifacts(list);
-    } catch {
-      // silently ignore: endpoint may not yet have files
-    }
+  // Promise chain with no state set before the request: this runs from an effect.
+  const fetchArtifacts = useCallback(() => {
+    if (!runId) return Promise.resolve();
+    return api.getRunArtifacts(runId)
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        if (list.length > prevCount) {
+          setNewPaths(new Set(list.slice(prevCount).map(f => f.path)));
+          setPrevCount(list.length);
+          setTimeout(() => setNewPaths(new Set()), 2000);
+        }
+        setArtifacts(list);
+      })
+      .catch((e) => console.debug('No artifacts yet', e));
   }, [runId, prevCount]);
 
   useEffect(() => {

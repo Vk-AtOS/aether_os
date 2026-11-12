@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import { Loader2, Eye, EyeOff, CheckCircle2, Rocket } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const HexLogo = () => (
   <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -68,7 +69,7 @@ const Signup = () => {
       }
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.detail || 'Registration failed. Please try again.');
+      setError(apiError(err) || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }

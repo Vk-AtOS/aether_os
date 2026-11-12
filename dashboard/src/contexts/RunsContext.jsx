@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 
-const RunsContext = createContext(null);
+import { RunsContext } from './useRuns';
 
 const POLL_IDLE_MS   = 10_000;  // poll interval when no run is active
 const POLL_ACTIVE_MS =  5_000;  // faster poll while a run is in-flight
@@ -18,46 +18,36 @@ export function RunsProvider({ children }) {
   const [runsTruncated, setRunsTruncated] = useState(false);
   const timerRef                      = useRef(null);
   const runsRef                       = useRef([]);
-  runsRef.current = runs;
+  // The poll timer reads the latest list from a ref, kept in step after each render.
+  useEffect(() => { runsRef.current = runs; }, [runs]);
 
-  const fetchRuns = useCallback(async (pg = 1) => {
-    try {
-      const res = await api.listRuns(pg, PAGE_SIZE);
+  // Promise chains with no state set before the request: these run from an effect.
+  const fetchRuns = useCallback((pg = 1) => api.listRuns(pg, PAGE_SIZE)
+    .then((res) => {
       const data = res.data;
       const items = Array.isArray(data) ? data : (data?.items ?? []);
       const count = data?.total ?? items.length;
       setRuns(prev => {
-        if (pg === 1) {
-          const result = items.slice(0, MAX_CACHED);
-          if (items.length > MAX_CACHED) {
-            setRunsTruncated(true);
-          }
-          return result;
-        }
+        if (pg === 1) return items.slice(0, MAX_CACHED);
         const seen = new Set(prev.map(r => r.id || r.run_id));
-        const fresh = items.filter(r => !seen.has(r.id || r.run_id));
-        const combined = [...prev, ...fresh];
-        if (combined.length > MAX_CACHED) {
-          setRunsTruncated(true);
-          return combined.slice(0, MAX_CACHED);
-        }
-        return combined;
+        const combined = [...prev, ...items.filter(r => !seen.has(r.id || r.run_id))];
+        return combined.slice(0, MAX_CACHED);
       });
+      if (items.length > MAX_CACHED || (pg > 1 && runsRef.current.length + items.length > MAX_CACHED)) {
+        setRunsTruncated(true);
+      }
       setTotal(count);
-    } catch {
-      // stale data is acceptable
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    })
+    .catch((e) => console.debug('Run list refresh failed; keeping the last list', e))
+    .finally(() => setLoading(false)), []);
 
-  const fetchCosts = useCallback(async () => {
-    try { const res = await api.getCosts(); setCosts(res.data); } catch {}
-  }, []);
+  const fetchCosts = useCallback(() => api.getCosts()
+    .then((res) => setCosts(res.data))
+    .catch((e) => console.debug('Cost refresh failed', e)), []);
 
-  const fetchHealth = useCallback(async () => {
-    try { const res = await api.getHealth(); setHealth(res.data); } catch {}
-  }, []);
+  const fetchHealth = useCallback(() => api.getHealth()
+    .then((res) => setHealth(res.data))
+    .catch((e) => console.debug('Health refresh failed', e)), []);
 
   const refresh = useCallback(() => {
     fetchRuns(1);
@@ -103,10 +93,4 @@ export function RunsProvider({ children }) {
       {children}
     </RunsContext.Provider>
   );
-}
-
-export function useRuns() {
-  const ctx = useContext(RunsContext);
-  if (!ctx) throw new Error('useRuns must be used inside RunsProvider');
-  return ctx;
 }

@@ -10,6 +10,8 @@ import {
 } from '../components/project-designer/DesignerData';
 import { SearchableSelect, StackGroup, RunOutput } from '../components/project-designer/DesignerComponents';
 import { UnderstandTab, DesignTab, ComplianceTab } from '../components/project-designer/DesignerTabs';
+import ErrorText from '../components/ErrorText';
+import { apiError, apiErrorState } from '../apiError';
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 const ProjectDesigner = () => {
@@ -17,14 +19,26 @@ const ProjectDesigner = () => {
   const [searchParams] = useSearchParams();
   const { id: urlRunId } = useParams();
 
-  const [activeTab, setActiveTab] = useState(0);
+  // Opening /designer/:id shows the build tab; ?template, ?req, ?domain and ?name prefill the form.
+  const [activeTab, setActiveTab] = useState(urlRunId ? 5 : 0);
+  const [init] = useState(() => {
+    const tplParam = searchParams.get('template');
+    const match = tplParam ? TEMPLATES.find(t => t.id === tplParam || t.domain === tplParam) : null;
+    const req = searchParams.get('req');
+    return {
+      template: match?.id ?? null,
+      name: searchParams.get('name') || (match && match.label !== 'Custom' ? match.label : ''),
+      requirement: req ? decodeURIComponent(req) : (match && match.id !== 'custom' ? match.prompt || '' : ''),
+      domain: searchParams.get('domain') || match?.domain || tplParam || 'general',
+    };
+  });
   const [spec, setSpec] = useState(JSON.parse(JSON.stringify(DEFAULT_SPEC)));
 
   // ── Understand tab state ───────────────────────────────────────────────────
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [projectName, setProjectName] = useState(searchParams.get('name') || '');
-  const [requirement, setRequirement] = useState('');
-  const [domain, setDomain] = useState(searchParams.get('template') || 'general');
+  const [selectedTemplate, setSelectedTemplate] = useState(init.template);
+  const [projectName, setProjectName] = useState(init.name);
+  const [requirement, setRequirement] = useState(init.requirement);
+  const [domain, setDomain] = useState(init.domain);
   const [projectMode, setProjectMode] = useState('new'); // 'new' | 'existing'
 
   // File upload
@@ -67,22 +81,6 @@ const ProjectDesigner = () => {
   const [launchError, setLaunchError] = useState('');
   const [runId, setRunId] = useState(urlRunId || null);
 
-  // ── Init from URL params ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (urlRunId) { setRunId(urlRunId); setActiveTab(5); }
-  }, [urlRunId]);
-
-  useEffect(() => {
-    const tpl = searchParams.get('template');
-    if (tpl) {
-      const match = TEMPLATES.find(t => t.id === tpl || t.domain === tpl);
-      if (match) applyTemplate(match);
-    }
-    const reqParam = searchParams.get('req');
-    if (reqParam) setRequirement(decodeURIComponent(reqParam));
-    const domainParam = searchParams.get('domain');
-    if (domainParam) setDomain(domainParam);
-  }, []); // eslint-disable-line
 
   // ── Fetch LLM models ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -134,7 +132,7 @@ const ProjectDesigner = () => {
       setUploadFilename(file.name);
       if (text) setRequirement(prev => prev ? prev + '\n\n' + text : text);
     } catch (e) {
-      setUploadError('Upload failed: ' + (e.message || 'unknown'));
+      setUploadError('Upload failed: ' + (apiError(e) || e.message || 'unknown'));
     } finally {
       setUploading(false);
     }
@@ -152,7 +150,7 @@ const ProjectDesigner = () => {
       setRepoContext(res.data?.context || '');
       setRepoFetched(res.data?.url || repoUrl);
     } catch (e) {
-      setUploadError('Repo fetch failed: ' + (e.response?.data?.detail || e.message));
+      setUploadError('Repo fetch failed: ' + (apiError(e) || e.message));
     } finally {
       setFetchingRepo(false);
     }
@@ -166,7 +164,7 @@ const ProjectDesigner = () => {
       if (res.data?.error) setSchemaError(res.data.error);
       else setImportedSchema(res.data);
     } catch (e) {
-      setSchemaError('Import failed: ' + (e.response?.data?.detail || e.message));
+      setSchemaError('Import failed: ' + (apiError(e) || e.message));
     } finally {
       setImportingSchema(false);
     }
@@ -228,7 +226,7 @@ const ProjectDesigner = () => {
         navigate(`/designer/${newRunId}`, { replace: true });
       }
     } catch (err) {
-      setLaunchError(err.response?.data?.detail || err.message || 'Failed to launch build.');
+      setLaunchError(apiErrorState(err, 'Failed to launch build.'));
     } finally {
       setLaunching(false);
     }
@@ -392,7 +390,7 @@ const ProjectDesigner = () => {
         {launchError && (
           <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
             <X className="w-4 h-4 text-red-400 shrink-0" />
-            <p className="text-sm text-red-400">{launchError}</p>
+            <p className="text-sm text-red-400"><ErrorText error={launchError} /></p>
           </div>
         )}
 
@@ -430,7 +428,7 @@ const ProjectDesigner = () => {
             {launching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
             {launching ? 'Launching…' : '🚀 Launch Build'}
           </button>
-          {launchError && <p className="mt-3 text-red-400 text-xs">{launchError}</p>}
+          {launchError && <p className="mt-3 text-red-400 text-xs"><ErrorText error={launchError} /></p>}
         </div>
       )}
     </div>

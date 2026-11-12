@@ -12,6 +12,8 @@ const CONFIG = {
   escalated:   { bg: 'bg-amber-500/20',   text: 'text-amber-400',     border: 'border-amber-500/40',   icon: AlertCircle, label: 'ESCALATED' },
   interrupted: { bg: 'bg-orange-500/20',  text: 'text-orange-400',    border: 'border-orange-500/40',  icon: StopCircle,  label: 'INTERRUPTED' },
   cancelled:   { bg: 'bg-slate-600/30',   text: 'text-slate-300',     border: 'border-slate-500/40',   icon: X,           label: 'CANCELLED' },
+  skipped:     { bg: 'bg-slate-700/20',   text: 'text-slate-400',     border: 'border-slate-600/30',   icon: StopCircle,  label: 'SKIPPED' },
+  not_run:     { bg: 'bg-slate-800/30',   text: 'text-slate-500',     border: 'border-slate-700/30',   icon: Clock,       label: 'NOT RUN' },
   paused:      { bg: 'bg-blue-500/20',    text: 'text-blue-400',      border: 'border-blue-500/40',    icon: Pause,       label: 'PAUSED' },
 };
 

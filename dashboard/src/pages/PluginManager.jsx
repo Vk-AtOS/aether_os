@@ -5,6 +5,7 @@ import {
   Loader2, Code2, Copy, ChevronDown, ChevronRight
 } from "lucide-react";
 import api from "../api";
+import { apiError } from '../apiError';
 
 const SKILL_ICONS = {
   skill_auth: Lock, skill_crud: Settings, skill_payment: Zap,
@@ -216,7 +217,7 @@ export default function PluginManager() {
         const res = await api.client.get("/v2/plugins/skills");
         setSkills(res.data);
       } catch (e) {
-        setError(e.response?.data?.detail || "Failed to load skills");
+        setError(apiError(e) || "Failed to load skills");
       } finally {
         setLoading(false);
       }

@@ -18,15 +18,16 @@ const NotificationBell = () => {
   const ref = useRef(null);
   const navigate = useNavigate();
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const res = await api.client.get('/notifications', { params: { limit: 30 } });
+  // "x minutes ago" is measured from when the list was fetched (render must stay pure).
+  const [fetchedAt, setFetchedAt] = useState(0);
+
+  const fetchNotifications = useCallback(() => api.client.get('/notifications', { params: { limit: 30 } })
+    .then((res) => {
       setItems(res.data.items ?? []);
       setUnread(res.data.unread_count ?? 0);
-    } catch {
-      // silently ignore if endpoint not yet available
-    }
-  }, []);
+      setFetchedAt(Date.now());
+    })
+    .catch((e) => console.debug('Notifications unavailable', e)), []);
 
   useEffect(() => {
     fetchNotifications();
@@ -47,7 +48,9 @@ const NotificationBell = () => {
       await api.client.post('/notifications/read-all');
       setItems(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnread(0);
-    } catch {}
+    } catch (e) {
+      console.warn('Could not mark notifications read', e);
+    }
     setMarking(false);
   };
 
@@ -57,7 +60,9 @@ const NotificationBell = () => {
         await api.client.post(`/notifications/${notif.id}/read`);
         setItems(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
         setUnread(prev => Math.max(0, prev - 1));
-      } catch {}
+      } catch (e) {
+        console.warn('Could not mark notification read', e);
+      }
     }
     if (notif.link) {
       setOpen(false);
@@ -66,7 +71,7 @@ const NotificationBell = () => {
   };
 
   const relativeTime = (ts) => {
-    const diff = Date.now() / 1000 - ts;
+    const diff = fetchedAt / 1000 - ts;
     if (diff < 60) return 'just now';
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;

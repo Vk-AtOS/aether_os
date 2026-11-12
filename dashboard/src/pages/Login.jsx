@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { Link } from 'react-router-dom';
 import { Shield, Loader2 } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
@@ -23,13 +24,13 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [searchParams] = useSearchParams();
+  const [error, setError] = useState(() => decodeURIComponent(searchParams.get('error') || ''));
   const [samlAvailable, setSamlAvailable] = useState(false);
   const [mfaToken, setMfaToken] = useState(null);
   const [mfaCode, setMfaCode] = useState('');
   const [ssoOrgInput, setSsoOrgInput] = useState('');
   const [showSsoOrgInput, setShowSsoOrgInput] = useState(false);
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -39,14 +40,11 @@ const Login = () => {
       return;
     }
 
-    const urlError = searchParams.get('error');
-    if (urlError) setError(decodeURIComponent(urlError));
-
     fetch('/api/auth/saml/available')
       .then(r => (r.ok ? r.json() : { available: false }))
       .then(d => { if (d.available) setSamlAvailable(true); })
       .catch(() => {});
-  }, []);
+  }, [navigate]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -71,7 +69,7 @@ const Login = () => {
       if (err.response?.status === 401 || err.response?.status === 422) {
         setError('Invalid email or password. Please try again.');
       } else {
-        setError(err.response?.data?.detail || 'An unexpected error occurred. Please try again.');
+        setError(apiError(err) || 'An unexpected error occurred. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -89,7 +87,7 @@ const Login = () => {
       api.setToken(res.data.access_token, res.data.refresh_token);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid MFA code. Please try again.');
+      setError(apiError(err) || 'Invalid MFA code. Please try again.');
     } finally {
       setLoading(false);
     }

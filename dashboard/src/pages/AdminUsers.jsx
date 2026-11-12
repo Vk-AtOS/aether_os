@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Users, Shield, CheckCircle2, XCircle, Search, UserPlus, RefreshCw, ChevronLeft, ChevronRight, Upload, Trash2, Loader2 } from 'lucide-react';
 import { TableSkeleton } from '../components/PageLoader';
-import { ROLES, ROLE_BADGE, InvitePanel, BulkImportPanel } from '../components/admin/UserPanels';
+import { InvitePanel, BulkImportPanel } from '../components/admin/UserPanels';
+import { ROLES, ROLE_BADGE } from '../components/admin/roles';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 const AdminUsers = () => {
   const [items, setItems] = useState([]);
@@ -19,7 +21,6 @@ const AdminUsers = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
   const [inviteStatus, setInviteStatus] = useState(null);
-  const [copiedId, setCopiedId] = useState(null);
   const [showBulk, setShowBulk] = useState(false);
   const [bulkCsv, setBulkCsv] = useState('');
   const [bulkStatus, setBulkStatus] = useState(null); // null | 'importing' | { ok, errors }
@@ -33,23 +34,21 @@ const AdminUsers = () => {
 
   const LIMIT = 20;
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = { page, limit: LIMIT };
-      if (search) params.search = search;
-      if (roleFilter) params.role = roleFilter;
-      if (statusFilter) params.status = statusFilter;
-      const res = await api.client.get('/admin/users', { params });
-      const data = res.data;
-      setItems(data.items ?? data ?? []);
-      setTotal(data.total ?? (data.items ?? data ?? []).length);
-    } catch (e) {
-      setError(e.response?.status === 403 ? 'Admin access required.' : 'Failed to load users.');
-    } finally {
-      setLoading(false);
-    }
+  // Promise chain, no state set before the request: this runs from an effect.
+  const fetchUsers = useCallback(() => {
+    const params = { page, limit: LIMIT };
+    if (search) params.search = search;
+    if (roleFilter) params.role = roleFilter;
+    if (statusFilter) params.status = statusFilter;
+    return api.client.get('/admin/users', { params })
+      .then((res) => {
+        const data = res.data;
+        setItems(data.items ?? data ?? []);
+        setTotal(data.total ?? (data.items ?? data ?? []).length);
+        setError(null);
+      })
+      .catch((e) => setError(e.response?.status === 403 ? 'Admin access required.' : 'Failed to load users.'))
+      .finally(() => setLoading(false));
   }, [page, search, roleFilter, statusFilter]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -66,7 +65,7 @@ const AdminUsers = () => {
       await api.client.post(`/admin/users/${userId}/role`, { role: newRole });
       setItems(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to change role.');
+      setError(apiError(err) || 'Failed to change role.');
     } finally {
       setChangingRole(prev => { const n = { ...prev }; delete n[userId]; return n; });
     }
@@ -77,7 +76,7 @@ const AdminUsers = () => {
       await api.client.post(`/admin/users/${userId}/reactivate`);
       setItems(prev => prev.map(u => u.id === userId ? { ...u, is_active: true } : u));
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to reactivate user.');
+      setError(apiError(err) || 'Failed to reactivate user.');
     }
   };
 
@@ -89,7 +88,7 @@ const AdminUsers = () => {
       navigator.clipboard?.writeText(temp_password).catch(() => {});
       alert(`Temporary password (copied to clipboard):\n${temp_password}\n\nShare this securely with the user.`);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to reset password.');
+      setError(apiError(err) || 'Failed to reset password.');
     }
   };
 
@@ -100,7 +99,7 @@ const AdminUsers = () => {
       await api.client.post(`/admin/users/${userId}/deactivate`);
       setItems(prev => prev.map(u => u.id === userId ? { ...u, is_active: false } : u));
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to deactivate user.');
+      setError(apiError(err) || 'Failed to deactivate user.');
     }
   };
 
@@ -162,7 +161,7 @@ const AdminUsers = () => {
         });
         ok++;
       } catch (err) {
-        errors.push(`${email}: ${err.response?.data?.detail || 'failed'}`);
+        errors.push(`${email}: ${apiError(err) || 'failed'}`);
       }
     }
     setBulkStatus({ ok, errors });
@@ -195,7 +194,7 @@ const AdminUsers = () => {
         const res = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: false });
         setPruneResult({ ok: true, ...res.data });
       } catch (e) {
-        setPruneResult({ ok: false, message: e.response?.data?.detail || 'Prune failed.' });
+        setPruneResult({ ok: false, message: apiError(e) || 'Prune failed.' });
       } finally {
         setPruning(false);
         setPrunePreview(null);
@@ -208,7 +207,7 @@ const AdminUsers = () => {
       const dryRes = await api.client.post('/admin/prune-artifacts', { ttl_days: 30, dry_run: true });
       setPrunePreview(dryRes.data);
     } catch (e) {
-      setPruneResult({ ok: false, message: e.response?.data?.detail || 'Prune dry-run failed.' });
+      setPruneResult({ ok: false, message: apiError(e) || 'Prune dry-run failed.' });
     } finally {
       setPruning(false);
     }

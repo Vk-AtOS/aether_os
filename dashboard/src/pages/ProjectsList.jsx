@@ -5,7 +5,9 @@ import RerunDropdown from '../components/RerunDropdown';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Eye, Search, Clock, Rocket, Pause, Play, X, Loader2 } from 'lucide-react';
-import { useRuns } from '../contexts/RunsContext';
+import { useRuns } from '../contexts/useRuns';
+import { useToast } from '../contexts/useToast';
+import { apiError } from '../apiError';
 import { SkeletonTable } from '../components/Skeleton';
 import { PHASES } from '../components/project/projectConstants';
 
@@ -81,6 +83,7 @@ const ProjectsList = () => {
   const [actionLoading, setActionLoading] = useState({});
   const [confirmCancel, setConfirmCancel] = useState(null);
   const navigate = useNavigate();
+  const toast = useToast();
 
   const doAction = async (e, runId, action) => {
     if (e) e.stopPropagation();
@@ -89,9 +92,10 @@ const ProjectsList = () => {
       if (action === 'pause')  await api.pauseRun(runId);
       if (action === 'resume') await api.resumeRun(runId);
       if (action === 'cancel') await api.cancelRun(runId);
+      if (action === 'restart') await api.restartRun(runId);
       refresh();
-    } catch {
-      /* silent fail */
+    } catch (err) {
+      toast(`Could not ${action} the run: ${apiError(err) || err.message}`, 'error', 6000);
     } finally {
       setActionLoading((prev) => { const n = { ...prev }; delete n[runId]; return n; });
     }
@@ -102,8 +106,8 @@ const ProjectsList = () => {
     try {
       const res = await api.rerunFromPhase(runId, fromPhase);
       navigate(`/project/${res.data.run_id}`);
-    } catch {
-      /* silent fail */
+    } catch (err) {
+      toast(`Could not start the run: ${apiError(err) || err.message}`, 'error', 6000);
     } finally {
       setActionLoading((prev) => { const n = { ...prev }; delete n[runId]; return n; });
     }
@@ -119,8 +123,8 @@ const ProjectsList = () => {
         client_id: run.client_id || 'client-001',
       });
       navigate(`/project/${res.data.run_id}`);
-    } catch {
-      /* silent fail */
+    } catch (err) {
+      toast(`Could not start the run: ${apiError(err) || err.message}`, 'error', 6000);
     } finally {
       setActionLoading((prev) => { const n = { ...prev }; delete n[runId]; return n; });
     }
@@ -334,7 +338,8 @@ const ProjectsList = () => {
                           variant="compact"
                           onContinue={() => doAction(null, run.run_id || run.id, 'resume')}
                           onRerunPhase={(phase) => doRerunPhase(run.run_id || run.id, phase)}
-                          onFullRestart={() => doRerunPhase(run.run_id || run.id, 'p01_intake_requirements')}
+                          onFullRestart={() => doRerunPhase(run.run_id || run.id, 's01_intake')}
+                          onRestart={() => doAction(null, run.run_id || run.id, 'restart')}
                           onEditRestart={(req) => doEditRestart(run.run_id || run.id, run, req)}
                         />
                       )}

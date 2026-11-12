@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Users, Loader2, AlertTriangle, Star } from 'lucide-react';
 import { api } from '../../api';
+import { apiError } from '../../apiError';
 
 const CouncilPanel = ({ runId }) => {
   const [councilReport, setCouncilReport] = useState(null);
@@ -14,7 +15,7 @@ const CouncilPanel = ({ runId }) => {
       const res = await api.client.post(`/factory/runs/${runId}/council-review`);
       setCouncilReport(res.data);
     } catch (e) {
-      setCouncilError(e.response?.data?.detail || e.message || 'Council review failed');
+      setCouncilError(apiError(e) || e.message || 'Council review failed');
     } finally {
       setCouncilLoading(false);
     }

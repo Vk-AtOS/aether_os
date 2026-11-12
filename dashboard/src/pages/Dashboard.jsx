@@ -4,11 +4,12 @@ import PhaseBar from '../components/PhaseBar';
 import PhaseBadge from '../components/PhaseBadge';
 import CostPill from '../components/CostPill';
 import { Play, Eye, CheckCircle2, Clock, Coins, AlertTriangle, Info, Zap, Rocket, TrendingUp, Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
-import { useRuns } from '../contexts/RunsContext';
+import { useRuns } from '../contexts/useRuns';
 import { useRole } from '../hooks/useRole';
 import { api } from '../api';
 import { SkeletonTable } from '../components/Skeleton';
 import OnboardingBanner from '../components/OnboardingBanner';
+import { apiError } from '../apiError';
 
 // ── QualityTrendChart — pure SVG, no dependencies ────────────────────────────
 const QualityTrendChart = () => {
@@ -268,7 +269,7 @@ const Dashboard = () => {
       const res = await api.client.post('/admin/kill-all');
       setKillResult({ ok: true, count: res.data?.killed_count ?? 0 });
     } catch (e) {
-      setKillResult({ ok: false, msg: e.response?.data?.detail || 'Kill-all failed.' });
+      setKillResult({ ok: false, msg: apiError(e) || 'Kill-all failed.' });
     } finally {
       setKilling(false);
       setTimeout(() => setKillResult(null), 5000);

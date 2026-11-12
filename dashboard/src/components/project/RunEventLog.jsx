@@ -21,7 +21,8 @@ const ANSI_MAP = {
 export const TerminalLine = ({ text }) => {
   const parts = [];
   let currentClass = 'text-emerald-300';
-  const re = /(\x1b\[[0-9;]*m)/g;
+  // ANSI colour codes: ESC [ ... m. ESC is a control character, so it is built, not typed.
+  const re = new RegExp(`(${String.fromCharCode(27)}\\[[0-9;]*m)`, 'g');
   let last = 0;
   let m;
   while ((m = re.exec(text)) !== null) {

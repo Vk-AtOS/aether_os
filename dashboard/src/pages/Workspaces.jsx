@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Plus, Trash2, FolderOpen, Users, Globe, Loader2, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { apiError } from '../apiError';
 
 const Workspaces = () => {
   const [workspaces, setWorkspaces] = useState([]);
@@ -24,20 +25,13 @@ const Workspaces = () => {
   const [editForm, setEditForm] = useState({ name: '', description: '', is_shared: false });
   const [editStatus, setEditStatus] = useState(null); // null|'saving'|'error'
 
-  const loadWorkspaces = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getWorkspaces();
-      setWorkspaces(res.data || []);
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load workspaces');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Promise chain with no state set before the request: this runs from an effect.
+  const loadWorkspaces = useCallback(() => api.getWorkspaces()
+    .then((res) => { setWorkspaces(res.data || []); setError(null); })
+    .catch((err) => setError(apiError(err) || 'Failed to load workspaces'))
+    .finally(() => setLoading(false)), []);
 
-  useEffect(() => { loadWorkspaces(); }, []);
+  useEffect(() => { loadWorkspaces(); }, [loadWorkspaces]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -61,7 +55,7 @@ const Workspaces = () => {
       await api.deleteWorkspace(workspace.id);
       setWorkspaces(ws => ws.filter(w => w.id !== workspace.id));
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to delete workspace');
+      setError(apiError(err) || 'Failed to delete workspace');
     } finally {
       setDeleteStatus(s => { const n = { ...s }; delete n[workspace.id]; return n; });
       setConfirmDelete(null);

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
 import { confirmAction } from '../components/confirmAction';
+import { apiError } from '../apiError';
 
 const PLAN_ICONS  = { trial: Zap, pro: Star, enterprise: Building2 };
 const PLAN_COLORS = { trial: 'text-yellow-400', pro: 'text-accent', enterprise: 'text-purple-400' };
@@ -28,45 +29,71 @@ const isIndiaOrg = (usage) => {
   return country === 'IN' || country === 'IND' || country === 'INDIA';
 };
 
+const fmtDate = (unixS) => new Date(unixS * 1000).toLocaleDateString(undefined, { dateStyle: 'medium' });
+
+// Paid period from GET /billing/status. When a paid period ends the org drops to the
+// Free plan on its next request (core/billing/payments.py expire_if_due).
+const PlanPeriod = ({ status, planLabel }) => {
+  if (!status) return null;
+  if (status.error) return <p className="mx-6 mb-4 text-xs text-danger">{status.error}</p>;
+  if (status.period_end == null) {
+    return <p className="mx-6 mb-4 text-xs text-muted">No paid period on record. The {planLabel} plan has no end date.</p>;
+  }
+  const ending = status.period_active && status.days_remaining <= 7;
+  return (
+    <div className={`mx-6 mb-6 p-4 rounded-lg border text-xs space-y-1 ${!status.period_active ? 'bg-danger/10 border-danger/30' : ending ? 'bg-warning/10 border-warning/30' : 'bg-border/10 border-border'}`}>
+      {status.period_active ? (
+        <p className="font-bold text-bright">
+          Paid period ends {fmtDate(status.period_end)}: {status.days_remaining} day{status.days_remaining === 1 ? '' : 's'} left
+          {status.period_days ? ` of ${status.period_days}` : ''}.
+        </p>
+      ) : (
+        <p className="font-bold text-danger">The paid period ended on {fmtDate(status.period_end)}.</p>
+      )}
+      <p className="text-muted">
+        {status.period_active
+          ? 'When it ends without a renewal, your organisation moves to the Free plan (3 builds per 30 days, 1 at a time). Renew by buying the plan again below.'
+          : 'Your organisation is on the Free plan (3 builds per 30 days, 1 at a time). Buy a plan below to restore paid limits.'}
+      </p>
+    </div>
+  );
+};
+
 const Billing = () => {
   const [usage, setUsage]         = useState(null);
+  const [billingStatus, setBillingStatus] = useState(null);
   const [plans, setPlans]         = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [upgrading, setUpgrading] = useState(null);
-  const [success, setSuccess]     = useState(null);
+  const [success, setSuccess]     = useState(() => (
+    new URLSearchParams(window.location.search).get('upgrade') === 'success'
+      ? 'Payment successful! Your plan has been upgraded.' : null));
   const [portalLoading, setPortalLoading] = useState(false);
   const [invoices, setInvoices] = useState([]);
-  const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [cancellingSubscription, setCancellingSubscription] = useState(false);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [usageRes, plansRes] = await Promise.all([
-        api.client.get('/account/usage').catch(() => ({ data: null })),
-        api.client.get('/billing/plans').catch(() => ({ data: null })),
-      ]);
+  // Promise chain with no state set before the requests: this runs from an effect.
+  const fetchAll = useCallback(() => Promise.all([
+    api.client.get('/account/usage').catch(() => ({ data: null })),
+    api.client.get('/billing/plans').catch(() => ({ data: null })),
+    api.getBillingStatus().catch((e) => ({ data: null, error: apiError(e) || 'Plan period could not be loaded.' })),
+    // Invoices may not exist for every payment method.
+    api.client.get('/billing/invoices').catch(() => ({ data: [] })),
+  ])
+    .then(([usageRes, plansRes, statusRes, invoicesRes]) => {
       setUsage(usageRes.data);
-      const planList = plansRes.data?.plans ?? [];
-      setPlans(planList);
-      if (!plansRes.data) setError('Billing plans could not be loaded. Please check your connection or contact support.');
-      // Fetch invoices (non-blocking — may not exist for all payment methods)
-      api.client.get('/billing/invoices').then(res => {
-        setInvoices(res.data?.invoices ?? res.data ?? []);
-      }).catch(() => setInvoices([]));
-    } catch {
-      setError('Failed to load billing data.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      setBillingStatus(statusRes.data ? statusRes.data : { error: statusRes.error });
+      setPlans(plansRes.data?.plans ?? []);
+      setInvoices(invoicesRes.data?.invoices ?? invoicesRes.data ?? []);
+      setError(plansRes.data ? null : 'Billing plans could not be loaded. Please check your connection or contact support.');
+    })
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   // ── India flow: Razorpay ──────────────────────────────────────────────────
-  const handleRazorpayUpgrade = async (planId, planName) => {
+  const handleRazorpayUpgrade = async (planId) => {
     const loaded = await loadRazorpay();
     if (!loaded) throw new Error('Failed to load Razorpay SDK. Check your internet connection.');
 
@@ -95,7 +122,7 @@ const Billing = () => {
             await fetchAll();
             resolve();
           } catch (err) {
-            reject(new Error(err.response?.data?.detail || 'Payment verification failed.'));
+            reject(new Error(apiError(err) || 'Payment verification failed.'));
           }
         },
         modal: { ondismiss: () => reject(new Error('__dismissed__')) },
@@ -119,17 +146,17 @@ const Billing = () => {
     const { checkout_url } = res.data;
     if (!checkout_url) throw new Error('Stripe checkout URL not returned from server.');
     // Redirect to Stripe-hosted checkout
-    window.location.href = checkout_url;
+    window.location.assign(checkout_url);
   };
 
   // ── Unified upgrade handler ───────────────────────────────────────────────
-  const handleUpgrade = async (planId, planName) => {
+  const handleUpgrade = async (planId) => {
     setUpgrading(planId);
     setSuccess(null);
     setError(null);
     try {
       if (isIndiaOrg(usage)) {
-        await handleRazorpayUpgrade(planId, planName);
+        await handleRazorpayUpgrade(planId);
       } else {
         await handleStripeUpgrade(planId);
       }
@@ -146,9 +173,9 @@ const Billing = () => {
     setError(null);
     try {
       const res = await api.client.get('/billing/stripe/portal');
-      if (res.data?.portal_url) window.location.href = res.data.portal_url;
+      if (res.data?.portal_url) window.location.assign(res.data.portal_url);
     } catch (e) {
-      setError(e.response?.data?.detail || 'Could not open billing portal.');
+      setError(apiError(e) || 'Could not open billing portal.');
     } finally {
       setPortalLoading(false);
     }
@@ -156,33 +183,29 @@ const Billing = () => {
 
   // ── India cancel subscription ─────────────────────────────────────────────
   const handleCancelIndia = async () => {
-    if (!(await confirmAction('Cancel your subscription? You will be downgraded to the Trial plan at end of current period.'))) return;
+    if (!(await confirmAction('Cancel your subscription? Your organisation moves to the Free plan straight away.'))) return;
     setCancellingSubscription(true);
     try {
       await api.client.post('/billing/cancel');
-      setSuccess('Subscription cancelled. You will retain access until end of current period.');
+      setSuccess('Subscription cancelled. Your organisation is now on the Free plan.');
       await fetchAll();
     } catch (e) {
-      setError(e.response?.data?.detail || 'Could not cancel subscription.');
+      setError(apiError(e) || 'Could not cancel subscription.');
     } finally {
       setCancellingSubscription(false);
     }
   };
 
   // ── Detect success/cancel from URL params after Stripe redirect ──────────
+  // (the success message is read into initial state; fetchAll on mount already reloads the plan)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('upgrade') === 'success') {
-      setSuccess('Payment successful! Your plan has been upgraded.');
-      window.history.replaceState({}, '', window.location.pathname);
-      fetchAll();
-    } else if (params.get('upgrade') === 'cancelled') {
+    if (new URLSearchParams(window.location.search).get('upgrade')) {
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  const planLabels = { trial: 'Trial', starter: 'Starter', pro: 'Pro', enterprise: 'Enterprise' };
-  const currentPlan = usage?.plan ?? 'trial';
+  const planLabels = { free: 'Free', trial: 'Trial', starter: 'Starter', pro: 'Pro', enterprise: 'Enterprise' };
+  const currentPlan = billingStatus?.plan ?? usage?.plan ?? 'trial';
   const india = isIndiaOrg(usage);
 
   return (
@@ -275,6 +298,7 @@ const Billing = () => {
                 </div>
               ))}
             </div>
+            <PlanPeriod status={billingStatus} planLabel={planLabels[currentPlan] ?? currentPlan} />
             {currentPlan === 'trial' && (
               <div className="mx-6 mb-6 p-4 bg-warning/10 border border-warning/30 rounded-lg flex items-center gap-3">
                 <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
@@ -384,7 +408,7 @@ const Billing = () => {
                         </a>
                       ) : isUpgradeable ? (
                         <button
-                          onClick={() => handleUpgrade(plan.id, plan.name)}
+                          onClick={() => handleUpgrade(plan.id)}
                           disabled={isBusy || upgrading !== null}
                           className="w-full py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
                         >

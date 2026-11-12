@@ -60,25 +60,26 @@ export const StackGroup = ({ title, fields, values, onChange }) => (
 // ── HslPicker ──────────────────────────────────────────────────────────────────
 export const HslPicker = ({ hex, onChange }) => {
   const [h, s, l] = isValidHex(hex) ? hexToHsl(hex) : [220, 70, 50];
-  const [localHex, setLocalHex] = useState(hex);
+  // Text typed into the hex box that is not (yet) a valid colour; otherwise the box shows the prop.
+  const [draftHex, setDraftHex] = useState(null);
+  const localHex = draftHex ?? hex;
   const squareRef = useRef(null);
   const hueRef = useRef(null);
   const dragging = useRef(null);
-  useEffect(() => setLocalHex(hex), [hex]);
 
   const fromSquare = useCallback((e, ref) => {
     const r = ref.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
     const v = hslToHex(h, Math.round(x*100), Math.round((1-y)*100));
-    onChange(v); setLocalHex(v);
+    onChange(v); setDraftHex(null);
   }, [h, onChange]);
 
   const fromHue = useCallback((e, ref) => {
     const r = ref.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const v = hslToHex(Math.round(x*360), s, l);
-    onChange(v); setLocalHex(v);
+    onChange(v); setDraftHex(null);
   }, [s, l, onChange]);
 
   useEffect(() => {
@@ -109,7 +110,7 @@ export const HslPicker = ({ hex, onChange }) => {
         <div className="w-6 h-6 rounded border border-border shrink-0" style={{ background: hex }} />
         <input className="flex-1 bg-surface border border-border text-bright text-xs rounded px-2 py-1 font-mono uppercase"
           value={localHex} maxLength={7} placeholder="#6366f1"
-          onChange={e => { setLocalHex(e.target.value); if (isValidHex(e.target.value)) onChange(e.target.value); }} />
+          onChange={e => { if (isValidHex(e.target.value)) { setDraftHex(null); onChange(e.target.value); } else setDraftHex(e.target.value); }} />
       </div>
     </div>
   );

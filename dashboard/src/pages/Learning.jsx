@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { useToast } from '../contexts/ToastContext';
+import { useToast } from '../contexts/useToast';
 import {
   Brain, CheckCircle, HelpCircle, Loader2, Star, Trophy,
   TrendingUp, Layers, Sparkles, RefreshCw, ChevronRight,
 } from 'lucide-react';
+import { apiError } from '../apiError';
 
 const DOMAIN_COLORS = {
   ecommerce: 'text-orange-400 bg-orange-900/20 border-orange-800',
@@ -57,26 +58,23 @@ const Learning = () => {
 
   const showToast = (msg, type = 'info') => toast(msg, type);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [statsRes, goldenRes, ctxRes, clrRes] = await Promise.all([
-        api.client.get('/learning/stats').catch(() => ({ data: null })),
-        api.client.get('/learning/golden-builds').catch(() => ({ data: { golden_builds: [] } })),
-        api.client.get('/learning/context').catch(() => ({ data: { patterns: [] } })),
-        api.client.get('/learning/clarifications').catch(() => ({ data: { clarifications: [] } })),
-      ]);
+  // Promise chain with no state set before the request: this runs from an effect.
+  const load = useCallback(() => Promise.all([
+    api.client.get('/learning/stats').catch(() => ({ data: null })),
+    api.client.get('/learning/golden-builds').catch(() => ({ data: { golden_builds: [] } })),
+    api.client.get('/learning/context').catch(() => ({ data: { patterns: [] } })),
+    api.client.get('/learning/clarifications').catch(() => ({ data: { clarifications: [] } })),
+  ])
+    .then(([statsRes, goldenRes, ctxRes, clrRes]) => {
       setStats(statsRes.data);
       setGoldenBuilds(goldenRes.data?.golden_builds || []);
       const raw = ctxRes.data?.patterns;
       setPatterns(Array.isArray(raw) ? raw : Object.entries(raw || {}).map(([k, v]) => ({ description: typeof v === 'string' ? v : JSON.stringify(v), domain: k })));
       setClarifications(clrRes.data?.clarifications || []);
-    } finally {
-      setLoading(false);
-    }
-  };
+    })
+    .finally(() => setLoading(false)), []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const handleAnswer = async (id) => {
     const answer = answers[id];
@@ -87,7 +85,7 @@ const Learning = () => {
       showToast('Answer saved', 'success');
       setClarifications(c => c.filter(q => q.id !== id));
     } catch (e) {
-      showToast('Failed: ' + (e.response?.data?.detail || e.message), 'error');
+      showToast('Failed: ' + (apiError(e) || e.message), 'error');
     } finally {
       setSubmitting(s => ({ ...s, [id]: false }));
     }

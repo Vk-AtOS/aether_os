@@ -33,6 +33,13 @@ function SimilarRunCard({ run }) {
 }
 
 // ── D3 force-directed graph ───────────────────────────────────────────────────
+const ZoomButton = ({ label, onClick, children }) => (
+  <button onClick={onClick} title={label} aria-label={label}
+    className="w-7 h-7 flex items-center justify-center rounded-lg bg-panel border border-border text-muted hover:text-bright hover:border-blue-500/50 transition-colors">
+    {children}
+  </button>
+);
+
 function ForceGraph({ nodes, edges, width = 800, height = 520 }) {
   const svgRef  = useRef(null);
   const simRef  = useRef(null);
@@ -199,16 +206,9 @@ function ForceGraph({ nodes, edges, width = 800, height = 520 }) {
     <div className="relative w-full" style={{ height }}>
       {/* Zoom controls */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
-        {[
-          { icon: ZoomIn,    fn: () => zoomBy(1.4), label: "Zoom in"  },
-          { icon: ZoomOut,   fn: () => zoomBy(0.7), label: "Zoom out" },
-          { icon: Maximize2, fn: resetZoom,          label: "Reset"    },
-        ].map(({ icon: Icon, fn, label }) => (
-          <button key={label} onClick={fn} title={label}
-            className="w-7 h-7 flex items-center justify-center rounded-lg bg-panel border border-border text-muted hover:text-bright hover:border-blue-500/50 transition-colors">
-            <Icon size={13} />
-          </button>
-        ))}
+        <ZoomButton label="Zoom in" onClick={() => zoomBy(1.4)}><ZoomIn size={13} /></ZoomButton>
+        <ZoomButton label="Zoom out" onClick={() => zoomBy(0.7)}><ZoomOut size={13} /></ZoomButton>
+        <ZoomButton label="Reset" onClick={resetZoom}><Maximize2 size={13} /></ZoomButton>
       </div>
 
       {/* Legend */}
@@ -252,7 +252,7 @@ export default function MemoryInspector() {
   const [matchResults, setMatchResults] = useState(null);
   const [cacheStats,   setCacheStats]   = useState(null);
   const [graphData,    setGraphData]    = useState({ nodes: [], edges: [], stats: {} });
-  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphLoading, setGraphLoading] = useState(true);
   const [graphPage,    setGraphPage]    = useState(0);
   const containerRef = useRef(null);
   const [graphWidth,   setGraphWidth]   = useState(800);
@@ -265,35 +265,28 @@ export default function MemoryInspector() {
     return () => obs.disconnect();
   }, []);
 
-  const fetchGraph = useCallback(async (page = 0) => {
-    setGraphLoading(true);
-    try {
-      const res = await api.client.get(`/memory/graph?limit=${GRAPH_LIMIT}&offset=${page * GRAPH_LIMIT}`)
-        .catch(() => ({ data: { nodes: [], edges: [], stats: {} } }));
-      setGraphData(res.data || { nodes: [], edges: [], stats: {} });
-    } finally {
-      setGraphLoading(false);
-    }
-  }, []);
+  // Promise chain with no state set before the request: this runs from an effect.
+  // Callers that want the spinner set graphLoading themselves.
+  const fetchGraph = useCallback((page = 0) => api.client
+    .get(`/memory/graph?limit=${GRAPH_LIMIT}&offset=${page * GRAPH_LIMIT}`)
+    .catch(() => ({ data: { nodes: [], edges: [], stats: {} } }))
+    .then((res) => setGraphData(res.data || { nodes: [], edges: [], stats: {} }))
+    .finally(() => setGraphLoading(false)), []);
+
+  useEffect(() => { fetchGraph(graphPage); }, [fetchGraph, graphPage]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const [prefsRes, cacheRes] = await Promise.all([
-          api.client.get("/settings/preferences").catch(() => ({ data: {} })),
-          api.client.get("/system/costs").catch(() => ({ data: {} })),
-        ]);
+    Promise.all([
+      api.client.get("/settings/preferences").catch(() => ({ data: {} })),
+      api.client.get("/system/costs").catch(() => ({ data: {} })),
+    ])
+      .then(([prefsRes, cacheRes]) => {
         setPrefs(prefsRes.data || {});
         setCacheStats(cacheRes.data?.cache || null);
-      } catch {
-        setError("Could not load memory data");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    fetchGraph(graphPage);
-  }, [fetchGraph, graphPage]);
+      })
+      .catch(() => setError("Could not load memory data"))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleSearch = async () => {
     if (!testInput.trim()) return;
@@ -324,7 +317,7 @@ export default function MemoryInspector() {
           <h1 className="text-2xl font-bold text-bright">Memory Inspector</h1>
           <p className="text-sm text-muted mt-1">Cross-run learning · Session preferences · Knowledge graph</p>
         </div>
-        <button onClick={() => fetchGraph(graphPage)} disabled={graphLoading}
+        <button onClick={() => { setGraphLoading(true); fetchGraph(graphPage); }} disabled={graphLoading}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border text-muted hover:text-bright hover:border-blue-500/50 text-xs transition-colors disabled:opacity-50">
           <RefreshCw size={13} className={graphLoading ? "animate-spin" : ""} />
           Refresh graph
@@ -405,14 +398,14 @@ export default function MemoryInspector() {
           </span>
           <div className="flex gap-2">
             <button
-              onClick={() => { const p = Math.max(0, graphPage - 1); setGraphPage(p); fetchGraph(p); }}
+              onClick={() => { setGraphLoading(true); setGraphPage(Math.max(0, graphPage - 1)); }}
               disabled={graphPage === 0 || graphLoading}
               className="px-3 py-1 text-xs rounded border border-border text-muted hover:text-bright disabled:opacity-40 transition-colors"
             >
               Prev
             </button>
             <button
-              onClick={() => { const p = graphPage + 1; setGraphPage(p); fetchGraph(p); }}
+              onClick={() => { setGraphLoading(true); setGraphPage(graphPage + 1); }}
               disabled={graphData.nodes.length < GRAPH_LIMIT || graphLoading}
               className="px-3 py-1 text-xs rounded border border-border text-muted hover:text-bright disabled:opacity-40 transition-colors"
             >
