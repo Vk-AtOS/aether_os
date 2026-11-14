@@ -2329,7 +2329,7 @@ export default ErrorBoundary
 
 def _generate_not_found_page() -> str:
     return """\
-import { Link } from 'react-router-dom'
+import { Link } from '@tanstack/react-router'
 
 export function NotFoundPage() {
   return (
