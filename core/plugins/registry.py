@@ -37,6 +37,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.encryption import decrypt, encrypt
+
 logger = logging.getLogger(__name__)
 
 _PLUGINS_DIR = Path.home() / ".aether_os" / "plugins"
@@ -92,9 +94,32 @@ class InstalledPlugin:
             "is_active": self.is_active,
             "install_id": self.install_id,
             # Never expose secret config values in API responses
-            "config": {k: "***" if k in ("token", "secret", "password", "api_key") else v
-                       for k, v in self.config.items()},
+            "config": {k: "***" if is_secret_key(k) else v for k, v in self.config.items()},
         }
+
+
+_SECRET_HINTS = ("token", "secret", "password", "passwd", "key", "credential", "dsn", "auth", "bearer", "private")
+
+
+def is_secret_key(name: str) -> bool:
+    """Any config key that looks like a credential is masked in API responses."""
+    n = str(name).lower()
+    return any(h in n for h in _SECRET_HINTS)
+
+
+def _pack_config(config: Dict[str, Any]) -> str:
+    """Connector credentials are encrypted at rest (core/encryption.py)."""
+    return encrypt(json.dumps(config))
+
+
+def _unpack_config(stored: Optional[str]) -> Dict[str, Any]:
+    """Decrypt a stored config; rows written before encryption was added are plain JSON."""
+    raw = stored or "{}"
+    try:
+        raw = decrypt(raw)
+    except ValueError:
+        pass  # legacy plaintext row; re-encrypted on its next write
+    return json.loads(raw)
 
 
 # ── Built-in plugin manifests ─────────────────────────────────────────────────
@@ -376,7 +401,7 @@ async def _db_get_installed(org_id: str) -> List[InstalledPlugin]:
         result = []
         for r in rows:
             try:
-                cfg = json.loads(r.config_json or "{}")
+                cfg = _unpack_config(r.config_json)
             except Exception as e:
                 logger.warning("PluginRegistry: could not parse config_json for plugin %s: %s", r.plugin_id, e)
                 cfg = {}
@@ -403,13 +428,13 @@ async def _db_install(plugin_id: str, org_id: str, config: Dict[str, Any]) -> In
                    InstalledPluginRecord.plugin_id == plugin_id)
         )).scalar_one_or_none()
         if existing:
-            existing.config_json  = json.dumps(config)
+            existing.config_json  = _pack_config(config)
             existing.installed_at = now
             install_id = existing.id
         else:
             rec = InstalledPluginRecord(
                 org_id=org_id, plugin_id=plugin_id,
-                config_json=json.dumps(config), installed_at=now,
+                config_json=_pack_config(config), installed_at=now,
             )
             session.add(rec)
             await session.flush()
@@ -449,7 +474,7 @@ async def _db_update_config(plugin_id: str, org_id: str, config: Dict[str, Any])
                 sa_update(InstalledPluginRecord)
                 .where(InstalledPluginRecord.org_id == org_id,
                        InstalledPluginRecord.plugin_id == plugin_id)
-                .values(config_json=json.dumps(config))
+                .values(config_json=_pack_config(config))
             )
             await session.commit()
         return result.rowcount > 0
