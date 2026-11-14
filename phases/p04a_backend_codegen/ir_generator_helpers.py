@@ -30,6 +30,15 @@ import models, schemas
 
 _ACTIONS = ("read", "create", "update", "delete")
 
+# Default role model for an IR that defines no permissions (decision D1): admin everything, member and
+# user read+create+update, viewer read, delete admin-only. Also used by the fallback generator.
+DEFAULT_ROLE_MODEL = {
+    "read": ["admin", "member", "user", "viewer"],
+    "create": ["admin", "member", "user"],
+    "update": ["admin", "member", "user"],
+    "delete": ["admin"],
+}
+
 
 def _role_sets(ir: DomainIR, entity_name: str) -> dict:
     """
@@ -39,10 +48,10 @@ def _role_sets(ir: DomainIR, entity_name: str) -> dict:
     Deny by default once the IR defines a permission model at all: an action that no grant covers is
     admin-only, and admin is always allowed. Before, an entity or action without a grant had NO guard,
     so any signed-in user could create and delete it (KAN-169). When the IR defines no permissions
-    anywhere, there are no roles to enforce and every signed-in user is allowed, as before.
+    anywhere, DEFAULT_ROLE_MODEL applies (it used to allow every signed-in user everything).
     """
     if not ir.permissions:
-        return {}
+        return {k: list(v) for k, v in DEFAULT_ROLE_MODEL.items()}
     mapping: dict = {a: {"admin"} for a in _ACTIONS}
     for perm in ir.permissions:
         if perm.entity.lower() != entity_name.lower():
