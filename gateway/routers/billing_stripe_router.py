@@ -93,8 +93,8 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
 
     # Build absolute URLs — caller may pass them; fall back to env-based defaults
     base_url     = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-    success_url  = _checked_return_url(req.get("success_url"), base_url, "/billing?upgrade=success")
-    cancel_url   = _checked_return_url(req.get("cancel_url"), base_url, "/billing?upgrade=cancelled")
+    success_url  = _checked_return_url(req.get("success_url"), base_url, "/dashboard/admin/billing?upgrade=success")
+    cancel_url   = _checked_return_url(req.get("cancel_url"), base_url, "/dashboard/admin/billing?upgrade=cancelled")
 
     try:
         session = stripe.checkout.Session.create(
@@ -162,7 +162,7 @@ async def stripe_portal(user: Dict[str, Any] = _current_user()):
     org_id    = user["org_id"]
     email     = user.get("email", "")
     base_url  = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-    return_url = f"{base_url}/billing"
+    return_url = f"{base_url}/dashboard/admin/billing"
 
     # Resolve Stripe customer ID from DB or create one
     customer_id = await _get_or_create_stripe_customer(org_id, email, stripe)

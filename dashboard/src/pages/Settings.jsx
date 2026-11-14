@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api';
+import { appPath } from '../appUrl';
 import StorageWidget from '../components/StorageWidget';
 import { useSettings } from '../contexts/useSettings';
 
@@ -421,8 +422,8 @@ const Settings = () => {
   const handleDeleteOrg = async () => {
     setDeleteOrgStatus('deleting');
     try {
-      await api.client.delete('/account/org');
-      setTimeout(() => { api.clearToken(); window.location.href = '/login'; }, 2000);
+      await api.deleteOrg();
+      setTimeout(() => { api.clearToken(); window.location.href = appPath('/login'); }, 2000);
       setDeleteOrgStatus('done');
     } catch {
       setDeleteOrgStatus('error');
