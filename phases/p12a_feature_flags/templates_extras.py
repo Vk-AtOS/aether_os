@@ -32,8 +32,18 @@ from feature_flags.feature_flags import (
     set_rollout_percentage,
 )
 
+try:  # the generated backend's admin dependency (src/auth.py)
+    from src.auth import require_admin
+except ImportError:
+    try:
+        from auth import require_admin
+    except ImportError:
+        async def require_admin():
+            # Fail closed: flag administration must never be reachable without admin auth.
+            raise HTTPException(status_code=503, detail="flag admin disabled: src.auth.require_admin not found")
+
 _logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/flags", tags=["Feature Flags"])
+router = APIRouter(prefix="/flags", tags=["Feature Flags"], dependencies=[Depends(require_admin)])
 _mgr = RolloutManager()
 
 
@@ -258,8 +268,8 @@ def test_is_in_rollout_0pct():
 
 
 def test_is_in_rollout_disabled_flag():
+    set_rollout_percentage("disabled_flag", 100.0)  # setting a percentage also enables the flag
     disable("disabled_flag")
-    set_rollout_percentage("disabled_flag", 100.0)
     assert not is_in_rollout("disabled_flag", "any_user")
 
 
