@@ -198,3 +198,60 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
         line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
         assert line, p.stderr[-1500:]
         assert 429 in json.loads(line[7:]), (mode, json.loads(line[7:]))     # login allows 10 a minute per source
+
+
+def test_generated_app_ships_no_known_admin_password_or_real_secret_in_the_example(built):
+    # Every generated app seeded admin@example.com with the same default password, wrote it into
+    # .env.example next to the app's real SECRET_KEY, and logged it at startup.
+    _, app = built
+    everything = {f: f.read_text(errors="replace") for f in app.rglob("*") if f.is_file() and f.suffix in
+                  (".py", ".md", ".txt", ".example", "", ".yml", ".yaml") and f.name != "private_key.pem"}
+    assert not [f.name for f, t in everything.items() if "Admin1234" in t]
+    example = (app / ".env.example").read_text()
+    real = dict(ln.split("=", 1) for ln in (app / ".env").read_text().splitlines() if "=" in ln and not ln.startswith("#"))
+    assert real["SECRET_KEY"] not in example and real["ADMIN_PASSWORD"] not in example
+    assert "SECRET_KEY=change-me" in example and "ADMIN_PASSWORD=change-me" in example
+    for name in (".gitignore", ".dockerignore"):
+        assert ".env" in (app / name).read_text().splitlines()
+
+
+@pytest.mark.parametrize("source", ["dotenv", "private_file"])
+def test_seed_admin_password_is_random_and_never_the_old_default(tmp_path, monkeypatch, source):
+    # "dotenv": the generated .env carries this app's own random ADMIN_PASSWORD.
+    # "private_file": no .env and no ADMIN_PASSWORD, so the seed writes a random one to a 0600 file.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    _, app = generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch)
+    import os
+    import subprocess
+    import sys
+    for mod in ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx"):
+        pytest.importorskip(mod)
+    expected = dict(ln.split("=", 1) for ln in (app / ".env").read_text().splitlines()
+                    if "=" in ln and not ln.startswith("#"))["ADMIN_PASSWORD"]
+    if source == "private_file":
+        (app / ".env").unlink()
+    runner = r'''
+import json, os, sys
+app_dir = sys.argv[1]; os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, "src"))
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(app_dir, "seedtest.db")
+import logging; logging.basicConfig(level=logging.INFO)
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    f = os.path.join(app_dir, "admin_initial_password.txt")
+    pw = open(f).read() if os.path.exists(f) else sys.argv[2]
+    ok = c.post("/api/auth/login", json={"email": "admin@example.com", "password": pw}).status_code
+    old = c.post("/api/auth/login", json={"email": "admin@example.com", "password": "Admin1234!"}).status_code
+    mode = oct(os.stat(f).st_mode & 0o777) if os.path.exists(f) else None
+print("RESULT " + json.dumps({"ok": ok, "old": old, "mode": mode, "pw": pw}))
+'''
+    env = {k: v for k, v in os.environ.items() if k != "ADMIN_PASSWORD"}
+    env["ENVIRONMENT"] = "test"
+    p = subprocess.run([sys.executable, "-c", runner, str(app), expected], capture_output=True, text=True, env=env,
+                       timeout=120, cwd=str(app))
+    line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line, p.stderr[-1500:]
+    r = json.loads(line[7:])
+    assert r["ok"] == 200 and r["old"] == 401 and len(r["pw"]) >= 16
+    assert r["mode"] == ("0o600" if source == "private_file" else None)
+    assert r["pw"] not in p.stdout.replace(line, "") and r["pw"] not in p.stderr     # never logged
