@@ -21,14 +21,15 @@ _CALL = re.compile(r"""\b(?:apiClient|api)\s*\.\s*(get|post|put|patch|delete)\s*
 def frontend_calls(root: Path):
     """(METHOD, path) of every apiClient call with a literal path, plus the CRUD helpers' endpoints in api.ts, with
     the client's /api prefix added and template parameters turned into {id}."""
+    prefix = re.search(r"const API_PREFIX = '([^']*)'", (root / "src" / "lib" / "api.ts").read_text()).group(1)
     found = set()
     for f, text in sources(root / "src"):
         if f.suffix not in (".ts", ".tsx"):
             continue
         for m in _CALL.finditer(text):
-            found.add((m.group(1).upper(), "/api" + re.sub(r"\$\{[^}]*\}", "{id}", m.group(3))))
+            found.add((m.group(1).upper(), prefix + re.sub(r"\$\{[^}]*\}", "{id}", m.group(3))))
         for ep in re.findall(r"fkEndpoint:\s*'([^']+)'", text):
-            found.add(("GET", "/api" + re.sub(r"^/api(?=/)", "", ep)))     # the modal strips a leading /api
+            found.add(("GET", prefix + re.sub(r"^/api(?=/)", "", ep)))     # the modal strips a leading /api
     return {(m, p.split("?")[0].rstrip("/")) for m, p in found}
 
 
