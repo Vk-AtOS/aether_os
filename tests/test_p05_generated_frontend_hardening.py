@@ -236,3 +236,24 @@ def test_csv_export_defuses_formulas_and_includes_ids(tmp_path, monkeypatch):
     assert out.returncode == 0, out.stderr
     csv = json.loads(out.stdout)
     assert csv.startswith("﻿id,Name,Note") and "7,\"'=HYPERLINK" in csv and "\"a,b\"" in csv and "\r\n8,'-5,5" in csv, csv
+
+
+def test_scaffold_route_map_reads_api_prefixed_routes(tmp_path):
+    # api_routes.json lists the backend's real paths (/api/patients). The first path segment was taken as the table, so
+    # every route became the table "api", and a kept "/api/x" path was requested as /api/api/x.
+    from aether_os.phases.p05_frontend.scaffold import read_architecture
+    routes = [{"method": "GET", "path": "/api/patients"}, {"method": "GET", "path": "/api/patients/{item_id}"},
+              {"method": "POST", "path": "/api/patients"}, {"method": "GET", "path": "/api/stats"},
+              {"method": "GET", "path": "/api/auth/me"}, {"method": "GET", "path": "/health"},
+              {"method": "GET", "path": "/orders/"}]
+    (tmp_path / "api_routes.json").write_text(json.dumps(routes))
+    arch = read_architecture({"api_routes_path": str(tmp_path / "api_routes.json"),
+                              "architecture_json": {"database_schema": [{"table": "patients", "columns": ["id"]}]}})
+    assert arch["api_route_map"] == {"patients": "/patients", "orders": "/orders"}
+
+
+def test_generated_docker_compose_has_no_default_secret(tmp_path, monkeypatch):
+    # SECRET_KEY defaulted to a placeholder that is the same in every generated app.
+    root = build_frontend(tmp_path / "fe", "crm", monkeypatch)
+    compose = (root.parent / "docker-compose.yml").read_text()
+    assert "SECRET_KEY: ${SECRET_KEY:?" in compose and "changeme" not in compose

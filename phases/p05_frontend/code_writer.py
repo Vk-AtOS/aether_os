@@ -3934,9 +3934,12 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/app.db}
-      SECRET_KEY: ${SECRET_KEY:-changeme-in-production-use-64-char-hex}
+      # no default: a placeholder secret in the file is a secret everyone knows. Set it in .env (openssl rand -hex 32)
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (openssl rand -hex 32)}
+      RSA_PRIVATE_KEY_PATH: /keys/private_key.pem
     volumes:
       - db_data:/app/data
+      - keys:/keys       # the JWT signing key, shared by every replica
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
       interval: 10s
@@ -3960,6 +3963,7 @@ services:
 
 volumes:
   db_data:
+  keys:
 """
 
 
