@@ -499,8 +499,11 @@ async def validate_seed_dependencies(db_session) -> list:
 # stats.py router  (Gap 4 — computed KPI aggregates for dashboard)
 # ---------------------------------------------------------------------------
 
-def generate_stats_router(ir: DomainIR) -> str:
-    """Generate routers/stats.py with a /stats endpoint that returns real aggregates."""
+def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
+    """Generate routers/stats.py with a /stats endpoint that returns real aggregates.
+
+    multi_tenancy: every count and sum is limited to the caller's org_id (KAN-169); before, /stats counted
+    every tenant's rows."""
     domain_entities = [e for e in ir.entities if e.name != "User" and getattr(e, "table", "") != "users"]
 
     lines = [
@@ -521,13 +524,15 @@ def generate_stats_router(ir: DomainIR) -> str:
         "    current_user=Depends(get_current_user),",
         "):",
         "    stats: dict = {}",
-        "",
+        *(["    _org = current_user.get('org_id')", ""] if multi_tenancy else [""]),
     ]
+    _m = lambda e: f", models.{e.name}.org_id == _org" if multi_tenancy else ""           # extra where() terms
+    _w = lambda e: f".where(models.{e.name}.org_id == _org)" if multi_tenancy else ""     # a where() on its own
 
     # Count per entity
     for entity in domain_entities:
         lines += [
-            f"    _r = await db.execute(select(func.count()).select_from(models.{entity.name}))",
+            f"    _r = await db.execute(select(func.count()).select_from(models.{entity.name}){_w(entity)})",
             f"    stats['total_{entity.table}'] = _r.scalar_one()",
         ]
 
@@ -542,7 +547,7 @@ def generate_stats_router(ir: DomainIR) -> str:
         status_field = next(f for f in status_entity.fields if f.name in ("status", "stage"))
         lines += [
             f"    # Stats breakdown from {status_entity.name}.{status_field.name}",
-            f"    _total_r = await db.execute(select(func.count()).select_from(models.{status_entity.name}))",
+            f"    _total_r = await db.execute(select(func.count()).select_from(models.{status_entity.name}){_w(status_entity)})",
             f"    _total_n = _total_r.scalar_one()",
             f"    stats['total_{status_entity.table}'] = _total_n",
         ]
@@ -552,7 +557,7 @@ def generate_stats_router(ir: DomainIR) -> str:
                 lines += [
                     f"    _stage_{val.lower()}_r = await db.execute(",
                     f"        select(func.count()).select_from(models.{status_entity.name})",
-                    f"        .where(models.{status_entity.name}.{status_field.name} == '{val}')",
+                    f"        .where(models.{status_entity.name}.{status_field.name} == '{val}'{_m(status_entity)})",
                     f"    )",
                     f"    stats['stage_{val.lower()}'] = _stage_{val.lower()}_r.scalar_one()",
                 ]
@@ -560,7 +565,7 @@ def generate_stats_router(ir: DomainIR) -> str:
         lines += [
             f"    _succ_r = await db.execute(",
             f"        select(func.count()).select_from(models.{status_entity.name})",
-            f"        .where(models.{status_entity.name}.{status_field.name}.in_(['success', 'completed', 'done', 'active', 'Won']))",
+            f"        .where(models.{status_entity.name}.{status_field.name}.in_(['success', 'completed', 'done', 'active', 'Won']){_m(status_entity)})",
             f"    )",
             f"    _succ_n = _succ_r.scalar_one()",
             f"    stats['success_rate'] = round(_succ_n / _total_n * 100, 2) if _total_n else 0.0",
@@ -584,7 +589,7 @@ def generate_stats_router(ir: DomainIR) -> str:
     if cost_entity and cost_field:
         lines += [
             f"    # Total cost from {cost_entity.name}.{cost_field.name}",
-            f"    _cost_r = await db.execute(select(func.sum(models.{cost_entity.name}.{cost_field.name})))",
+            f"    _cost_r = await db.execute(select(func.sum(models.{cost_entity.name}.{cost_field.name})){_w(cost_entity)})",
             f"    stats['total_cost'] = float(_cost_r.scalar_one() or 0.0)",
             "",
         ]

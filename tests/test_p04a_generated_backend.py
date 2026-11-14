@@ -299,6 +299,8 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     out["t2_reads_mine"] = c.get(f"/api/customers/{mine}", headers=t2).status_code
     out["t2_deletes_mine"] = c.delete(f"/api/customers/{mine}", headers=t2).status_code
     out["admin_still_has_mine"] = c.get(f"/api/customers/{mine}", headers=admin).status_code
+    out["admin_stats"] = c.get("/api/stats", headers=admin).json().get("total_customers")
+    out["t2_stats"] = c.get("/api/stats", headers=t2).json().get("total_customers")      # was: every tenant's count
 print("RESULT " + json.dumps(out))
 '''
     env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z"}
@@ -309,3 +311,4 @@ print("RESULT " + json.dumps(out))
     assert r["admin_list"] == 200 and r["admin_create"] == 201 and r["admin_sees_seed"] >= 2, r
     assert r["register"] == 201 and r["t2_sees"] == 0, r              # the new tenant sees none of tenant "default"
     assert r["t2_reads_mine"] == 404 and r["t2_deletes_mine"] == 404 and r["admin_still_has_mine"] == 200, r
+    assert r["admin_stats"] >= 2 and r["t2_stats"] == 0, r          # /stats counts only the caller's tenant
