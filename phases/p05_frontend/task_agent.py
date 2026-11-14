@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -434,10 +435,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     project_dir = output_dir.parent
     _write_with_guard(project_dir / "docker-compose.yml", generate_docker_compose(project_dir))
 
+    # The shipped copy is project_dir/frontend. It is refreshed on every run (it used to be copied only when absent,
+    # so a re-run shipped the previous run's files), and everything after this point (build, Gate 2 preview and
+    # its revisions) works on THAT copy; revisions applied to output_dir/frontend never reached the customer.
     _canonical_frontend = project_dir / "frontend"
-    if not _canonical_frontend.exists() and frontend_dir.exists():
+    if frontend_dir.exists():
         try:
-            shutil.copytree(str(frontend_dir), str(_canonical_frontend), ignore=shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
+            shutil.copytree(str(frontend_dir), str(_canonical_frontend), dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("node_modules", ".git", "dist", "build"))
         except Exception as _copy_exc:
             logger.warning("p05: copytree to canonical frontend failed: %s", _copy_exc)
 
@@ -495,9 +500,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Gate 2: Preview (screenshots the built artifact) ──
     # Delegated to domain_assembler.run_gate2_preview to reduce task_agent lines.
-    await run_gate2_preview(
+    _src_snapshot = Path(tempfile.mkdtemp(prefix="p05_src_")) / "src"
+    shutil.copytree(frontend_dir_final / "src", _src_snapshot)
+    _revised = await run_gate2_preview(
         run_id=run_id,
-        frontend_dir=frontend_dir,
+        frontend_dir=frontend_dir_final,
         output_dir=output_dir,
         domain=domain,
         project_name=project_name,
@@ -506,6 +513,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         take_screenshot_fn=take_preview_screenshot,
         apply_revisions_fn=apply_gate2_revisions,
     )
+
+    if _revised and os.environ.get("ENVIRONMENT") != "test":
+        # Revisions are model-written edits of the shipped files: rebuild, and fall back to the pre-revision source
+        # if they broke the build (the customer must never get files nothing compiled).
+        async with get_npm_semaphore():
+            _re_loop = await run_build_loop(frontend_dir_final, max_rounds=2)
+        if _re_loop["success"] or not build_success:
+            build_success, tsc_errors = _re_loop["success"], _re_loop["tsc_errors"]
+        else:
+            logger.warning("p05: Gate 2 revisions broke the build — restoring the pre-revision source")
+            shutil.rmtree(frontend_dir_final / "src")
+            shutil.copytree(_src_snapshot, frontend_dir_final / "src")
+    shutil.rmtree(_src_snapshot.parent, ignore_errors=True)
 
     # confidence: build_pass * 0.6 + (1 if tsc_errors==0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
     template_debt_pct: float = meta.get("template_debt_pct", 1.0)

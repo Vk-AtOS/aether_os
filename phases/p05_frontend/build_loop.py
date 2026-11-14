@@ -16,6 +16,7 @@ from typing import Any
 
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,13 @@ def _apply_patch(frontend_dir: Path, patch: dict) -> bool:
     replace = patch.get("replace", "")
     if not path_str or not find:
         return False
-    target = frontend_dir / path_str
+    # The path comes from a model's answer: `../../x` or an absolute path or a symlink must not leave the project
+    # (it used to write wherever the process could), and node_modules is not ours to patch.
+    root = frontend_dir.resolve()
+    target = (frontend_dir / path_str).resolve()
+    if not target.is_relative_to(root) or "node_modules" in target.relative_to(root).parts:
+        logger.warning("p05 build_loop: patch path %r rejected (outside the project)", path_str)
+        return False
     if not target.exists() or not target.is_file():
         return False
     try:
@@ -106,7 +113,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
             tsc_result = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"],
                                               cwd=frontend_dir, timeout=60, text=True)
             build_result = await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir,
-                                                timeout=300, text=True)
+                                                timeout=300, text=True, env=PREVIEW_BUILD_ENV)
         except SandboxUnavailable:
             raise  # generated code was not run: fail the phase with this message
         except Exception as exc:
