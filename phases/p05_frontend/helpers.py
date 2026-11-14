@@ -337,8 +337,8 @@ export default function Home() {{
             </div>
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
               <Star className="text-{primary_color} mb-4" size={{32}} />
-              <h3 className="text-xl font-bold mb-2">Top Rated</h3>
-              <p className="text-gray-600">Trusted by thousands of businesses worldwide for their daily operations.</p>
+              <h3 className="text-xl font-bold mb-2">Built for {domain.replace('_', ' ')}</h3>
+              <p className="text-gray-600">Designed around the way {domain.replace('_', ' ')} teams actually work.</p>
             </div>
           </div>
         </div>
