@@ -189,7 +189,7 @@ class User(Base):
 """
 
 
-def generate_models_py(ir: DomainIR, domain: str = "") -> str:
+def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Generate complete models.py from DomainIR.
 
     domain: propagated to _sa_column so that domain-specific column types are
@@ -207,6 +207,9 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
 
     # Always emit User model first so auth router import works
     lines.append(_USER_MODEL)
+    if multi_tenancy:
+        # the user's tenant goes into the access token; every entity row carries it (KAN-169)
+        lines.append("    org_id = Column(String(64), nullable=True, index=True)")
 
     for entity in ir.entities:
         # Skip User — always emitted above from _USER_MODEL to avoid duplicate table
@@ -249,6 +252,8 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
             if rel:
                 lines.append(rel)
 
+        if multi_tenancy:
+            lines.append("    org_id = Column(String(64), nullable=False, index=True)")
         lines.append("    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))")
         lines.append("    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))")
         lines.append("")
@@ -256,9 +261,9 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
     return "\n".join(lines)
 
 
-def ir_to_models(ir: DomainIR, domain: str = "") -> str:
+def ir_to_models(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Alias for generate_models_py to match v2 directive."""
-    return generate_models_py(ir, domain=domain)
+    return generate_models_py(ir, domain=domain, multi_tenancy=multi_tenancy)
 
 
 # ---------------------------------------------------------------------------

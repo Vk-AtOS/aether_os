@@ -255,3 +255,57 @@ print("RESULT " + json.dumps({"ok": ok, "old": old, "mode": mode, "pw": pw}))
     assert r["ok"] == 200 and r["old"] == 401 and len(r["pw"]) >= 16
     assert r["mode"] == ("0o600" if source == "private_file" else None)
     assert r["pw"] not in p.stdout.replace(line, "") and r["pw"] not in p.stderr     # never logged
+
+
+def test_multi_tenant_backend_isolates_organisations(tmp_path, monkeypatch):
+    # With multi_tenancy on, no model had an org_id column, so every filtered call raised AttributeError
+    # and the seed failed. Each entity row and each user now carries a tenant; signing up starts a new one.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    _, app = generate(tmp_path, domain="crm", tenancy=True, use_ir=True, monkeypatch=monkeypatch)
+    import os
+    import subprocess
+    import sys
+    for mod in ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx"):
+        pytest.importorskip(mod)
+    assert "org_id" in (app / "src" / "models.py").read_text()
+    runner = r'''
+import json, os, sys
+app_dir = sys.argv[1]; os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, "src"))
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(app_dir, "mt.db")
+import main
+from fastapi.testclient import TestClient
+out = {}
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    tok = lambda r: {"Authorization": "Bearer " + r.json()["access_token"]}
+    admin = tok(c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}))
+    out["admin_list"] = c.get("/api/customers", headers=admin).status_code
+    out["admin_sees_seed"] = len(c.get("/api/customers?limit=100", headers=admin).json().get("items", []))
+    r = c.post("/api/customers", headers=admin, json={"name": "Mine", "email": "m@x.io", "status": "active", "balance": 1})
+    out["admin_create"] = r.status_code
+    mine = r.json().get("id")
+    # a second tenant: sign up, the new user is not an admin, so promote it in the database to compare tenants
+    reg = c.post("/api/auth/register", json={"email": "t2@x.io", "password": "Passw0rd!xyz", "name": "T2"})
+    out["register"] = reg.status_code
+    import asyncio
+    from sqlalchemy import update
+    from database import AsyncSessionLocal
+    from models import User
+    async def promote():
+        async with AsyncSessionLocal() as db:
+            await db.execute(update(User).where(User.email == "t2@x.io").values(role="admin")); await db.commit()
+    asyncio.run(promote())
+    t2 = tok(c.post("/api/auth/login", json={"email": "t2@x.io", "password": "Passw0rd!xyz"}))
+    out["t2_sees"] = len(c.get("/api/customers?limit=100", headers=t2).json().get("items", []))
+    out["t2_reads_mine"] = c.get(f"/api/customers/{mine}", headers=t2).status_code
+    out["t2_deletes_mine"] = c.delete(f"/api/customers/{mine}", headers=t2).status_code
+    out["admin_still_has_mine"] = c.get(f"/api/customers/{mine}", headers=admin).status_code
+print("RESULT " + json.dumps(out))
+'''
+    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z"}
+    p = subprocess.run([sys.executable, "-c", runner, str(app)], capture_output=True, text=True, env=env, timeout=120, cwd=str(app))
+    line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line, p.stdout[-600:] + p.stderr[-1500:]
+    r = json.loads(line[7:])
+    assert r["admin_list"] == 200 and r["admin_create"] == 201 and r["admin_sees_seed"] >= 2, r
+    assert r["register"] == 201 and r["t2_sees"] == 0, r              # the new tenant sees none of tenant "default"
+    assert r["t2_reads_mine"] == 404 and r["t2_deletes_mine"] == 404 and r["admin_still_has_mine"] == 200, r

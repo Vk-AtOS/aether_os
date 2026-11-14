@@ -321,6 +321,7 @@ _AUTH_ROUTER_PY = '''\
 """Auth endpoints — login, register, refresh token, current user."""
 # No `from __future__ import annotations` here: slowapi wraps the endpoints, and FastAPI then looks the
 # string annotations up in the wrapper's module, where LoginRequest does not exist (import fails).
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -408,11 +409,13 @@ async def register(request: Request, data: RegisterRequest, db: AsyncSession = D
         password_hash=get_password_hash(data.password),
         role="user",
         **({"name": data.name} if data.name and hasattr(User, "name") else {}),
+        # multi-tenant apps: signing up creates the user's own tenant
+        **({"org_id": str(uuid.uuid4())} if hasattr(User, "org_id") else {}),
     )
     db.add(user)
     await db.flush()
     return TokenResponse(
-        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user")),
+        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
         refresh_token=create_refresh_token(user.id),
     )
 
@@ -437,7 +440,7 @@ async def refresh_token(request: Request, data: RefreshRequest, db: AsyncSession
     if not user:
         raise exc
     return TokenResponse(
-        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user")),
+        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
         refresh_token=create_refresh_token(user.id),
     )
 
