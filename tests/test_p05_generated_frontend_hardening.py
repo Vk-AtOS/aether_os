@@ -313,3 +313,18 @@ def test_storefront_and_dashboard_show_no_invented_content(tmp_path, monkeypatch
             if "TREND_DATA" in text:
                 assert "Sample chart data" in text and "> Live" not in text, f
         assert not tsc_syntax_errors(root)
+
+
+def test_modal_and_login_forms_are_accessible(tmp_path, monkeypatch):
+    # The modal had no dialog role, no Escape, no focus handling, labels that were not tied to their fields; login
+    # labels had no htmlFor.
+    for domain in ("saas", "crm", "ecommerce"):
+        root = build_frontend(tmp_path / domain, domain, monkeypatch)
+        modal = (root / "src" / "components" / "CrudModal.tsx").read_text()
+        for needed in ('role="dialog"', 'aria-modal="true"', "aria-labelledby", "e.key === 'Escape'", "e.key !== 'Tab'",
+                       "htmlFor={`${uid}-${f.name}`}", "id={`${uid}-${f.name}`}", 'aria-label="Close"', "opener?.focus()"):
+            assert needed in modal, needed
+        login = (root / "src" / "pages" / "LoginPage.tsx").read_text()
+        assert 'htmlFor="login-email"' in login and 'id="login-email"' in login and 'htmlFor="login-password"' in login
+        assert "admin@example.com" not in login
+        assert not tsc_syntax_errors(root)
