@@ -103,3 +103,22 @@ def test_helm_and_k8s_carry_field_key_preview_and_velaris():
 def test_local_sh_velaris_port_does_not_collide_with_preview():
     s = (ROOT / "scripts/local.sh").read_text()
     assert "VELARIS_API_URL:-http://127.0.0.1:8730" in s
+
+
+def test_ci_is_blocking_and_scans():
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    text = (ROOT / ".github/workflows/ci.yml").read_text()
+    assert "|| true" not in text
+    for needle in ("pip-audit", "bandit", "gitleaks", "cov-fail-under", "postgres:15", "npm run build"):
+        assert needle in text
+    assert ci["permissions"] == {"contents": "read"}
+
+
+def test_generate_workflow_is_hardened():
+    text = (ROOT / ".github/workflows/aetheros-generate.yml").read_text()
+    wf = yaml.safe_load(text)
+    job = wf["jobs"]["generate"]
+    assert "timeout-minutes" in job and "permissions" in wf
+    assert any("checkout" in s.get("uses", "") for s in job["steps"])
+    assert "maintainer-approved" in job["if"]
+    assert "UNTRUSTED" in text and "${{ github.event.issue.body }}" not in text.split("run:")[1]
