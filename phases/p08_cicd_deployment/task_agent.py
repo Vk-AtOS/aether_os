@@ -68,11 +68,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     summary_path = output_dir / "consolidated.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
+    # `or bool(results)` used to make "every sub-task ran and failed" a success.
     any_success = any(v.success for v in results.values())
     return TaskResult(
         output_path=str(summary_path),
         confidence=0.85 if any_success else 0.5,
         metadata=summary,
-        success=any_success or bool(results),
-        issues=[] if any_success else ["All CI/CD sub-tasks failed"],
+        success=any_success,
+        issues=[] if any_success else ["All CI/CD sub-tasks failed or did not run"],
     )
