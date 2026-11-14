@@ -28,28 +28,37 @@ import models, schemas
 """
 
 
+_ACTIONS = ("read", "create", "update", "delete")
+
+
 def _role_sets(ir: DomainIR, entity_name: str) -> dict:
     """
     Build per-action allowed-role sets from ir.permissions for one entity.
     Returns: {"read": ["admin","manager"], "create": ["admin"], ...}
-    Only populated when the IR actually defines restrictions (empty = allow all).
+
+    Deny by default once the IR defines a permission model at all: an action that no grant covers is
+    admin-only, and admin is always allowed. Before, an entity or action without a grant had NO guard,
+    so any signed-in user could create and delete it (KAN-169). When the IR defines no permissions
+    anywhere, there are no roles to enforce and every signed-in user is allowed, as before.
     """
-    mapping: dict = {}
+    if not ir.permissions:
+        return {}
+    mapping: dict = {a: {"admin"} for a in _ACTIONS}
     for perm in ir.permissions:
         if perm.entity.lower() != entity_name.lower():
             continue
         for action in perm.actions:
-            mapping.setdefault(action, set()).add(perm.role)
+            mapping.setdefault(str(action).lower(), {"admin"}).add(str(perm.role).lower())
     return {k: sorted(v) for k, v in mapping.items()}
 
 
 def _role_guard(roles: list) -> list:
-    """Return lines that raise 403 unless current_user.role in roles."""
+    """Return lines that raise 403 unless the caller's role (case-insensitive) is in roles."""
     if not roles:
         return []
-    roles_repr = repr(roles)
+    roles_repr = repr([r.lower() for r in roles])
     return [
-        f"    if (current_user.get('role') if isinstance(current_user, dict) else getattr(current_user, 'role', None)) not in {roles_repr}:",
+        f"    if str((current_user.get('role') if isinstance(current_user, dict) else getattr(current_user, 'role', None)) or '').lower() not in {roles_repr}:",
         f"        raise HTTPException(status_code=403, detail='Insufficient permissions')",
     ]
 
@@ -130,7 +139,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"    total_q = await db.execute(select(func.count()).select_from(models.{n}){_mt_list})",
         f"    total = total_q.scalar_one()",
         f"    result = await db.execute(select(models.{n}){_mt_list}.offset(offset).limit(limit))",
-        f"    items = result.scalars().all()",
+        f"    items = [schemas.{n}Response.model_validate(o) for o in result.scalars().all()]",
         f"    return {{'items': items, 'total': total, 'page': page, 'limit': limit}}",
         "",
         f"@{router_var}.post('', response_model=schemas.{n}Response, status_code=201)",
