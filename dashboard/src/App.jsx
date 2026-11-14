@@ -1,5 +1,6 @@
 import React, { useEffect, Suspense } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { appPath } from './appUrl';
 import Layout from './components/Layout';
 // Static (auth-critical — must not lazy-load)
 import Login from './pages/Login';
@@ -41,6 +42,7 @@ const SystemHealth      = React.lazy(() => import('./pages/SystemHealth'));
 const Guardian          = React.lazy(() => import('./pages/Guardian'));
 const Signup            = React.lazy(() => import('./pages/Signup'));
 const ForgotPassword    = React.lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword     = React.lazy(() => import('./pages/ResetPassword'));
 const Pricing           = React.lazy(() => import('./pages/Pricing'));
 const Agents            = React.lazy(() => import('./pages/Agents'));
 const GlobalPatternsTuning = React.lazy(() => import('./pages/GlobalPatternsTuning'));
@@ -69,13 +71,15 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
+const NavigateKeepSearch = ({ to }) => <Navigate to={{ pathname: to, search: useLocation().search }} replace />;
+
 const NotFound = () => (
   <div className="min-h-screen flex items-center justify-center bg-surface">
     <div className="text-center space-y-4">
       <div className="text-6xl font-bold text-accent/30">404</div>
       <h1 className="text-2xl font-bold text-bright">Page Not Found</h1>
       <p className="text-muted">The page you're looking for doesn't exist.</p>
-      <a href="/" className="inline-block mt-4 bg-accent hover:bg-accent/90 text-white font-bold px-6 py-2 rounded-lg transition-colors">
+      <a href={appPath('/')} className="inline-block mt-4 bg-accent hover:bg-accent/90 text-white font-bold px-6 py-2 rounded-lg transition-colors">
         Back to Dashboard
       </a>
     </div>
@@ -98,6 +102,7 @@ function App() {
       <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
       <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={null}><Signup /></Suspense></ErrorBoundary>} />
       <Route path="/forgot-password" element={<ErrorBoundary><Suspense fallback={null}><ForgotPassword /></Suspense></ErrorBoundary>} />
+      <Route path="/reset-password" element={<ErrorBoundary><Suspense fallback={null}><ResetPassword /></Suspense></ErrorBoundary>} />
       <Route path="/pricing" element={<ErrorBoundary><Suspense fallback={null}><Pricing /></Suspense></ErrorBoundary>} />
       <Route path="/legal"   element={<ErrorBoundary><Suspense fallback={null}><Legal /></Suspense></ErrorBoundary>} />
       <Route path="/auth/callback" element={<ErrorBoundary><OAuthCallback /></ErrorBoundary>} />
@@ -124,7 +129,7 @@ function App() {
         <Route path="dashboard/tools/costs" element={<Navigate to="/costs" replace />} />
         <Route path="admin/users" element={<AdminRoute><ErrorBoundary><AdminUsers /></ErrorBoundary></AdminRoute>} />
         <Route path="admin/billing" element={<AdminRoute><ErrorBoundary><Billing /></ErrorBoundary></AdminRoute>} />
-        <Route path="billing" element={<Navigate to="/admin/billing" replace />} />
+        <Route path="billing" element={<NavigateKeepSearch to="/admin/billing" />} />
         <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />

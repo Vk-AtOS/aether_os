@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 from typing import Any, Dict
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
@@ -34,6 +35,12 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
+def reset_link_for(frontend_url: str, token: str) -> str:
+    """The dashboard is served under /dashboard (vite base), so the link must carry it."""
+    base = frontend_url.rstrip("/")
+    if not base.endswith("/dashboard"):
+        base += "/dashboard"
+    return f"{base}/reset-password?token={quote(token, safe='')}"
 def _auth():
     return Depends(get_current_user)
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -133,7 +140,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
                 scheme = request.headers.get("x-forwarded-proto", "https")
                 host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
                 frontend_url = f"{scheme}://{host}" if host else "https://app.aetheros.ai"
-            reset_link = f"{frontend_url}/reset-password?token={token}"
+            reset_link = reset_link_for(frontend_url, token)
             subject = "AetherOS: Password Reset Request"
             body_html = (
                 f"<p>You requested a password reset for your AetherOS account.</p>"

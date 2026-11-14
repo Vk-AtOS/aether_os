@@ -5,12 +5,13 @@ import { api } from '../../api';
 const EnvVarsPanel = ({ runId, onToast }) => {
   const [envVars, setEnvVars] = useState(null);
   const [envSaving, setEnvSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     if (envVars === null) {
       api.getEnvVars(runId)
         .then(r => setEnvVars(r.data?.vars || []))
-        .catch(() => setEnvVars([]));
+        .catch(() => { setLoadFailed(true); setEnvVars([]); }); // Save stays off: an empty list would wipe the .env
     }
   }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -36,13 +37,14 @@ const EnvVarsPanel = ({ runId, onToast }) => {
             className="text-[10px] px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded"
           >+ Add</button>
           <button
-            disabled={envSaving}
+            disabled={envSaving || loadFailed}
             onClick={handleSave}
             className="text-[10px] px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded disabled:opacity-50"
           >{envSaving ? 'Saving…' : 'Save .env'}</button>
         </div>
       </div>
 
+      {loadFailed && <div role="alert" className="text-danger text-xs">Could not load the .env file, so saving is disabled. Reload the tab to try again.</div>}
       {envVars === null ? (
         <div className="flex items-center justify-center h-32">
           <Loader2 className="w-5 h-5 text-accent animate-spin" />
@@ -60,6 +62,8 @@ const EnvVarsPanel = ({ runId, onToast }) => {
             />
             <span className="text-muted text-xs">=</span>
             <input
+              type="password"
+              autoComplete="off"
               value={v.value}
               onChange={e => setEnvVars(prev => prev.map((x, j) => j === i ? { ...x, value: e.target.value } : x))}
               placeholder="value"

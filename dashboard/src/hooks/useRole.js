@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { api } from '../api';
 
-const decode = (token) => {
+export const decode = (token) => {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
