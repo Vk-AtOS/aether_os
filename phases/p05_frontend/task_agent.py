@@ -153,11 +153,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     logger.warning("p05: cloud console IR load failed: %s", _cc_exc)
             _cc_services = data.get("services") or []
             _cc_project_name = safe_display_name(data.get("project_name", "Cloud Platform"), "Cloud Platform")
-            await generate_cloud_console(_cc_entities, _cc_services, _cc_project_name, output_dir)
+            _cc_dir = await generate_cloud_console(_cc_entities, _cc_services, _cc_project_name, output_dir)
+            # 0.9 / success used to be returned with nothing built. A build proves the console compiles; in tests
+            # (no network) it is skipped and the result says so with a lower confidence.
+            _cc_built = False
+            if os.environ.get("ENVIRONMENT") != "test":
+                _cc_built = await run_npm_build(_cc_dir)
+                if not _cc_built:
+                    return TaskResult(output_path=str(_cc_dir), confidence=0.2, success=False,
+                                      metadata={"cloud_console": True, "built": False,
+                                                "error": "the console did not build (npm install or build failed)"})
             return TaskResult(
-                output_path=str(output_dir / "frontend"),
-                confidence=0.9,
-                metadata={"cloud_console": True, "entity_count": len(_cc_entities)},
+                output_path=str(_cc_dir),
+                confidence=0.9 if _cc_built else 0.5,
+                metadata={"cloud_console": True, "entity_count": len(_cc_entities), "built": _cc_built},
                 success=True,
             )
         except Exception as _cc_err:

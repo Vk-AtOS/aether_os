@@ -22,6 +22,7 @@ from aether_os.phases.p05_frontend.cloud_console_app import (
     generate_console_main_jsx,
     generate_console_app_jsx,
     generate_console_vite_config,
+    generate_console_login_jsx,
 )
 from aether_os.phases.p05_frontend.cloud_console_pages import (
     generate_dashboard_jsx,
@@ -75,6 +76,7 @@ async def generate_cloud_console(
     (frontend_dir / "index.html").write_text(generate_console_index_html(project_name))
     (src_dir / "main.jsx").write_text(generate_console_main_jsx())
     (src_dir / "App.jsx").write_text(generate_console_app_jsx(services))
+    (pages_dir / "Login.jsx").write_text(generate_console_login_jsx())
     (pages_dir / "Dashboard.jsx").write_text(generate_dashboard_jsx(services))
     (pages_dir / "ServiceCatalog.jsx").write_text(generate_service_catalog_jsx(services))
     (pages_dir / "ResourceExplorer.jsx").write_text(generate_resource_explorer_jsx(entities))

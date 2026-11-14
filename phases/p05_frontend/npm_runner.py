@@ -69,12 +69,15 @@ def stamp_node_modules(frontend_dir: Path, hash_val: str) -> None:
     _stamp_node_modules(frontend_dir, hash_val)
 
 
-async def run_npm_build(frontend_dir: Path) -> None:
-    """Run npm install (with cache) + npm run build, semaphore-limited."""
+async def run_npm_build(frontend_dir: Path) -> bool:
+    """Run npm install (with cache) + npm run build, semaphore-limited. True when both exited 0."""
     async with _get_npm_semaphore():
         h = _pkg_hash(frontend_dir)
         if not _node_modules_fresh(frontend_dir, h):
             # Install = the sandbox's install egress profile; the npm cache lives in the run's own HOME.
-            await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=300, network=True)
+            install = await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=300, network=True)
+            if install.returncode != 0:
+                return False
             _stamp_node_modules(frontend_dir, h)
-        await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=600, env=PREVIEW_BUILD_ENV)
+        build = await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=600, env=PREVIEW_BUILD_ENV)
+        return build.returncode == 0
