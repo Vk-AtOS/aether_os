@@ -366,7 +366,12 @@ def _get_roles_for_action(entity_name: str, action: str, perm_model: dict | None
     )
     if super_admin_name and super_admin_name not in allowed:
         allowed.append(super_admin_name)
-    return allowed if allowed else None
+    # Deny by default (KAN-169): once a permission model exists, an action no role covers is admin-only.
+    # It used to return None, which meant "any signed-in user", so an entity or action without a grant
+    # was open to everyone.
+    if not any(r.lower() == "admin" for r in allowed):
+        allowed.append("admin")
+    return allowed
 
 
 def _fallback_crud_routers(
@@ -455,6 +460,13 @@ def _fallback_crud_routers(
             else f"f\"{name}:list:{{page}}:{{page_size}}\""
         )
 
+        # the single-item cache entry must be per tenant too, or tenant B reads tenant A's row from the cache
+        item_cache_key = (
+            f"f\"{name}:{{current_user.get('org_id', '')}}:{{item_id}}\""
+            if multi_tenancy
+            else f"f\"{name}:{{item_id}}\""
+        )
+
         # ── ABAC role guards ─────────────────────────────────────────────────────
         # Resolve allowed roles from the permission model for each action.
         # Falls back to bare get_current_user / require_admin when not available.
@@ -498,7 +510,7 @@ def _fallback_crud_routers(
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({read_dep})):",
-            f"    _ck = f\"{name}:{{item_id}}\"",
+            f"    _ck = {item_cache_key}",
             f"    _cached = await _cache_get(_ck)",
             f"    if _cached is not None:",
             f"        return _cached",

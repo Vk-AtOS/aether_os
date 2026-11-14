@@ -160,27 +160,19 @@ def run_pipeline_and_seed_steps(
     if seed_code:
         logger.info("[p04a] IR fast-path: seed.py already generated (%d chars)", len(seed_code))
     else:
-        template_path = Path(__file__).parent / "seed_templates" / f"{domain}.py"
-        if template_path.exists():
-            logger.info("[p04a] using domain seed template: %s", domain)
-            seed_code = template_path.read_text()
-            if f"async def seed_{domain}" in seed_code:
-                seed_code += (
-                    f"\n\nasync def seed_database():\n"
-                    f"    from database import AsyncSessionLocal\n"
-                    f"    async with AsyncSessionLocal() as db:\n"
-                    f"        await seed_{domain}(db)\n"
-                )
-        if not seed_code:
-            seed_code = fallback_seed_fn(project_name, entities, seed_vocabulary=seed_vocabulary, domain=domain)
-            try:
-                ast.parse(seed_code)
-            except SyntaxError as _syn:
-                logger.warning("[p04a] SyntaxError in fallback seed.py: %s — emitting empty seed", _syn)
-                seed_code = "async def seed_database():\n    return None\n"
-            seed_code = fix_relative_imports_fn(seed_code)
-            (src_dir / "seed.py").write_text(seed_code)
-            logger.info("[p04a] seed.py %d chars (deterministic)", len(seed_code))
+        # The per-domain templates in seed_templates/ import models that only exist in their own sample
+        # schema (Contact, Company, ...) and create no admin user. They used to be read into seed_code and
+        # then never written, so the app had NO seed.py: no admin, no data (KAN-169). The seed is built from
+        # the project's own entities instead; wiring the templates in properly is a separate ticket.
+        seed_code = fallback_seed_fn(project_name, entities, seed_vocabulary=seed_vocabulary, domain=domain)
+        try:
+            ast.parse(seed_code)
+        except SyntaxError as _syn:
+            logger.warning("[p04a] SyntaxError in fallback seed.py: %s — emitting empty seed", _syn)
+            seed_code = "async def seed_database():\n    return None\n"
+        seed_code = fix_relative_imports_fn(seed_code)
+        (src_dir / "seed.py").write_text(seed_code)
+        logger.info("[p04a] seed.py %d chars (deterministic)", len(seed_code))
 
     # Step 4a: Pattern library injection
     _active_patterns = detect_patterns_fn(data, raw_input)

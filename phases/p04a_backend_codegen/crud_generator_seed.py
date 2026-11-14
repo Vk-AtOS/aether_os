@@ -106,13 +106,19 @@ def _fallback_seed(
                     fn = field_def.get("name", "")
                     if fn in unique_field_names and fn != "name":
                         kwargs.append(f"{fn}={_seed_value_for_field(field_def, i, name)}")
+                    elif fn in ("status", "type", "stage", "priority"):
+                        kwargs.append(f"{fn}='active'")        # NOT NULL in the model and allowed by its CHECK
+                    elif fn == "title":
+                        kwargs.append(f"{fn}={repr(f'{name} {i + 1}')}")
                 rows_parts.append(f"            {name}({', '.join(kwargs)}),")
             rows = "\n".join(rows_parts)
             entity_blocks.append(
                 f"        try:\n"
                 f"            from models import {name}\n"
                 f"            db.add_all([\n{rows}\n            ])\n"
+                f"            await db.commit()\n"
                 f"        except Exception as _e:\n"
+                f"            await db.rollback()\n"
                 f"            _logger.warning('Seed {name} failed (non-fatal): %s', _e)\n"
             )
 
@@ -154,11 +160,14 @@ def _fallback_seed(
                     is_active=True,
                 )
                 db.add(admin)
-                await db.flush()
-        {entity_seed_code}
+                # the admin is committed first: a failing demo row must never take the admin account with it
                 await db.commit()
+                __ENTITY_SEED__
                 _logger.info("Seeded admin user admin@example.com")
-    """)
+    """).replace("        __ENTITY_SEED__", entity_seed_code.rstrip("\n"))
+    # The entity blocks are already indented for the function body (8 spaces). They used to be pasted into the
+    # template before textwrap.dedent, which stripped 8 spaces from all but the first line and left an
+    # IndentationError, so every fallback seed was replaced by an empty one: no admin, no data (KAN-169).
 
 
 async def generate_llm_seed(

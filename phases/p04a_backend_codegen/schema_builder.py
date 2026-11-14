@@ -148,6 +148,11 @@ def _fallback_models(project_name: str, entities: list, domain: str = "") -> str
     for money fields in fintech/marketplace/erp).
     """
     entity_classes = []
+    # `<x>_id` links to an entity only when one named <x> exists in this app: (class name, table) by lowered name
+    _entity_by_key = {
+        str(e.get("name", "")).replace("_", "").lower(): (e.get("name"), e.get("table") or str(e.get("name", "")).lower() + "s")
+        for e in entities if e.get("name")
+    }
     for ent in entities:
         name = ent.get("name", "Item")
         table = ent.get("table", name.lower() + "s")
@@ -159,6 +164,9 @@ def _fallback_models(project_name: str, entities: list, domain: str = "") -> str
             if fn in ("id", "created_at", "updated_at"):
                 continue
             sa_type = _col_to_sa_type(fn, domain)
+            _target = _entity_by_key.get(fn[:-3].replace("_", "").lower()) if fn.endswith("_id") and "user" not in fn else None
+            if _target:
+                sa_type = f"Integer, ForeignKey('{_target[1]}.id')"
 
             if fn in ("status", "type", "stage", "priority"):
                 sa_type += f", CheckConstraint(\"{fn} IN ('active', 'inactive', 'pending', 'open', 'closed', 'new')\", name='ck_{table}_{fn}')"
@@ -171,9 +179,10 @@ def _fallback_models(project_name: str, entities: list, domain: str = "") -> str
             if _is_healthcare(domain) and _needs_audit_annotation(fn):
                 cols.append(f"    # audit_columns: {fn} required for HIPAA audit trail")
 
-            if fn.endswith("_id") and "user" not in fn:
-                ref_name = fn[:-3].capitalize()
-                rels.append(f"    {fn[:-3]} = relationship('{ref_name}', foreign_keys=[{fn}], lazy='selectin')")
+            if _target:
+                # no ForeignKey / no such entity used to leave a relationship SQLAlchemy could not configure,
+                # which failed the first query of every request (KAN-169)
+                rels.append(f"    {fn[:-3]} = relationship('{_target[0]}', foreign_keys=[{fn}], lazy='selectin')")
 
         cols += rels
         cols += [
