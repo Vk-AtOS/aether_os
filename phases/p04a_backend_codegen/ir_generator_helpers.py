@@ -392,6 +392,7 @@ def generate_seed_py(
     seed_vocabulary: dict | None = None,
     domain: str = "general",
     project_name: str = "",
+    multi_tenancy: bool = False,
 ) -> str:
     """Generate complete deterministic seed.py from DomainIR (20 rows per entity).
 
@@ -452,6 +453,7 @@ def generate_seed_py(
         "            password_hash=get_password_hash(_admin_password()),",
         "            role='admin',",
         "            is_active=True,",
+        *(["            org_id='default',"] if multi_tenancy else []),
         "        )",
         "        db.add(admin)",
         "        await db.flush()",
@@ -473,6 +475,8 @@ def generate_seed_py(
                 )
                 field_parts.append(f"                {f.name}={val},")
             lines.append(f"            {entity.name}(")
+            if multi_tenancy:
+                field_parts.append("                org_id='default',")
             lines.extend(field_parts)
             lines.append("            ),")
         lines.append("        ])")
