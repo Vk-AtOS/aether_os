@@ -62,3 +62,22 @@ def test_generated_app_imports_nothing_from_the_platform(built):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else (
                 [node.module or ""] if isinstance(node, ast.ImportFrom) else [])
             assert not any(n == "aether_os" or n.startswith("aether_os.") for n in names), f"{f}: {names}"
+
+
+@pytest.mark.parametrize("domain", ["fintech", "marketplace", "erp", "crm", "healthcare"])
+def test_ir_models_and_schemas_compile_for_every_domain(domain):
+    # `from decimal import Decimal` was put before `from __future__ import annotations` for money
+    # domains, so models.py and schemas.py failed to compile. ast.parse does not catch that; compile does.
+    from aether_os.core.domain_ir import DomainIR
+    from aether_os.phases.p04a_backend_codegen import ir_generators as g
+    ir = DomainIR.load(_write_ir(domain))
+    for make in (g.generate_models_py, g.generate_schemas_py):
+        compile(make(ir, domain), f"{make.__name__}-{domain}", "exec")
+
+
+def _write_ir(domain, _cache={}):
+    import tempfile
+    from pathlib import Path
+    path = Path(tempfile.mkdtemp()) / "domain_ir.json"
+    path.write_text(json.dumps({**IR, "domain": domain}))
+    return path
