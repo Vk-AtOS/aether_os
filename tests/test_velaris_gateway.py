@@ -207,6 +207,11 @@ async def test_generic_route_cannot_reopen_what_the_hr_proxy_leaves_out(http, ve
         assert (await http.post(f"/velaris/agents/{agent}/{method}", json={})).status_code == 404
     r = await http.post("/velaris/flows", json={"task": "t", "tools": ["PAY.get", "EMPLOYEE_RECORDS.erase_subject"]})
     assert r.status_code == 400 and "EMPLOYEE_RECORDS.erase_subject" in r.json()["detail"]
+    assert (await http.post("/velaris/agents/employee_records/erase_subject", json={})).status_code == 404
+    # the flow tool list fails closed: anything that is not a list of AGENT.method names is refused
+    for bad in (None, "EMPLOYEE_RECORDS.erase_subject", [], [1], ["NODOT"], ["A.b c"], ["A..b"],
+                ["employee_records.erase_subject"], {"t": "A.b"}):
+        assert (await http.post("/velaris/flows", json={"task": "t", "tools": bad})).status_code == 400, bad
     assert velaris.seen == []
     # an HR method that /hr allows, and an agent /hr does not serve, still pass through to Velaris
     await http.post("/velaris/agents/EMPLOYEE_RECORDS/get_employee", json={})
