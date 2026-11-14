@@ -97,12 +97,13 @@ def generate_console_app_jsx(services: List[Dict]) -> str:
     )
     return """\
 import React, { useState } from 'react';
-import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import ServiceCatalog from './pages/ServiceCatalog';
 import ResourceExplorer from './pages/ResourceExplorer';
 import CostDashboard from './pages/CostDashboard';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
 
 const sidebarStyle = {
   width: 220, minHeight: '100vh', background: '#1a1d27',
@@ -139,8 +140,13 @@ function NavItem({ path, icon, label, active }) {
 
 export default function App() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [region, setRegion] = useState('us-east-1');
   const tenant = localStorage.getItem('project_name') || 'My Platform';
+
+  // The console needs a signed-in user: /login is the only page without a token.
+  if (location.pathname === '/login') return <Login />;
+  if (!localStorage.getItem('access_token')) return <Navigate to="/login" replace />;
 
   return (
     <div>
@@ -179,7 +185,7 @@ export default function App() {
           <div
             style={{ width: 32, height: 32, borderRadius: '50%', background: '#4a5568', display: 'flex',
                      alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}
-            onClick={() => { localStorage.clear(); window.location.href = '/login'; }}
+            onClick={() => { localStorage.removeItem('access_token'); localStorage.removeItem('refresh_token'); navigate('/login'); }}
             title="Logout"
           >
             👤
@@ -196,6 +202,65 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
+    </div>
+  );
+}
+"""
+
+
+def generate_console_login_jsx() -> str:
+    """The sign-in page. The console's logout and its missing-token redirect both go to /login, which used to
+    be a route that did not exist (a blank page)."""
+    return """\
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+export default function Login() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) throw new Error('bad credentials');
+      const body = await res.json();
+      localStorage.setItem('access_token', body.access_token);
+      localStorage.setItem('refresh_token', body.refresh_token || '');
+      navigate('/');
+    } catch (err) {
+      setError('Invalid email or password');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const input = { width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #2d3748',
+                  background: '#0f1117', color: '#e2e8f0', marginTop: 4, marginBottom: 14 };
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <form onSubmit={submit} style={{ width: 340, background: '#1a1d27', padding: 28, borderRadius: 10,
+                                       border: '1px solid #2d3748' }}>
+        <h1 style={{ fontSize: 20, marginBottom: 20 }}>Sign in</h1>
+        <label htmlFor="email">Email</label>
+        <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required style={input} />
+        <label htmlFor="password">Password</label>
+        <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required style={input} />
+        {error && <p role="alert" style={{ color: '#fc8181', marginBottom: 12, fontSize: 13 }}>{error}</p>}
+        <button type="submit" disabled={busy}
+                style={{ width: '100%', padding: 10, borderRadius: 6, border: 'none', background: '#3182ce',
+                         color: 'white', fontWeight: 600, cursor: 'pointer' }}>
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
     </div>
   );
 }

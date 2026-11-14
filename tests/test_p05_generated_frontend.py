@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,14 +25,14 @@ ENTITIES = [
 ]
 
 
-def build_frontend(tmp_path: Path, domain: str, monkeypatch) -> Path:
+def build_frontend(tmp_path: Path, domain: str, monkeypatch, project_name: str = "Demo", extra: dict | None = None) -> Path:
     monkeypatch.setenv("ENVIRONMENT", "test")
 
     async def no_screenshot(*a, **k):
         return False
     monkeypatch.setattr(task_agent, "take_preview_screenshot", no_screenshot)
-    data = {"project_name": "Demo", "domain": domain, "architecture_json": {"database_schema": ENTITIES},
-            "raw_input": "x", "autonomous_mode": True}
+    data = {"project_name": project_name, "domain": domain, "architecture_json": {"database_schema": ENTITIES},
+            "raw_input": "x", "autonomous_mode": True, **(extra or {})}
     pi = SimpleNamespace(input_data=data, domain=domain, project_id="p")
     result = asyncio.run(task_agent.run(pi, [], tmp_path / "p05_frontend"))
     assert result.success, result
@@ -69,7 +70,7 @@ def test_every_import_in_the_generated_frontend_resolves(tmp_path, monkeypatch, 
 
 def _tsc():
     import shutil
-    found = shutil.which("tsc")
+    found = os.environ.get("TSC_BIN") or shutil.which("tsc")      # TSC_BIN: path of a typescript compiler
     local = Path(__file__).resolve().parent.parent / "dashboard" / "node_modules" / ".bin" / "tsc"
     return found or (str(local) if local.exists() else None)
 

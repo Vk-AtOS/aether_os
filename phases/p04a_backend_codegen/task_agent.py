@@ -61,7 +61,7 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
     _smoke_test,
 )
 from aether_os.phases.p04a_backend_codegen.helpers_cache import _generate_cache_service
-from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports
+from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports, safe_project_name
 from aether_os.phases.p04a_backend_codegen.pattern_injector import detect_active_patterns, inject_patterns
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _emit = getattr(phase_input, "emit", _noop_emit)
 
     raw_input: str = data.get("raw_input", "") or data.get("requirements", "") or ""
-    project_name: str = data.get("project_name", "App")
+    project_name: str = safe_project_name(data.get("project_name", "App"))
     domain: str = data.get("domain", "general")
     entities: list = data.get("entities", [])
     api_endpoints: list = data.get("api_endpoints", [])
@@ -123,14 +123,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # so we fail fast before spending time on file writes or LLM calls.
     try:
         from aether_os.phases.p04a_backend_codegen.pre_gen_validator import run_pre_gen_checks
-        _pre_gen_report = run_pre_gen_checks({"entities": entities})
+        _ir_for_checks: dict = {}
+        _ir_file = data.get("domain_ir_path", "")
+        if _ir_file and Path(_ir_file).exists():
+            _ir_for_checks = json.loads(Path(_ir_file).read_text())
+        # the IR carries the foreign keys (type "fk") and rules; the plain entity list is checked too
+        _pre_gen_report = run_pre_gen_checks({
+            "entities": list(_ir_for_checks.get("entities") or []) + list(entities),
+            "business_rules": _ir_for_checks.get("business_rules") or [],
+        })
         if _pre_gen_report.warnings:
             data.setdefault("pre_gen_warnings", []).extend(_pre_gen_report.warnings)
         if not _pre_gen_report.passed:
             data.setdefault("pre_gen_errors", []).extend(_pre_gen_report.errors)
             raise PipelineBlockedError(
                 f"P04a pre-generation check failed: {_pre_gen_report.errors}. "
-                "Fix circular foreign-key references in entity definitions before retrying."
+                "Fix the entity definitions (circular foreign keys, names that are not plain identifiers) before retrying."
             )
     except PipelineBlockedError:
         raise
@@ -179,7 +187,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if not models_code or not schemas_code:
             await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating models + schemas (deterministic)…"})
             # Pass domain so money/PHI constraints are applied in fallback codegen.
-            models_code = _fallback_models(project_name, entities, domain=domain)
+            models_code = _fallback_models(project_name, entities, domain=domain, multi_tenancy=multi_tenancy)
             schemas_code = _fallback_schemas(entities, domain=domain)
             generated_via = "deterministic_fallback"
 
@@ -193,7 +201,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         # arguments (e.g. Column(default=True, ..., default=False)) which
         # ast.parse() silently accepts on Python 3.10.
         for _fname, _code, _fallback_fn, _fallback_args in [
-            ("models.py", models_code, _fallback_models, [project_name, entities, domain]),
+            ("models.py", models_code, _fallback_models, [project_name, entities, domain, multi_tenancy]),
             ("schemas.py", schemas_code, _fallback_schemas, [entities, domain]),
         ]:
             try:
@@ -214,7 +222,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     len(models_code), len(_llm_classes), len(schemas_code))
     except Exception as exc:
         logger.warning("[p04a] models/schemas generation failed (%s), using fallback", exc)
-        models_code = _fallback_models(project_name, entities, domain=domain)
+        models_code = _fallback_models(project_name, entities, domain=domain, multi_tenancy=multi_tenancy)
         schemas_code = _fallback_schemas(entities, domain=domain)
         models_code = fix_relative_imports(models_code)
         schemas_code = fix_relative_imports(schemas_code)
@@ -314,6 +322,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "DEBUG=false\n"
         "ADMIN_PASSWORD={admin}\n"
         "# REDIS_URL=redis://localhost:6379  # Uncomment to enable response caching\n"
+        "# ALLOW_SIGNUP=true                 # false = invite-only\n"
+        "# ENABLE_DOCS=false                 # true keeps /docs and /openapi.json when ENVIRONMENT=production\n"
+        "# JWT signing key: with several replicas every one must share it (same volume file, or PEM text in RSA_PRIVATE_KEY)\n"
+        "# RSA_PRIVATE_KEY_PATH=/keys/private_key.pem\n"
         "# CACHE_TTL=30                      # Cache time-to-live in seconds\n"
     )
     # .env holds this app's own random secrets; .env.example is the committed copy and holds placeholders only.

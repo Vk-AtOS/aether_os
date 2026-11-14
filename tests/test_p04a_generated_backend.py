@@ -28,12 +28,12 @@ IR = {
 }
 
 
-def generate(tmp_path, *, domain="crm", tenancy=False, use_ir=True, monkeypatch=None, permission_model=None):
+def generate(tmp_path, *, domain="crm", tenancy=False, use_ir=True, monkeypatch=None, permission_model=None, ir_override=None):
     """Run p04a for a small domain and return the generated app directory."""
     async def no_smoke(src_dir, emit):          # the smoke test needs a sandbox; imports are checked below
         return {"passed": True, "errors": [], "check_imports": helpers._check_imports(src_dir), "skipped": True}
     monkeypatch.setattr(task_agent, "_smoke_test", no_smoke)
-    ir = {**IR, "domain": domain}
+    ir = {**(ir_override or IR), "domain": domain}
     (tmp_path / "domain_ir.json").write_text(json.dumps(ir))
     entities = [{"name": e["name"], "table": e["table"],
                  "fields": [{"name": f["name"], "type": f["type"]} for f in e["fields"]]} for e in ir["entities"]]
@@ -104,9 +104,9 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     a = {"Authorization": "Bearer " + r.json()["access_token"]}
     for ent in sys.argv[2].split(","):
         out[f"user_list_{ent}"] = c.get(f"/api/{ent}", headers=u).status_code
-        out[f"user_create_{ent}"] = c.post(f"/api/{ent}", headers=u, json={"name": "A", "amount": 5}).status_code
-        out[f"admin_list_{ent}"] = c.get(f"/api/{ent}", headers=a).status_code
         body = {"name": "A", "email": "a@b.io", "status": "active", "balance": 1} if ent == "customers" else {"amount": 5}
+        out[f"user_create_{ent}"] = c.post(f"/api/{ent}", headers=u, json={**body, **({"email": "user@b.io"} if "email" in body else {})}).status_code
+        out[f"admin_list_{ent}"] = c.get(f"/api/{ent}", headers=a).status_code
         r = c.post(f"/api/{ent}", headers=a, json=body)
         out[f"admin_create_{ent}"] = r.status_code
         rid = r.json().get("id") if r.status_code == 201 else None

@@ -26,6 +26,8 @@ from phases.p04a_backend_codegen.templates_main import (  # noqa: F401
     patch_main_py,
 )
 
+from aether_os.phases.p04a_backend_codegen.templates_auth import _AUTH_PY, _AUTH_ROUTER_PY, _RATE_LIMITER_PY  # noqa: F401,E402
+
 # ── Fixed production templates ─────────────────────────────────────────────────
 
 _DATABASE_PY = '''\
@@ -104,8 +106,12 @@ _ENV_TEMPLATE = """\
 # For local development without PostgreSQL, set to: sqlite+aiosqlite:///./app.db
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/appdb
 # For local SQLite fallback (development only): DATABASE_URL=sqlite:///./app.db
-# JWT uses RS256. Keys are auto-generated as private_key.pem / public_key.pem on first run.
-# Override paths with RSA_PRIVATE_KEY_PATH / RSA_PUBLIC_KEY_PATH env vars.
+# JWT uses RS256. The signing key is created (mode 0600) at RSA_PRIVATE_KEY_PATH on first run.
+# With several replicas, give every replica the SAME key: a shared volume at RSA_PRIVATE_KEY_PATH, or the PEM
+# text in RSA_PRIVATE_KEY (secret manager). Otherwise tokens signed by one replica fail on the others.
+# RSA_PRIVATE_KEY_PATH=/keys/private_key.pem
+# Set ALLOW_SIGNUP=false for invite-only apps (default true: sign-up gives the lowest role, password >= 12 chars).
+# ALLOW_SIGNUP=true
 # INVITE_SECRET is used only for org invite tokens (HS256, short-lived).
 INVITE_SECRET={secret_key}
 ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -147,153 +153,20 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/appdb
-      SECRET_KEY: ${SECRET_KEY:-changeme-set-in-env}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      RSA_PRIVATE_KEY_PATH: /keys/private_key.pem
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       ENVIRONMENT: production
+    volumes:
+      - keys:/keys       # the JWT signing key, shared by every replica of the app
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  keys:
 """
-
-_AUTH_PY = '''\
-"""JWT access + refresh tokens (RS256), bcrypt password hashing, FastAPI dependencies.
-
-RS256 keypair is auto-generated on first startup if the PEM files are absent.
-Set RSA_PRIVATE_KEY_PATH / RSA_PUBLIC_KEY_PATH env vars to use pre-existing keys.
-"""
-from __future__ import annotations
-import os
-import logging
-import bcrypt as _bcrypt
-from datetime import datetime, timedelta, timezone
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-import jwt; JWTError = jwt.exceptions.PyJWTError
-
-logger = logging.getLogger(__name__)
-
-ALGORITHM = "RS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-REFRESH_TOKEN_EXPIRE_DAYS = 7
-
-_PRIVATE_KEY_PATH = os.environ.get("RSA_PRIVATE_KEY_PATH", "private_key.pem")
-_PUBLIC_KEY_PATH = os.environ.get("RSA_PUBLIC_KEY_PATH", "public_key.pem")
-
-
-def _ensure_rsa_keys() -> None:
-    """Auto-generate a 2048-bit RSA keypair on first run if the PEM files are missing."""
-    if os.path.exists(_PRIVATE_KEY_PATH) and os.path.exists(_PUBLIC_KEY_PATH):
-        return
-    try:
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        with open(_PRIVATE_KEY_PATH, "wb") as f:
-            f.write(private_key.private_bytes(
-                serialization.Encoding.PEM,
-                serialization.PrivateFormat.PKCS8,
-                serialization.NoEncryption(),
-            ))
-        with open(_PUBLIC_KEY_PATH, "wb") as f:
-            f.write(private_key.public_key().public_bytes(
-                serialization.Encoding.PEM,
-                serialization.PublicFormat.SubjectPublicKeyInfo,
-            ))
-        logger.info("auth: generated RSA-2048 keypair (%s, %s)", _PRIVATE_KEY_PATH, _PUBLIC_KEY_PATH)
-    except Exception as exc:
-        logger.error("auth: RSA keypair generation failed: %s", exc)
-        raise RuntimeError(f"Cannot generate RSA keys for JWT signing: {exc}") from exc
-
-
-def _load_private_key():
-    _ensure_rsa_keys()
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    with open(_PRIVATE_KEY_PATH, "rb") as f:
-        return load_pem_private_key(f.read(), password=None)
-
-
-def _load_public_key():
-    _ensure_rsa_keys()
-    from cryptography.hazmat.primitives.serialization import load_pem_public_key
-    with open(_PUBLIC_KEY_PATH, "rb") as f:
-        return load_pem_public_key(f.read())
-
-
-# Load keys once at module import (auto-generates if missing)
-_ensure_rsa_keys()
-_PRIVATE_KEY = _load_private_key()
-_PUBLIC_KEY = _load_public_key()
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return _bcrypt.checkpw(plain.encode(), hashed.encode())
-
-
-def get_password_hash(password: str) -> str:
-    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
-
-
-def create_access_token(user_id: int | str, email: str, role: str, org_id: str | None = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload: dict = {"sub": str(user_id), "email": email, "role": role, "exp": expire, "type": "access"}
-    if org_id:
-        payload["org_id"] = str(org_id)
-    return jwt.encode(payload, _PRIVATE_KEY, algorithm=ALGORITHM)
-
-
-def create_refresh_token(user_id: int | str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    return jwt.encode(
-        {"sub": str(user_id), "exp": expire, "type": "refresh"},
-        _PRIVATE_KEY,
-        algorithm=ALGORITHM,
-    )
-
-
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    exc = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, _PUBLIC_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") != "access":
-            raise exc
-        sub = payload.get("sub")
-        if not sub:
-            raise exc
-        return {"id": sub, "email": payload.get("email", ""), "role": payload.get("role", "user"), "org_id": payload.get("org_id")}
-    except JWTError:
-        raise exc
-
-
-async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if str(user.get("role") or "").lower() != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
-    return user
-
-
-def require_role(*roles: str):
-    """Dependency factory: require the current user to have one of the given ABAC roles.
-
-    Usage: current_user: dict = Depends(require_role("Admin", "Manager"))
-    The role is sourced from the JWT claim written by create_access_token().
-    """
-    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
-        if str(current_user.get("role") or "").lower() not in [r.lower() for r in roles]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient role. Required one of: {list(roles)}",
-            )
-        return current_user
-    return _check
-'''
 
 _CONFIG_PY = '''\
 """Application settings loaded from environment variables."""
@@ -315,174 +188,6 @@ class Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
-'''
-
-_AUTH_ROUTER_PY = '''\
-"""Auth endpoints — login, register, refresh token, current user."""
-# No `from __future__ import annotations` here: slowapi wraps the endpoints, and FastAPI then looks the
-# string annotations up in the wrapper's module, where LoginRequest does not exist (import fails).
-import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from database import get_db
-from auth import (
-    verify_password,
-    get_password_hash,
-    create_access_token,
-    create_refresh_token,
-    get_current_user,
-    ALGORITHM,
-    _PUBLIC_KEY,
-)
-
-try:
-    from rate_limiter import limiter as _limiter, ip_key as _ip_key
-    _limit = _limiter.limit
-except Exception:
-    _ip_key = None
-
-    def _limit(s, **_kw):  # no-op when slowapi not available
-        def _d(f): return f
-        return _d
-
-try:
-    from models import User
-except ImportError:
-    User = None  # type: ignore[assignment,misc]
-
-import jwt; JWTError = jwt.exceptions.PyJWTError
-
-router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: str = ""
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-@router.post("/login", response_model=TokenResponse)
-@_limit("10/minute", key_func=_ip_key)
-async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    if User is None:
-        raise HTTPException(status_code=503, detail="User model not available")
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
-    if not user or not verify_password(data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
-    return TokenResponse(
-        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-@_limit("5/minute", key_func=_ip_key)
-async def register(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    if User is None:
-        raise HTTPException(status_code=503, detail="User model not available")
-    existing = await db.execute(select(User).where(User.email == data.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-    user = User(
-        email=data.email,
-        password_hash=get_password_hash(data.password),
-        role="user",
-        **({"name": data.name} if data.name and hasattr(User, "name") else {}),
-        # multi-tenant apps: signing up creates the user's own tenant
-        **({"org_id": str(uuid.uuid4())} if hasattr(User, "org_id") else {}),
-    )
-    db.add(user)
-    await db.flush()
-    return TokenResponse(
-        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@router.post("/refresh", response_model=TokenResponse)
-@_limit("20/minute", key_func=_ip_key)
-async def refresh_token(request: Request, data: RefreshRequest, db: AsyncSession = Depends(get_db)):
-    if User is None:
-        raise HTTPException(status_code=503, detail="User model not available")
-    exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
-    try:
-        payload = jwt.decode(data.refresh_token, _PUBLIC_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") != "refresh":
-            raise exc
-        user_id = payload.get("sub")
-        if not user_id:
-            raise exc
-    except JWTError:
-        raise exc
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise exc
-    return TokenResponse(
-        access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@router.get("/me")
-async def me(current_user: dict = Depends(get_current_user)):
-    return current_user
-'''
-
-_RATE_LIMITER_PY = '''\
-"""Shared SlowAPI rate limiter — imported by main.py and any router that needs limits.
-
-Key function: a request with a VALID access token is limited per account; everything else
-(no token, a bad token, a random token) is limited per source IP. The key must never come from
-a value the caller can invent, otherwise every invented token is a fresh bucket and the
-/auth/login brute-force limit is bypassed.
-"""
-from fastapi import Request
-from slowapi import Limiter
-
-
-def _get_rate_limit_key(request: Request) -> str:
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        try:
-            import jwt
-            from auth import ALGORITHM, _PUBLIC_KEY
-            claims = jwt.decode(auth[7:], _PUBLIC_KEY, algorithms=[ALGORITHM])
-            if claims.get("type") == "access" and claims.get("sub"):
-                return f"user:{claims['sub']}"
-        except Exception:
-            pass  # invalid or expired token: treated as anonymous, so it is limited by IP
-    return ip_key(request)
-
-
-def ip_key(request: Request) -> str:
-    """Source IP only. Login, register and refresh use this: a caller who is not signed in yet must not be
-    able to pick their own bucket, not even with a valid token of their own."""
-    return request.client.host if request.client else "unknown"
-
-
-limiter = Limiter(key_func=_get_rate_limit_key, default_limits=["200/minute"])
 '''
 
 # Standalone cache.py template written to src/cache.py of the generated app.

@@ -19,6 +19,19 @@ def validate(result: TaskResult) -> GateOutcome:
     issues = []
     warnings = []
 
+    # Hard failures. The gate used to append only to `warnings`, so it passed whatever it found (KAN-169).
+    src = p / "src"
+    for required in ("main.py", "models.py", "schemas.py", "auth.py", "database.py", "seed.py", "routers/crud.py"):
+        if not (src / required).is_file():
+            issues.append(f"Required file src/{required} is missing")
+    for f in sorted(src.rglob("*.py")) if src.is_dir() else []:
+        try:
+            compile(f.read_text(), str(f), "exec")
+        except (SyntaxError, ValueError) as exc:
+            issues.append(f"{f.relative_to(p)} does not compile: {exc}")
+        if re.search(r"^\s*(?:from|import)\s+aether_os\b", f.read_text(), re.MULTILINE):
+            issues.append(f"{f.relative_to(p)} imports the AetherOS platform package, which the customer's app does not have")
+
     # Check for /health endpoint
     main_py = p / "src" / "main.py"
     if main_py.exists():
