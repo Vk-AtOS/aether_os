@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -55,3 +56,25 @@ def memory_hint(memory_ctx: List[Dict[str, Any]], max_chars: int = 1200) -> str:
 def phase_input_data(phase_input: Any) -> Dict[str, Any]:
     """Safe accessor for phase_input.input_data."""
     return phase_input.input_data if hasattr(phase_input, "input_data") else {}
+
+
+def get_domain_ir(data: Dict[str, Any]) -> Dict[str, Any]:
+    """The domain IR as a dict, from whichever form the context carries it.
+
+    s02 stores only domain_ir_path (the JSON file p02b wrote); generators for Go,
+    Node, mobile, desktop, CLI, serverless and the platform phases used to read
+    data["domain_ir"], which nothing set, and silently built a placeholder "item"
+    entity. {} when there is no IR.
+    """
+    ir = data.get("domain_ir")
+    if isinstance(ir, dict) and ir:
+        return ir
+    path = data.get("domain_ir_path")
+    if path:
+        try:
+            loaded = json.loads(Path(path).read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                return loaded
+        except (OSError, ValueError) as exc:
+            logger.warning("get_domain_ir: cannot read %s: %s", path, exc)
+    return {}

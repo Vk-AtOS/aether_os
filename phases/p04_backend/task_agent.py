@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from aether_os.core.architecture_governor import ArchitectureGovernor
 from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
+from aether_os.phases.utils import get_domain_ir
 from aether_os.phases.p04a_backend_codegen.task_agent import run as p04a_run
 from aether_os.phases.p04_uiux_design.task_agent import run as p04b_run
 from aether_os.phases.p04_backend.go_generator import (
@@ -185,7 +186,7 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
 async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     """Generate Go/Gin backend (single service or multi-service) based on build_profile."""
     data = phase_input.input_data or {}
-    domain_ir = data.get("domain_ir") or {}
+    domain_ir = get_domain_ir(data)
     entities = domain_ir.get("entities") or []
     if not entities:
         entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]
@@ -231,7 +232,7 @@ async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
 async def _run_node_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     """Generate TypeScript/Fastify backend when build_profile.backend_lang == 'typescript'."""
     data = phase_input.input_data or {}
-    domain_ir = data.get("domain_ir") or {}
+    domain_ir = get_domain_ir(data)
     entities = domain_ir.get("entities") or []
     if not entities:
         entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]
