@@ -28,6 +28,9 @@ from aether_os.phases.p05_frontend.llm_page_writer import (
     write_dashboard_llm,
     get_design_tokens,
 )
+from aether_os.phases.p05_frontend.code_writer import (
+    _generate_pagination, _generate_role_guard, _generate_skeleton,
+)
 from aether_os.phases.p05_frontend.preview import vlm_rubric_critique
 
 logger = logging.getLogger(__name__)
@@ -200,6 +203,11 @@ def write_scaffold_and_components(
     write_with_guard_fn(src_dir / "components" / "CrudModal.tsx", generate_crud_modal_fn())
     write_with_guard_fn(src_dir / "components" / "Toaster.tsx", generate_toaster_fn())
     write_with_guard_fn(src_dir / "components" / "ErrorBoundary.tsx", generate_error_boundary_fn())
+    # Every generated entity page imports these three; the generators existed but nothing wrote the files,
+    # so the build failed with "cannot resolve ../components/Pagination" (KAN-168).
+    write_with_guard_fn(src_dir / "components" / "Pagination.tsx", _generate_pagination())
+    write_with_guard_fn(src_dir / "components" / "Skeleton.tsx", _generate_skeleton())
+    write_with_guard_fn(src_dir / "components" / "RoleGuard.tsx", _generate_role_guard())
 
 
 async def generate_domain_widget(
