@@ -142,6 +142,11 @@ class ModelRouter:
         from aether_os.core.errors import LLMUnavailable
         from aether_os.core.telemetry.langsmith_tracer import trace_call
 
+        # ── 0. Global kill switch (D6): nothing is sent to any model ──────────
+        from aether_os.core.llm.budget import kill_switch_on, resolve_plan
+        if kill_switch_on():
+            raise LLMUnavailable("LLM calls are disabled by the platform kill switch")
+
         # ── 1. Semantic cache check ───────────────────────────────────────────
         if not enforce_local:
             try:
@@ -167,23 +172,21 @@ class ModelRouter:
             except Exception as _ce:
                 logger.debug("Cache check failed (continuing): %s", _ce)
 
-        # ── 2. Token budget check ─────────────────────────────────────────────
+        # ── 2. Token budget check — fails closed (D6) ─────────────────────────
         _recommended_model: Optional[str] = None
-        if org_id and plan and not enforce_local:
+        if org_id and not enforce_local:
+            plan = await resolve_plan(org_id, plan)
             try:
                 from aether_os.core.llm.budget import get_budget_manager
-                _bm = get_budget_manager()
-                allowed, reason, _recommended_model = await _bm.check_budget(
+                allowed, reason, _recommended_model = await get_budget_manager().check_budget(
                     org_id=org_id, plan=plan
                 )
-                if not allowed:
-                    raise LLMUnavailable(f"Token budget exceeded: {reason}")
-                if _recommended_model == "haiku":
-                    logger.info("Router: budget downgrade → Haiku (%s)", reason)
-            except LLMUnavailable:
-                raise
             except Exception as _be:
-                logger.debug("Budget check failed (continuing): %s", _be)
+                raise LLMUnavailable(f"Token budget check unavailable: {_be}") from _be
+            if not allowed:
+                raise LLMUnavailable(f"Token budget exceeded: {reason}")
+            if _recommended_model == "haiku":
+                logger.info("Router: budget downgrade → Haiku (%s)", reason)
 
         # Reset daily fallback counter on calendar-day boundary
         today = time.strftime("%Y-%m-%d")
@@ -207,6 +210,11 @@ class ModelRouter:
         chain = get_fallback_chain()
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
+
+        # Free/community endpoints may log or train on prompts: never use them for
+        # customer data unless the operator explicitly opts in.
+        if not enforce_local and os.environ.get("ALLOW_COMMUNITY_LLM", "").lower() not in ("1", "true", "yes"):
+            chain = [s for s in chain if not (s.provider == "openrouter" and s.model.endswith(":free"))]
 
         # ── Caller-pinned provider (ContextVar-safe; avoids os.environ mutation) ──
         if primary_provider is not None and not enforce_local:

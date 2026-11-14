@@ -322,6 +322,7 @@ class TokenBudgetRecord(Base):
     cache_misses: Mapped[int] = mapped_column(default=0)
     estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+    __table_args__ = (UniqueConstraint("org_id", "month", name="uq_token_budget_org_month"),)
 
 
 # ── Plugin Registry (replaces ~/.aether_os/plugins.db) ───────────────────────
