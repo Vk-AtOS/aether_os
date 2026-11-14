@@ -7,6 +7,7 @@ and writes the results to disk.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 from pathlib import Path
@@ -474,7 +475,13 @@ export default {
 
 
 def _generate_index_html(project_name: str, description: str = "", domain: str = "saas") -> str:
+    # Both values come from the spec: escaped for HTML text/attributes, and JSON-encoded (with `<` neutralised, so
+    # `</script>` cannot end the block) inside the JSON-LD script. `x</title><script>` used to run as a script.
     _desc = description or f"{project_name} — the modern platform built for your business."
+    _ld_name = json.dumps(project_name).replace("<", "\\u003c")
+    _ld_desc = json.dumps(_desc).replace("<", "\\u003c")
+    project_name = html.escape(project_name, quote=True)
+    _desc = html.escape(_desc, quote=True)
     _og_type = "website"
     _schema_type = "WebSite"
     if domain in ("ecommerce", "marketplace"):
@@ -521,8 +528,8 @@ def _generate_index_html(project_name: str, description: str = "", domain: str =
   {{
     "@context": "https://schema.org",
     "@type": "{_schema_type}",
-    "name": "{project_name}",
-    "description": "{_desc}",
+    "name": {_ld_name},
+    "description": {_ld_desc},
     "url": "/"
   }}
   </script>

@@ -23,6 +23,7 @@ from aether_os.phases.p05_frontend.cloud_console_generator import (
 from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
 from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
 from aether_os.phases.utils import memory_hint
+from aether_os.phases.p05_frontend.safe_text import safe_display_name
 from aether_os.phases.p05_frontend.prompts import (
     DOMAIN_FALLBACK_WIDGETS,
     DOMAIN_COMPONENT_DESC,
@@ -150,7 +151,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 except Exception as _cc_exc:
                     logger.warning("p05: cloud console IR load failed: %s", _cc_exc)
             _cc_services = data.get("services") or []
-            _cc_project_name = data.get("project_name", "Cloud Platform")
+            _cc_project_name = safe_display_name(data.get("project_name", "Cloud Platform"), "Cloud Platform")
             await generate_cloud_console(_cc_entities, _cc_services, _cc_project_name, output_dir)
             return TaskResult(
                 output_path=str(output_dir / "frontend"),
@@ -178,7 +179,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # 1. Read architecture
     arch = read_architecture(data)
-    project_name = data.get("project_name", arch.get("project_name", "Project Dashboard"))
+    project_name = safe_display_name(data.get("project_name", arch.get("project_name", "Project Dashboard")), "Project Dashboard")
     project_slug = re.sub(r"[^a-z0-9-]", "-", project_name.lower()).strip("-") or "project"
     route_map: Dict[str, str] = arch.get("api_route_map", {})
 
@@ -256,8 +257,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     user_personas: List[dict] = data.get("user_personas") or []
     has_customer_portal = data.get("has_customer_portal")
     has_landing_page: bool = bool(data.get("has_landing_page", False))
-    app_brand: Dict[str, Any] = data.get("app_brand") or {}
-    app_tagline: str = data.get("app_tagline", "")
+    app_brand: Dict[str, Any] = {k: safe_display_name(v, "", 200) if isinstance(v, str) else v
+                                 for k, v in (data.get("app_brand") or {}).items()}
+    app_tagline: str = safe_display_name(data.get("app_tagline", ""), "", 200)
     realtime_features: List[Any] = data.get("realtime_features") or []
     build_types: List[str] = data.get("build_types") or []
     _raw_lower = (data.get("raw_input") or "").lower()
