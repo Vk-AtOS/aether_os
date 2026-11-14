@@ -305,19 +305,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _secret = _sec.token_hex(32)
     (output_dir / "requirements.txt").write_text(_REQUIREMENTS_TXT)
     (output_dir / "Dockerfile").write_text(_DOCKERFILE)
-    _env_content = (
-        f"DATABASE_URL=sqlite+aiosqlite:///./app.db\n"
-        f"SECRET_KEY={_secret}\n"
-        f"CORS_ORIGINS=http://localhost:3000,http://localhost:5173\n"
-        f"ENVIRONMENT=development\n"
-        f"DEBUG=false\n"
-        f"ADMIN_PASSWORD=Admin1234!\n"
-        f"# REDIS_URL=redis://localhost:6379  # Uncomment to enable response caching\n"
-        f"# CACHE_TTL=30                      # Cache time-to-live in seconds\n"
+    _admin_pw = _sec.token_urlsafe(16)
+    _env_lines = (
+        "DATABASE_URL=sqlite+aiosqlite:///./app.db\n"
+        "SECRET_KEY={secret}\n"
+        "CORS_ORIGINS=http://localhost:3000,http://localhost:5173\n"
+        "ENVIRONMENT=development\n"
+        "DEBUG=false\n"
+        "ADMIN_PASSWORD={admin}\n"
+        "# REDIS_URL=redis://localhost:6379  # Uncomment to enable response caching\n"
+        "# CACHE_TTL=30                      # Cache time-to-live in seconds\n"
     )
-    # Write both .env (used by the running app) and .env.example (for documentation)
-    (output_dir / ".env").write_text(_env_content)
-    (output_dir / ".env.example").write_text(_env_content)
+    # .env holds this app's own random secrets; .env.example is the committed copy and holds placeholders only.
+    (output_dir / ".env").write_text(_env_lines.format(secret=_secret, admin=_admin_pw))
+    (output_dir / ".env.example").write_text(_env_lines.format(secret="change-me", admin="change-me"))
+    (output_dir / ".gitignore").write_text(".env\n*.pem\n*.db\nadmin_initial_password.txt\n__pycache__/\n")
+    (output_dir / ".dockerignore").write_text(".env\n*.pem\n*.db\nadmin_initial_password.txt\n__pycache__/\n.git\n")
     (output_dir / "Makefile").write_text(_generate_makefile(project_name))
     (output_dir / "README.md").write_text(_generate_backend_readme(project_name, entities))
     write_alembic_scaffold(output_dir)

@@ -425,7 +425,20 @@ def generate_seed_py(
     lines += [
         "",
         "_logger = logging.getLogger(__name__)",
-        "_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Admin1234!')",
+        'def _admin_password() -> str:',
+        '    # ADMIN_PASSWORD from the environment, else a random one written once to a 0600 file.',
+        '    # Never a known default, and never logged.',
+        "    pw = os.environ.get('ADMIN_PASSWORD')",
+        '    if pw:',
+        '        return pw',
+        '    import secrets',
+        '    pw = secrets.token_urlsafe(16)',
+        "    path = os.path.join(os.getcwd(), 'admin_initial_password.txt')",
+        '    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)',
+        "    with os.fdopen(fd, 'w') as f:",
+        '        f.write(pw)',
+        "    _logger.warning('ADMIN_PASSWORD is not set: a random admin password was written to %s', path)",
+        '    return pw',
         "",
         "",
         "async def seed_database() -> None:",
@@ -436,7 +449,7 @@ def generate_seed_py(
         "",
         "        admin = User(",
         "            email='admin@example.com',",
-        "            password_hash=get_password_hash(_ADMIN_PASSWORD),",
+        "            password_hash=get_password_hash(_admin_password()),",
         "            role='admin',",
         "            is_active=True,",
         "        )",
@@ -467,7 +480,7 @@ def generate_seed_py(
 
     lines += [
         "        await db.commit()",
-        "        _logger.info('Seeded admin: admin@example.com / %s', _ADMIN_PASSWORD)",
+        "        _logger.info('Seeded admin user admin@example.com')",
     ]
     return "\n".join(lines) + "\n"
 

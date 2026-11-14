@@ -112,7 +112,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ENVIRONMENT=development
 DEBUG=false
-ADMIN_PASSWORD=Admin1234!
+# First-run admin password. Leave empty to have a random one written to admin_initial_password.txt.
+ADMIN_PASSWORD=
 # Connection pool tuning — defaults to cpu_count*2 (min 4). Increase for high traffic.
 # DB_POOL_SIZE=20
 # DB_MAX_OVERFLOW=40
