@@ -107,3 +107,46 @@ out["tok"] = tok
     c = run_script(app, "import auth; out['ok'] = auth._PRIVATE_KEY.key_size",
                    {"RSA_PRIVATE_KEY_PATH": str(tmp_path / "none" / "x.pem"), "RSA_PRIVATE_KEY": (keys.read_text()).replace("\n", "\\n")})
     assert c["ok"] == 2048 and not (tmp_path / "none").exists()      # env PEM wins, no file written
+
+
+def test_response_cache_key_is_full_sha256_dropped_on_writes_and_never_logs_the_url(tmp_path, monkeypatch):
+    # The key used the first 8 hex digits of an MD5 of the Authorization header (32 bits), nothing dropped it
+    # when the entity was written (stale lists for the whole TTL) and the log line carried the Redis URL
+    # (with its password). A fake Redis stands in for the server.
+    app = _crm(tmp_path, monkeypatch)
+    r = run_script(app, r'''
+import types, logging, io, re, asyncio
+store = {}
+class Fake:
+    async def ping(self): return True
+    async def get(self, k): return store.get(k)
+    async def set(self, k, v, ex=None): store[k] = v
+    async def delete(self, *k):
+        for x in k: store.pop(x, None)
+    async def scan_iter(self, match=None, count=None):
+        pre = match.rstrip("*")
+        for k in list(store):
+            if k.startswith(pre): yield k
+aioredis = types.ModuleType("redis.asyncio"); aioredis.from_url = lambda *a, **k: Fake()
+sys.modules["redis"] = types.ModuleType("redis"); sys.modules["redis.asyncio"] = aioredis
+os.environ["REDIS_URL"] = "redis://:s3cretpw@cache.internal:6379"
+buf = io.StringIO(); logging.basicConfig(stream=buf, level=logging.INFO)
+from services.cache import RedisCacheMiddleware
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+api = FastAPI(); api.add_middleware(RedisCacheMiddleware)
+calls = {"n": 0}
+@api.get("/api/things")
+def lst(): calls["n"] += 1; return {"n": calls["n"]}
+@api.post("/api/things")
+def add(): return {"ok": 1}
+c = TestClient(api); h = {"Authorization": "Bearer abc"}
+out["first"] = c.get("/api/things", headers=h).json()["n"]
+out["cached"] = c.get("/api/things", headers=h).json()["n"]
+out["keys"] = [k for k in store]
+c.post("/api/things", headers=h)
+out["after_write"] = c.get("/api/things", headers=h).json()["n"]
+out["logged_password"] = "s3cretpw" in buf.getvalue()
+''')
+    assert r["first"] == 1 and r["cached"] == 1 and r["after_write"] == 2, r
+    assert len(r["keys"][0].rsplit(":", 1)[1]) == 64 and not r["logged_password"], r
