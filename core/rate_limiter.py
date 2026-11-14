@@ -60,9 +60,16 @@ def get_client_ip(request: "Request") -> str:
         is_trusted_proxy = False
 
     if is_trusted_proxy:
-        xff = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        if xff:
-            return xff
+        # The left-most entry is whatever the client sent. Walk from the right (the
+        # hops our own proxies appended) and take the first address that is not a
+        # trusted proxy.
+        for hop in reversed([h.strip() for h in request.headers.get("X-Forwarded-For", "").split(",")]):
+            try:
+                addr = ipaddress.ip_address(hop)
+            except ValueError:
+                break  # garbage from the client side of the chain: stop trusting
+            if not any(addr in net for net in _TRUSTED_NETWORKS):
+                return hop
 
     return direct_ip
 

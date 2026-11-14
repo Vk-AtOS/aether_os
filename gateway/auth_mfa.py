@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import User, Organisation
-from aether_os.core.rate_limiter import _get_async_redis, _redis_get_count, _redis_incr_window
+from aether_os.core.rate_limiter import get_client_ip, _get_async_redis, _redis_get_count, _redis_incr_window
 from aether_os.gateway.auth_refresh import _redis as token_store, issue_token_pair
 from aether_os.gateway.auth import decode_bearer_token
 from sqlalchemy import select
@@ -149,16 +149,20 @@ async def mfa_disable(
 async def mfa_confirm(request: Request, body: MfaConfirmRequest) -> Dict[str, Any]:
     """Exchange a short-lived mfa_token + TOTP code for a full JWT."""
     # SEC-012: Rate limit MFA confirm by client IP (5 attempts per 5 minutes)
-    client_ip = request.client.host if request.client else "unknown"
-    if not await _check_mfa_attempts(client_ip):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many MFA attempts. Please wait before trying again.",
-        )
+    # request.client.host is the reverse proxy for every user behind it; get_client_ip
+    # resolves the real client, and the per-user key stops a code-guessing run from
+    # rotating addresses.
+    client_ip = get_client_ip(request)
     claims = decode_bearer_token(body.mfa_token)
     if not claims or not claims.get("mfa_pending"):
         raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
     user_id = claims.get("user_id")
+    user_key = f"user:{user_id}"
+    if not (await _check_mfa_attempts(client_ip) and await _check_mfa_attempts(user_key)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many MFA attempts. Please wait before trying again.",
+        )
     sf = get_session_factory()
     async with sf() as session:
         row = (
@@ -174,10 +178,12 @@ async def mfa_confirm(request: Request, body: MfaConfirmRequest) -> Dict[str, An
         totp = _get_totp(user.mfa_secret)
         if not totp.verify(body.code, valid_window=1):
             await _record_mfa_attempt(client_ip)
+            await _record_mfa_attempt(user_key)
             raise HTTPException(status_code=401, detail="Invalid TOTP code")
         # SEC-011: a valid code works once (atomic claim; Redis down = 503)
         if not await _claim_totp_code(user.id, body.code):
             await _record_mfa_attempt(client_ip)
+            await _record_mfa_attempt(user_key)
             raise HTTPException(status_code=401, detail="TOTP code has already been used")
     _mfa_claims = {
         "sub": user.email,
