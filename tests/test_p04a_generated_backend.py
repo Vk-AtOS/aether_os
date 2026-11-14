@@ -162,3 +162,34 @@ def test_generated_postgres_engine_uses_arguments_asyncpg_accepts(built):
     db = (app / "src" / "database.py").read_text()
     assert '"options"' not in db and "server_settings" in db
     assert "server_settings" in inspect.signature(asyncpg.connect).parameters
+
+
+def test_login_rate_limit_cannot_be_bypassed_with_invented_tokens(tmp_path, monkeypatch):
+    # The key came from the first characters of whatever Bearer header the caller sent, so every invented
+    # token was a fresh bucket (25 bad logins, no 429) and all real users shared one bucket (the JWT header
+    # is constant). Valid tokens are limited per account; everything else per source IP.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    _, app = generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch)
+    import os
+    import subprocess
+    import sys
+    for mod in ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx"):
+        pytest.importorskip(mod)
+    runner = r'''
+import json, os, secrets, sys
+app_dir = sys.argv[1]; os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, "src"))
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(app_dir, "t.db")
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    bad = {"email": "nobody@x.io", "password": "bad"}
+    forged = [c.post("/api/auth/login", json=bad, headers={"Authorization": "Bearer " + secrets.token_hex(30)}).status_code
+              for _ in range(14)]
+    print("RESULT " + json.dumps(forged))
+'''
+    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z"}
+    p = subprocess.run([sys.executable, "-c", runner, str(app)], capture_output=True, text=True, env=env, timeout=120, cwd=str(app))
+    line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line, p.stderr[-1500:]
+    codes = json.loads(line[7:])
+    assert 429 in codes, codes          # login is limited to 10 a minute per source
