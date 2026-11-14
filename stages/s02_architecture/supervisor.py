@@ -41,6 +41,7 @@ from typing import Any, Dict, List
 
 from aether_os.orchestrator.clarifying import load_answers
 
+from aether_os.core.errors import PipelineBlockedError
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,7 @@ class ArchitectureStageSupervisor(PhaseBase):
         # Writes architecture.json; populates architecture_warnings, decisions,
         # and tech_stack choices into accumulated_context.
         arch_result = await self._run_sub_phase(
-            "p02_architecture", phase_input, memory_ctx, pm
+            "p02_architecture", phase_input, memory_ctx, pm, critical=False
         )
         if isinstance(arch_result, Exception):
             logger.warning("s02: p02_architecture failed (non-critical): %s", arch_result)
@@ -178,7 +179,7 @@ class ArchitectureStageSupervisor(PhaseBase):
 
         # ── Step 3: Permission modeling (non-critical) ────────────────────────
         perm_result = await self._run_sub_phase(
-            "p02c_permission_modeling", phase_input, memory_ctx, pm
+            "p02c_permission_modeling", phase_input, memory_ctx, pm, critical=False
         )
         if isinstance(perm_result, Exception):
             logger.warning(
@@ -192,7 +193,7 @@ class ArchitectureStageSupervisor(PhaseBase):
 
         # ── Step 4: Scaffolding (non-critical) ───────────────────────────────
         scaf_result = await self._run_sub_phase(
-            "p03_scaffolding", phase_input, memory_ctx, pm
+            "p03_scaffolding", phase_input, memory_ctx, pm, critical=False
         )
         if isinstance(scaf_result, Exception):
             logger.warning(
@@ -229,9 +230,15 @@ class ArchitectureStageSupervisor(PhaseBase):
             return []
 
     async def _run_sub_phase(
-        self, phase_name: str, phase_input: Any, memory_ctx: list, pm
+        self, phase_name: str, phase_input: Any, memory_ctx: list, pm,
+        critical: bool = True,
     ) -> TaskResult:
-        """Import and call a legacy phase's task_agent.run()."""
+        """Import and call a legacy phase's task_agent.run().
+
+        critical=False returns the exception instead of raising it, so the caller's
+        "non-critical" handling runs. PipelineBlockedError (a gate denial) always
+        propagates: a denied gate must stop the run.
+        """
         try:
             mod = importlib.import_module(
                 f"aether_os.phases.{phase_name}.task_agent"
@@ -239,9 +246,13 @@ class ArchitectureStageSupervisor(PhaseBase):
             output_dir = pm.get_output_dir(phase_input.project_id, phase_name)
             output_dir.mkdir(parents=True, exist_ok=True)
             return await mod.run(phase_input, memory_ctx, output_dir)
+        except PipelineBlockedError:
+            raise
         except Exception as e:
             logger.warning("s02: sub-phase %s raised: %s", phase_name, e)
-            raise
+            if critical:
+                raise
+            return e
 
     async def validate_gate(
         self, result: TaskResult, phase_input: Any

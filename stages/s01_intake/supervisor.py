@@ -42,6 +42,7 @@ import importlib
 import logging
 from typing import Any, Dict, List
 
+from aether_os.core.errors import PipelineBlockedError
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 
 logger = logging.getLogger(__name__)
@@ -111,11 +112,14 @@ class IntakeStageSupervisor(PhaseBase):
         ]
         parallel_results = await asyncio.gather(
             *[
-                self._run_sub_phase(phase, phase_input, memory_ctx, pm)
+                self._run_sub_phase(phase, phase_input, memory_ctx, pm, critical=False)
                 for phase in parallel_phases
             ],
             return_exceptions=True,
         )
+        for result in parallel_results:
+            if isinstance(result, PipelineBlockedError):
+                raise result  # gather(return_exceptions=True) would swallow a gate denial
         for phase_name, result in zip(parallel_phases, parallel_results):
             if isinstance(result, Exception):
                 logger.warning(
@@ -162,7 +166,7 @@ class IntakeStageSupervisor(PhaseBase):
         # ── Step 5: integration discovery (non-critical) ──────────────────────
         int_input = _clone_phase_input(phase_input)
         int_result = await self._run_sub_phase(
-            "p01b_integration_discovery", int_input, memory_ctx, pm
+            "p01b_integration_discovery", int_input, memory_ctx, pm, critical=False
         )
         if isinstance(int_result, Exception):
             logger.warning(
@@ -183,9 +187,15 @@ class IntakeStageSupervisor(PhaseBase):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     async def _run_sub_phase(
-        self, phase_name: str, phase_input: Any, memory_ctx: list, pm
+        self, phase_name: str, phase_input: Any, memory_ctx: list, pm,
+        critical: bool = True,
     ) -> TaskResult:
-        """Import and call a legacy phase's task_agent.run()."""
+        """Import and call a legacy phase's task_agent.run().
+
+        critical=False returns the exception instead of raising it, so the caller's
+        "non-critical" handling runs. PipelineBlockedError (a gate denial) always
+        propagates: a denied gate must stop the run.
+        """
         try:
             mod = importlib.import_module(
                 f"aether_os.phases.{phase_name}.task_agent"
@@ -193,9 +203,13 @@ class IntakeStageSupervisor(PhaseBase):
             output_dir = pm.get_output_dir(phase_input.project_id, phase_name)
             output_dir.mkdir(parents=True, exist_ok=True)
             return await mod.run(phase_input, memory_ctx, output_dir)
+        except PipelineBlockedError:
+            raise
         except Exception as e:
             logger.warning("s01: sub-phase %s raised: %s", phase_name, e)
-            raise
+            if critical:
+                raise
+            return e
 
     async def validate_gate(
         self, result: TaskResult, phase_input: Any
