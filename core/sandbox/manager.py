@@ -271,7 +271,8 @@ class LocalSandboxBackend:
                     os.setsid()
                     self._apply_resource_limits(req.limits)
 
-                proc = subprocess.Popen(
+                # shell is True only for the sandbox's own `/bin/sh -c <cmd>` path, inside the resource-limited sandbox
+                proc = subprocess.Popen(  # nosec B602
                     args,
                     shell=shell,
                     cwd=work_dir,
