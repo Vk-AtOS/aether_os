@@ -317,7 +317,8 @@ def get_settings() -> Settings:
 
 _AUTH_ROUTER_PY = '''\
 """Auth endpoints — login, register, refresh token, current user."""
-from __future__ import annotations
+# No `from __future__ import annotations` here: slowapi wraps the endpoints, and FastAPI then looks the
+# string annotations up in the wrapper's module, where LoginRequest does not exist (import fails).
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
