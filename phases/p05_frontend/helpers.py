@@ -561,6 +561,7 @@ def _generate_sse_hook(features: List[Any], project_name: str) -> str:
 // On unmount or error the connection is cleanly closed.
 
 import {{ useEffect, useRef }} from 'react'
+import {{ getToken }} from '../lib/auth'
 
 export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
   // Keep a stable ref to the latest callback so the effect closure never goes stale.
@@ -570,7 +571,7 @@ export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
   }})
 
   useEffect(() => {{
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const url = `/api/realtime/stream${{token ? `?token=${{encodeURIComponent(token)}}` : ''}}`
     const es = new EventSource(url)
 

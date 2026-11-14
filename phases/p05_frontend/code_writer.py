@@ -128,8 +128,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+// BASE_PATH: where the built app is served from. '/' unless the host sets VITE_BASE_PATH (a preview host that
+// serves it under a sub-path sets it). The router derives its basepath from it (import.meta.env.BASE_URL).
+const BASE_PATH = process.env.VITE_BASE_PATH || '/'
+
 export default defineConfig({
-  base: '/app-preview/',
+  base: BASE_PATH,
   plugins: [react()],
   resolve: {
     alias: {
@@ -139,11 +143,6 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/app-preview/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\\/app-preview/, ''),
-      },
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
@@ -977,7 +976,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("      _sessionExpired = true")
     lines.append("      clearToken()")
     lines.append("      // Use replace (not href=) so the browser back-button still works after re-login")
-    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace('/login') }, 80)")
+    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace(import.meta.env.BASE_URL + 'login') }, 80)")
     lines.append("    }")
     lines.append("    return Promise.reject(err)")
     lines.append("  },")
@@ -985,7 +984,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("")
     lines.append("export const authApi = {")
     lines.append("  login: (email: string, password: string) =>")
-    lines.append("    apiClient.post<{ access_token: string }>('/auth/login', { email, password }).then(r => r.data),")
+    lines.append("    apiClient.post<{ access_token: string; refresh_token: string }>('/auth/login', { email, password }).then(r => r.data),")
     lines.append("  register: (email: string, password: string) =>")
     lines.append("    apiClient.post('/auth/register', { email, password }).then(r => r.data),")
     lines.append("}")
@@ -1093,7 +1092,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree, basepath: '/app-preview', defaultNotFoundComponent: NotFoundPage }})
+export const router = createRouter({{ routeTree, basepath: import.meta.env.BASE_URL.replace(/\\/+$/, '') || '/', defaultNotFoundComponent: NotFoundPage }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
@@ -1231,7 +1230,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree, basepath: '/app-preview', defaultNotFoundComponent: NotFoundPage }})
+export const router = createRouter({{ routeTree, basepath: import.meta.env.BASE_URL.replace(/\\/+$/, '') || '/', defaultNotFoundComponent: NotFoundPage }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
@@ -2679,11 +2678,6 @@ export function LoginPage() {{
               {{loading ? 'Signing in…' : 'Sign in'}}
             </button>
           </form>
-          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
-            <p className="font-semibold text-amber-800">Demo credentials</p>
-            <p className="text-amber-700">Admin: <span className="font-mono">admin@example.com</span> / <span className="font-mono">Admin1234!</span></p>
-            <p className="text-amber-700">User: <span className="font-mono">user@example.com</span> / <span className="font-mono">User1234!</span></p>
-          </div>
         </div>
       </div>
     </div>
@@ -2786,11 +2780,6 @@ export function LoginPage() {{
             Don't have an account?{{' '}}
             <a href="#" className="text-brand-600 font-medium hover:underline">Create one free</a>
           </p>
-          <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-            <p className="font-medium text-amber-800 mb-1">Demo credentials</p>
-            <p className="text-amber-700">Email: <span className="font-mono">admin@example.com</span></p>
-            <p className="text-amber-700">Password: <span className="font-mono">Admin1234!</span></p>
-          </div>
         </div>
       </div>
     </div>
@@ -2870,11 +2859,6 @@ export function LoginPage() {{
             {{loading ? 'Signing in…' : 'Sign in'}}
           </button>
         </form>
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
-          <p className="font-semibold text-amber-800">Demo credentials</p>
-          <p className="text-amber-700">Email: <span className="font-mono">admin@example.com</span></p>
-          <p className="text-amber-700">Password: <span className="font-mono">Admin1234!</span></p>
-        </div>
       </div>
     </div>
   )
@@ -3315,6 +3299,7 @@ def _generate_use_sse_hook() -> str:
 // Usage: const { lastEvent } = useSSE('/api/sse/products')
 
 import { useEffect, useState } from 'react'
+import { getToken } from '../lib/auth'
 
 interface SSEState {
   lastEvent: unknown | null
@@ -3325,7 +3310,7 @@ export function useSSE(endpoint: string): SSEState {
 
   useEffect(() => {
     if (!endpoint) return
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const url = endpoint + (token ? `?token=${encodeURIComponent(token)}` : '')
     const es = new EventSource(url)
 
@@ -3361,6 +3346,7 @@ def _generate_use_websocket_hook() -> str:
 // Usage: const { send, lastMessage, status } = useWebSocket('/api/ws/chat')
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { getToken } from '../lib/auth'
 
 type WSStatus = 'connecting' | 'open' | 'closed' | 'error'
 
@@ -3379,7 +3365,7 @@ export function useWebSocket(path: string): UseWebSocketResult {
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const base = `${proto}//${window.location.host}`
     const url = `${base}${path}${token ? `?token=${encodeURIComponent(token)}` : ''}`

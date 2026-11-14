@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,10 @@ from aether_os.core.sandbox import phase_exec
 
 # ── npm build concurrency limiter ─────────────────────────────────────────────
 _NPM_SEMAPHORE: Optional[asyncio.Semaphore] = None
+
+# The generated app builds for the root ("/") by default. The AetherOS preview serves it under /app-preview/,
+# so builds made for the preview pass this base through the environment (vite.config.ts reads VITE_BASE_PATH).
+PREVIEW_BUILD_ENV = {"VITE_BASE_PATH": os.environ.get("AETHER_PREVIEW_BASE_PATH", "/app-preview/")}
 
 _NPM_SHARED_CACHE = Path.home() / ".aether_os" / "npm_cache"
 _NM_STAMP_FILE = ".nm_hash"
@@ -72,4 +77,4 @@ async def run_npm_build(frontend_dir: Path) -> None:
             # Install = the sandbox's install egress profile; the npm cache lives in the run's own HOME.
             await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=300, network=True)
             _stamp_node_modules(frontend_dir, h)
-        await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=600)
+        await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=600, env=PREVIEW_BUILD_ENV)
