@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 _TICK_INTERVAL   = 30       # seconds between health/brute-force ticks
 _INTEGRITY_EVERY = 300      # seconds between file-integrity checks (5 min)
 _SNAPSHOT_EVERY  = 21600    # seconds between scheduled snapshots (6 h)
+_DB_FAILS_BEFORE_CRASH = 5  # consecutive failed DB probes (~2.5 min) before it counts as a crash
 _DEDUP_WINDOW    = 600      # seconds before the same event can refire (10 min)
 
 
@@ -37,6 +38,7 @@ class GuardianWatchdog:
         self._last_snapshot: float = 0.0
         self._dedup: Dict[str, float] = {}   # key → last_seen_ts
         self._active_threats: Set[str] = set()
+        self._db_failures = 0
 
     async def start(self) -> None:
         """Main loop — runs forever as a background asyncio task."""
@@ -85,6 +87,8 @@ class GuardianWatchdog:
         except Exception as exc:
             logger.warning("Guardian tick detect error: %s", exc)
 
+        all_events = self._gate_db_failures(all_events)
+
         # Every 5 min: file integrity
         if now - self._last_integrity_check >= _INTEGRITY_EVERY:
             self._last_integrity_check = now
@@ -104,6 +108,21 @@ class GuardianWatchdog:
         if all_events:
             await self._process_events(all_events)
 
+    def _gate_db_failures(self, events: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        """One failed DB probe is a blip (pool churn, deploy), not a crash.
+
+        Drops database events until the probe has failed _DB_FAILS_BEFORE_CRASH ticks in a row.
+        """
+        is_db = lambda e: (e.get("detail") or {}).get("service") == "database"  # noqa: E731
+        if not any(is_db(e) for e in events):
+            self._db_failures = 0
+            return events
+        self._db_failures += 1
+        if self._db_failures >= _DB_FAILS_BEFORE_CRASH:
+            return events
+        logger.warning("Guardian: DB probe failed (%d/%d) — not yet a crash", self._db_failures, _DB_FAILS_BEFORE_CRASH)
+        return [e for e in events if not is_db(e)]
+
     # ── Event processing ──────────────────────────────────────────────────────
 
     async def _process_events(self, events: list[Dict[str, Any]]) -> None:
@@ -119,7 +138,9 @@ class GuardianWatchdog:
 
         # Take pre-threat snapshot on HIGH/CRITICAL
         severities = {e.get("severity", "low") for e in new_events}
-        if "critical" in severities or "high" in severities:
+        # Disk pressure alerts but must not trigger a snapshot (it writes more to a full disk).
+        snap_events = [e for e in new_events if (e.get("detail") or {}).get("service") != "disk"]
+        if any(e.get("severity") in ("critical", "high") for e in snap_events):
             await self._take_snapshot("pre_threat")
 
         # Auto-recover ONLY on CRITICAL service crashes — NOT on file_tamper.
@@ -131,6 +152,9 @@ class GuardianWatchdog:
             e for e in new_events
             if e.get("severity") == "critical"
             and e.get("event_type") == "service_crash"
+            # Restoring a snapshot cannot fix a full disk and loses data: only the
+            # database being down (after consecutive failed probes) justifies it.
+            and (e.get("detail") or {}).get("service") == "database"
         ]
         if critical:
             first_id = saved[0] if saved else None
