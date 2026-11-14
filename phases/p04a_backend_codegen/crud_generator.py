@@ -543,7 +543,7 @@ def _fallback_crud_routers(
             f"    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'UPDATE', '{name}', str(item_id))",
             f"    await db.refresh(obj)",
-            f"    await _cache_delete(f\"{name}:{{item_id}}\")",
+            f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
@@ -559,7 +559,7 @@ def _fallback_crud_routers(
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    await _log_action(db, str(current_user.get('id', '')), 'DELETE', '{name}', str(item_id))",
             f"    await db.delete(obj)",
-            f"    await _cache_delete(f\"{name}:{{item_id}}\")",
+            f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             "",
         ]

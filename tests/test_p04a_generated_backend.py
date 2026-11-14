@@ -340,3 +340,8 @@ def test_fallback_single_item_cache_is_per_tenant(tmp_path, monkeypatch):
     crud = "".join(p.read_text() for p in (app / "src" / "routers").glob("*.py"))
     # list keys already carry the org; the single-item key must too (tenant B read tenant A's cached row)
     assert "current_user.get('org_id', '')}:{item_id}" in crud, "single-item cache key is not tenant-scoped"
+    # writes must drop the very key the read path uses (a different key left updated or deleted rows cached)
+    reads = crud.count("_ck = f\"Customer:{current_user.get('org_id', '')}:{item_id}\"")
+    deletes = crud.count("_cache_delete(f\"Customer:{current_user.get('org_id', '')}:{item_id}\")")
+    assert reads == 1 and deletes == 2, (reads, deletes)
+    assert '_cache_delete(f"Customer:{item_id}")' not in crud
