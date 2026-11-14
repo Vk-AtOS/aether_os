@@ -137,7 +137,6 @@ class GuardianWatchdog:
         saved = await self._persist_events(new_events)
 
         # Take pre-threat snapshot on HIGH/CRITICAL
-        severities = {e.get("severity", "low") for e in new_events}
         # Disk pressure alerts but must not trigger a snapshot (it writes more to a full disk).
         snap_events = [e for e in new_events if (e.get("detail") or {}).get("service") != "disk"]
         if any(e.get("severity") in ("critical", "high") for e in snap_events):
