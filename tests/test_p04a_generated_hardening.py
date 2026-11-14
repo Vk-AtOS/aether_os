@@ -279,3 +279,21 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     out["admin"] = c.post("{path}", json={{}}, headers=h(adm)).status_code
 ''')
     assert r == {"anon": 401, "user": 403, "admin": 501}, r
+
+
+def test_role_names_and_feature_text_cannot_inject_code(tmp_path):
+    # Role names went into `NAME = "<role>"`, the CRUD guards and the PERMISSIONS dict (as JSON text); feature
+    # and project names went into comments. A quote or a newline in any of them became code in the customer's app.
+    import ast
+    from aether_os.phases.p04a_backend_codegen.crud_generator import _fallback_crud_routers
+    from aether_os.phases.p04a_backend_codegen.helpers_permissions import _generate_permissions_service
+    from aether_os.phases.p04a_backend_codegen.helpers_sse import _generate_sse_router
+    evil = 'Boss"\nimport os; os.system("x")  #'
+    pm = {"roles": [evil, "Admin"], "permissions": {evil: {"Customer": ["read"]}}, "row_filters": {"a": evil}}
+    _generate_permissions_service(tmp_path, pm)
+    crud = _fallback_crud_routers([{"name": "Customer", "table": "customers", "fields": [{"name": "name", "type": "string"}]}],
+                                  permission_model=pm)
+    sse = _generate_sse_router(["live\nimport os; os.system('y')"], "P\nimport os; os.system('z')")
+    for label, code in (("permissions", (tmp_path / "services" / "permissions.py").read_text()), ("crud", crud), ("sse", sse)):
+        calls = [n for n in ast.walk(ast.parse(code)) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "system"]
+        assert not calls, label

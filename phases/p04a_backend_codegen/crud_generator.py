@@ -474,7 +474,7 @@ def _fallback_crud_routers(
             roles = _get_roles_for_action(name, action, permission_model)
             if roles:
                 # Emit require_role("Role1", "Role2", ...) — quoted role names
-                quoted = ", ".join(f'"{r}"' for r in roles)
+                quoted = ", ".join(repr(str(r)) for r in roles)
                 return f"require_role({quoted})"
             return fallback
 
