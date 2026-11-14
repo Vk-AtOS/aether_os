@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from aether_os.core.errors import PipelineBlockedError
+
 from aether_os.tests.test_p04a_generated_backend import IR, generate, run_app
 
 MODS = ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx")
@@ -150,3 +152,38 @@ out["logged_password"] = "s3cretpw" in buf.getvalue()
 ''')
     assert r["first"] == 1 and r["cached"] == 1 and r["after_write"] == 2, r
     assert len(r["keys"][0].rsplit(":", 1)[1]) == 64 and not r["logged_password"], r
+
+
+def _ir_with(**kw):
+    return {**IR, **kw}
+
+
+def test_business_rule_text_and_names_never_become_code(tmp_path, monkeypatch):
+    # A rule expression was pasted into CheckConstraint('<text>') and entity/field names into class and column
+    # definitions, so model-written text could run code in the customer's app. Rules outside
+    # `column op number|column` are dropped; unsafe names stop the phase.
+    evil = "amount > 0'); import os; os.system('touch /tmp/pwned'); ('"
+    rules = [{"name": "ok_rule", "expression": "amount > 0", "entity": "Invoice"},
+             {"name": "evil", "expression": evil, "entity": "Invoice"},
+             {"name": "bad col", "expression": "nosuchcol > 1", "entity": "Invoice"}]
+    app = _crm(tmp_path, monkeypatch, ir_override=_ir_with(business_rules=rules))
+    models = (app / "src" / "models.py").read_text()
+    assert "os.system" not in models and "pwned" not in models
+    assert "CheckConstraint('amount > 0'" in models and "nosuchcol" not in models
+    compile(models, "models.py", "exec")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    bad = _ir_with(entities=[{**IR["entities"][0], "name": "Customer'); import os #"}, IR["entities"][1]])
+    (tmp_path / "x").mkdir()
+    with pytest.raises(PipelineBlockedError, match="unsafe_name"):
+        generate(tmp_path / "x", domain="crm", use_ir=True, monkeypatch=monkeypatch, ir_override=bad)
+
+
+def test_foreign_key_cycles_in_the_ir_are_found():
+    # The cycle check only read legacy "ForeignKey('t.id')" type strings, never the IR's type "fk", so it never fired.
+    from aether_os.phases.p04a_backend_codegen.pre_gen_validator import run_pre_gen_checks
+    def ent(n, ref, nullable):
+        return {"name": n, "table": n.lower() + "s", "fields": [{"name": "x_id", "type": "fk", "ref_entity": ref, "nullable": nullable}]}
+    hard = run_pre_gen_checks({"entities": [ent("A", "B", False), ent("B", "A", False)]})
+    soft = run_pre_gen_checks({"entities": [ent("A", "B", True), ent("B", "A", False)]})
+    assert not hard.passed and "a -> b -> a" in hard.errors[0]
+    assert soft.passed and any("circular_fk_nullable" in w for w in soft.warnings)
