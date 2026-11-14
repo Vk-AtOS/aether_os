@@ -257,3 +257,59 @@ def test_generated_docker_compose_has_no_default_secret(tmp_path, monkeypatch):
     root = build_frontend(tmp_path / "fe", "crm", monkeypatch)
     compose = (root.parent / "docker-compose.yml").read_text()
     assert "SECRET_KEY: ${SECRET_KEY:?" in compose and "changeme" not in compose
+
+
+def _run_cloud_console(tmp_path, monkeypatch, env="test", build=None):
+    import asyncio
+    from types import SimpleNamespace
+    from aether_os.phases.p05_frontend import task_agent
+    monkeypatch.setenv("ENVIRONMENT", env)
+    if build is not None:
+        monkeypatch.setattr(task_agent, "run_npm_build", build)
+    data = {"project_name": "Cloud</title><script>x</script>", "build_profile": {"build_type": "cloud_platform"},
+            "services": [{"name": "compute", "description": "VMs", "icon": "x"}]}
+    return asyncio.run(task_agent.run(SimpleNamespace(input_data=data, domain="saas", project_id="p"), [], tmp_path / "p05"))
+
+
+def test_cloud_console_has_a_login_route_and_logout_goes_there(tmp_path, monkeypatch):
+    # Logout sent the browser to /login, a route nothing defined; there was no login page and the console reached the
+    # API without a token. Names from the spec were written raw into JSX.
+    result = _run_cloud_console(tmp_path, monkeypatch)
+    src = Path(result.output_path) / "src"
+    app = (src / "App.jsx").read_text()
+    login = (src / "pages" / "Login.jsx").read_text()
+    assert "navigate('/login')" in app and "window.location.href = '/login'" not in app
+    assert "pathname === '/login'" in app and "<Navigate to=\"/login\"" in app
+    assert "/api/auth/login" in login and "access_token" in login and 'htmlFor="email"' in login
+    assert "<script>" not in (Path(result.output_path) / "index.html").read_text()
+    assert "Math.random" not in (src / "pages" / "Dashboard.jsx").read_text()
+
+
+def test_cloud_console_is_not_reported_successful_without_a_build(tmp_path, monkeypatch):
+    # The cloud console branch returned success with confidence 0.9 without building anything.
+    untested = _run_cloud_console(tmp_path / "a", monkeypatch)
+    assert untested.confidence <= 0.5 and untested.metadata["built"] is False
+
+    async def failing(_dir):
+        return False
+    failed = _run_cloud_console(tmp_path / "b", monkeypatch, env="production", build=failing)
+    assert failed.success is False and failed.confidence < 0.5
+
+    async def ok(_dir):
+        return True
+    built = _run_cloud_console(tmp_path / "c", monkeypatch, env="production", build=ok)
+    assert built.success and built.confidence == 0.9 and built.metadata["built"] is True
+
+
+def test_storefront_and_dashboard_show_no_invented_content(tmp_path, monkeypatch):
+    # Promo banner with a discount code, fake testimonials with names, "free shipping" badges, stock photos from
+    # picsum.photos, random "Save N%" badges, invented ratings and a "Live" label on hard-coded chart data.
+    for domain in ("ecommerce", "crm"):
+        root = build_frontend(tmp_path / domain, domain, monkeypatch)
+        for f, text in sources(root):
+            for bad in ("picsum.photos", "WELCOME10", "Testimonials", "Sarah M.", "Math.floor(Math.random()",
+                        "Free shipping", "30-day return", "Trusted by thousands", "(price * 1.2)"):
+                assert bad not in text, (f, bad)
+            if "TREND_DATA" in text:
+                assert "Sample chart data" in text and "> Live" not in text, f
+        assert not tsc_syntax_errors(root)
