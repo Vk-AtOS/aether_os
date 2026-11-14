@@ -297,3 +297,20 @@ def test_role_names_and_feature_text_cannot_inject_code(tmp_path):
     for label, code in (("permissions", (tmp_path / "services" / "permissions.py").read_text()), ("crud", crud), ("sse", sse)):
         calls = [n for n in ast.walk(ast.parse(code)) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "system"]
         assert not calls, label
+
+
+def test_gate_fails_on_missing_files_and_broken_code(tmp_path, monkeypatch):
+    # validate() only ever appended to `warnings`: every non-empty output directory passed.
+    from aether_os.phases.base import TaskResult
+    from aether_os.phases.p04a_backend_codegen import gate
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    _, app = generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch)
+    ok = gate.validate(TaskResult(output_path=str(app), confidence=1.0, confidence_reason="", metadata={}, success=True))
+    assert ok.passed, ok.issues
+    (app / "src" / "models.py").write_text("class X(:\n")
+    (app / "src" / "seed.py").unlink()
+    (app / "src" / "extra.py").write_text("from aether_os.core import x\n")
+    bad = gate.validate(TaskResult(output_path=str(app), confidence=1.0, confidence_reason="", metadata={}, success=True))
+    assert not bad.passed
+    text = " ".join(bad.issues)
+    assert "models.py does not compile" in text and "seed.py is missing" in text and "extra.py imports" in text
