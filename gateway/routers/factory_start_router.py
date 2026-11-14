@@ -290,7 +290,7 @@ async def start_factory_run(
         "agency_logo_url": agency_logo_url,
     }
     if _sqs_enabled():
-        _queued = send_pipeline_job(run_id, _enriched_payload)
+        _queued = await asyncio.to_thread(send_pipeline_job, run_id, _enriched_payload)  # boto3 blocks
         if _queued:
             try:
                 from aether_os.core.db import get_session_factory as _gsf_q
