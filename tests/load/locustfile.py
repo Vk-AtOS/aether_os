@@ -2,17 +2,17 @@
 AetherOS Load Test Suite — Locust
 
 Quick start (interactive UI):
-  locust -f tests/load/locustfile.py --host=http://REDACTED_IP
+  locust -f tests/load/locustfile.py --host=http://127.0.0.1:8000
 
 Headless 200-user smoke test (CI/production verification):
-  python3 tests/load/seed_load_users.py --host=http://REDACTED_IP --count=220
-  locust -f tests/load/locustfile.py --host=http://REDACTED_IP \
+  python3 tests/load/seed_load_users.py --host=http://127.0.0.1:8000 --count=220
+  locust -f tests/load/locustfile.py --host=http://127.0.0.1:8000 \
     --headless --users 200 --spawn-rate 10 --run-time 3m \
     --csv=tests/load/results/load_200
 
 Headless 500-user stress test:
-  python3 tests/load/seed_load_users.py --host=http://REDACTED_IP --count=550
-  locust -f tests/load/locustfile.py --host=http://REDACTED_IP \
+  python3 tests/load/seed_load_users.py --host=http://127.0.0.1:8000 --count=550
+  locust -f tests/load/locustfile.py --host=http://127.0.0.1:8000 \
     --headless --users 500 --spawn-rate 20 --run-time 5m \
     --csv=tests/load/results/stress_500
 
