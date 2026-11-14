@@ -273,8 +273,8 @@ def generate_capacity_package(
     """Write a complete capacity planning package to output_dir/capacity/.
 
     Creates:
-      hpa/{entity}-hpa.yaml              (one per entity)
-      keda/{entity}-scaledobject.yaml    (one per entity)
+      hpa/{entity}-hpa.yaml              (one per entity, when there is no message queue)
+      keda/{entity}-scaledobject.yaml    (one per entity, when there is a message queue; replaces the HPA)
       pdb/{entity}-pdb.yaml              (one per entity)
       resource-quotas.yaml
 
@@ -291,21 +291,24 @@ def generate_capacity_package(
 
     for entity in entities:
         svc = entity.get("table", "service").replace("_", "-")
-        try:
-            (hpa_dir / f"{svc}-hpa.yaml").write_text(
-                generate_hpa(svc, slug, performance_tier, namespace)
-            )
-            logger.info("capacity: wrote HPA for service=%s", svc)
-        except Exception as e:
-            logger.warning("capacity: HPA write failed for %s: %s", svc, e)
-
-        try:
-            (keda_dir / f"{svc}-scaledobject.yaml").write_text(
-                generate_keda_scaledobject(svc, slug, performance_tier, message_queue, namespace)
-            )
-            logger.info("capacity: wrote KEDA ScaledObject for service=%s", svc)
-        except Exception as e:
-            logger.warning("capacity: KEDA write failed for %s: %s", svc, e)
+        # KEDA creates and owns an HPA for the Deployment it scales; a second, standalone
+        # HPA on the same target makes the two controllers fight. One scaler per service.
+        if message_queue:
+            try:
+                (keda_dir / f"{svc}-scaledobject.yaml").write_text(
+                    generate_keda_scaledobject(svc, slug, performance_tier, message_queue, namespace)
+                )
+                logger.info("capacity: wrote KEDA ScaledObject for service=%s", svc)
+            except Exception as e:
+                logger.warning("capacity: KEDA write failed for %s: %s", svc, e)
+        else:
+            try:
+                (hpa_dir / f"{svc}-hpa.yaml").write_text(
+                    generate_hpa(svc, slug, performance_tier, namespace)
+                )
+                logger.info("capacity: wrote HPA for service=%s", svc)
+            except Exception as e:
+                logger.warning("capacity: HPA write failed for %s: %s", svc, e)
 
         try:
             (pdb_dir / f"{svc}-pdb.yaml").write_text(

@@ -1,0 +1,9 @@
+{
+  "x": {
+    "enabled": true,
+    "rollout_pct": 100.0,
+    "ring": "production",
+    "variant": null,
+    "description": ""
+  }
+}

@@ -1,2 +1,2 @@
-from stages.s08_observability.supervisor import ObservabilityStageSupervisor
+from aether_os.stages.s08_observability.supervisor import ObservabilityStageSupervisor
 __all__ = ["ObservabilityStageSupervisor"]

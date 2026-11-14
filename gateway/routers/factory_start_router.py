@@ -14,9 +14,10 @@ import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.start_lock import org_start_lock
+from aether_os.phases.p03_scaffolding.validation import is_valid_project_name, validate_clone_url
 from aether_os.gateway.policy_guard import admit_run_start, enforce
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,20 @@ class FactoryStartRequest(BaseModel):
     domain: str = "general"
     project_name: Optional[str] = None
     github_url: str = ""
+
+    @field_validator("project_name")
+    @classmethod
+    def _project_name_is_a_plain_name(cls, v: Optional[str]) -> Optional[str]:
+        # joined into filesystem paths downstream: no separators, no '..'
+        if v is not None and v != "" and not is_valid_project_name(v):
+            raise ValueError("project_name: 1-64 letters, digits, space, '.', '_' or '-', starting with a letter or digit")
+        return v
+
+    @field_validator("github_url")
+    @classmethod
+    def _github_url_is_allowed(cls, v: str) -> str:
+        return validate_clone_url(v) if v and v.strip() else ""
+
     designer_spec: Optional[Dict[str, Any]] = None
     production_country: Optional[str] = None
     compliance_flags: Optional[Dict[str, Any]] = None

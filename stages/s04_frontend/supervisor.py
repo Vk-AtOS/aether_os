@@ -112,6 +112,7 @@ class FrontendStageSupervisor(PhaseBase):
             pm=pm,
         )
         all_results.append(p05_result)
+        specialists_run: list[str] = []
         if p05_result.issues:
             issues.extend(p05_result.issues)
 
@@ -133,6 +134,7 @@ class FrontendStageSupervisor(PhaseBase):
                 pm=pm,
             )
             all_results.append(mobile_result)
+            specialists_run.append("p05b_mobile")
             if mobile_result.issues:
                 issues.extend(mobile_result.issues)
         else:
@@ -152,6 +154,7 @@ class FrontendStageSupervisor(PhaseBase):
                 pm=pm,
             )
             all_results.append(desktop_result)
+            specialists_run.append("p05c_desktop")
             if desktop_result.issues:
                 issues.extend(desktop_result.issues)
         else:
@@ -171,6 +174,7 @@ class FrontendStageSupervisor(PhaseBase):
                 pm=pm,
             )
             all_results.append(cli_result)
+            specialists_run.append("p05d_cli")
             if cli_result.issues:
                 issues.extend(cli_result.issues)
         else:
@@ -193,6 +197,7 @@ class FrontendStageSupervisor(PhaseBase):
                 pm=pm,
             )
             all_results.append(serverless_result)
+            specialists_run.append("p05e_serverless")
             if serverless_result.issues:
                 issues.extend(serverless_result.issues)
         else:
@@ -230,6 +235,9 @@ class FrontendStageSupervisor(PhaseBase):
         # Determine the authoritative framework label for downstream stages
         framework_label = _resolve_framework_label(build_profile)
         merged_meta["frontend_framework"] = framework_label
+
+        # s12 must not generate these again (same folder, same inputs).
+        merged_meta["specialist_phases_run"] = specialists_run
 
         # Ensure frontend_output_path is in merged metadata
         if frontend_output_path:

@@ -85,6 +85,7 @@ from aether_os.orchestrator.stage_gate import (
     load_disabled_stages,
     recorded_status,
     record_run_timeout,
+    summarize_stage_outcomes,
     timeout_reason,
 )
 from aether_os.orchestrator.phase_hooks_helpers import hook_persist_live_url
@@ -826,6 +827,7 @@ class FactoryPipeline:
             "type": "pipeline_complete",
             "status": "council_review",
             "duration": round(duration, 1),
+            "stage_summary": summarize_stage_outcomes(results),
             "ts": time.time(),
         })
 
@@ -867,6 +869,7 @@ class FactoryPipeline:
             "output_dir": str(project_dir),
             "duration_seconds": round(duration, 2),
             "phase_count": len(phases_to_run),
+            "stage_summary": summarize_stage_outcomes(results),
         }
 
     async def _run_phase(self, phase_name: str, phase_input: PhaseInput) -> dict:

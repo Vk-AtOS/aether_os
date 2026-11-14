@@ -344,11 +344,17 @@ async def docker_build(app_dir: Path, image_name: str) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
+# Not --internal: Docker cannot publish a port for a container that is only on an
+# internal network, so the app would be unreachable on 127.0.0.1:<port>. Isolation
+# between app containers comes from disabling inter-container communication instead.
+APP_NETWORK = "aetheros-apps"
+
+
 async def ensure_network() -> None:
-    """Create the aetheros-isolated bridge network if it doesn't exist."""
+    """Create the app bridge network (no inter-container traffic) if it doesn't exist."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "docker", "network", "inspect", "aetheros-isolated",
+            "docker", "network", "inspect", APP_NETWORK,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -357,8 +363,8 @@ async def ensure_network() -> None:
             create = await asyncio.create_subprocess_exec(
                 "docker", "network", "create",
                 "--driver", "bridge",
-                "--internal",
-                "aetheros-isolated",
+                "-o", "com.docker.network.bridge.enable_icc=false",
+                APP_NETWORK,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -378,7 +384,7 @@ async def docker_run(
             "-p", f"127.0.0.1:{port}:8000",
             "--restart", "unless-stopped",
             # D7: network isolation
-            "--network", "aetheros-isolated",
+            "--network", APP_NETWORK,
             # D7: non-root
             "--user", "1001:1001",
             # D7: read-only root filesystem; tmpfs for /tmp and /app/data (SQLite writes)

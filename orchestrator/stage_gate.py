@@ -49,6 +49,26 @@ def gate_block_reason(stage: str, result: Dict[str, Any],
     return None
 
 
+def summarize_stage_outcomes(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Run-level summary of the stages that did not complete cleanly.
+
+    Non-critical stages may fail or be skipped without ending the run; this lists
+    them so the run result (and the dashboard) never reads as a clean success when
+    s06 failed or a stage was switched off.
+    """
+    failed: List[Dict[str, str]] = []
+    skipped: List[Dict[str, str]] = []
+    for stage, r in results.items():
+        status = r.get("status")
+        meta = r.get("metadata") or {}
+        if status in ("failed", "timeout", "escalated"):
+            reason = r.get("error") or "; ".join(str(i) for i in (r.get("issues") or [])[:3] if i)
+            failed.append({"stage": stage, "status": status, "reason": str(reason or "no reason given")})
+        elif status == "skipped" or meta.get("skipped") is True:
+            skipped.append({"stage": stage, "reason": str(meta.get("skipped_reason") or "skipped")})
+    return {"failed_stages": failed, "skipped_stages": skipped, "all_stages_ok": not failed and not skipped}
+
+
 def recorded_status(result: Dict[str, Any]) -> str:
     """The status stored on the stage row: what happened, never an upgrade to "completed"."""
     status = result.get("status")
