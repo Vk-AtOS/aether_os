@@ -5,7 +5,7 @@ After=network.target postgresql.service
 [Service]
 Type=oneshot
 User=aetheros
-EnvironmentFile=/opt/aetheros/.env
-ExecStart=/opt/aetheros/deploy/scripts/backup.sh
+EnvironmentFile=/home/aether_os/.env
+ExecStart=/home/aether_os/deploy/scripts/backup.sh
 StandardOutput=append:/var/log/aetheros/backup.log
 StandardError=append:/var/log/aetheros/backup.log

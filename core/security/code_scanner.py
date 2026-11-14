@@ -6,6 +6,7 @@ import re
 import os
 import json
 import subprocess
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,30 @@ _DOMAIN_RULES: dict[str, list[tuple[str, str, str, str]]] = {
 }
 
 
+_AUDIT_CACHE: dict = {}   # (path, mtime_ns, size) -> (monotonic time, findings); pip-audit is slow
+_AUDIT_TTL_S = 3600.0
+_AUDIT_CACHE_MAX = 256
+
+
 def _run_pip_audit(project_dir: str) -> list["Finding"]:
-    """Run pip-audit against requirements.txt; return findings for known CVEs."""
-    findings: list[Finding] = []
+    """Run pip-audit against requirements.txt; return findings for known CVEs (cached 1 h)."""
     req_file = Path(project_dir) / "requirements.txt"
     if not req_file.exists():
-        return findings
+        return []
+    st = req_file.stat()
+    key = (str(req_file), st.st_mtime_ns, st.st_size)
+    hit = _AUDIT_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < _AUDIT_TTL_S:
+        return list(hit[1])
+    findings = _run_pip_audit_uncached(req_file)
+    if len(_AUDIT_CACHE) >= _AUDIT_CACHE_MAX:
+        _AUDIT_CACHE.pop(next(iter(_AUDIT_CACHE)), None)
+    _AUDIT_CACHE[key] = (time.monotonic(), list(findings))
+    return findings
+
+
+def _run_pip_audit_uncached(req_file: Path) -> list["Finding"]:
+    findings: list[Finding] = []
     try:
         res = subprocess.run(
             ["pip-audit", "-r", str(req_file), "-f", "json", "--progress-spinner", "off"],
@@ -162,7 +181,7 @@ class CodeScanner:
                         ))
 
         # pip-audit: dependency vulnerability scan
-        findings.extend(_run_pip_audit(project_dir))
+        findings.extend(await asyncio.to_thread(_run_pip_audit, project_dir))  # blocking subprocess, up to 120 s
 
         critical = sum(1 for f in findings if f.severity == "CRITICAL")
         high = sum(1 for f in findings if f.severity == "HIGH")

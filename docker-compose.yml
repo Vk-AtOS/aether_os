@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: aether_os
       POSTGRES_USER: aether_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_dev_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - set a strong random password}
     volumes:
       - pg_data:/var/lib/postgresql/data
     # Port not exposed to host — internal only for security (SEC-004)
@@ -24,7 +24,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required - set a strong random password}
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required - set a strong random password}
     volumes:
       - redis_data:/data
     # Port not exposed to host — internal only for security (SEC-005)
@@ -36,6 +36,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Schema migrations: one-shot, Alembic owns the PostgreSQL schema ────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    working_dir: /srv/aether_os
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/aether_os
+      # the encrypt_sensitive_columns migration refuses to run without it
+      AETHER_FIELD_KEY: ${AETHER_FIELD_KEY:?AETHER_FIELD_KEY is required for migrations}
+    depends_on:
+      db:
+        condition: service_healthy
+
   # ── AetherOS API ────────────────────────────────────────────────────────────
   api:
     build:
@@ -45,7 +61,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:-aether_dev_pass}@db:5432/aether_os
+      DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/aether_os
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0
       REQUIRE_REDIS: "true"
       ENVIRONMENT: production
@@ -79,6 +95,10 @@ services:
       SAML_IDP_CERT: ${SAML_IDP_CERT:-}
       # Field-level encryption key (generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
       AETHER_FIELD_KEY: ${AETHER_FIELD_KEY:-}
+      # Optional Velaris integration (run the `velaris` profile or point at an external instance)
+      VELARIS_API_URL: ${VELARIS_API_URL:-}
+      VELARIS_API_SECRET: ${VELARIS_API_SECRET:-}
+      VELARIS_IDENTITY_PRIVATE_KEY: ${VELARIS_IDENTITY_PRIVATE_KEY:-}
       # Error tracking
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Admin account created on first startup
@@ -93,6 +113,8 @@ services:
       AETHER_PREVIEW_SECRET: ${AETHER_PREVIEW_SECRET:?AETHER_PREVIEW_SECRET is required - 32+ random characters}
       AETHER_DASHBOARD_ORIGIN: ${AETHER_DASHBOARD_ORIGIN:-}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -141,6 +163,21 @@ services:
       timeout: 10s
       retries: 3
 
+  # ── Velaris (OPTIONAL: docker compose --profile velaris up) ──────────────────
+  velaris:
+    profiles: ["velaris"]
+    image: ${VELARIS_IMAGE:?VELARIS_IMAGE is required for the velaris profile}
+    restart: unless-stopped
+    expose:
+      - "8730"
+    environment:
+      VELARIS_DATA: /data
+      VELARIS_API_SECRET: ${VELARIS_API_SECRET:?VELARIS_API_SECRET is required for the velaris profile}
+      VELARIS_IDENTITY_PUBLIC_KEY: ${VELARIS_IDENTITY_PUBLIC_KEY:-}
+    volumes:
+      - velaris_data:/data
+
 volumes:
+  velaris_data:
   pg_data:
   redis_data:
