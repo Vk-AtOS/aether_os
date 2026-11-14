@@ -88,7 +88,7 @@ class ThreatDetector:
         for path in _CRITICAL_FILES:
             if not path.exists():
                 continue
-            key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode()).hexdigest()
+            key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
             existing = await r.get(key)
             if not existing:
                 # First boot — establish baseline
@@ -100,7 +100,7 @@ class ThreatDetector:
 
     async def _get_baseline(self, path: Path) -> Optional[str]:
         r = await _get_redis()
-        key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode()).hexdigest()
+        key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
         if r:
             val = await r.get(key)
             return val
@@ -112,7 +112,7 @@ class ThreatDetector:
         if not h:
             return
         r = await _get_redis()
-        key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode()).hexdigest()
+        key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
         if r:
             await r.set(key, h)
         else:

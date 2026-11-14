@@ -39,7 +39,7 @@ get_npm_semaphore = _get_npm_semaphore
 def _pkg_hash(frontend_dir: Path) -> str:
     """MD5 of package.json — used as node_modules cache key."""
     p = frontend_dir / "package.json"
-    return hashlib.md5(p.read_bytes()).hexdigest() if p.exists() else ""
+    return hashlib.md5(p.read_bytes(), usedforsecurity=False).hexdigest() if p.exists() else ""
 
 
 def _node_modules_fresh(frontend_dir: Path, hash_val: str) -> bool:
