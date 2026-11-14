@@ -80,7 +80,7 @@ def _should_run_enterprise(build_profile: Dict[str, Any],
 # Output extraction helpers
 # ---------------------------------------------------------------------------
 
-def _find_dockerfile(output_dir: Path, project_dir: Optional[Path] = None) -> str:
+def _find_dockerfile(output_dir: Optional[Path], project_dir: Optional[Path] = None) -> str:
     """Return path to generated Dockerfile, searching output_dir then project_dir."""
     for search_root in filter(None, [output_dir, project_dir]):
         for df in Path(search_root).rglob("Dockerfile"):
@@ -88,7 +88,7 @@ def _find_dockerfile(output_dir: Path, project_dir: Optional[Path] = None) -> st
     return ""
 
 
-def _find_ci_workflow(output_dir: Path, project_dir: Optional[Path] = None) -> str:
+def _find_ci_workflow(output_dir: Optional[Path], project_dir: Optional[Path] = None) -> str:
     """Return path to generated GitHub Actions workflow YAML."""
     for search_root in filter(None, [output_dir, project_dir]):
         for wf in Path(search_root).rglob("*.yml"):
@@ -247,11 +247,11 @@ class DevOpsStageSupervisor(PhaseBase):
 
         if not dockerfile_path:
             dockerfile_path = _find_dockerfile(
-                p11_out or Path("/tmp"), project_dir_path
+                p11_out, project_dir_path
             )
         if not ci_workflow_path:
             ci_workflow_path = _find_ci_workflow(
-                p11_out or Path("/tmp"), project_dir_path
+                p11_out, project_dir_path
             )
 
         # K8s manifests from p11 output
@@ -283,7 +283,7 @@ class DevOpsStageSupervisor(PhaseBase):
         )
 
         return TaskResult(
-            output_path=p11_out or p08_out or "",
+            output_path=str(p11_out or p08_out or ""),
             confidence=0.85 if (dockerfile_path and ci_workflow_path) else 0.6,
             metadata={
                 "dockerfile_path": dockerfile_path,
