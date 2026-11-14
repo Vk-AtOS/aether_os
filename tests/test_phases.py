@@ -181,12 +181,17 @@ def test_p04a_gate_pass(tmp_path):
     src.mkdir()
     (src / "main.py").write_text("from fastapi import FastAPI\napp = FastAPI()\ndef health(): return {}")
     (src / "models.py").write_text("from pydantic import BaseModel\nclass Item(BaseModel): name: str")
+    # the gate now requires the files a runnable backend has (it used to pass any non-empty directory, KAN-169)
+    for name in ("schemas.py", "auth.py", "database.py", "seed.py"):
+        (src / name).write_text("x = 1\n")
+    (src / "routers").mkdir()
+    (src / "routers" / "crud.py").write_text("all_routers = []\n")
 
     result = TaskResult(
-        output_path=str(src), confidence=0.9, issues=[], metadata={}, success=True,
+        output_path=str(tmp_path), confidence=0.9, issues=[], metadata={}, success=True,
     )
     outcome = validate(result)
-    assert outcome.passed
+    assert outcome.passed, outcome.issues
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
