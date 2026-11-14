@@ -167,7 +167,8 @@ def test_generated_postgres_engine_uses_arguments_asyncpg_accepts(built):
 def test_login_rate_limit_cannot_be_bypassed_with_invented_tokens(tmp_path, monkeypatch):
     # The key came from the first characters of whatever Bearer header the caller sent, so every invented
     # token was a fresh bucket (25 bad logins, no 429) and all real users shared one bucket (the JWT header
-    # is constant). Valid tokens are limited per account; everything else per source IP.
+    # is constant). Login, register and refresh are now limited by source IP only, even when the caller
+    # attaches a valid token of their own. Each scenario runs in a fresh app so the buckets start empty.
     monkeypatch.setenv("ENVIRONMENT", "test")
     _, app = generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch)
     import os
@@ -177,19 +178,23 @@ def test_login_rate_limit_cannot_be_bypassed_with_invented_tokens(tmp_path, monk
         pytest.importorskip(mod)
     runner = r'''
 import json, os, secrets, sys
-app_dir = sys.argv[1]; os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, "src"))
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(app_dir, "t.db")
+app_dir, mode = sys.argv[1], sys.argv[2]; os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, "src"))
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(app_dir, "t.db" + mode)
 import main
 from fastapi.testclient import TestClient
 with TestClient(main.app, raise_server_exceptions=False) as c:
     bad = {"email": "nobody@x.io", "password": "bad"}
-    forged = [c.post("/api/auth/login", json=bad, headers={"Authorization": "Bearer " + secrets.token_hex(30)}).status_code
-              for _ in range(14)]
-    print("RESULT " + json.dumps(forged))
+    if mode == "forged":
+        heads = [{"Authorization": "Bearer " + secrets.token_hex(30)} for _ in range(14)]
+    else:   # a VALID token of the caller's own for 8 attempts, none for 8 more: one shared limit
+        tok = c.post("/api/auth/register", json={"email": "u2@x.io", "password": "Passw0rd!xyz", "name": "U"}).json()["access_token"]
+        heads = [{"Authorization": "Bearer " + tok}] * 8 + [{}] * 8
+    print("RESULT " + json.dumps([c.post("/api/auth/login", json=bad, headers=h).status_code for h in heads]))
 '''
     env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z"}
-    p = subprocess.run([sys.executable, "-c", runner, str(app)], capture_output=True, text=True, env=env, timeout=120, cwd=str(app))
-    line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
-    assert line, p.stderr[-1500:]
-    codes = json.loads(line[7:])
-    assert 429 in codes, codes          # login is limited to 10 a minute per source
+    for mode in ("forged", "valid_token"):
+        p = subprocess.run([sys.executable, "-c", runner, str(app), mode], capture_output=True, text=True, env=env,
+                           timeout=120, cwd=str(app))
+        line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
+        assert line, p.stderr[-1500:]
+        assert 429 in json.loads(line[7:]), (mode, json.loads(line[7:]))     # login allows 10 a minute per source

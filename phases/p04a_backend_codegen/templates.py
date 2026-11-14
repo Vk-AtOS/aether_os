@@ -336,10 +336,12 @@ from auth import (
 )
 
 try:
-    from rate_limiter import limiter as _limiter
+    from rate_limiter import limiter as _limiter, ip_key as _ip_key
     _limit = _limiter.limit
 except Exception:
-    def _limit(s):  # no-op when slowapi not available
+    _ip_key = None
+
+    def _limit(s, **_kw):  # no-op when slowapi not available
         def _d(f): return f
         return _d
 
@@ -375,7 +377,7 @@ class RefreshRequest(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-@_limit("10/minute")
+@_limit("10/minute", key_func=_ip_key)
 async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
@@ -393,7 +395,7 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-@_limit("5/minute")
+@_limit("5/minute", key_func=_ip_key)
 async def register(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
@@ -415,7 +417,8 @@ async def register(request: Request, data: RegisterRequest, db: AsyncSession = D
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
+@_limit("20/minute", key_func=_ip_key)
+async def refresh_token(request: Request, data: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
     exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
@@ -461,11 +464,17 @@ def _get_rate_limit_key(request: Request) -> str:
         try:
             import jwt
             from auth import ALGORITHM, _PUBLIC_KEY
-            sub = jwt.decode(auth[7:], _PUBLIC_KEY, algorithms=[ALGORITHM]).get("sub")
-            if sub:
-                return f"user:{sub}"
+            claims = jwt.decode(auth[7:], _PUBLIC_KEY, algorithms=[ALGORITHM])
+            if claims.get("type") == "access" and claims.get("sub"):
+                return f"user:{claims['sub']}"
         except Exception:
             pass  # invalid or expired token: treated as anonymous, so it is limited by IP
+    return ip_key(request)
+
+
+def ip_key(request: Request) -> str:
+    """Source IP only. Login, register and refresh use this: a caller who is not signed in yet must not be
+    able to pick their own bucket, not even with a valid token of their own."""
     return request.client.host if request.client else "unknown"
 
 
