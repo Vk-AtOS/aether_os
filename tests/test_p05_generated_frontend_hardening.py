@@ -185,3 +185,22 @@ def test_preview_server_is_loopback_only_and_playwright_install_does_not_block_t
     assert ran_in and ran_in[0] is not threading.main_thread()
     argv = popen_args[0]
     assert argv[argv.index("--bind") + 1] == "127.0.0.1"
+
+
+def test_gate_fails_for_a_structurally_broken_project(tmp_path, monkeypatch):
+    # The gate returned passed=True at the end whatever it found, and failed early only when EVERY issue was a
+    # missing file: a project without App.tsx (or without the router dependency) passed.
+    from aether_os.phases.base import TaskResult
+    from aether_os.phases.p05_frontend import gate
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    root = build_frontend(tmp_path, "crm", monkeypatch)
+    check = lambda: gate.validate(TaskResult(output_path=str(root), confidence=1.0, metadata={}, success=True))
+    assert check().passed
+    (root / "src" / "App.tsx").unlink()
+    out = check()
+    assert not out.passed and any("App.tsx" in i for i in out.issues)
+    (root / "src" / "App.tsx").write_text("export default function App() { return null }")
+    pkg = json.loads((root / "package.json").read_text())
+    del pkg["dependencies"]["@tanstack/react-router"]
+    (root / "package.json").write_text(json.dumps(pkg))
+    assert not check().passed
