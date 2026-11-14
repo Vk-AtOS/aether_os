@@ -204,3 +204,35 @@ def test_gate_fails_for_a_structurally_broken_project(tmp_path, monkeypatch):
     del pkg["dependencies"]["@tanstack/react-router"]
     (root / "package.json").write_text(json.dumps(pkg))
     assert not check().passed
+
+
+def test_list_and_dropdown_requests_match_what_the_backend_serves(tmp_path, monkeypatch):
+    # FK dropdowns requested /api/api/x (the client's baseURL already ends in /api) and only the first 20 rows;
+    # the calendar page asked for 500 rows, the backend rejects more than 200 (422); the IR backend named its page-size
+    # parameter `limit` (<=100) while the client sends page_size.
+    root = build_frontend(tmp_path, "crm", monkeypatch)
+    modal = (root / "src" / "components" / "CrudModal.tsx").read_text()
+    assert "endpoint.replace(/^\\/api(?=\\/)/, '')" in modal and "page_size: 200" in modal
+    for f, text in sources(root):
+        for n in re.findall(r"\.list\(\s*1\s*,\s*(\d+)\s*\)", text):
+            assert int(n) <= 200, (f, n)
+    assert not tsc_syntax_errors(root)
+
+
+def test_csv_export_defuses_formulas_and_includes_ids(tmp_path, monkeypatch):
+    # Exported cells beginning with = + - @ ran as formulas in Excel/Sheets (CSV injection); the record id was missing.
+    import shutil
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    root = build_frontend(tmp_path, "crm", monkeypatch)
+    text = next(t for t in (p.read_text() for p in (root / "src" / "pages").glob("*Page.tsx")) if "escapeCell" in t)
+    body = re.search(r"const escapeCell = .*?const csv = [^\n]*", text, re.S).group(0)
+    js = ("const columns=[{id:'name',header:'Name'},{id:'note',header:'Note'}];"
+          "const data=[{id:7,name:'=HYPERLINK(\"http://x\")',note:'a,b'},{id:8,name:'-5',note:5}];"
+          "const T=(x)=>x;" + re.sub(r": (unknown|string)\b", "", re.sub(r"\(item as any\)", "item", body).replace("(v: unknown)", "(v)")
+          .replace("as string", "")) + ";console.log(JSON.stringify(csv))")
+    out = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    csv = json.loads(out.stdout)
+    assert csv.startswith("﻿id,Name,Note") and "7,\"'=HYPERLINK" in csv and "\"a,b\"" in csv and "\r\n8,'-5,5" in csv, csv
