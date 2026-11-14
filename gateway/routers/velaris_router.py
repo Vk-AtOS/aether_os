@@ -91,8 +91,26 @@ def _served_elsewhere(agent: str, method: str) -> bool:
     """HR agents are served by /hr with a fixed method list that leaves out erasure and bulk export on
     purpose. This generic route must not reopen them, so an HR agent is reachable here only for the
     methods /hr itself allows (KAN-199)."""
-    allowed = HR_ALLOW.get(agent)
+    # Agent names are upper case in Velaris; compare upper-cased so a case variant cannot slip past.
+    allowed = HR_ALLOW.get(agent.upper())
     return allowed is not None and method not in allowed
+
+
+def _checked_tools(tools: Any) -> list:
+    """A flow may hand the model any tool, so its list is validated here and fails closed: a list of
+    "AGENT.method" names that pass the same name rule as the agent route, none of them excluded by /hr.
+    Only this canonical list is forwarded."""
+    if not isinstance(tools, list) or not tools:
+        raise HTTPException(status_code=400, detail="tools must be a non-empty list of AGENT.method names")
+    out, blocked = [], []
+    for t in tools:
+        agent, _, method = t.partition(".") if isinstance(t, str) else ("", "", "")
+        if not (_NAME.match(agent) and _NAME.match(method)):
+            raise HTTPException(status_code=400, detail="Each tool must be AGENT.method")
+        (blocked if _served_elsewhere(agent, method) else out).append(f"{agent}.{method}")
+    if blocked:
+        raise HTTPException(status_code=400, detail=f"These tools are not available here: {', '.join(sorted(blocked)[:10])}")
+    return out
 
 
 def _reply(status: int, data: Any) -> Any:
@@ -159,12 +177,7 @@ async def flows_pending(user: Dict[str, Any] = Depends(get_current_user)) -> Any
 @router.post("/flows")
 async def start_flow(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(get_current_user)) -> Any:
     """Start a model-driven run: {"task": str, "tools": ["AGENT.method", ...]}."""
-    tools = body.get("tools")
-    # A flow may hand the model any allowlisted tool, so the same exclusion applies to its tool list.
-    if isinstance(tools, list):
-        blocked = sorted(t for t in tools if isinstance(t, str) and "." in t and _served_elsewhere(*t.split(".", 1)))
-        if blocked:
-            raise HTTPException(status_code=400, detail=f"These tools are not available here: {', '.join(blocked[:10])}")
+    tools = _checked_tools(body.get("tools"))
     who = await _identity(user, acting=True)
     detail = {"tools": sorted(t for t in tools if isinstance(t, str))[:30] if isinstance(tools, list) else None}
     return _reply(*await _forward(who, "flow.start", "POST", "/flows",
