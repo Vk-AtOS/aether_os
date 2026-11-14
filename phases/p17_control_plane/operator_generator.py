@@ -301,13 +301,10 @@ func removeString(slice []string, s string) []string {{
 def generate_rbac_yaml(slug: str, entities: List[Dict[str, Any]]) -> str:
     """ClusterRole + ClusterRoleBinding for the operator."""
     group = f"{slug}.aetheros.io"
-    resource_lines: List[str] = []
-    for ent in entities:
-        kind = _pascal(ent.get("table", "resource"))
-        plural = kind.lower() + "s"
-        resource_lines.append(f"  - {plural}")
-
-    resources_block = "\n".join(resource_lines) if resource_lines else "  - resources"
+    plurals = [_pascal(ent.get("table", "resource")).lower() + "s" for ent in entities] or ["resources"]
+    # six spaces: the list sits under "resources:" inside a rule inside "rules:"
+    resources_block = "\n".join(f"      - {p}" for p in plurals)
+    status_block = "\n".join(f"      - {p}/status" for p in plurals)
 
     return f"""\
 apiVersion: rbac.authorization.k8s.io/v1
@@ -328,7 +325,7 @@ rules:
   - apiGroups:
       - {group}
     resources:
-{resources_block.replace("s", "s/status")}
+{status_block}
     verbs:
       - get
       - update
@@ -338,6 +335,13 @@ rules:
     resources:
       - pods
       - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
       - deployments
     verbs:
       - get
@@ -501,10 +505,9 @@ def generate_operator_dockerfile() -> str:
 FROM golang:1.21-alpine AS builder
 WORKDIR /workspace
 
-COPY go.mod go.sum ./
-RUN go mod download
-
+# go.sum is not generated with the project: resolve it from go.mod and the sources.
 COPY . .
+RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager main.go
 
 # Final minimal image
