@@ -52,6 +52,16 @@ def _z3_bool_invariant(
     )
 
 
+# Routes that must be callable without a token: logging in, signing up, token refresh,
+# health probes and API docs. Flagging them VIOLATED made every app fail the gate.
+_PUBLIC_TAILS = ("/login", "/register", "/signup", "/refresh", "/token", "/forgot-password",
+                 "/reset-password", "/health", "/healthz", "/ready", "/docs", "/redoc", "/openapi.json")
+
+
+def _is_public_route(path: str) -> bool:
+    return (path or "").rstrip("/").lower().endswith(_PUBLIC_TAILS)
+
+
 def _check_inv001_auth(route: "RouteInfo") -> "InvariantResult":
     """
     INV-001: Authentication invariant.
@@ -60,8 +70,17 @@ def _check_inv001_auth(route: "RouteInfo") -> "InvariantResult":
     We ask Z3 whether the route can be reached without auth (negation of invariant).
     With has_auth_depends=True the negation is UNSAT — invariant holds.
     """
-    import z3  # noqa: PLC0415
     from aether_os.phases.p06b_formal_verification.z3_encoder import InvariantResult  # noqa: PLC0415
+
+    if _is_public_route(route.path) and not route.has_auth_depends:
+        return InvariantResult(
+            invariant_id="INV-001",
+            invariant_name="No route reachable without valid JWT",
+            route_name=route.name, status="N/A",
+            proof_method="public by design (login/register/refresh/health/docs)",
+        )
+
+    import z3  # noqa: PLC0415
 
     t0 = time.monotonic()
     route_reachable = z3.Bool("route_reachable")
