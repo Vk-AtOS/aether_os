@@ -213,6 +213,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 logger = logging.getLogger(__name__)
 
 billing_router = APIRouter(prefix="/billing", tags=["billing"])
+router = billing_router  # the s10 auto-wire imports the name "router"
 
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
@@ -282,8 +283,8 @@ def generate_metering_middleware(entities: List[Dict[str, Any]], slug: str) -> s
     Async FastAPI middleware that intercepts entity-endpoint requests and fires
     a CloudEvents metering event to OpenMeter via a background task (fire-and-forget).
     """
-    # Build path prefix list from entity table names
-    prefixes = [f"/{_snake(e.get('table', 'resource'))}s" for e in entities]
+    # The generated backend mounts every entity router at /api/<table> (table name as is).
+    prefixes = [f"/api/{_snake(e.get('table', 'resource'))}" for e in entities]
     prefixes_repr = repr(prefixes)
 
     return f'''\
@@ -319,17 +320,34 @@ METERED_PREFIXES: list[str] = {prefixes_repr}
 
 
 def _extract_entity(path: str) -> str | None:
-    """Return entity name from URL path, or None if path is not an entity route."""
+    """Return the entity (table) name for /api/<table> and /api/<table>/..., else None."""
     for prefix in METERED_PREFIXES:
-        if path.startswith(prefix):
-            # strip leading slash and trailing 's'
-            return prefix.lstrip("/").rstrip("s")
+        if path == prefix or path.startswith(prefix + "/"):
+            return prefix.rsplit("/", 1)[-1]
     return None
 
 
+try:  # the generated backend's token verification (src/auth.py)
+    from src.auth import ALGORITHM as _ALG, _PUBLIC_KEY, jwt as _jwt
+except ImportError:
+    try:
+        from auth import ALGORITHM as _ALG, _PUBLIC_KEY, jwt as _jwt
+    except ImportError:
+        _jwt = None
+
+
 def _get_tenant_id(request: Request) -> str:
-    """Extract tenant_id from JWT claims or X-Tenant-Id header (stub — extend as needed)."""
-    return request.headers.get("X-Tenant-Id", "unknown")
+    """Tenant from the VERIFIED access token (org_id claim). A client-supplied header is
+    never trusted: anyone could bill usage to another tenant."""
+    auth = request.headers.get("Authorization", "")
+    if _jwt is None or not auth.startswith("Bearer "):
+        return "unknown"
+    try:
+        claims = _jwt.decode(auth[7:], _PUBLIC_KEY, algorithms=[_ALG])
+    except Exception as exc:
+        logger.debug("metering_middleware: token not verified: %s", exc)
+        return "unknown"
+    return str(claims.get("org_id") or "unknown")
 
 
 async def _post_metering_event(entity: str, tenant_id: str) -> None:
