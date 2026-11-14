@@ -142,19 +142,21 @@ class DecisionEngine:
         pubsub = r.pubsub()
         await pubsub.subscribe(channel)
         try:
+            # Decided between the caller's read and our subscribe: nothing will be published.
+            current = await self._db_get(decision.id)
+            if current is not None and current.status != "pending":
+                return current
             deadline = time.monotonic() + timeout
-            async for message in pubsub.listen():
-                if time.monotonic() > deadline:
-                    break
-                if message["type"] != "message":
+            while (remaining := deadline - time.monotonic()) > 0:
+                # listen() blocks forever on a quiet channel, so the deadline was never
+                # checked; get_message() returns after at most `timeout` seconds.
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=min(remaining, 5.0))
+                if not message or message.get("type") != "message":
                     continue
                 try:
-                    data = json.loads(message["data"])
-                    return Decision.from_dict(data)
+                    return Decision.from_dict(json.loads(message["data"]))
                 except Exception as exc:
                     logger.debug("[decisions] could not parse Redis message: %s", exc)
-                    continue
-        except asyncio.TimeoutError:
             logger.warning("[decisions] Redis pub/sub wait timed out after %ss for decision %s", timeout, decision.id)
         finally:
             try:

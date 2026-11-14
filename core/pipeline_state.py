@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
@@ -36,18 +37,34 @@ def set_control_local(run_id: str, command: str) -> None:
     _local_control[run_id] = command
 
 
+_RETRY_AFTER = 5.0       # seconds between reconnect attempts while Redis is down
+_redis_retry_at = 0.0
+
+
 async def get_redis():
-    global _redis, _redis_available, _redis_warned
-    if _redis is not None:
-        return _redis if _redis_available else None
+    """The shared Redis client, or None while it is down.
+
+    A failed connect is retried every _RETRY_AFTER seconds (it used to be cached as
+    "unavailable" for the life of the process), and every socket call has a timeout so
+    a hung Redis cannot hang a run.
+    """
+    global _redis, _redis_available, _redis_warned, _redis_retry_at
+    if _redis is not None and _redis_available:
+        return _redis
+    if time.monotonic() < _redis_retry_at:
+        return None
     try:
         import redis.asyncio as aioredis  # type: ignore
-        _redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
-        await _redis.ping()
-        _redis_available = True
+        client = aioredis.from_url(
+            REDIS_URL, decode_responses=True,
+            socket_connect_timeout=2, socket_timeout=5, health_check_interval=30,
+        )
+        await client.ping()
+        _redis, _redis_available, _redis_warned = client, True, False
         logger.info("Pipeline state: Redis connected at %s", REDIS_URL.split("@")[-1])
     except Exception as exc:
-        _redis_available = False
+        _redis, _redis_available = None, False
+        _redis_retry_at = time.monotonic() + _RETRY_AFTER
         if not _redis_warned:
             _redis_warned = True
             logger.warning(
