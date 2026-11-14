@@ -28,7 +28,7 @@ IR = {
 }
 
 
-def generate(tmp_path, *, domain="crm", tenancy=False, use_ir=True, monkeypatch=None):
+def generate(tmp_path, *, domain="crm", tenancy=False, use_ir=True, monkeypatch=None, permission_model=None):
     """Run p04a for a small domain and return the generated app directory."""
     async def no_smoke(src_dir, emit):          # the smoke test needs a sandbox; imports are checked below
         return {"passed": True, "errors": [], "check_imports": helpers._check_imports(src_dir), "skipped": True}
@@ -40,6 +40,8 @@ def generate(tmp_path, *, domain="crm", tenancy=False, use_ir=True, monkeypatch=
     data = {"project_name": "Demo", "domain": domain, "entities": entities, "multi_tenancy": tenancy}
     if use_ir:
         data["domain_ir_path"] = str(tmp_path / "domain_ir.json")
+    if permission_model:
+        data["permission_model"] = permission_model
     result = asyncio.run(task_agent.run(SimpleNamespace(input_data=data), [], tmp_path / "app"))
     return result, tmp_path / "app"
 
@@ -312,3 +314,29 @@ print("RESULT " + json.dumps(out))
     assert r["register"] == 201 and r["t2_sees"] == 0, r              # the new tenant sees none of tenant "default"
     assert r["t2_reads_mine"] == 404 and r["t2_deletes_mine"] == 404 and r["admin_still_has_mine"] == 200, r
     assert r["admin_stats"] >= 2 and r["t2_stats"] == 0, r          # /stats counts only the caller's tenant
+
+
+def test_fallback_backend_denies_by_default_and_ignores_role_name_case(tmp_path, monkeypatch):
+    # Fallback generator: `_get_roles_for_action` returned None ("any signed-in user") whenever no role
+    # covered an action, and require_role/require_admin compared role names case-sensitively. The model here
+    # grants only Customer read to "Manager" and nothing on Invoice; a plain user must get nothing, the seeded
+    # admin everything, and a role written "ADMIN" must still be admin.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    pm = {"roles": ["Manager"], "permissions": {"Manager": {"Customer": ["read"]}}}
+    _, app = generate(tmp_path, domain="crm", use_ir=False, monkeypatch=monkeypatch, permission_model=pm)
+    r = run_app(app, "customers,invoices")
+    assert r["register"] == 201 and r["admin_login"] == 200, r
+    for ent in ("customers", "invoices"):
+        assert r[f"user_list_{ent}"] == 403 and r[f"user_create_{ent}"] == 403, (ent, r)
+        assert r[f"admin_create_{ent}"] == 201 and r[f"admin_list_{ent}"] == 200, (ent, r)
+        assert r[f"user_delete_{ent}"] == 403 and r[f"admin_delete_{ent}"] == 204, (ent, r)
+    guard = (app / "src" / "auth.py").read_text()
+    assert "lower()" in guard.split("def require_role")[1]
+
+
+def test_fallback_single_item_cache_is_per_tenant(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    _, app = generate(tmp_path, domain="crm", tenancy=True, use_ir=False, monkeypatch=monkeypatch)
+    crud = "".join(p.read_text() for p in (app / "src" / "routers").glob("*.py"))
+    # list keys already carry the org; the single-item key must too (tenant B read tenant A's cached row)
+    assert "current_user.get('org_id', '')}:{item_id}" in crud, "single-item cache key is not tenant-scoped"

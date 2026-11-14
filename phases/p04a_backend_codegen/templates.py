@@ -274,7 +274,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "admin":
+    if str(user.get("role") or "").lower() != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
@@ -286,7 +286,7 @@ def require_role(*roles: str):
     The role is sourced from the JWT claim written by create_access_token().
     """
     async def _check(current_user: dict = Depends(get_current_user)) -> dict:
-        if current_user.get("role") not in roles:
+        if str(current_user.get("role") or "").lower() not in [r.lower() for r in roles]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient role. Required one of: {list(roles)}",
