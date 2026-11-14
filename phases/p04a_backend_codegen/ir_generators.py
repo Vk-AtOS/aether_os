@@ -391,6 +391,7 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
         "    items: List[Any]",
         "    total: int",
         "    page: int",
+        "    page_size: int",
         "    limit: int",
         "",
     ])
