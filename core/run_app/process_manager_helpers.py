@@ -280,8 +280,10 @@ def _spa_catchall(path: str = ""):
                 "import os as _os, uuid as _uuid, sqlite3 as _sqlite3\n"
                 "from datetime import datetime as _dt\n"
                 "app = FastAPI(title='Generated App', version='1.0.0')\n"
+                # The preview SPA is served by this same app, so it needs no credentialed CORS;
+                # '*' with credentials made Starlette echo any Origin, letting any site act as the user.
                 "app.add_middleware(CORSMiddleware, allow_origins=['*'], "
-                "allow_credentials=True, allow_methods=['*'], allow_headers=['*'])\n"
+                "allow_credentials=False, allow_methods=['*'], allow_headers=['*'])\n"
                 "db = {}\n\n"
             )
             content = _boilerplate + content
