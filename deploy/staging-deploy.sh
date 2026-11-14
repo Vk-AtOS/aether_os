@@ -3,7 +3,7 @@
 # AetherOS — Staging deploy script
 #
 # Spins up an isolated staging stack alongside production on the same host.
-# Staging uses port 8001 (API), 5433 (Postgres), 6380 (Redis) and its own
+# Staging uses port 8001 (API), 127.0.0.1 only (Postgres/Redis are internal) and its own
 # Docker volumes prefixed with "staging_".
 #
 # Usage (run from repo root):
@@ -38,27 +38,8 @@ else
     echo "-> .env.staging found"
 fi
 
-# ── Step 2: Patch DATABASE_URL and REDIS_URL in .env.staging ────────────────
-echo "-> Patching DATABASE_URL in .env.staging to use port 5433 / db aether_os_staging..."
-
-# Replace any existing DATABASE_URL line (postgresql or postgresql+asyncpg)
-if grep -q "^DATABASE_URL=" "$ENV_FILE"; then
-    # Use sed to replace the line in-place (macOS-compatible -i '')
-    sed -i.bak "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+asyncpg://aether_user:\${POSTGRES_PASSWORD:-aether_dev_pass}@localhost:5433/aether_os_staging|" "$ENV_FILE"
-    echo "   Updated existing DATABASE_URL"
-else
-    echo "DATABASE_URL=postgresql+asyncpg://aether_user:\${POSTGRES_PASSWORD:-aether_dev_pass}@localhost:5433/aether_os_staging" >> "$ENV_FILE"
-    echo "   Appended DATABASE_URL"
-fi
-
-echo "-> Patching REDIS_URL in .env.staging to use port 6380..."
-if grep -q "^REDIS_URL=" "$ENV_FILE"; then
-    sed -i.bak "s|^REDIS_URL=.*|REDIS_URL=redis://localhost:6380/0|" "$ENV_FILE"
-    echo "   Updated existing REDIS_URL"
-else
-    echo "REDIS_URL=redis://localhost:6380/0" >> "$ENV_FILE"
-    echo "   Appended REDIS_URL"
-fi
+# DATABASE_URL / REDIS_URL are built inside docker-compose.staging.yml from POSTGRES_PASSWORD /
+# REDIS_PASSWORD (required, no defaults); Postgres and Redis are not published to the host.
 
 # Ensure ENVIRONMENT is set to staging
 if grep -q "^ENVIRONMENT=" "$ENV_FILE"; then

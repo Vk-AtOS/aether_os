@@ -98,6 +98,28 @@ spec:
                 secretKeyRef:
                   name: aetheros-secrets
                   key: SAML_SP_ACS_URL
+            - name: AETHER_FIELD_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: AETHER_FIELD_KEY
+            - name: AETHER_PREVIEW_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: AETHER_PREVIEW_SECRET
+            - name: VELARIS_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: VELARIS_API_SECRET
+                  optional: true
+            - name: VELARIS_IDENTITY_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: VELARIS_IDENTITY_PRIVATE_KEY
+                  optional: true
           resources:
             requests:
               cpu: "250m"

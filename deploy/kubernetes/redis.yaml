@@ -42,7 +42,7 @@ spec:
             - "--maxmemory"
             - "256mb"
             - "--maxmemory-policy"
-            - "allkeys-lru"
+            - "noeviction"
             - "--requirepass"
             - "$(REDIS_PASSWORD)"
           env:

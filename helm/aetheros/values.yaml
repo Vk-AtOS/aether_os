@@ -268,6 +268,15 @@ config:
   PRICE_CLAUDE_HAIKU_4_5_INPUT: ""
   PRICE_CLAUDE_HAIKU_4_5_OUTPUT: ""
 
+  # Sandbox / preview (generated apps run in Docker; a pod needs a docker-capable runner, see docs)
+  AETHER_SANDBOX: "docker"
+  AETHER_SANDBOX_IMAGE: "aether-sandbox:1"
+  # -- Preview origin (separate registrable origin that serves generated apps). Required.
+  AETHER_PREVIEW_ORIGIN: ""
+
+  # Velaris integration (OPTIONAL: leave VELARIS_API_URL empty to disable)
+  VELARIS_API_URL: ""
+
   # Metrics endpoint auth — leave empty to allow unauthenticated scraping
   METRICS_API_KEY: ""
 
@@ -334,6 +343,14 @@ secrets:
   # -- Slack incoming webhook URL.
   SLACK_WEBHOOK_URL: ""
 
+  # -- Fernet key for field-level encryption (required before the encrypt migration).
+  AETHER_FIELD_KEY: ""
+  # -- Signs preview URLs (32+ random chars). Required.
+  AETHER_PREVIEW_SECRET: ""
+  # -- Velaris (optional integration).
+  VELARIS_API_SECRET: ""
+  VELARIS_IDENTITY_PRIVATE_KEY: ""
+
   # -- SCIM 2.0 IdP provisioning bearer token (Okta / Azure AD).
   SCIM_BEARER_TOKEN: ""
   SCIM_ORG_ID: ""
@@ -397,4 +414,4 @@ redis:
         memory: 512Mi
     configuration: |
       maxmemory 256mb
-      maxmemory-policy allkeys-lru
+      maxmemory-policy noeviction

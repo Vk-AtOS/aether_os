@@ -10,7 +10,7 @@
 #
 # What this does:
 #   1. System updates + Python 3.11, Node 20, nginx, certbot
-#   2. Creates /opt/aetheros from current repo
+#   2. Creates /home/aether_os from current repo
 #   3. Python venv + pip install
 #   4. Node + npm build of dashboard
 #   5. systemd service install + enable
@@ -20,7 +20,8 @@ set -euo pipefail
 DOMAIN="${DOMAIN:?Set DOMAIN env var before running}"
 EMAIL="${EMAIL:?Set EMAIL env var before running}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"   # parent of deploy/
-INSTALL_DIR=/opt/aetheros
+# Must match WorkingDirectory/PYTHONPATH in deploy/aetheros.service (package dir name must be aether_os)
+INSTALL_DIR=/home/aether_os
 SERVICE_USER=aetheros
 
 echo "=== AetherOS VPS Setup ==="
@@ -98,6 +99,7 @@ fi
 # ── 9. Permissions ────────────────────────────────────────────────────────────
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 chmod 640 "$INSTALL_DIR/.env"
+chmod 755 "$INSTALL_DIR"   # nginx (www-data) serves dashboard/dist from here
 
 # ── 10. Log dir ───────────────────────────────────────────────────────────────
 mkdir -p /var/log/aetheros
@@ -132,7 +134,9 @@ systemctl enable aetheros
 
 # ── 12. nginx ─────────────────────────────────────────────────────────────────
 NGINX_CONF=/etc/nginx/sites-available/aetheros
-sed "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" "$REPO_DIR/deploy/nginx.conf" > "$NGINX_CONF"
+PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.$DOMAIN}"
+sed -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/$PREVIEW_DOMAIN/g" \
+    "$REPO_DIR/deploy/nginx.conf" > "$NGINX_CONF"
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
