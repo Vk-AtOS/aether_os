@@ -140,6 +140,14 @@ def _fk_cycles(entities: List[Dict]) -> List[str]:
     return found
 
 
+def safe_project_name(name: object) -> str:
+    """The project name is written into Python strings, docstrings, comments, Markdown and a Makefile of the
+    generated app. Keep letters, digits, spaces and `.,&()-_`; drop everything else (quotes, backslashes,
+    newlines, braces, `$`). At most 60 characters; "App" when nothing is left."""
+    cleaned = re.sub(r"[^\w .,&()\-]", "", str(name or ""), flags=re.UNICODE)
+    return re.sub(r"\s+", " ", cleaned).strip()[:60] or "App"
+
+
 def check_unique_fields_identified(entities: List[Dict]) -> List[str]:
     """Warn when email/username fields lack a unique marker.
 

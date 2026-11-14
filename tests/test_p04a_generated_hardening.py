@@ -187,3 +187,70 @@ def test_foreign_key_cycles_in_the_ir_are_found():
     soft = run_pre_gen_checks({"entities": [ent("A", "B", True), ent("B", "A", False)]})
     assert not hard.passed and "a -> b -> a" in hard.errors[0]
     assert soft.passed and any("circular_fk_nullable" in w for w in soft.warnings)
+
+
+def test_project_name_cannot_inject_code_into_the_generated_app(tmp_path, monkeypatch):
+    # {PROJECT_NAME} was substituted into main.py strings and a docstring, the seed prefix, the Makefile and the
+    # README, so a name containing triple quotes and a newline ran as code in the customer's app.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    import asyncio
+    from types import SimpleNamespace
+    from aether_os.phases.p04a_backend_codegen import task_agent
+    from aether_os.tests.test_p04a_generated_backend import helpers
+    async def no_smoke(src_dir, emit):
+        return {"passed": True, "errors": [], "check_imports": helpers._check_imports(src_dir), "skipped": True}
+    monkeypatch.setattr(task_agent, "_smoke_test", no_smoke)
+    evil = 'X"""\nimport os; os.system("touch /tmp/pwned_a6b")\n# $(shell id) {{x}}'
+    (tmp_path / "ir.json").write_text(json.dumps(IR))
+    asyncio.run(task_agent.run(SimpleNamespace(input_data={"project_name": evil, "domain": "crm", "entities": [],
+                               "domain_ir_path": str(tmp_path / "ir.json")}), [], tmp_path / "app"))
+    app = tmp_path / "app"
+    import ast
+    for f in list(app.rglob("*.py")):
+        calls = [n for n in ast.walk(ast.parse(f.read_text())) if isinstance(n, ast.Call)
+                 and getattr(n.func, "attr", "") == "system"]
+        assert not calls, f
+    assert "$(" not in (app / "Makefile").read_text()
+
+
+def test_production_hardening_of_the_generated_main(tmp_path, monkeypatch):
+    # /ready returned str(exception) (DB host, user), /docs and /openapi.json were public in production, an
+    # integrity error was a 500, the Dockerfile ran as root.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    app = generate(tmp_path, domain="crm", use_ir=False, monkeypatch=monkeypatch)[1]
+    docker = (app / "Dockerfile").read_text()
+    assert "USER app" in docker and "HEALTHCHECK" in docker
+    body = r'''
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    out["docs"] = [c.get(p).status_code for p in ("/docs", "/redoc", "/openapi.json")]
+    import database
+    class Down:
+        def connect(self): raise RuntimeError("password authentication failed for user dbadmin at 10.9.8.7")
+    database.engine = Down()
+    r = c.get("/ready"); out["ready"] = [r.status_code, r.text]
+    adm = c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}).json()["access_token"]
+    out["missing_required"] = c.post("/api/customers", headers={"Authorization": "Bearer " + adm}, json={"name": "A"}).status_code
+'''
+    prod = run_script(app, body, {"ENVIRONMENT": "production"})
+    assert prod["docs"] == [404, 404, 404], prod
+    assert prod["ready"][0] == 503 and "dbadmin" not in prod["ready"][1] and "10.9.8.7" not in prod["ready"][1], prod
+    assert prod["missing_required"] == 409, prod
+    dev = run_script(app, body, {"ENVIRONMENT": "development"})
+    assert dev["docs"] == [200, 200, 200], dev
+    on = run_script(app, body, {"ENVIRONMENT": "production", "ENABLE_DOCS": "true"})
+    assert on["docs"] == [200, 200, 200], on
+
+
+def test_alembic_env_sees_the_apps_tables(tmp_path, monkeypatch):
+    # env.py imported `src.database`, a second copy of the module with its own empty Base: autogenerate saw no
+    # tables (and `make migrate` imported the models twice).
+    pytest.importorskip("alembic")
+    app = _crm(tmp_path, monkeypatch)
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{app}/mig.db"}
+    p = subprocess.run([sys.executable, "-m", "alembic", "revision", "--autogenerate", "-m", "init"], cwd=app, env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert p.returncode == 0, p.stderr[-1500:]
+    rev = next((app / "alembic" / "versions").glob("*.py")).read_text()
+    assert "create_table('customers'" in rev and "create_table('invoices'" in rev, rev[:600]
