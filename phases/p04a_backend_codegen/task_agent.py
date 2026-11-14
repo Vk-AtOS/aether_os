@@ -123,14 +123,22 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # so we fail fast before spending time on file writes or LLM calls.
     try:
         from aether_os.phases.p04a_backend_codegen.pre_gen_validator import run_pre_gen_checks
-        _pre_gen_report = run_pre_gen_checks({"entities": entities})
+        _ir_for_checks: dict = {}
+        _ir_file = data.get("domain_ir_path", "")
+        if _ir_file and Path(_ir_file).exists():
+            _ir_for_checks = json.loads(Path(_ir_file).read_text())
+        # the IR carries the foreign keys (type "fk") and rules; the plain entity list is checked too
+        _pre_gen_report = run_pre_gen_checks({
+            "entities": list(_ir_for_checks.get("entities") or []) + list(entities),
+            "business_rules": _ir_for_checks.get("business_rules") or [],
+        })
         if _pre_gen_report.warnings:
             data.setdefault("pre_gen_warnings", []).extend(_pre_gen_report.warnings)
         if not _pre_gen_report.passed:
             data.setdefault("pre_gen_errors", []).extend(_pre_gen_report.errors)
             raise PipelineBlockedError(
                 f"P04a pre-generation check failed: {_pre_gen_report.errors}. "
-                "Fix circular foreign-key references in entity definitions before retrying."
+                "Fix the entity definitions (circular foreign keys, names that are not plain identifiers) before retrying."
             )
     except PipelineBlockedError:
         raise
