@@ -141,11 +141,13 @@ def _col_comment(field_name: str, domain: str) -> str:
 
 # ── Fallback model generator ───────────────────────────────────────────────────
 
-def _fallback_models(project_name: str, entities: list, domain: str = "") -> str:
+def _fallback_models(project_name: str, entities: list, domain: str = "", multi_tenancy: bool = False) -> str:
     """Generate SQLAlchemy models from entity list.
 
     domain: if provided, domain-specific column types are applied (e.g. Numeric
     for money fields in fintech/marketplace/erp).
+    multi_tenancy: the users table and every entity table get an org_id column (the CRUD routers filter on it;
+    without the column every request raised AttributeError, KAN-169).
     """
     entity_classes = []
     # `<x>_id` links to an entity only when one named <x> exists in this app: (class name, table) by lowered name
@@ -161,7 +163,7 @@ def _fallback_models(project_name: str, entities: list, domain: str = "") -> str
         rels = []
         for f in fields:
             fn = f.get("name", f) if isinstance(f, dict) else str(f)
-            if fn in ("id", "created_at", "updated_at"):
+            if fn in ("id", "created_at", "updated_at") or (multi_tenancy and fn == "org_id"):
                 continue
             sa_type = _col_to_sa_type(fn, domain)
             _target = _entity_by_key.get(fn[:-3].replace("_", "").lower()) if fn.endswith("_id") and "user" not in fn else None
@@ -185,6 +187,8 @@ def _fallback_models(project_name: str, entities: list, domain: str = "") -> str
                 rels.append(f"    {fn[:-3]} = relationship('{_target[0]}', foreign_keys=[{fn}], lazy='selectin')")
 
         cols += rels
+        if multi_tenancy:
+            cols.append("    org_id = Column(String(64), nullable=False, index=True)")
         cols += [
             "    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)",
             "    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)",
@@ -215,7 +219,8 @@ def _fallback_models(project_name: str, entities: list, domain: str = "") -> str
         "    password_hash = Column(String(255), nullable=False)\n"
         "    role = Column(String(50), nullable=False, default=\"user\")\n"
         "    is_active = Column(Boolean, nullable=False, default=True)\n"
-        "    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)\n"
+        + ("    org_id = Column(String(64), nullable=True, index=True)\n" if multi_tenancy else "")
+        + "    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)\n"
         "    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)\n"
         + ("\n\n\n" + entity_block + "\n" if entity_block else "\n")
     )

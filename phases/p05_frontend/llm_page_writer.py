@@ -226,7 +226,7 @@ async def write_entity_page_llm(
     fields_block = "\n".join(field_lines) or "  - id: int\n  - name: string"
 
     routes = _filter_routes(route_map, table)
-    routes_block = "\n".join(f"  {k} → {v}" for k, v in routes.items()) or f"  (default: /api/{table})"
+    routes_block = "\n".join(f"  {k} → {re.sub(r'^/api(?=/)', '', str(v))}" for k, v in routes.items()) or f"  (default: /{table})"
 
     rel_hints = _relationship_hints(entity, domain_ir)
 
@@ -240,7 +240,9 @@ async def write_entity_page_llm(
         "Hard requirements:\n"
         "- React 18 + TypeScript + TanStack Router + Tailwind CSS\n"
         "- Import from '@tanstack/react-query' (useQuery, useMutation, useQueryClient)\n"
-        "- Use fetch() with JWT from localStorage.getItem('token') as Authorization: Bearer\n"
+        "- Call the API ONLY through the shared axios client: import { apiClient } from '@/lib/api' (its baseURL is already /api, "
+        "it adds the Bearer token and handles 401). Use paths without /api, e.g. apiClient.get('/patients', { params: { page, page_size } }). "
+        "Never use fetch(), never read localStorage, never hard-code '/api' or a token key. List params are page (>=1) and page_size (<=200)\n"
         "- Full CRUD: list table, Create button opening modal, Edit row → modal, Delete with confirm\n"
         "- Use shadcn/ui components imported from '@/components/ui/*' (Button, Card, Input, Table, Modal)\n"
         "- No hardcoded data — all rows come from the API\n"

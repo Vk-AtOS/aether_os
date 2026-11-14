@@ -126,9 +126,13 @@ def read_architecture(data: dict) -> dict:
             route_map: Dict[str, str] = {}
             for r in routes:
                 if r.get("method") == "GET" and "{" not in r.get("path", ""):
-                    path = r["path"]
+                    # The backend serves everything under /api and the generated client's baseURL already ends in
+                    # /api: strip the prefix, or the table is read as "api" (one entry for every route) and any
+                    # path that is kept would be requested as /api/api/x.
+                    path = re.sub(r"^/api(?=/|$)", "", r["path"]).rstrip("/") or "/"
                     table = path.lstrip("/").split("/")[0]
-                    if table and table not in ("health", "docs", "openapi.json", "redoc", "admin"):
+                    if table and table not in ("health", "ready", "metrics", "docs", "openapi.json", "redoc", "admin",
+                                               "auth", "stats", "realtime", "pipeline-events"):
                         route_map[table] = path
             if route_map:
                 arch["api_route_map"] = route_map

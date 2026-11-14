@@ -4,6 +4,7 @@ Provides _generate_sse_router for generating Server-Sent Events routers.
 """
 from __future__ import annotations
 
+import re
 import textwrap
 
 
@@ -14,7 +15,10 @@ def _generate_sse_router(features: list, project_name: str) -> str:
     the calling user's org_id when present.  The list of realtime_features is
     embedded as a comment so developers can see what spec features drove it.
     """
-    features_comment = ", ".join(features) if features else "generic realtime stream"
+    def one_line(x) -> str:      # a newline in a comment would end it and the rest would run as code
+        return re.sub(r"[\r\n]+", " ", str(x))
+    project_name = one_line(project_name)
+    features_comment = one_line(", ".join(str(f) for f in features)) if features else "generic realtime stream"
     return textwrap.dedent(f"""\
         # Generated realtime SSE router for {project_name}
         # Realtime features: {features_comment}

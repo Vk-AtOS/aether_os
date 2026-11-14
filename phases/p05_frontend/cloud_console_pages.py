@@ -57,7 +57,7 @@ export default function Dashboard() {{
   const {{ data: events }} = useQuery({{ queryKey: ['platform-events'], queryFn: fetchEvents }});
 
   const chartData = {services_json}.map((name) => ({{
-    name, resources: (stats?.resource_counts?.[name] ?? Math.floor(Math.random() * 20 + 2)),
+    name, resources: (stats?.resource_counts?.[name] ?? 0),   // no invented counts: unknown is 0
   }}));
 
   return (

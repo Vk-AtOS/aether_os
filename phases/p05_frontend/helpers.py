@@ -337,8 +337,8 @@ export default function Home() {{
             </div>
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
               <Star className="text-{primary_color} mb-4" size={{32}} />
-              <h3 className="text-xl font-bold mb-2">Top Rated</h3>
-              <p className="text-gray-600">Trusted by thousands of businesses worldwide for their daily operations.</p>
+              <h3 className="text-xl font-bold mb-2">Built for {domain.replace('_', ' ')}</h3>
+              <p className="text-gray-600">Designed around the way {domain.replace('_', ' ')} teams actually work.</p>
             </div>
           </div>
         </div>
@@ -561,6 +561,7 @@ def _generate_sse_hook(features: List[Any], project_name: str) -> str:
 // On unmount or error the connection is cleanly closed.
 
 import {{ useEffect, useRef }} from 'react'
+import {{ getToken }} from '../lib/auth'
 
 export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
   // Keep a stable ref to the latest callback so the effect closure never goes stale.
@@ -570,7 +571,7 @@ export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
   }})
 
   useEffect(() => {{
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const url = `/api/realtime/stream${{token ? `?token=${{encodeURIComponent(token)}}` : ''}}`
     const es = new EventSource(url)
 

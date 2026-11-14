@@ -7,6 +7,7 @@ and writes the results to disk.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 from pathlib import Path
@@ -127,8 +128,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+// BASE_PATH: where the built app is served from. '/' unless the host sets VITE_BASE_PATH (a preview host that
+// serves it under a sub-path sets it). The router derives its basepath from it (import.meta.env.BASE_URL).
+const BASE_PATH = process.env.VITE_BASE_PATH || '/'
+
 export default defineConfig({
-  base: '/app-preview/',
+  base: BASE_PATH,
   plugins: [react()],
   resolve: {
     alias: {
@@ -138,11 +143,6 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/app-preview/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\\/app-preview/, ''),
-      },
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
@@ -474,7 +474,13 @@ export default {
 
 
 def _generate_index_html(project_name: str, description: str = "", domain: str = "saas") -> str:
+    # Both values come from the spec: escaped for HTML text/attributes, and JSON-encoded (with `<` neutralised, so
+    # `</script>` cannot end the block) inside the JSON-LD script. `x</title><script>` used to run as a script.
     _desc = description or f"{project_name} — the modern platform built for your business."
+    _ld_name = json.dumps(project_name).replace("<", "\\u003c")
+    _ld_desc = json.dumps(_desc).replace("<", "\\u003c")
+    project_name = html.escape(project_name, quote=True)
+    _desc = html.escape(_desc, quote=True)
     _og_type = "website"
     _schema_type = "WebSite"
     if domain in ("ecommerce", "marketplace"):
@@ -506,7 +512,6 @@ def _generate_index_html(project_name: str, description: str = "", domain: str =
   <!-- Preconnect for perf -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preconnect" href="https://picsum.photos" />
 
   <!-- Inter font — primary typography system -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -521,8 +526,8 @@ def _generate_index_html(project_name: str, description: str = "", domain: str =
   {{
     "@context": "https://schema.org",
     "@type": "{_schema_type}",
-    "name": "{project_name}",
-    "description": "{_desc}",
+    "name": {_ld_name},
+    "description": {_ld_desc},
     "url": "/"
   }}
   </script>
@@ -970,7 +975,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("      _sessionExpired = true")
     lines.append("      clearToken()")
     lines.append("      // Use replace (not href=) so the browser back-button still works after re-login")
-    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace('/login') }, 80)")
+    lines.append("      setTimeout(() => { _sessionExpired = false; window.location.replace(import.meta.env.BASE_URL + 'login') }, 80)")
     lines.append("    }")
     lines.append("    return Promise.reject(err)")
     lines.append("  },")
@@ -978,7 +983,7 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("")
     lines.append("export const authApi = {")
     lines.append("  login: (email: string, password: string) =>")
-    lines.append("    apiClient.post<{ access_token: string }>('/auth/login', { email, password }).then(r => r.data),")
+    lines.append("    apiClient.post<{ access_token: string; refresh_token: string }>('/auth/login', { email, password }).then(r => r.data),")
     lines.append("  register: (email: string, password: string) =>")
     lines.append("    apiClient.post('/auth/register', { email, password }).then(r => r.data),")
     lines.append("}")
@@ -1086,7 +1091,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree, basepath: '/app-preview', defaultNotFoundComponent: NotFoundPage }})
+export const router = createRouter({{ routeTree, basepath: import.meta.env.BASE_URL.replace(/\\/+$/, '') || '/', defaultNotFoundComponent: NotFoundPage }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
@@ -1224,7 +1229,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({{ routeTree, basepath: '/app-preview', defaultNotFoundComponent: NotFoundPage }})
+export const router = createRouter({{ routeTree, basepath: import.meta.env.BASE_URL.replace(/\\/+$/, '') || '/', defaultNotFoundComponent: NotFoundPage }})
 
 declare module '@tanstack/react-router' {{
   interface Register {{ router: typeof router }}
@@ -1506,15 +1511,14 @@ export default function CustomerHome() {{
                 <Link key={{item.id ?? i}} to="{primary_route}"
                   className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden flex flex-col">
                   <div className="aspect-square bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
-                    <img src={{`https://picsum.photos/seed/${{seed}}/400/400`}} alt={{name}}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      loading="lazy" onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}} />
+                    {{(item.image_url ?? item.image ?? item.thumbnail)
+                      ? <img src={{item.image_url ?? item.image ?? item.thumbnail}} alt={{name}}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          loading="lazy" onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}} />
+                      : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-4xl font-bold text-gray-300">{{String(name).charAt(0).toUpperCase()}}</div>}}
                   </div>
                   <div className="p-4 flex flex-col flex-1">
                     <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2">{{name}}</h3>
-                    <div className="flex items-center gap-1 mb-3">
-                      {{[1,2,3,4,5].map(s => <Star key={{s}} size={{11}} className="fill-amber-400 text-amber-400" />)}}
-                    </div>
                     {{price != null && (
                       <p className="text-lg font-bold text-gray-900 mt-auto">${{typeof price === 'number' ? price.toFixed(2) : price}}</p>
                     )}}
@@ -1590,12 +1594,6 @@ export function Layout() {{
 
   return (
     <div className="min-h-screen bg-white flex flex-col font-sans">
-      {{/* ── Announcement bar ── */}}
-      <div className="bg-gray-900 text-white text-center py-2 text-xs font-medium tracking-wide">
-        🚚 Free shipping on orders over $50 &nbsp;·&nbsp; Use code{' '}
-        <span className="underline font-bold cursor-pointer">WELCOME10</span> for 10% off your first order
-      </div>
-
       {{/* ── Sticky header ── */}}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1961,7 +1959,7 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
 def _generate_crud_modal() -> str:
     return """\
 // Auto-generated by AetherOS p05_frontend
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { X } from 'lucide-react'
 import { apiClient } from '../lib/api'
@@ -2021,7 +2019,9 @@ export function CrudModal<T extends Record<string, unknown>>({
       const endpoint = field.fkEndpoint ?? fkConfig?.[field.name]
       if (!endpoint) return
       const labelKey = field.fkLabelKey ?? 'name'
-      apiClient.get<{ items?: unknown[]; [k: string]: unknown }>(endpoint)
+      // the client's baseURL already ends in /api: a configured "/api/x" would be requested as /api/api/x.
+      // 200 is the most rows a list endpoint returns per page.
+      apiClient.get<{ items?: unknown[]; [k: string]: unknown }>(endpoint.replace(/^\\/api(?=\\/)/, ''), { params: { page: 1, page_size: 200 } })
         .then(res => {
           const records: unknown[] = (res.data as any)?.items ?? (Array.isArray(res.data) ? res.data : [])
           const opts = records.map((r: any) => ({
@@ -2034,15 +2034,40 @@ export function CrudModal<T extends Record<string, unknown>>({
     })
   }, [isOpen, fields, fkConfig])
 
+  // Accessibility: dialog semantics, labels tied to their fields, focus moves into the dialog, Tab stays inside it,
+  // Escape closes it and focus returns to what opened it.
+  const uid = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!isOpen) return
+    const opener = document.activeElement as HTMLElement | null
+    const node = dialogRef.current
+    const focusable = () => Array.from(node?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])') ?? [])
+    ;(node?.querySelector<HTMLElement>('input, select, textarea') ?? focusable()[0])?.focus()
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
+      if (e.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) return
+      const first = items[0], last = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown); opener?.focus() }
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${uid}-title`}
+           className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-            <X size={20} />
+          <h2 id={`${uid}-title`} className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
         <form
@@ -2055,12 +2080,13 @@ export function CrudModal<T extends Record<string, unknown>>({
             const resolvedOptions = isFkSelect ? (fkOptions[f.name] ?? []) : (f.options ?? [])
             return (
               <div key={f.name}>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor={`${uid}-${f.name}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {f.label}
                   {f.required && <span className="text-red-500 ml-1">*</span>}
                 </label>
                 {f.type === 'textarea' ? (
                   <textarea
+                    id={`${uid}-${f.name}`}
                     {...register(f.name as keyof T extends string ? keyof T : never, {
                       required: f.required ? `${f.label} is required` : false,
                     } as any)}
@@ -2069,6 +2095,7 @@ export function CrudModal<T extends Record<string, unknown>>({
                   />
                 ) : f.type === 'select' || isFkSelect ? (
                   <select
+                    id={`${uid}-${f.name}`}
                     {...register(f.name as any, { required: f.required ? `${f.label} is required` : false })}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
                   >
@@ -2083,6 +2110,7 @@ export function CrudModal<T extends Record<string, unknown>>({
                   </select>
                 ) : (
                   <input
+                    id={`${uid}-${f.name}`}
                     type={f.type}
                     {...register(f.name as any, {
                       required: f.required ? `${f.label} is required` : false,
@@ -2097,7 +2125,7 @@ export function CrudModal<T extends Record<string, unknown>>({
                   />
                 )}
                 {errors[f.name as keyof T] && (
-                  <p className="text-xs text-red-500 mt-1">
+                  <p role="alert" className="text-xs text-red-500 mt-1">
                     {(errors[f.name as keyof T] as { message?: string })?.message ?? `${f.label} is required`}
                   </p>
                 )}
@@ -2656,14 +2684,14 @@ export function LoginPage() {{
           <p className="text-gray-500 mb-8 text-sm">Sign in to your account to continue.</p>
           <form onSubmit={{handleSubmit}} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
-              <input type="email" value={{email}} onChange={{e => setEmail(e.target.value)}} required
+              <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+              <input id="login-email" type="email" value={{email}} onChange={{e => setEmail(e.target.value)}} required
                 placeholder="you@example.com"
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input type="password" value={{password}} onChange={{e => setPassword(e.target.value)}} required
+              <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input id="login-password" type="password" value={{password}} onChange={{e => setPassword(e.target.value)}} required
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
             </div>
             {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
@@ -2672,11 +2700,6 @@ export function LoginPage() {{
               {{loading ? 'Signing in…' : 'Sign in'}}
             </button>
           </form>
-          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
-            <p className="font-semibold text-amber-800">Demo credentials</p>
-            <p className="text-amber-700">Admin: <span className="font-mono">admin@example.com</span> / <span className="font-mono">Admin1234!</span></p>
-            <p className="text-amber-700">User: <span className="font-mono">user@example.com</span> / <span className="font-mono">User1234!</span></p>
-          </div>
         </div>
       </div>
     </div>
@@ -2724,16 +2747,6 @@ export function LoginPage() {{
           <p className="text-brand-100 text-lg mb-8">
             Welcome back! Sign in to access your account and continue shopping.
           </p>
-          <div className="grid grid-cols-2 gap-4 text-sm text-brand-200">
-            <div className="bg-brand-700/50 rounded-lg p-4">
-              <p className="font-semibold text-white text-lg">Free shipping</p>
-              <p>On orders over $50</p>
-            </div>
-            <div className="bg-brand-700/50 rounded-lg p-4">
-              <p className="font-semibold text-white text-lg">Easy returns</p>
-              <p>30-day return policy</p>
-            </div>
-          </div>
         </div>
       </div>
       {{/* Login form panel */}}
@@ -2746,9 +2759,9 @@ export function LoginPage() {{
           <p className="text-gray-500 mb-8">Welcome back — we missed you!</p>
           <form onSubmit={{handleSubmit}} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
               <input
-                type="email"
+                id="login-email" type="email"
                 value={{email}}
                 onChange={{e => setEmail(e.target.value)}}
                 required
@@ -2757,9 +2770,9 @@ export function LoginPage() {{
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
               <input
-                type="password"
+                id="login-password" type="password"
                 value={{password}}
                 onChange={{e => setPassword(e.target.value)}}
                 required
@@ -2779,11 +2792,6 @@ export function LoginPage() {{
             Don't have an account?{{' '}}
             <a href="#" className="text-brand-600 font-medium hover:underline">Create one free</a>
           </p>
-          <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-            <p className="font-medium text-amber-800 mb-1">Demo credentials</p>
-            <p className="text-amber-700">Email: <span className="font-mono">admin@example.com</span></p>
-            <p className="text-amber-700">Password: <span className="font-mono">Admin1234!</span></p>
-          </div>
         </div>
       </div>
     </div>
@@ -2834,20 +2842,20 @@ export function LoginPage() {{
         </div>
         <form onSubmit={{handleSubmit}} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+            <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
             <input
-              type="email"
+              id="login-email" type="email"
               value={{email}}
               onChange={{e => setEmail(e.target.value)}}
               required
-              placeholder="admin@example.com"
+              placeholder="you@example.com"
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
-              type="password"
+              id="login-password" type="password"
               value={{password}}
               onChange={{e => setPassword(e.target.value)}}
               required
@@ -2863,11 +2871,6 @@ export function LoginPage() {{
             {{loading ? 'Signing in…' : 'Sign in'}}
           </button>
         </form>
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-1">
-          <p className="font-semibold text-amber-800">Demo credentials</p>
-          <p className="text-amber-700">Email: <span className="font-mono">admin@example.com</span></p>
-          <p className="text-amber-700">Password: <span className="font-mono">Admin1234!</span></p>
-        </div>
       </div>
     </div>
   )
@@ -3058,13 +3061,6 @@ import {{ Link }} from '@tanstack/react-router'
 import {{ apiClient }} from '../lib/api'
 import {{ ArrowRight, Star, ShoppingCart, CheckCircle }} from 'lucide-react'
 
-const TRUST_BADGES = [
-  {{ emoji: '🚚', title: 'Free Shipping', sub: 'On orders over $50' }},
-  {{ emoji: '🔒', title: 'Secure Payment', sub: '256-bit SSL encryption' }},
-  {{ emoji: '🔄', title: 'Easy Returns', sub: '30-day return policy' }},
-  {{ emoji: '💬', title: '24/7 Support', sub: 'Always here to help' }},
-]
-
 function StarRating({{ rating = 4.5 }}: {{ rating?: number }}) {{
   return (
     <div className="flex items-center gap-0.5">
@@ -3081,19 +3077,21 @@ function ProductCard({{ product, index }}: {{ product: any; index: number }}) {{
   const rawPrice = product.price ?? product.unit_price ?? product.amount ?? 0
   const price = typeof rawPrice === 'number' ? rawPrice : parseFloat(rawPrice) || 0
   const category = product.category ?? product.type ?? product.collection ?? 'Collection'
-  const rating = typeof product.rating === 'number' ? product.rating : 4.2 + (seed % 10) * 0.08
+  const rating = typeof product.rating === 'number' ? product.rating : null   // no invented ratings
 
   return (
     <div className="group relative bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 flex flex-col">
       {{/* Image */}}
       <div className="relative aspect-square bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
-        <img
-          src={{`https://picsum.photos/seed/${{seed}}/400/400`}}
-          alt={{product.name ?? 'Product'}}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
-          onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}}
-        />
+        {{(product.image_url ?? product.image ?? product.thumbnail)
+          ? <img
+              src={{product.image_url ?? product.image ?? product.thumbnail}}
+              alt={{product.name ?? 'Product'}}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+              onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}}
+            />
+          : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-5xl font-bold text-gray-300">{{String(product.name ?? product.title ?? '?').charAt(0).toUpperCase()}}</div>}}
         {{product.is_featured && (
           <span className="absolute top-3 left-3 bg-brand-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
             Featured
@@ -3111,16 +3109,15 @@ function ProductCard({{ product, index }}: {{ product: any; index: number }}) {{
         <h3 className="font-semibold text-gray-900 text-sm leading-snug mb-2 line-clamp-2 flex-1">
           {{product.name ?? product.title ?? 'Product'}}
         </h3>
-        <div className="flex items-center gap-2 mb-3">
-          <StarRating rating={{rating}} />
-          <span className="text-[11px] text-gray-400">
-            ({{product.review_count ?? Math.floor(10 + (seed * 7) % 190)}})
-          </span>
-        </div>
+        {{rating !== null && (
+          <div className="flex items-center gap-2 mb-3">
+            <StarRating rating={{rating}} />
+            {{typeof product.review_count === 'number' && <span className="text-[11px] text-gray-400">({{product.review_count}})</span>}}
+          </div>
+        )}}
         <div className="flex items-center justify-between mt-auto">
           <div>
             <span className="text-lg font-bold text-gray-900">${{price > 0 ? price.toFixed(2) : '—'}}</span>
-            {{price > 0 && <span className="text-xs text-gray-400 ml-1 line-through">${{(price * 1.2).toFixed(2)}}</span>}}
           </div>
           <button
             className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 active:scale-95 text-white px-3 py-1.5 rounded-xl text-sm font-semibold transition-all"
@@ -3183,23 +3180,6 @@ export default function Dashboard() {{
           <svg viewBox="0 0 1440 60" fill="white" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" className="w-full h-10 md:h-16">
             <path d="M0,60 C360,0 1080,60 1440,20 L1440,60 Z" />
           </svg>
-        </div>
-      </section>
-
-      {{/* ── Trust badges ── */}}
-      <section className="py-12 border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {{TRUST_BADGES.map(b => (
-              <div key={{b.title}} className="flex items-center gap-3">
-                <div className="text-2xl shrink-0">{{b.emoji}}</div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{{b.title}}</p>
-                  <p className="text-xs text-gray-500">{{b.sub}}</p>
-                </div>
-              </div>
-            ))}}
-          </div>
         </div>
       </section>
 
@@ -3267,29 +3247,6 @@ export default function Dashboard() {{
           </div>
         </div>
       </section>
-
-      {{/* ── Social proof ── */}}
-      <section className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-brand-600 text-xs font-bold uppercase tracking-widest mb-2">Testimonials</p>
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-10">What Our Customers Say</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {{[
-              {{ name: 'Sarah M.', text: 'Absolutely beautiful quality. I was amazed by how much care went into every detail.', rating: 5 }},
-              {{ name: 'James R.', text: 'Fast shipping, stunning packaging, and the product exceeded my expectations. Will be back!', rating: 5 }},
-              {{ name: 'Emily K.', text: 'Best purchase I\'ve made in years. My friends keep asking where I got it from.', rating: 5 }},
-            ].map(r => (
-              <div key={{r.name}} className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm text-left">
-                <div className="flex items-center gap-0.5 mb-3">
-                  {{[1,2,3,4,5].map(s => <Star key={{s}} size={{14}} className="fill-amber-400 text-amber-400" />)}}
-                </div>
-                <p className="text-gray-700 text-sm leading-relaxed mb-4">"{{r.text}}"</p>
-                <p className="font-semibold text-gray-900 text-sm">— {{r.name}}</p>
-              </div>
-            ))}}
-          </div>
-        </div>
-      </section>
     </div>
   )
 }}
@@ -3308,6 +3265,7 @@ def _generate_use_sse_hook() -> str:
 // Usage: const { lastEvent } = useSSE('/api/sse/products')
 
 import { useEffect, useState } from 'react'
+import { getToken } from '../lib/auth'
 
 interface SSEState {
   lastEvent: unknown | null
@@ -3318,7 +3276,7 @@ export function useSSE(endpoint: string): SSEState {
 
   useEffect(() => {
     if (!endpoint) return
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const url = endpoint + (token ? `?token=${encodeURIComponent(token)}` : '')
     const es = new EventSource(url)
 
@@ -3354,6 +3312,7 @@ def _generate_use_websocket_hook() -> str:
 // Usage: const { send, lastMessage, status } = useWebSocket('/api/ws/chat')
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { getToken } from '../lib/auth'
 
 type WSStatus = 'connecting' | 'open' | 'closed' | 'error'
 
@@ -3372,7 +3331,7 @@ export function useWebSocket(path: string): UseWebSocketResult {
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const base = `${proto}//${window.location.host}`
     const url = `${base}${path}${token ? `?token=${encodeURIComponent(token)}` : ''}`
@@ -3650,18 +3609,19 @@ export default function {pascal}Page() {{
 
   const handleExport = () => {{
     if (!data.length) return
-    // Properly escape values that contain commas, double-quotes, or newlines
+    // Quote cells with commas, quotes or line breaks, and defuse spreadsheet formulas: a text cell that starts with
+    // = + - @ (or tab/CR) is EXECUTED by Excel and Sheets, so it gets a leading apostrophe.
     const escapeCell = (v: unknown): string => {{
-      const s = String(v ?? '')
-      return s.includes(',') || s.includes('"') || s.includes('\\n')
-        ? `"${{s.replace(/"/g, '""')}}"`
-        : s
+      let s = String(v ?? '')
+      if (typeof v !== 'number' && /^[=+\\-@\\t\\r]/.test(s)) s = "'" + s
+      return /[",\\n\\r]/.test(s) ? `"${{s.replace(/"/g, '""')}}"` : s
     }}
-    const headers = columns.map(c => escapeCell(c.header ?? '')).join(',')
+    // the record id is not a table column but it is what identifies a row (and what foreign keys refer to)
+    const headers = ['id', ...columns.map(c => String(c.header ?? ''))].map(escapeCell).join(',')
     const rows = data.map(item =>
-      columns.map(c => escapeCell((item as any)[c.id as string])).join(',')
+      [(item as any).id, ...columns.map(c => (item as any)[c.id as string])].map(escapeCell).join(',')
     )
-    const csv = [headers, ...rows].join('\\n')
+    const csv = '\\ufeff' + [headers, ...rows].join('\\r\\n')
     const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }})
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -3794,28 +3754,25 @@ function ProductCard({{ product, index }}: {{ product: any; index: number }}) {{
   const seed = product.id ?? index + 1
   const rawPrice = product.{price_field} ?? 0
   const price = typeof rawPrice === 'number' ? rawPrice : parseFloat(rawPrice) || 0
-  const rating = typeof product.rating === 'number' ? product.rating : 4.0 + ((seed * 13) % 10) * 0.1
-  const imgSrc = {img_expr} ?? `https://picsum.photos/seed/${{seed}}/400/400`
+  const rating = typeof product.rating === 'number' ? product.rating : null   // no invented ratings
+  const imgSrc: string | null = {img_expr} ?? null
 
   return (
     <div className="group bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
       <div className="relative aspect-square bg-gray-50 overflow-hidden">
-        <img src={{imgSrc}} alt={{product.{name_field} ?? '{singular}'}}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
-          onError={{e => {{ (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${{seed + 100}}/400/400` }}}} />
-        {{price > 0 && (
-          <span className="absolute top-3 right-3 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-            Save {{Math.floor(Math.random() * 20 + 10)}}%
-          </span>
-        )}}
+        {{imgSrc
+          ? <img src={{imgSrc}} alt={{product.{name_field} ?? '{singular}'}}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+              onError={{e => {{ (e.target as HTMLImageElement).style.display = 'none' }}}} />
+          : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-5xl font-bold text-gray-300">{{String(product.{name_field} ?? '{singular}').charAt(0).toUpperCase()}}</div>}}
       </div>
       <div className="p-4 flex flex-col flex-1">
         <p className="text-[11px] font-bold text-brand-600 uppercase tracking-wider mb-1">{{{cat_expr}}}</p>
         <h3 className="text-sm font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 flex-1">
           {{product.{name_field} ?? '{singular}'}}
         </h3>
-        <StarRating rating={{rating}} />
+        {{rating !== null && <StarRating rating={{rating}} />}}
         <div className="flex items-center justify-between mt-3">
           <span className="text-lg font-bold text-gray-900">
             {{price > 0 ? `$${{price.toFixed(2)}}` : 'Contact us'}}
@@ -3938,9 +3895,12 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/app.db}
-      SECRET_KEY: ${SECRET_KEY:-changeme-in-production-use-64-char-hex}
+      # no default: a placeholder secret in the file is a secret everyone knows. Set it in .env (openssl rand -hex 32)
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (openssl rand -hex 32)}
+      RSA_PRIVATE_KEY_PATH: /keys/private_key.pem
     volumes:
       - db_data:/app/data
+      - keys:/keys       # the JWT signing key, shared by every replica
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
       interval: 10s
@@ -3964,6 +3924,7 @@ services:
 
 volumes:
   db_data:
+  keys:
 """
 
 
@@ -4861,7 +4822,7 @@ import {{
   ResponsiveContainer, Legend
 }} from 'recharts'
 
-// Mock 7-day trend data for the chart — real apps would fetch from /analytics endpoint
+// SAMPLE data for the charts (labelled as such on screen): replace with a real analytics endpoint
 const TREND_DATA = [
   {{ day: 'Mon', value: 42, prev: 38 }},
   {{ day: 'Tue', value: 58, prev: 45 }},
@@ -4889,7 +4850,7 @@ export default function Dashboard() {{
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-semibold">
-            <Activity size={{12}} /> Live
+            <Activity size={{12}} /> Sample chart data
           </span>
         </div>
       </div>
@@ -4909,8 +4870,8 @@ export default function Dashboard() {{
           className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
         >
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900 tracking-tight">7-Day Activity</h2>
-            <p className="text-xs text-gray-400 mt-0.5">This week vs last week</p>
+            <h2 className="text-base font-semibold text-gray-900 tracking-tight">7-Day Activity (sample data)</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Illustrative values, not your data: connect an analytics endpoint</p>
           </div>
           <ResponsiveContainer width="100%" height={{220}}>
             <AreaChart data={{TREND_DATA}} margin={{{{ top: 4, right: 4, left: -20, bottom: 0 }}}}>
@@ -4945,8 +4906,8 @@ export default function Dashboard() {{
           className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
         >
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900 tracking-tight">Weekly Breakdown</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Activity volume per day</p>
+            <h2 className="text-base font-semibold text-gray-900 tracking-tight">Weekly Breakdown (sample data)</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Illustrative values, not your data</p>
           </div>
           <ResponsiveContainer width="100%" height={{220}}>
             <BarChart data={{TREND_DATA}} margin={{{{ top: 4, right: 4, left: -20, bottom: 0 }}}}>
@@ -5403,7 +5364,7 @@ export default function {pascal}CalendarPage() {{
   const {{ data: rawData = [] }} = useQuery({{
     queryKey: ['{entity_name}', 'calendar', year, month],
     queryFn: async () => {{
-      const res = await {camel}Api.list(1, 500)
+      const res = await {camel}Api.list(1, 200)
       return (Array.isArray(res) ? res : ((res as any)?.items ?? [])) as CalItem[]
     }},
   }})

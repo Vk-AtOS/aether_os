@@ -38,7 +38,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -66,7 +68,7 @@ async def _get_redis():
         client = aioredis.from_url(url, encoding="utf-8", decode_responses=True)
         await client.ping()
         _redis_client = client
-        logger.info("[cache] Redis connected: %s", url)
+        logger.info("[cache] Redis connected: %s", urlsplit(url).hostname)   # never the URL: it carries the password
         return _redis_client
     except Exception as exc:
         logger.warning("[cache] Redis unavailable — running without cache: %s", exc)
@@ -110,14 +112,13 @@ async def cache_delete(key: str) -> None:
 
 
 async def cache_invalidate_prefix(prefix: str) -> None:
-    """Delete all keys matching *prefix*:*.  Silently skips if Redis is down."""
+    """Delete all keys starting with *prefix* (SCAN, never the blocking KEYS).  Silently skips if Redis is down."""
     try:
         r = await _get_redis()
         if r is None:
             return
-        keys = await r.keys(f"{prefix}:*")
-        if keys:
-            await r.delete(*keys)
+        async for key in r.scan_iter(match=f"{prefix}*", count=200):
+            await r.delete(key)
     except Exception as exc:
         logger.warning("[cache] cache_invalidate_prefix failed (non-fatal): %s", exc)
 
@@ -131,22 +132,24 @@ _NEVER_CACHE_PATHS = ("/api/auth/", "/api/health", "/docs", "/redoc", "/openapi"
 class RedisCacheMiddleware(BaseHTTPMiddleware):
     """Cache successful GET /api/* responses for CACHE_TTL seconds (default 30 s).
 
-    Cache key: ``resp:{path}:{query}:{auth_hash}`` where *auth_hash* is the
-    first 8 hex digits of the MD5 of the Authorization header — so each user
-    gets their own cache slot without leaking data across accounts.
+    Cache key: ``resp:{path}:{query}:{auth_hash}`` where *auth_hash* is the full SHA-256 of the Authorization
+    header, so each user gets their own cache slot (a short hash can collide and show one user another's data).
+    A successful write (POST/PUT/PATCH/DELETE) to /api/<entity> drops every cached response of that entity.
     No-ops silently if Redis is unavailable.
     """
 
     async def dispatch(self, request: Request, call_next):
-        if request.method != "GET":
-            return await call_next(request)
         path = request.url.path
         if not path.startswith("/api/") or any(path.startswith(p) for p in _NEVER_CACHE_PATHS):
             return await call_next(request)
+        if request.method != "GET":
+            response = await call_next(request)
+            entity = re.match(r"/api/([A-Za-z0-9_-]+)", path)
+            if entity and request.method in ("POST", "PUT", "PATCH", "DELETE") and response.status_code < 400:
+                await cache_invalidate_prefix(f"resp:/api/{entity.group(1)}")
+            return response
 
-        auth_hash = hashlib.md5(
-            request.headers.get("authorization", "").encode()
-        ).hexdigest()[:8]
+        auth_hash = hashlib.sha256(request.headers.get("authorization", "").encode()).hexdigest()
         cache_key = f"resp:{path}:{request.url.query}:{auth_hash}"
 
         cached = await cache_get(cache_key)
@@ -164,8 +167,8 @@ class RedisCacheMiddleware(BaseHTTPMiddleware):
         try:
             data = json.loads(body)
             await cache_set(cache_key, data, ttl=_CACHE_TTL)
-        except Exception:
-            pass
+        except ValueError as exc:      # not JSON: served uncached
+            logger.warning("[cache] response not cached: %s", exc)
 
         return Response(
             content=body,

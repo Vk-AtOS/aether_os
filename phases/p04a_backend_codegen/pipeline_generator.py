@@ -12,6 +12,7 @@ Output (written into the generated project's src/ directory):
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
@@ -19,6 +20,33 @@ logger = logging.getLogger(__name__)
 
 
 # ── Template helpers ───────────────────────────────────────────────────────────
+
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _svc(step: Any) -> str:
+    """Service class of a step. ProcessStep has been declared twice in core.domain_knowledge.base: the old shape
+    named it service_required, the one that wins calls it service. Reading only the old name raised
+    AttributeError and fintech/healthcare apps lost their pipelines (KAN-169)."""
+    name = getattr(step, "service_required", None) or getattr(step, "service", None)
+    if not name or not _IDENT.match(name):
+        raise ValueError(f"pipeline step {getattr(step, 'name', '?')!r} has no usable service name")
+    return name
+
+
+def _keys(step: Any) -> List[str]:
+    return list(getattr(step, "input_keys", None) or getattr(step, "input_mapping", None) or [])
+
+
+def _text(value: Any) -> str:
+    """Free text that goes into a docstring or comment: no quotes, backslashes or line breaks."""
+    return re.sub(r'["\\\r\n]+', " ", str(value or "")).strip()
+
+
+def _check_names(pipeline: Any) -> None:
+    for ident in [pipeline.name] + [x for st in pipeline.steps for x in (st.name, st.method)]:
+        if not _IDENT.match(str(ident)):
+            raise ValueError(f"pipeline {pipeline.name!r}: {ident!r} is not a plain identifier")
 
 def _to_snake(name: str) -> str:
     """PascalCase or camelCase → snake_case."""
@@ -38,13 +66,13 @@ def _collect_services(pipelines: list) -> Dict[str, List[Tuple[str, str, str]]]:
     services: Dict[str, Dict[str, Tuple[str, str]]] = {}
     for pipeline in pipelines:
         for step in pipeline.steps:
-            svc = step.service_required
+            svc = _svc(step)
             method = step.method
             if svc not in services:
                 services[svc] = {}
             if method not in services[svc]:
-                keys_str = ", ".join(step.input_keys) if step.input_keys else "none"
-                services[svc][method] = (step.description, keys_str)
+                keys_str = ", ".join(_keys(step)) or "none"
+                services[svc][method] = (_text(step.description), keys_str)
     # Flatten: {ServiceName: [(method, description, keys_str), ...]}
     return {
         svc: [(m, desc, keys) for m, (desc, keys) in methods.items()]
@@ -74,13 +102,13 @@ def _service_stub(service_name: str, methods: List[Tuple[str, str, str]]) -> str
         lines += [
             f"    async def {method}(self, payload: Dict[str, Any]) -> Dict[str, Any]:",
             f'        """',
-            f"        {description}",
+            f"        {_text(description)}",
             f"        Input keys: {keys_str}",
             '        Returns: {"success": bool, "result": any, "error": str | None}',
             '        """',
             f'        logger.info("{service_name}.{method} called with payload=%s", payload)',
-            f"        # TODO: Implement {method}",
-            '        return {"success": True, "result": None, "error": None}',
+            f"        # Not implemented: a stub must never report success, or a pipeline looks completed when nothing ran.",
+            f'        raise NotImplementedError("{service_name}.{method} is not implemented")',
             "",
         ]
     return "\n".join(lines)
@@ -95,15 +123,15 @@ def _orchestrator(pipeline: Any) -> str:
     seen: Set[str] = set()
     unique_services: List[str] = []
     for step in steps:
-        svc = step.service_required
+        svc = _svc(step)
         if svc not in seen:
             seen.add(svc)
             unique_services.append(svc)
 
     step_list_lines = "\n".join(
-        f"  {i + 1}. {s.name} → {s.service_required}.{s.method}" for i, s in enumerate(steps)
+        f"  {i + 1}. {s.name} → {_svc(s)}.{s.method}" for i, s in enumerate(steps)
     )
-    integrations = ", ".join(pipeline.integrations_required) if pipeline.integrations_required else "none"
+    integrations = ", ".join(_text(x) for x in pipeline.integrations_required) if pipeline.integrations_required else "none"
 
     # Build __init__ service injection block
     init_lines: List[str] = []
@@ -116,7 +144,7 @@ def _orchestrator(pipeline: Any) -> str:
     # Build run() step blocks
     run_lines: List[str] = []
     for i, step in enumerate(steps):
-        svc_attr = _to_snake(step.service_required)
+        svc_attr = _to_snake(_svc(step))
         run_lines += [
             f"        # Step {i + 1}: {step.name}",
             "        try:",
@@ -127,7 +155,7 @@ def _orchestrator(pipeline: Any) -> str:
             f"            context[\"{step.name}\"] = result.get(\"result\")",
             "        except Exception as exc:",
             f"            logger.error(\"{name}: step {step.name} raised: %s\", exc)",
-            f"            return {{\"completed\": False, \"final_step\": \"{step.name}\", \"error\": str(exc)}}",
+            f"            return {{\"completed\": False, \"final_step\": \"{step.name}\", \"error\": exc.__class__.__name__}}",
             "",
         ]
 
@@ -137,7 +165,7 @@ def _orchestrator(pipeline: Any) -> str:
         '"""',
         f"{name}Orchestrator — generated from AetherOS BusinessProcessPipeline.",
         "",
-        f"Trigger: {pipeline.trigger} on {pipeline.trigger_entity} when {pipeline.trigger_condition}",
+        f"Trigger: {_text(pipeline.trigger)} on {_text(pipeline.trigger_entity)} when {_text(pipeline.trigger_condition)}",
         f"Integrations required: {integrations}",
         "",
         "Step sequence:",
@@ -192,20 +220,24 @@ def _pipeline_events_router(pipelines: list) -> str:
         )
         route_lines += [
             "",
-            f"@router.post(\"/{endpoint}\", status_code=202)",
+            f"@router.post(\"/{endpoint}\")",
             f"async def trigger_{fn_name}(",
             "    payload: dict,",
-            "    background_tasks: BackgroundTasks,",
-            "    current_user: dict = Depends(get_current_user),",
+            "    current_user: dict = Depends(require_role(\"admin\", \"member\")),",
             "):",
             f'    """',
-            f"    Trigger {name}.",
-            f"    Trigger condition: {pipeline.trigger_condition}",
-            "    Runs the orchestrator in the background and returns 202 Accepted immediately.",
+            f"    Trigger {name} (roles: admin, member).",
+            f"    Trigger condition: {_text(pipeline.trigger_condition)}",
+            "    Runs the steps in order and answers with the outcome: 200 when every step succeeded, 501 when a step",
+            "    is still a stub, 502 when a step failed. It never reports success for work that did not run.",
             '    """',
             f"    orchestrator = {name}Orchestrator()",
-            "    background_tasks.add_task(orchestrator.run, payload)",
-            f"    return {{\"status\": \"accepted\", \"pipeline\": \"{name}\"}}",
+            "    result = await orchestrator.run({**payload, \"_caller\": {\"id\": current_user.get(\"id\"), \"org_id\": current_user.get(\"org_id\")}})",
+            "    if not result.get(\"completed\"):",
+            "        logger.warning(\"pipeline %s stopped at %s: %s\", " + repr(name) + ", result.get(\"final_step\"), result.get(\"error\"))",
+            "        code = 501 if result.get(\"error\") == \"NotImplementedError\" else 502",
+            "        raise HTTPException(status_code=code, detail=f\"Pipeline step {result.get('final_step')} did not complete\")",
+            f"    return {{\"status\": \"completed\", \"pipeline\": \"{name}\"}}",
         ]
 
     lines = [
@@ -216,8 +248,8 @@ def _pipeline_events_router(pipelines: list) -> str:
         '"""',
         "from __future__ import annotations",
         "import logging",
-        "from fastapi import APIRouter, BackgroundTasks, Depends",
-        "from auth import get_current_user",
+        "from fastapi import APIRouter, Depends, HTTPException",
+        "from auth import require_role",
         *import_lines,
         "",
         "logger = logging.getLogger(__name__)",
@@ -236,12 +268,12 @@ def _pipelines_md(pipelines: list, domain: str) -> str:
         "",
     ]
     for pipeline in pipelines:
-        services_str = ", ".join({s.service_required for s in pipeline.steps})
+        services_str = ", ".join(sorted({_svc(s) for s in pipeline.steps}))
         integrations_str = ", ".join(pipeline.integrations_required) if pipeline.integrations_required else "none"
         lines += [
             f"## {pipeline.name}",
             "",
-            f"- **Trigger:** `{pipeline.trigger}` on `{pipeline.trigger_entity}` when `{pipeline.trigger_condition}`",
+            f"- **Trigger:** `{_text(pipeline.trigger)}` on `{_text(pipeline.trigger_entity)}` when `{_text(pipeline.trigger_condition)}`",
             f"- **Steps:** {len(pipeline.steps)} steps",
             f"- **Services:** {services_str}",
             f"- **Integrations:** {integrations_str}",
@@ -253,7 +285,7 @@ def _pipelines_md(pipelines: list, domain: str) -> str:
         ]
         for i, step in enumerate(pipeline.steps):
             lines.append(
-                f"| {i + 1} | {step.name} | {step.service_required} | {step.method} | {step.on_failure} |"
+                f"| {i + 1} | {step.name} | {_svc(step)} | {step.method} | {_text(step.on_failure)} |"
             )
         lines += [
             "",
@@ -284,6 +316,8 @@ def generate_pipeline_code(pipelines: list, output_src_dir: Path, domain: str = 
         logger.debug("pipeline_generator: no pipelines to generate")
         return []
 
+    for pipeline in pipelines:
+        _check_names(pipeline)
     written: List[str] = []
 
     # Create services/ and services/pipelines/ directories
