@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from aether_os.core.architecture_governor import ArchitectureGovernor
 from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
+from aether_os.phases.utils import get_domain_ir
 from aether_os.phases.p04a_backend_codegen.task_agent import run as p04a_run
 from aether_os.phases.p04_uiux_design.task_agent import run as p04b_run
 from aether_os.phases.p04_backend.go_generator import (
@@ -22,6 +23,7 @@ from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
 from aether_os.orchestrator.events import emit as _global_emit
 from aether_os.core.sandbox import phase_exec
+from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
@@ -184,7 +186,7 @@ async def _startup_smoke_test(src_dir: Path, emit) -> dict:
 async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     """Generate Go/Gin backend (single service or multi-service) based on build_profile."""
     data = phase_input.input_data or {}
-    domain_ir = data.get("domain_ir") or {}
+    domain_ir = get_domain_ir(data)
     entities = domain_ir.get("entities") or []
     if not entities:
         entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]
@@ -230,7 +232,7 @@ async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
 async def _run_node_backend(phase_input: Any, output_dir: Path) -> TaskResult:
     """Generate TypeScript/Fastify backend when build_profile.backend_lang == 'typescript'."""
     data = phase_input.input_data or {}
-    domain_ir = data.get("domain_ir") or {}
+    domain_ir = get_domain_ir(data)
     entities = domain_ir.get("entities") or []
     if not entities:
         entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]
@@ -388,6 +390,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _gov_exc:
             logger.warning("p04_backend governor check failed (non-fatal): %s", _gov_exc)
 
+    except (SandboxUnavailable, PipelineBlockedError):
+        raise  # the run must stop: never downgrade a blocked gate or a missing sandbox to a warning
     except Exception as e:
         logger.warning("p04a_backend_codegen failed: %s", e)
 
@@ -410,11 +414,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     summary_path = output_dir / "consolidated.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
-    any_success = any(v.success for v in results.values())
+    # The backend is the deliverable of this phase: a successful design alone is not success.
+    backend = results.get("backend_codegen")
+    backend_ok = bool(backend and backend.success)
     return TaskResult(
         output_path=str(summary_path),
-        confidence=0.85 if any_success else 0.3,
+        confidence=0.85 if backend_ok else 0.3,
         metadata=summary,
-        success=any_success or bool(results),
-        issues=[] if any_success else ["All sub-tasks failed"],
+        success=backend_ok,
+        issues=[] if backend_ok else ["Backend code generation failed or did not run"],
     )

@@ -37,9 +37,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.utils import get_domain_ir
 from aether_os.core.projects import get_project_manager
-from stages.s05_quality.helpers import quality_gate_summary
-from stages.s05_quality.gate_functions import detect_critical_issues, regenerate_file
+from aether_os.stages.s05_quality.helpers import quality_gate_summary
+from aether_os.stages.s05_quality.gate_functions import detect_critical_issues, regenerate_file
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ class QualityGateSupervisor(PhaseBase):
         backend_src = Path(backend_path) if backend_path else None
         # Resolve LLM for regeneration
         llm = getattr(phase_input, "llm", None) or data.get("llm")
-        domain_ir = data.get("domain_ir") or {}
+        domain_ir = get_domain_ir(data)
         project_name = data.get("project_name", run_id)
 
         output_data: Dict[str, Any] = gate_summary

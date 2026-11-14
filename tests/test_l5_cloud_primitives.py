@@ -306,6 +306,7 @@ class TestCapacityPlanner:
         cap_dir = generate_capacity_package(entities, "app", tmp_path, "standard", "nats")
         keda_file = cap_dir / "keda" / "job-scaledobject.yaml"
         assert keda_file.exists()
+        assert not (cap_dir / "hpa" / "job-hpa.yaml").exists()  # KEDA owns the HPA for this target
         content = keda_file.read_text()
         assert "ScaledObject" in content
 

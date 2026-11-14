@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.phases.utils import get_domain_ir
 from aether_os.phases.p18_billing_metering.metering_generator import generate_billing_package
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     output_dir.mkdir(parents=True, exist_ok=True)
     data = phase_input.input_data or {}
 
-    domain_ir = data.get("domain_ir") or {}
+    domain_ir = get_domain_ir(data)
     entities = domain_ir.get("entities") or []
     if not entities:
         entities = [{"table": "resource", "fields": [{"name": "name", "type": "string"}]}]

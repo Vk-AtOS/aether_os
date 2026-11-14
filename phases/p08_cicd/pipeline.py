@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from aether_os.phases.p08_cicd.dfle.call_graph import CallGraph
+from aether_os.phases.p08_cicd.dfle.ast_index import build_index
+from aether_os.phases.p08_cicd.dfle.call_graph import CallGraph, build_call_graph
 from aether_os.phases.p08_cicd.dfle.log_parser import parse_log
 from aether_os.phases.p08_cicd.dfle.localizer import localize
 from aether_os.phases.p08_cicd.patch_reuse.fingerprint import build_fingerprint
@@ -108,9 +109,20 @@ def run_repair(
     Returns:
         RepairResult indicating success and providing the patch if found.
     """
-    # Handle None call_graph safely
+    # Callers (task_agent, webhook, orchestrator) pass None: build both from the repo so
+    # impact simulation and localisation have real data instead of crashing on None.
+    if ast_index is None:
+        try:
+            ast_index = build_index(root_dir)
+        except Exception as exc:
+            logger.warning("run_repair: AST index build failed for %s: %s", root_dir, exc)
+            ast_index = {}
     if call_graph is None:
-        call_graph = CallGraph()
+        try:
+            call_graph = build_call_graph(ast_index, root_dir)
+        except Exception as exc:
+            logger.warning("run_repair: call graph build failed for %s: %s", root_dir, exc)
+            call_graph = CallGraph()
 
     # Fingerprint and Memory Lookup (Batch 12)
     fp = log_fingerprint(log_content)

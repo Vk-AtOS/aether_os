@@ -84,6 +84,10 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Alert rules are written next to this file and mounted by the monitoring overlay.
+rule_files:
+  - /etc/prometheus/prometheus_alerts.yml
+
 scrape_configs:
   - job_name: "{project_name}"
     static_configs:
@@ -101,6 +105,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus_alerts.yml:/etc/prometheus/prometheus_alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -112,7 +117,8 @@ services:
     image: grafana/grafana:10.4.1
     restart: unless-stopped
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      # No default password: compose refuses to start until the operator sets one.
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}"
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana

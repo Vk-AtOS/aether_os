@@ -12,7 +12,7 @@ All output is deterministic template-based generation — no LLM calls.
 from __future__ import annotations
 
 import logging
-from itertools import combinations
+from itertools import combinations, permutations
 from pathlib import Path
 from typing import List
 
@@ -207,6 +207,25 @@ resource "aws_route" "{slug}_{r2_id}_to_{r1_id}" {{
         for r in regions
     )
 
+    # One rule per ordered pair (target region, source region), never a region's own
+    # CIDR: each region's app SG admits the OTHER regions, in its own provider.
+    sg_rules = "# Security group rules — allow cross-region service discovery on port 8000\n"
+    for target, source in permutations(regions, 2):
+        t_id, s_id = target.replace("-", "_"), source.replace("-", "_")
+        sg_rules += f"""\
+resource "aws_security_group_rule" "{slug}_{t_id}_from_{s_id}" {{
+  provider          = aws.{t_id}
+  type              = "ingress"
+  from_port         = 8000
+  to_port           = 8000
+  protocol          = "tcp"
+  cidr_blocks       = [var.vpc_cidrs["{source}"]]
+  security_group_id = var.app_security_group_ids["{target}"]
+  description       = "Allow service discovery from {source}"
+}}
+
+"""
+
     return f"""\
 # Cross-region VPC peering mesh — {slug}
 # Full mesh: every region can reach every other region for service discovery.
@@ -224,18 +243,7 @@ terraform {{
 {provider_blocks}
 
 {peering_blocks}
-# Security group rule — allow cross-region service discovery on port 8000
-resource "aws_security_group_rule" "{slug}_cross_region_ingress" {{
-  for_each          = var.vpc_cidrs
-  type              = "ingress"
-  from_port         = 8000
-  to_port           = 8000
-  protocol          = "tcp"
-  cidr_blocks       = [each.value]
-  security_group_id = var.app_security_group_ids[each.key]
-  description       = "Allow cross-region service discovery from ${{each.key}}"
-}}
-"""
+{sg_rules}"""
 
 
 def generate_multiregion_variables_tf(slug: str, regions: List[str]) -> str:
