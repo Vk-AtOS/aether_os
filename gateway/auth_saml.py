@@ -158,6 +158,11 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
                 raise HTTPException(status_code=403, detail="SAML identity does not belong to this organisation")
             if not user.is_active or user.deleted_at or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Account is deactivated")
+            if not user.email_verified:
+                # Signed assertion proves the address; rotate any pre-registered password.
+                user.email_verified = True
+                user.password_hash = get_password_hash(secrets.token_urlsafe(32))
+                await session.commit()
             return user, org
         if idp_org_id:
             # JIT-provision into the IdP's own org as a plain member — never a new owner.
@@ -173,7 +178,7 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
         user = User(
             id=str(uuid.uuid4()), org_id=org.id, email=email,
             password_hash=get_password_hash(secrets.token_urlsafe(32)),
-            role=role,
+            role=role, email_verified=True,
         )
         session.add(user)
         await session.commit()
@@ -338,6 +343,10 @@ async def saml_callback(request: Request) -> RedirectResponse:
             url=f"{_frontend_url()}/login?error={urllib.parse.quote(str(exc.detail))}",
             status_code=302,
         )
+
+    if user.mfa_enabled:
+        from aether_os.gateway.auth_oauth import _signin_redirect
+        return _signin_redirect(user, org)
 
     _saml_claims = {
         "sub": user.email, "user_id": user.id,
