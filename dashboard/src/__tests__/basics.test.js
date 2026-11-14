@@ -56,6 +56,7 @@ describe('role gating', () => {
 
 describe('urls and reconnect', () => {
   it('in-app URLs carry the /dashboard base', () => {
+    vi.stubEnv('BASE_URL', '/dashboard/');   // the test run does not inherit vite.config.js base
     expect(appPath('/admin/billing?upgrade=success')).toBe('/dashboard/admin/billing?upgrade=success');
   });
   it('reconnect backoff doubles and is capped', () => {
