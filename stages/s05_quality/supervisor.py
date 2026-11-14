@@ -38,8 +38,8 @@ from typing import Any, Dict, List
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.core.projects import get_project_manager
-from stages.s05_quality.helpers import quality_gate_summary
-from stages.s05_quality.gate_functions import detect_critical_issues, regenerate_file
+from aether_os.stages.s05_quality.helpers import quality_gate_summary
+from aether_os.stages.s05_quality.gate_functions import detect_critical_issues, regenerate_file
 
 logger = logging.getLogger(__name__)
 
