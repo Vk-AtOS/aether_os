@@ -48,7 +48,7 @@ async def record_feedback(
 
     # Compute average rating for this run
     avg_q = await session.execute(
-        select(func.avg(BuildFeedback.rating)).where(BuildFeedback.run_id == run_id)
+        select(func.avg(BuildFeedback.rating)).where(BuildFeedback.run_id == run_id, BuildFeedback.org_id == org_id)
     )
     avg_rating: float = float(avg_q.scalar() or rating)
 
@@ -58,7 +58,7 @@ async def record_feedback(
             select(GoldenBuild).where(GoldenBuild.run_id == run_id)
         )
         if existing.scalar_one_or_none() is None:
-            run_q = await session.execute(select(Run).where(Run.id == run_id))
+            run_q = await session.execute(select(Run).where(Run.id == run_id, Run.org_id == org_id))
             run = run_q.scalar_one_or_none()
             if run:
                 golden = await _build_golden_record(run, avg_rating, session)
@@ -128,8 +128,15 @@ async def _build_golden_record(run, avg_rating: float, session) -> Optional[Any]
     )
 
 
-async def get_golden_examples(domain: str, limit: int = MAX_GOLDEN_EXAMPLES) -> List[Dict[str, Any]]:
-    """Retrieve active golden builds for a domain, used as few-shot LLM context."""
+async def get_golden_examples(
+    domain: str, limit: int = MAX_GOLDEN_EXAMPLES, org_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Retrieve active golden builds for a domain, used as few-shot LLM context.
+
+    Tenant data: only the caller's own organisation's builds, plus platform-owned
+    ones (org_id == ""). Without an org_id only platform-owned builds are returned,
+    so one customer's generated code can never be put into another's prompt.
+    """
     try:
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import GoldenBuild
@@ -140,6 +147,7 @@ async def get_golden_examples(domain: str, limit: int = MAX_GOLDEN_EXAMPLES) -> 
             q = await session.execute(
                 select(GoldenBuild)
                 .where(GoldenBuild.is_active == True)
+                .where(GoldenBuild.org_id.in_(("", org_id) if org_id else ("",)))
                 .where(or_(GoldenBuild.domain == domain, GoldenBuild.domain == "general"))
                 .order_by(GoldenBuild.user_rating.desc().nullslast(), GoldenBuild.quality_score.desc().nullslast())
                 .limit(limit)
@@ -218,7 +226,7 @@ def format_golden_hint_p05(examples: List[Dict]) -> str:
     return "\n".join(parts)
 
 
-async def get_stats() -> Dict[str, Any]:
+async def get_stats(org_id: str) -> Dict[str, Any]:
     """Return self-improvement system statistics."""
     try:
         from aether_os.core.db import get_session_factory
@@ -227,14 +235,15 @@ async def get_stats() -> Dict[str, Any]:
 
         sf = get_session_factory()
         async with sf() as session:
-            fb_count = (await session.execute(select(func.count()).select_from(BuildFeedback))).scalar() or 0
+            fb_count = (await session.execute(select(func.count()).select_from(BuildFeedback).where(BuildFeedback.org_id == org_id))).scalar() or 0
             golden_count = (await session.execute(
-                select(func.count()).select_from(GoldenBuild).where(GoldenBuild.is_active == True)
+                select(func.count()).select_from(GoldenBuild)
+                .where(GoldenBuild.is_active == True, GoldenBuild.org_id == org_id)
             )).scalar() or 0
-            avg_rating = (await session.execute(select(func.avg(BuildFeedback.rating)))).scalar()
+            avg_rating = (await session.execute(select(func.avg(BuildFeedback.rating)).where(BuildFeedback.org_id == org_id))).scalar()
             domain_stats_q = await session.execute(
                 select(GoldenBuild.domain, func.count(), func.avg(GoldenBuild.user_rating))
-                .where(GoldenBuild.is_active == True)
+                .where(GoldenBuild.is_active == True, GoldenBuild.org_id == org_id)
                 .group_by(GoldenBuild.domain)
             )
             domain_stats = [
@@ -252,7 +261,7 @@ async def get_stats() -> Dict[str, Any]:
         return {"total_feedback": 0, "golden_builds": 0, "avg_rating": 0.0, "domain_stats": []}
 
 
-async def get_golden_builds_list(limit: int = 20) -> List[Dict[str, Any]]:
+async def get_golden_builds_list(org_id: str, limit: int = 20) -> List[Dict[str, Any]]:
     """List golden builds for the UI."""
     try:
         from aether_os.core.db import get_session_factory
@@ -263,7 +272,7 @@ async def get_golden_builds_list(limit: int = 20) -> List[Dict[str, Any]]:
         async with sf() as session:
             q = await session.execute(
                 select(GoldenBuild)
-                .where(GoldenBuild.is_active == True)
+                .where(GoldenBuild.is_active == True, GoldenBuild.org_id == org_id)
                 .order_by(GoldenBuild.user_rating.desc().nullslast(), GoldenBuild.created_at.desc())
                 .limit(limit)
             )
