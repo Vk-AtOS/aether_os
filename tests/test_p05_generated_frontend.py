@@ -65,3 +65,26 @@ def test_every_import_in_the_generated_frontend_resolves(tmp_path, monkeypatch, 
     # every entity page imported Pagination, Skeleton and RoleGuard components that nothing wrote.
     root = build_frontend(tmp_path, domain, monkeypatch)
     assert unresolved_imports(root) == []
+
+
+def _tsc():
+    import shutil
+    found = shutil.which("tsc")
+    local = Path(__file__).resolve().parent.parent / "dashboard" / "node_modules" / ".bin" / "tsc"
+    return found or (str(local) if local.exists() else None)
+
+
+@pytest.mark.parametrize("domain", ["saas", "healthcare", "crm", "fintech"])
+def test_generated_frontend_has_no_syntax_errors_or_undefined_names(tmp_path, monkeypatch, domain):
+    # The real TypeScript compiler, run without npm install: packages are missing so module and type errors
+    # (TS2307, TS7xxx) are expected and ignored; syntax errors (TS1xxx) and undefined names (TS2304, TS2552)
+    # are not. It found `{{usersData ...}}` (two braces) in Dashboard.tsx and a `layoutRoute` that does not
+    # exist in the dual-portal App.
+    import subprocess
+    tsc = _tsc()
+    if not tsc:
+        pytest.skip("typescript (tsc) is not available")
+    root = build_frontend(tmp_path, domain, monkeypatch)
+    out = subprocess.run([tsc, "--noEmit", "-p", str(root)], capture_output=True, text=True, timeout=240).stdout
+    bad = [ln for ln in out.splitlines() if re.search(r"error TS(1\d{3}|2304|2552):", ln)]
+    assert bad == [], bad[:8]

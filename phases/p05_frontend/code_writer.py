@@ -4827,7 +4827,7 @@ def _generate_domain_dashboard(domain: str, entities: List[dict]) -> str:
           </div>
         </div>
         <p className="text-4xl font-bold text-gray-900">
-          {{{{{e}Data ? (Array.isArray({e}Data) ? {e}Data.length : ({e}Data?.total ?? {e}Data?.count ?? '—')) : '—'}}}}
+          {{{e}Data ? (Array.isArray({e}Data) ? {e}Data.length : ({e}Data?.total ?? {e}Data?.count ?? '—')) : '—'}}
         </p>
         <p className="text-xs text-gray-400 mt-1">Updated just now</p>
       </motion.div>"""
