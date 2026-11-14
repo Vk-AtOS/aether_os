@@ -1,2 +1,2 @@
-from stages.s01_intake.supervisor import IntakeStageSupervisor
+from aether_os.stages.s01_intake.supervisor import IntakeStageSupervisor
 __all__ = ["IntakeStageSupervisor"]
