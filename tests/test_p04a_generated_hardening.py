@@ -378,3 +378,24 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     out["counts"] = asyncio.run(count())
 ''')
     assert r["counts"] == [20, 20, 20, 20, 20, 0], r
+
+
+@pytest.mark.parametrize("use_ir", [True, False], ids=["ir", "fallback"])
+def test_list_endpoints_take_page_size_up_to_200_in_both_generators(tmp_path, monkeypatch, use_ir):
+    # The frontend sends page and page_size (<=200). The IR backend named it `limit` and capped it at 100 (page_size
+    # was silently ignored: always 20 rows); the fallback already took page_size <= 200.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    app = generate(tmp_path, domain="crm", use_ir=use_ir, monkeypatch=monkeypatch)[1]
+    r = run_script(app, r'''
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    h = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}).json()["access_token"]}
+    for i in range(3): c.post("/api/customers", headers=h, json={"name": f"C{i}", "email": f"c{i}@x.io", "status": "active"})
+    ok = c.get("/api/customers?page=1&page_size=200", headers=h)
+    out["ok"] = ok.status_code
+    out["size"] = ok.json().get("page_size")
+    out["small"] = len(c.get("/api/customers?page=1&page_size=2", headers=h).json()["items"])
+    out["too_big"] = c.get("/api/customers?page_size=201", headers=h).status_code
+''')
+    assert r["ok"] == 200 and r["size"] == 200 and r["small"] == 2 and r["too_big"] == 422, r
