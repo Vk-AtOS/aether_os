@@ -14,10 +14,12 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from aether_os.core.billing.stripe_events import apply_event
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["billing"])
@@ -57,6 +59,17 @@ def _current_user():
     return Depends(get_current_user)
 
 
+def _checked_return_url(url: Any, base_url: str, default_path: str) -> str:
+    """Client-supplied Stripe return URL: must be on the APP_BASE_URL origin (open-redirect /
+    phishing guard). Empty -> default; foreign origin -> 422."""
+    if not url:
+        return f"{base_url.rstrip('/')}{default_path}"
+    base, got = urlsplit(base_url), urlsplit(str(url))
+    if (got.scheme, got.netloc) != (base.scheme, base.netloc):
+        raise HTTPException(status_code=422, detail="success_url/cancel_url must be on this application's origin")
+    return str(url)
+
+
 @router.post("/billing/stripe/checkout")
 async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     """Create a Stripe Checkout Session for a plan upgrade.
@@ -64,6 +77,7 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
     Body: { "plan": "pro" | "enterprise", "success_url": "...", "cancel_url": "..." }
     Returns: { "checkout_url": "https://checkout.stripe.com/..." }
     """
+    await enforce("billing.change_plan", user)  # org-wide change: owner/admin only
     plan_id = req.get("plan", "pro").lower()
     prices  = _stripe_prices()
     if plan_id not in prices or not prices[plan_id]:
@@ -75,14 +89,18 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
 
     stripe = _stripe_client()
 
-    # Resolve or create Stripe customer for this org
+    # Resolve or create the org's Stripe customer and check out AS that customer, so
+    # its id is stored before the subscription exists (customer_email made Stripe
+    # create an anonymous customer we never recorded, and /billing/cancel could not
+    # find the subscription).
     org_id  = user["org_id"]
     email   = user.get("email", "")
+    customer_id = await _get_or_create_stripe_customer(org_id, email, stripe)
 
     # Build absolute URLs — caller may pass them; fall back to env-based defaults
     base_url     = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-    success_url  = req.get("success_url") or f"{base_url}/billing?upgrade=success"
-    cancel_url   = req.get("cancel_url")  or f"{base_url}/billing?upgrade=cancelled"
+    success_url  = _checked_return_url(req.get("success_url"), base_url, "/dashboard/admin/billing?upgrade=success")
+    cancel_url   = _checked_return_url(req.get("cancel_url"), base_url, "/dashboard/admin/billing?upgrade=cancelled")
 
     try:
         session = stripe.checkout.Session.create(
@@ -91,7 +109,7 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
             mode="subscription",
             success_url=success_url,
             cancel_url=cancel_url,
-            customer_email=email or None,
+            customer=customer_id,
             metadata={"org_id": org_id, "plan": plan_id, "user_id": user["user_id"]},
             subscription_data={"metadata": {"org_id": org_id, "plan": plan_id}},
         )
@@ -146,11 +164,12 @@ async def stripe_portal(user: Dict[str, Any] = _current_user()):
     The org must have a stripe_customer_id stored, or we create a new customer.
     Returns: { "portal_url": "https://billing.stripe.com/..." }
     """
+    await enforce("billing.change_plan", user)
     stripe    = _stripe_client()
     org_id    = user["org_id"]
     email     = user.get("email", "")
     base_url  = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-    return_url = f"{base_url}/billing"
+    return_url = f"{base_url}/dashboard/admin/billing"
 
     # Resolve Stripe customer ID from DB or create one
     customer_id = await _get_or_create_stripe_customer(org_id, email, stripe)
@@ -200,18 +219,13 @@ async def _get_or_create_stripe_customer(org_id: str, email: str, stripe) -> str
             )
             cid = customer.id
 
-            # Persist — best-effort, non-fatal if column doesn't exist yet
-            try:
-                await session.execute(
-                    _upd(Organisation)
-                    .where(Organisation.id == org_id)
-                    .values(stripe_customer_id=cid)
-                )
-                await session.commit()
-            except Exception as _col_err:
-                logger.debug(
-                    "stripe_customer_id column not yet migrated: %s — customer ID not persisted", _col_err
-                )
+            # Persist: this id is the only link from the org to its subscription.
+            await session.execute(
+                _upd(Organisation)
+                .where(Organisation.id == org_id)
+                .values(stripe_customer_id=cid)
+            )
+            await session.commit()
 
             return cid
     except HTTPException:

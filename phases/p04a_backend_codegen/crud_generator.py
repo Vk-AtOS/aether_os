@@ -10,6 +10,7 @@ import logging
 import re
 from typing import Dict, List, Tuple
 
+from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import DEFAULT_ROLE_MODEL
 from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
 from phases.p04a_backend_codegen.prompts import build_crud_prompt, build_seed_prompt
 
@@ -335,11 +336,9 @@ def _get_roles_for_action(entity_name: str, action: str, perm_model: dict | None
     Returns a sorted, deduplicated list of role names that have the action permitted,
     or None when no permission model is present so callers fall back to get_current_user.
     """
-    if not perm_model:
-        return None
-    permissions: dict = perm_model.get("permissions", {})
+    permissions: dict = (perm_model or {}).get("permissions", {})
     if not permissions:
-        return None
+        return list(DEFAULT_ROLE_MODEL[action]) if action in DEFAULT_ROLE_MODEL else ["admin"]   # decision D1
     allowed: list = []
     for role_name, resources in permissions.items():
         if not isinstance(resources, dict):
@@ -366,7 +365,12 @@ def _get_roles_for_action(entity_name: str, action: str, perm_model: dict | None
     )
     if super_admin_name and super_admin_name not in allowed:
         allowed.append(super_admin_name)
-    return allowed if allowed else None
+    # Deny by default (KAN-169): once a permission model exists, an action no role covers is admin-only.
+    # It used to return None, which meant "any signed-in user", so an entity or action without a grant
+    # was open to everyone.
+    if not any(r.lower() == "admin" for r in allowed):
+        allowed.append("admin")
+    return allowed
 
 
 def _fallback_crud_routers(
@@ -436,15 +440,15 @@ def _fallback_crud_routers(
 
         # Multi-tenancy filter clause (injected into list and get queries)
         mt_list_filter = (
-            f".where(models.{name}.org_id == current_user['org_id'])"
+            f".where(models.{name}.org_id == current_user.get('org_id'))"
             if multi_tenancy else ""
         )
         mt_get_filter = (
-            f", models.{name}.org_id == current_user['org_id']"
+            f", models.{name}.org_id == current_user.get('org_id')"
             if multi_tenancy else ""
         )
         mt_create_kwarg = (
-            f", org_id=current_user['org_id']"
+            f", org_id=current_user.get('org_id')"
             if multi_tenancy else ""
         )
 
@@ -455,6 +459,13 @@ def _fallback_crud_routers(
             else f"f\"{name}:list:{{page}}:{{page_size}}\""
         )
 
+        # the single-item cache entry must be per tenant too, or tenant B reads tenant A's row from the cache
+        item_cache_key = (
+            f"f\"{name}:{{current_user.get('org_id', '')}}:{{item_id}}\""
+            if multi_tenancy
+            else f"f\"{name}:{{item_id}}\""
+        )
+
         # ── ABAC role guards ─────────────────────────────────────────────────────
         # Resolve allowed roles from the permission model for each action.
         # Falls back to bare get_current_user / require_admin when not available.
@@ -463,7 +474,7 @@ def _fallback_crud_routers(
             roles = _get_roles_for_action(name, action, permission_model)
             if roles:
                 # Emit require_role("Role1", "Role2", ...) — quoted role names
-                quoted = ", ".join(f'"{r}"' for r in roles)
+                quoted = ", ".join(repr(str(r)) for r in roles)
                 return f"require_role({quoted})"
             return fallback
 
@@ -498,7 +509,7 @@ def _fallback_crud_routers(
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({read_dep})):",
-            f"    _ck = f\"{name}:{{item_id}}\"",
+            f"    _ck = {item_cache_key}",
             f"    _cached = await _cache_get(_ck)",
             f"    if _cached is not None:",
             f"        return _cached",
@@ -531,7 +542,7 @@ def _fallback_crud_routers(
             f"    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'UPDATE', '{name}', str(item_id))",
             f"    await db.refresh(obj)",
-            f"    await _cache_delete(f\"{name}:{{item_id}}\")",
+            f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
@@ -547,7 +558,7 @@ def _fallback_crud_routers(
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    await _log_action(db, str(current_user.get('id', '')), 'DELETE', '{name}', str(item_id))",
             f"    await db.delete(obj)",
-            f"    await _cache_delete(f\"{name}:{{item_id}}\")",
+            f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             "",
         ]

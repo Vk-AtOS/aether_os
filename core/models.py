@@ -225,7 +225,7 @@ class AuditLog(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    resource_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(255), nullable=False)
     log_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
@@ -322,6 +322,7 @@ class TokenBudgetRecord(Base):
     cache_misses: Mapped[int] = mapped_column(default=0)
     estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+    __table_args__ = (UniqueConstraint("org_id", "month", name="uq_token_budget_org_month"),)
 
 
 # ── Plugin Registry (replaces ~/.aether_os/plugins.db) ───────────────────────

@@ -33,7 +33,8 @@ def validate(result: TaskResult) -> GateOutcome:
         if candidates and candidates[0].exists():
             data = json.loads(candidates[0].read_text())
             p95 = data.get("p95_ms", data.get("p95", 0))
-            error_rate = data.get("error_rate", data.get("errors_pct", 0))
+            # the task writes a percentage (error_rate_pct); the thresholds are fractions
+            error_rate = data.get("error_rate_pct", 0) / 100 if "error_rate_pct" in data else data.get("error_rate", data.get("errors_pct", 0))
 
             if p95 and p95 > _P95_FAIL_MS:
                 issues.append(f"p95 latency {p95:.0f}ms exceeds {_P95_FAIL_MS}ms threshold — performance unacceptable")

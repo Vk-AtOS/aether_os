@@ -130,7 +130,7 @@ async def get_user_for_export(
     db_user = await sess.get(User, user_id)
     runs = (await sess.execute(
         select(Run)
-        .where(Run.org_id == org_id)
+        .where(Run.org_id == org_id, Run.user_id == user_id)  # this user's runs, not the org's
         .order_by(Run.started_at.desc())
         .limit(run_limit)
     )).scalars().all()
@@ -139,8 +139,9 @@ async def anonymise_and_deactivate_user(
     sess: AsyncSession, user_id: str, org_id: str
 ) -> None:
     """
-    GDPR erasure: anonymise and soft-delete a user and revoke all their API keys.
-    Caller must commit.
+    GDPR erasure: anonymise and soft-delete a user. API keys belong to the organisation
+    (the table has no user column), so they are revoked only when this was the org's last
+    active user. Caller must commit.
     """
     db_user = await sess.get(User, user_id)
     if not db_user or db_user.org_id != org_id:
@@ -150,9 +151,14 @@ async def anonymise_and_deactivate_user(
     db_user.is_active = False
     db_user.deleted_at = _dt.utcnow()
     db_user.user_preferences = None
-    await sess.execute(
-        _saup(APIKey).where(APIKey.org_id == org_id).values(is_active=False)
-    )
+    others = (await sess.execute(
+        select(func.count()).select_from(User).where(
+            User.org_id == org_id, User.id != user_id, User.is_active.is_(True), User.deleted_at.is_(None))
+    )).scalar() or 0
+    if others == 0:
+        await sess.execute(
+            _saup(APIKey).where(APIKey.org_id == org_id).values(is_active=False)
+        )
 async def get_user_preferences(
     sess: AsyncSession, user_id: str
 ) -> Optional[Dict[str, Any]]:

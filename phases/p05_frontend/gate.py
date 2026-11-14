@@ -75,11 +75,15 @@ def validate(result: TaskResult) -> GateOutcome:
             logger.warning("p05_frontend gate: could not parse package.json: %s", exc)
             issues.append(f"Could not parse package.json: {exc}")
 
-    # Hard-fail if all critical files are missing
-    if issues and all("Missing required file" in i or "does not exist" in i for i in issues):
-        return GateOutcome(passed=False, confidence=0.1, issues=issues)
+    # Structural problems fail the gate: a project without package.json/main.tsx/App.tsx, without an entity page or
+    # without the core dependencies cannot build. The gate used to fail only when EVERY issue was a missing file
+    # (and returned passed=True at the end whatever was found), so a project missing App.tsx passed (KAN-168).
+    structural = list(issues)
+    if structural:
+        return GateOutcome(passed=False, confidence=0.1 if all("Missing required file" in i or "does not exist" in i for i in issues) else 0.3,
+                           issues=issues)
 
-    confidence = 0.90 if not issues else 0.72
+    confidence = 0.90
 
     # ── 4. TypeScript type-check (non-blocking — lowers confidence) ───────────
     tsc = frontend_dir / "node_modules" / ".bin" / "tsc"

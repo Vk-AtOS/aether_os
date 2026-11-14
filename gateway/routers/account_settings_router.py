@@ -29,6 +29,7 @@ from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["account"])
+_ALLOWED = {"autonomous_mode", "org_name", "data_region"}
 
 
 def _current_user():
@@ -45,11 +46,20 @@ async def update_settings(
     from aether_os.core.models import Organisation
     from sqlalchemy import update
 
-    # Allowlist: only non-privileged fields may be updated by org members (FIX-006)
-    _ALLOWED = {"decision_mode", "autonomous_mode", "notification_prefs", "org_name", "data_region"}
-    payload = {k: v for k, v in req.items() if k in _ALLOWED}
+    # Org-wide state (autonomous mode skips spec review, data region, org name): admin or owner only (D7).
+    if user.get("role") not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only org owners/admins may change organisation settings")
+    # Only keys that are real Organisation columns: decision_mode/notification_prefs have no
+    # column, so accepting them made the UPDATE fail or silently do nothing. org_name -> name.
+    payload = {("name" if k == "org_name" else k): v for k, v in req.items() if k in _ALLOWED}
     if not payload:
-        raise HTTPException(status_code=400, detail="No valid fields to update")
+        raise HTTPException(status_code=400, detail=f"No valid fields to update; allowed: {sorted(_ALLOWED)}")
+    if "autonomous_mode" in payload and not isinstance(payload["autonomous_mode"], bool):
+        raise HTTPException(status_code=422, detail="autonomous_mode must be a boolean")
+    if "name" in payload and not (isinstance(payload["name"], str) and 1 <= len(payload["name"].strip()) <= 255):
+        raise HTTPException(status_code=422, detail="org_name must be 1-255 characters")
+    if "data_region" in payload and not (isinstance(payload["data_region"], str) and 1 <= len(payload["data_region"]) <= 20):
+        raise HTTPException(status_code=422, detail="data_region must be 1-20 characters")
 
     session_factory = get_session_factory()
     async with session_factory() as session:

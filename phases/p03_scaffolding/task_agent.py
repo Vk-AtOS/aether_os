@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p03_scaffolding.validation import safe_project_name, validate_clone_url
 from aether_os.core.llm.client import get_llm_client
 from aether_os.core.context_helpers import record_decision
 
@@ -431,18 +432,25 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     tech_stack = arch.get("tech_stack", {})
     backend = str(tech_stack.get("backend", "fastapi")).lower()
-    project_name = data.get("project_name", phase_input.project_id)
+    project_name = safe_project_name(data.get("project_name", phase_input.project_id))
     domain = data.get("domain", "general")
 
     # ── GitHub repo fork: clone instead of generating from scratch ────────────
     github_url = data.get("github_url", "").strip()
     if github_url:
+        try:
+            validate_clone_url(github_url)
+        except ValueError as exc:
+            logger.warning("p03: github_url refused: %s", exc)
+            return TaskResult(output_path=str(output_dir), confidence=0.0, success=False,
+                              issues=[f"github_url refused: {exc}"])
         clone_dir = output_dir / project_name
         clone_dir.mkdir(parents=True, exist_ok=True)
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["git", "clone", "--depth=1", github_url, str(clone_dir)],
+                ["git", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+                 "clone", "--depth=1", "--", github_url, str(clone_dir)],
                 capture_output=True, text=True, timeout=60,
             )
             if result.returncode == 0:

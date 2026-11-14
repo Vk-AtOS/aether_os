@@ -33,7 +33,25 @@ from aether_os.gateway.auth import create_access_token, create_refresh_token
 logger = logging.getLogger(__name__)
 
 _REFRESH_TTL_SECONDS = 30 * 86400  # lifetime of a refresh token (create_refresh_token default)
-_UNAVAILABLE = HTTPException(status_code=503, detail="Auth service temporarily unavailable — please retry")
+_UNAVAILABLE = HTTPException(
+    status_code=503, detail="Auth service temporarily unavailable — please retry",
+    headers={"Retry-After": "5"},
+)
+
+# Short in-process verdict cache for assert_access_token_live, so a burst of requests on one
+# token costs one Redis round trip, not one each. "live" is trusted for LIVE_TTL_S only (the
+# revocation lag this adds); "revoked" is permanent for the life of the token. When Redis is
+# down nothing is cached or assumed: requests still get 503 + Retry-After (fail closed).
+LIVE_TTL_S = 2.0
+_CACHE_MAX = 10_000
+_verdicts: Dict[str, Tuple[float, bool]] = {}  # jti -> (expires monotonic, live)
+
+
+def _remember(jti: str, live: bool, token_exp: float) -> None:
+    if len(_verdicts) >= _CACHE_MAX:
+        _verdicts.clear()  # ponytail: wholesale clear, bounded memory beats LRU bookkeeping
+    now = time.monotonic()
+    _verdicts[jti] = (now + (LIVE_TTL_S if live else max(1.0, token_exp - time.time())), live)
 _REJECTED = HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
 
@@ -98,6 +116,11 @@ async def assert_access_token_live(claims: Dict[str, Any]) -> None:
     if not jti:
         # Every token we mint has a jti; one without it cannot be revoked, so it is not accepted.
         raise HTTPException(status_code=401, detail="Token has been revoked")
+    hit = _verdicts.get(jti)
+    if hit and hit[0] > time.monotonic():
+        if hit[1]:
+            return
+        raise HTTPException(status_code=401, detail="Token has been revoked")
     family, user_id = claims.get("fam") or jti, claims.get("user_id")
     keys = [f"jwt:blacklist:{jti}", family_key(family)] + ([_cutoff_key(user_id)] if user_id else [])
     try:
@@ -106,8 +129,11 @@ async def assert_access_token_live(claims: Dict[str, Any]) -> None:
     except Exception as exc:
         logger.warning("Token revocation check failed (Redis unavailable) — denying request: %s", exc)
         raise _UNAVAILABLE
+    exp = claims.get("exp") if isinstance(claims.get("exp"), (int, float)) else time.time() + 3600
     if values[0] or values[1] or (user_id and _before_cutoff(values[2], claims, family)):
+        _remember(jti, False, exp)
         raise HTTPException(status_code=401, detail="Token has been revoked")
+    _remember(jti, True, exp)
 
 
 async def consume_refresh_token(claims: Dict[str, Any]) -> str:
@@ -131,6 +157,7 @@ async def consume_refresh_token(claims: Dict[str, Any]) -> str:
         # SET NX is the atomic "first use wins": two concurrent refreshes cannot both pass.
         if not await r.set(f"jwt:blacklist:{jti}", "used", nx=True, ex=ttl):
             await r.set(family_key(family), "1", ex=_REFRESH_TTL_SECONDS)
+            _verdicts.clear()
             logger.warning("Refresh token replayed (user=%s family=%s) — family revoked", user_id, family)
             raise _REJECTED
     except HTTPException:
@@ -144,6 +171,7 @@ async def consume_refresh_token(claims: Dict[str, Any]) -> str:
 async def revoke_session(claims: Dict[str, Any]) -> None:
     """Logout: blacklist this access token and revoke its refresh-token family."""
     jti, exp, family = claims.get("jti"), claims.get("exp"), claims.get("fam")
+    _verdicts.clear()  # this worker must see the revocation at once (other workers: <= LIVE_TTL_S)
     try:
         r = await _redis()
         if jti and isinstance(exp, (int, float)):
@@ -162,6 +190,7 @@ async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) 
     Access tokens used to survive this for up to their one-hour lifetime: only
     the refresh path read the cutoff. assert_access_token_live reads it too.
     """
+    _verdicts.clear()
     try:
         r = await _redis()
         await r.set(_cutoff_key(user_id), f"{int(time.time())}:{keep_family or ''}", ex=_REFRESH_TTL_SECONDS)

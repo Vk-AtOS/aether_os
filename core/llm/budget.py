@@ -14,7 +14,9 @@ Plan token budgets (per month):
 from __future__ import annotations
 
 import logging
+import os
 import time
+import uuid
 from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,34 @@ _PLAN_BUDGETS: Dict[str, int] = {
 }
 
 _DOWNGRADE_THRESHOLD = 0.85   # switch to Haiku when >85% of budget used
-_BLOCK_THRESHOLD     = 1.00   # block when 100% used (trial only)
+_ALERT_THRESHOLD     = 0.80   # log an alert once per org/month at 80%
+_BLOCK_THRESHOLD     = 1.00   # hard stop at 100% for every plan (D6)
+_alerted: set = set()
+
+
+def kill_switch_on() -> bool:
+    """Global LLM kill switch: LLM_KILL_SWITCH=1 stops every model call at once."""
+    return os.environ.get("LLM_KILL_SWITCH", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+async def resolve_plan(org_id: str, plan: Optional[str]) -> str:
+    """The plan must be known for every call; look it up when the caller did not pass it."""
+    from aether_os.core.errors import LLMUnavailable
+    if plan:
+        return plan
+    try:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Organisation
+        from sqlalchemy import select
+        async with get_session_factory()() as session:
+            found = (await session.execute(
+                select(Organisation.plan).where(Organisation.id == org_id)
+            )).scalar_one_or_none()
+    except Exception as exc:
+        raise LLMUnavailable(f"Cannot determine plan for org {org_id}: {exc}") from exc
+    if not found:
+        raise LLMUnavailable(f"Cannot determine plan for org {org_id}")
+    return found
 
 # Input/output cost per token (USD).
 # Anthropic claude-sonnet-4-6: $3/M input, $15/M output
@@ -52,24 +81,33 @@ _COST_PER_TOKEN: Dict[str, float] = _COST_PER_INPUT_TOKEN
 
 
 async def _get_or_create_record(session, org_id: str, month: str):
-    """Return the TokenBudgetRecord for this org+month, creating it if missing."""
+    """Return the TokenBudgetRecord for this org+month, creating it if missing.
+
+    INSERT .. ON CONFLICT DO NOTHING against the unique (org_id, month): concurrent
+    first calls of a month converge on one row instead of inserting two.
+    """
     from aether_os.core.models import TokenBudgetRecord
     from sqlalchemy import select
-    row = (await session.execute(
+    if session.bind.dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    await session.execute(
+        insert(TokenBudgetRecord)
+        .values(id=str(uuid.uuid4()), org_id=org_id, month=month, input_tokens=0, output_tokens=0,
+                runs=0, cache_hits=0, cache_misses=0, estimated_cost_usd=0.0, updated_at=time.time())
+        .on_conflict_do_nothing(index_elements=["org_id", "month"])
+    )
+    return (await session.execute(
         select(TokenBudgetRecord)
         .where(TokenBudgetRecord.org_id == org_id, TokenBudgetRecord.month == month)
-    )).scalar_one_or_none()
-    if row is None:
-        row = TokenBudgetRecord(org_id=org_id, month=month)
-        session.add(row)
-        await session.flush()
-    return row
+    )).scalar_one()
 
 
 class TokenBudgetManager:
     """Check and record token usage per org against monthly plan budgets."""
 
-    async def get_usage(self, org_id: str, month: Optional[str] = None) -> dict:
+    async def get_usage(self, org_id: str, month: Optional[str] = None, strict: bool = False) -> dict:
         m = month or time.strftime("%Y-%m")
         try:
             from aether_os.core.db import get_session_factory
@@ -87,19 +125,22 @@ class TokenBudgetManager:
                     "total_tokens":       row.input_tokens + row.output_tokens,
                 }
         except Exception as exc:
+            if strict:
+                raise  # the spend cap must fail closed: unknown usage is not zero usage
             logger.debug("Budget get_usage failed: %s", exc)
         return {"input_tokens": 0, "output_tokens": 0, "cache_hits": 0,
                 "cache_misses": 0, "runs": 0, "estimated_cost_usd": 0.0, "total_tokens": 0}
 
     async def check_budget(self, org_id: str, plan: str) -> Tuple[bool, str, str]:
-        if plan == "enterprise":
-            return True, "ok", "sonnet"
         month = time.strftime("%Y-%m")
-        usage = await self.get_usage(org_id, month)
+        usage = await self.get_usage(org_id, month, strict=True)
         budget = _PLAN_BUDGETS.get(plan, _PLAN_BUDGETS["trial"])
         fraction = usage["total_tokens"] / max(budget, 1)
-        if plan == "trial" and fraction >= _BLOCK_THRESHOLD:
+        if fraction >= _BLOCK_THRESHOLD:
             return False, f"Monthly budget exhausted ({usage['total_tokens']:,}/{budget:,} tokens)", "none"
+        if fraction >= _ALERT_THRESHOLD and (org_id, month) not in _alerted:
+            _alerted.add((org_id, month))
+            logger.warning("LLM budget ALERT: org %s used %.0f%% of its %s monthly budget", org_id, fraction * 100, plan)
         if fraction >= _DOWNGRADE_THRESHOLD:
             return True, f"Budget {fraction:.0%} used — downgrading to Haiku", "haiku"
         return True, "ok", "sonnet"
@@ -122,17 +163,25 @@ class TokenBudgetManager:
             from aether_os.core.db import get_session_factory
             sf = get_session_factory()
             async with sf() as session:
-                row = await _get_or_create_record(session, org_id, month)
-                row.input_tokens       += input_tokens
-                row.output_tokens      += output_tokens
-                row.cache_hits         += 1 if cache_hit else 0
-                row.cache_misses       += 0 if cache_hit else 1
-                row.runs               += 1
-                row.estimated_cost_usd += cost
-                row.updated_at          = time.time()
+                from aether_os.core.models import TokenBudgetRecord as T
+                from sqlalchemy import update
+                await _get_or_create_record(session, org_id, month)
+                # Atomic increments: a read-modify-write here loses concurrent updates
+                # and under-counts the spend the cap is enforced against.
+                await session.execute(
+                    update(T).where(T.org_id == org_id, T.month == month).values(
+                        input_tokens=T.input_tokens + input_tokens,
+                        output_tokens=T.output_tokens + output_tokens,
+                        cache_hits=T.cache_hits + (1 if cache_hit else 0),
+                        cache_misses=T.cache_misses + (0 if cache_hit else 1),
+                        runs=T.runs + 1,
+                        estimated_cost_usd=T.estimated_cost_usd + cost,
+                        updated_at=time.time(),
+                    )
+                )
                 await session.commit()
         except Exception as exc:
-            logger.debug("Budget record_usage failed: %s", exc)
+            logger.warning("Budget record_usage failed (spend not recorded): %s", exc)
 
     async def get_cost_report(self, org_id: str, months: int = 3) -> list:
         try:

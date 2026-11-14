@@ -39,9 +39,13 @@ def _patch_app_tsx(app_tsx: Path, routes: list[tuple[str, str, str]]) -> None:
                 1,
             )
 
+        # The single-portal App defines `layoutRoute`; the dual-portal App (the default for saas, crm, hrm and
+        # healthcare) only has adminLayoutRoute, whose pages live under /admin. Referencing `layoutRoute` there
+        # raised a ReferenceError when the router was built (KAN-168).
+        parent, prefix = ("layoutRoute", "") if "const layoutRoute " in text else ("adminLayoutRoute", "/admin")
         new_defs = "\n\n".join(
-            f"const {var} = createRoute({{ getParentRoute: () => layoutRoute, "
-            f"path: '{path}', component: {page} }})"
+            f"const {var} = createRoute({{ getParentRoute: () => {parent}, "
+            f"path: '{prefix}{path}', component: {page} }})"
             for var, path, page in routes
             if f"const {var} " not in text
         )

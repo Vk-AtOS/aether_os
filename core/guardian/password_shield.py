@@ -37,7 +37,7 @@ _MIN_LENGTH = 10
 
 
 def _sha1(password: str) -> str:
-    return hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    return hashlib.sha1(password.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
 
 
 def _check_complexity(password: str) -> Tuple[bool, str]:

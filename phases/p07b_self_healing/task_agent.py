@@ -14,13 +14,14 @@ import secrets
 import socket
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.orchestrator.events import emit
 from aether_os.core.quality_monitor import QualityMonitor
 from aether_os.phases.p07b_self_healing.quality_helpers import (
     find_seed_py,
+    find_file as _find_file,
     find_crud_py,
     fix_seed_unique_violations,
     fix_crud_relative_imports,
@@ -34,6 +35,9 @@ from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
 
+# Called with the port of the live probe app while it is still running.
+LiveHook = Callable[[int], Awaitable[Dict[str, Any]]]
+
 MAX_ATTEMPTS = 5
 TEST_TIMEOUT = 60
 LLM_TIMEOUT = 45
@@ -46,6 +50,9 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
     Problem 50 fix: Parse exec validation error output (stdout/stderr from Python
     import/syntax check) to identify the EXACT failing file and line number.
 
+    Only files inside project_dir are returned: a traceback names arbitrary paths
+    (stdlib, site-packages, host files) and the caller overwrites the result.
+
     Priority order:
     1. Python traceback  File "/path/to/file.py", line N  (most precise)
     2. pytest ERROR collecting / FAILED markers
@@ -56,14 +63,14 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
     if traceback_matches:
         # Walk from last to first — skip test files and site-packages
         for candidate_str in reversed(traceback_matches):
-            if "site-packages" in candidate_str or "pytest" in candidate_str:
+            if "site-packages" in candidate_str or "/_pytest/" in candidate_str:
                 continue
             candidate = Path(candidate_str)
             if not candidate.is_absolute():
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            if candidate.exists():
+            if candidate.exists() and candidate.is_relative_to(project_dir.resolve()):
                 logger.debug("[p07b] Traceback identified failing file: %s", candidate)
                 return candidate
 
@@ -87,15 +94,16 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            if candidate.exists():
+            if candidate.exists() and candidate.is_relative_to(project_dir.resolve()):
                 logger.debug("[p07b] Pattern matched failing file: %s", candidate)
                 return candidate
     return None
 
 
-async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
+async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path,
+              live_hook: Optional[LiveHook] = None) -> TaskResult:
     try:
-        return await asyncio.wait_for(_run_inner(phase_input, memory_ctx, output_dir), timeout=_PHASE_HARD_TIMEOUT)
+        return await asyncio.wait_for(_run_inner(phase_input, memory_ctx, output_dir, live_hook), timeout=_PHASE_HARD_TIMEOUT)
     except asyncio.TimeoutError:
         msg = f"⚠ [p07b_self_healing] Phase hard-timeout ({_PHASE_HARD_TIMEOUT}s) — skipping"
         logger.warning(msg)
@@ -111,7 +119,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         )
 
 
-async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
+async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path,
+                     live_hook: Optional[LiveHook] = None) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run_id = phase_input.run_id
@@ -162,7 +171,7 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path)
             # live failures (auth, empty CRUD) and apply deterministic fixes.
             _qp_msg = "[p07b_self_healing] Running quality probe (L1–L4)..."
             await emit({"type": "llm_chunk", "phase": "p07b_self_healing", "text": _qp_msg})
-            quality_probe_result = await _quality_probe(project_dir, _entity_names, output_dir)
+            quality_probe_result = await _quality_probe(project_dir, _entity_names, output_dir, live_hook)
             _qp_failure = quality_probe_result.get("failure_type")
             _qp_fixes = quality_probe_result.get("fixes_applied", [])
 
@@ -421,13 +430,15 @@ async def _quality_probe(
     project_dir: Path,
     entities: List[str],
     output_dir: Path,
+    live_hook: Optional[LiveHook] = None,
 ) -> Dict[str, Any]:
     """Run QualityMonitor L1–L4 against the generated app on a temp port.
 
     Spins up uvicorn on a free port, waits for startup, runs the full check,
     applies deterministic fixes for auth_failure / empty_crud, then tears down.
 
-    Returns a dict with keys: skipped, failure_type, quality_summary, fixes_applied.
+    Returns a dict with keys: skipped, l1_passed, failure_type, quality_summary, fixes_applied
+    (and live_tests when live_hook ran against the still-running app).
     Non-fatal — any exception returns skipped=True so the pipeline continues.
     """
     # Generate a random probe credential per run so no fixed password is written
@@ -505,6 +516,16 @@ async def _quality_probe(
         results = await monitor.run_full_check()
         failure_type = monitor.get_failure_type(results)
         quality_summary = monitor.to_dict()
+        l1_passed = any(r.layer == "startup" and r.passed for r in results)
+
+        # The app is only up inside this probe, so perf/a11y/e2e must run now.
+        live_tests: Optional[Dict[str, Any]] = None
+        if l1_passed and live_hook is not None:
+            try:
+                live_tests = await live_hook(probe_port)
+            except Exception as hook_exc:
+                logger.warning("[p07b quality_probe] live tests failed: %s", hook_exc)
+                live_tests = {"skipped": True, "reason": f"live_tests_error:{hook_exc}"}
 
         fixes_applied: List[str] = []
 
@@ -547,6 +568,8 @@ async def _quality_probe(
 
         return {
             "skipped": False,
+            "l1_passed": l1_passed,
+            "live_tests": live_tests,
             "failure_type": failure_type,
             "quality_summary": quality_summary,
             "fixes_applied": fixes_applied,
@@ -571,11 +594,3 @@ async def _quality_probe(
             except Exception as unlink_exc:
                 logger.debug("[p07b quality_probe] Failed to remove temp .env: %s", unlink_exc)
 
-
-def _find_file(project_dir: Path, pattern: str) -> Optional[Path]:
-    _SKIP_DIRS = {"__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "p03_scaffolding"}
-    matches = [p for p in project_dir.rglob(pattern) if not any(part in _SKIP_DIRS for part in p.parts)]
-    if not matches:
-        matches = list(project_dir.rglob(pattern))
-    matches.sort(key=lambda p: len(p.parts), reverse=True)
-    return matches[0] if matches else None

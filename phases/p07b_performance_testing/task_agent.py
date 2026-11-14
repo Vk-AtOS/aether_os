@@ -164,10 +164,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "locustfile_path": str(locust_path),
             "load_test_summary": load_test_summary,
         },
-        artifacts={
-            "locustfile_path": str(locust_path),
-            "load_test_summary": load_test_summary,
-        },
         success=True,
         issues=[f"error rate {results['error_rate_pct']}%"] if results["error_rate_pct"] > 5 else [],
     )

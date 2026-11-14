@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +21,10 @@ _NPM_SHARED_CACHE = Path.home() / ".aether_os" / "npm_cache"
 async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool:
     """Attempt to capture a real screenshot of the generated frontend."""
     # 1. Ensure Playwright browsers are installed
+    # (a blocking subprocess.run in this coroutine froze the whole event loop for up to two minutes: run it in a thread)
     try:
-        subprocess.run(["python3", "-m", "playwright", "install", "chromium"], capture_output=True, timeout=120)
+        await asyncio.to_thread(subprocess.run, [sys.executable, "-m", "playwright", "install", "chromium"],
+                                capture_output=True, timeout=120)
     except Exception as exc:
         logger.debug("p05: playwright install failed (non-fatal): %s", exc)
 
@@ -30,7 +35,7 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
             logger.info("p05: Building frontend for screenshot...")
             # Generated project: install (install egress profile) and build in the sandbox only.
             await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=240, network=True)
-            await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=180)
+            await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=180, env=PREVIEW_BUILD_ENV)
         except SandboxUnavailable:
             raise
         except Exception as build_err:
@@ -40,19 +45,26 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
         logger.warning("p05: dist/ directory not found, cannot take real screenshot")
         return False
 
-    # 3. Find a free port dynamically
+    # 3. Find a free port on the loopback interface only
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('', 0))
+            s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
     except Exception as e:
         logger.warning("p05_frontend preview: could not find free port, using 8888: %s", e)
         port = 8888  # fallback
 
-    # 4. Start a temporary local server to serve the build
+    # 4. Serve the build on 127.0.0.1 only (the default bind is every interface, so anyone on the network could
+    # read the unreleased app). The preview build lives under a base path: link dist/ under that name.
+    base = PREVIEW_BUILD_ENV["VITE_BASE_PATH"].strip("/")
+    serve_root = tempfile.TemporaryDirectory()
+    if base:
+        (Path(serve_root.name) / base).symlink_to(dist_dir.resolve(), target_is_directory=True)
+    url = f"http://127.0.0.1:{port}/" + (base + "/" if base else "")
     server_process = subprocess.Popen(
-        ["python3", "-m", "http.server", str(port), "--directory", str(dist_dir)],
+        [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1",
+         "--directory", serve_root.name if base else str(dist_dir)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
 
@@ -64,7 +76,7 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
 
             try:
                 await asyncio.sleep(2)
-                await page.goto(f"http://localhost:{port}", wait_until="networkidle", timeout=20000)
+                await page.goto(url, wait_until="networkidle", timeout=20000)
                 await asyncio.sleep(3)
                 await page.screenshot(path=str(output_path), full_page=True)
                 logger.info(f"p05: Successfully captured preview screenshot at {output_path}")
@@ -79,6 +91,7 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
         return False
     finally:
         server_process.terminate()
+        serve_root.cleanup()
 
 
 _FALLBACK_CRITIQUE = (

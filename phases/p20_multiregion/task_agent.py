@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.phases.utils import get_domain_ir
 from aether_os.core.chaos_engineering.chaos_generator import generate_chaos_package
 from aether_os.core.capacity_planner.planner import generate_capacity_package
 from aether_os.phases.p20_multiregion.multiregion_generator import generate_multiregion_package
@@ -51,7 +52,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     project_name: str = data.get("project_name", "app")
     slug = re.sub(r"[^a-z0-9-]", "-", project_name.lower()).strip("-") or "app"
 
-    domain_ir: dict = data.get("domain_ir") or {}
+    domain_ir: dict = get_domain_ir(data)
     entities: List[dict] = domain_ir.get("entities") or []
     if not entities:
         entities = [{"table": "item", "fields": [{"name": "name", "type": "string"}]}]

@@ -180,3 +180,19 @@ def test_patch_generated_project_does_not_write_through_a_planted_symlink(tmp_pa
         patch_generated_project(backend_dir=backend, root_dir=root, frontend_dir=None, frontend_dist=None,
                                 log_path=tmp_path / "platform.log")
     assert victim.read_text() == "SECRET = 1\n"
+
+
+def test_patched_preview_app_never_allows_credentials_from_any_origin(tmp_path):
+    # KAN-190: '*' with allow_credentials=True made Starlette reflect the caller's Origin, so any
+    # website could make logged-in requests to a preview app and read the answers.
+    from aether_os.core.run_app.process_manager_helpers import patch_generated_project
+    root = tmp_path / "projects" / "run1"
+    backend = root / "p04_backend" / "backend_codegen" / "app"
+    (backend / "src").mkdir(parents=True)
+    main_py = backend / "src" / "main.py"
+    main_py.write_text("@app.get('/ping')\ndef ping():\n    return {}\n")   # no app = FastAPI(): boilerplate added
+    patch_generated_project(backend_dir=backend, root_dir=root, frontend_dir=None, frontend_dist=None,
+                            log_path=tmp_path / "platform.log")
+    patched = "".join(p.read_text() for p in root.rglob("main.py"))
+    assert "CORSMiddleware" in patched
+    assert "allow_credentials=True" not in patched

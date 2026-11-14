@@ -136,8 +136,11 @@ async def run_intent_verification(
                 f"In one sentence, does this interpretation make sense? "
                 f"Reply with 'YES: <reason>' or 'NO: <correct interpretation>'."
             )
-            _verify_resp = await _llm_iv.complete(_verify_prompt, max_tokens=100)
-            _verify_text = getattr(_verify_resp, "content", str(_verify_resp))
+            _verify_text = await _llm_iv.call(
+                _verify_prompt, task_type="analysis", max_tokens=100,
+                org_id=data.get("org_id") or None, plan=data.get("plan"),
+                run_id=getattr(phase_input, "run_id", None), phase="p01_intake_requirements",
+            )
             phase_input.input_data["intent_verification"] = _verify_text[:200]
             if str(_verify_text).upper().startswith("NO"):
                 logger.warning(
@@ -228,14 +231,17 @@ async def run_entity_approval_gate(
                     for n in _corrected
                 ]
                 requirements_doc["entities"] = entities_extracted
+                data["entities"] = entities_extracted  # later phases read input_data["entities"]
                 summary["entities"] = entities_extracted
                 confidence = 0.80
                 confidence_reason = f"Human-corrected entities: {', '.join(_corrected)}"
                 logger.info("p01: entity gate approved — user provided %d entities", len(_corrected))
-        elif resolved.status == "rejected":
+        elif resolved.status in ("denied", "timeout", "rejected"):
+            # The engine produces pending|approved|denied|timeout; a denial or an
+            # unanswered gate must stop the run, not fall through as approved.
             from aether_os.core.errors import PipelineBlockedError
             raise PipelineBlockedError(
-                "User rejected entity extraction — pipeline halted at p01"
+                f"Entity extraction not approved ({resolved.status}) — pipeline halted at p01"
             )
     except (ImportError, AttributeError) as _gate_exc:
         logger.warning("p01: entity approval gate unavailable (non-fatal): %s", _gate_exc)

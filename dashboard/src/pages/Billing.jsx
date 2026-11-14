@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
+import { appUrl } from '../appUrl';
 import {
   CreditCard, TrendingUp, RefreshCw, AlertTriangle, CheckCircle2,
   Zap, Star, Building2, Loader2, ExternalLink, Download,
@@ -140,8 +141,8 @@ const Billing = () => {
   const handleStripeUpgrade = async (planId) => {
     const res = await api.client.post('/billing/stripe/checkout', {
       plan:        planId,
-      success_url: `${window.location.origin}/billing?upgrade=success`,
-      cancel_url:  `${window.location.origin}/billing?upgrade=cancelled`,
+      success_url: appUrl('/admin/billing?upgrade=success'),
+      cancel_url:  appUrl('/admin/billing?upgrade=cancelled'),
     });
     const { checkout_url } = res.data;
     if (!checkout_url) throw new Error('Stripe checkout URL not returned from server.');

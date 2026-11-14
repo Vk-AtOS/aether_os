@@ -14,15 +14,11 @@ from aether_os.core.run_app import safe_fs
 from aether_os.core.artifact_store import get_artifact_store as _gas_s3
 from aether_os.core.council import DeliveryCouncil
 from aether_os.core.db import get_session_factory as _gsf
-from aether_os.core.db import get_session_factory as _gsf2
-from aether_os.core.db import get_session_factory as _gsf2t
 from aether_os.core.db import get_session_factory as _gsf_cn
 from aether_os.core.db import get_session_factory as _gsf_l
 from aether_os.core.models import GlobalPattern as _GP
 from aether_os.core.models import Notification as _Notif_cn
 from aether_os.core.models import Run as _Run
-from aether_os.core.models import Run as _Run2
-from aether_os.core.models import Run as _Run2t
 from aether_os.core.pipeline_state import get_control
 from aether_os.orchestrator.events import publish_event  # redacts error text
 from aether_os.core.services import learning_service as _ls
@@ -32,8 +28,6 @@ from aether_os.orchestrator.phase_sequence import _load_supervisor
 from aether_os.orchestrator.run_state import _extract_project_name
 from sqlalchemy import select as _sel_l
 from sqlalchemy import update as _sa_update
-from sqlalchemy import update as _sa_update2
-from sqlalchemy import update as _sa_update2t
 import asyncio
 import time
 logger = logging.getLogger(__name__)
@@ -112,15 +106,16 @@ async def upload_to_s3(
             })
     except Exception as _s3_exc:
         logger.warning("[pipeline] S3 upload skipped: %s", _s3_exc)
-# Mapping from DeliveryCouncil criterion name → phase(s) to re-run.
-# When a criterion fails, we re-run these phases once to attempt auto-remediation.
+# Mapping from DeliveryCouncil criterion name → STAGE(s) to re-run (the keys of
+# phase_sequence.PHASE_SUPERVISORS: the old p06_/p07_/p10_ ids were retired, so
+# _load_supervisor found nothing and remediation never re-ran anything).
 _CRITERION_TO_PHASES = {
-    "security":     ["p06_review_security"],
-    "testing":      ["p07_testing", "p07b_self_healing"],
-    "quality":      ["p07_testing", "p07b_self_healing"],
-    "frontend":     ["p05_frontend"],
-    "completeness": ["p05_frontend", "p10_docs_delivery"],
-    "docs":         ["p10_docs_delivery"],
+    "security":     ["s05_quality"],
+    "testing":      ["s06_testing", "s07_healing"],
+    "quality":      ["s06_testing", "s07_healing"],
+    "frontend":     ["s04_frontend"],
+    "completeness": ["s04_frontend", "s11_handoff"],
+    "docs":         ["s11_handoff"],
 }
 async def _run_council_remediation_phases(
     run_id: str,
@@ -342,39 +337,38 @@ async def delivery_council_check(
                 "status": "completed",
             })
     except asyncio.TimeoutError:
-        logger.warning("DeliveryCouncil timed out after 120s for run %s — marking completed", run_id)
-        try:
-            async with _gsf2t()() as _s2t:
-                await _s2t.execute(
-                    _sa_update2t(_Run2t).where(_Run2t.id == run_id).values(status="completed")
-                )
-                await _s2t.commit()
-        except Exception as _to_db_exc:
-            logger.warning("[council] Timeout fallback DB update failed for run %s: %s", run_id, _to_db_exc)
-        await publish_event(run_id, {
-            "type": "council_delivery_passed",
-            "passed": True,
-            "score": 0.0,
-            "status": "completed",
-            "note": "council_timeout",
-        })
+        logger.warning("DeliveryCouncil timed out after 120s for run %s — recorded as unavailable", run_id)
+        await _record_council_unavailable(run_id, "council_timeout")
     except Exception as _exc:
         logger.warning("DeliveryCouncil check failed: %s", _exc)
-        try:
-            async with _gsf2()() as _s2:
-                await _s2.execute(
-                    _sa_update2(_Run2).where(_Run2.id == run_id).values(status="completed")
-                )
-                await _s2.commit()
-        except Exception as _err_db_exc:
-            logger.warning("[council] Error fallback DB update failed for run %s: %s", run_id, _err_db_exc)
-        await publish_event(run_id, {
-            "type": "council_delivery_passed",
-            "passed": True,
-            "score": 0.0,
-            "status": "completed",
-            "note": "council_error",
-        })
+        await _record_council_unavailable(run_id, "council_error")
+async def _record_council_unavailable(run_id: str, note: str) -> None:
+    """The delivery council did not produce a verdict (timeout/error).
+
+    It is advisory, so the run keeps its status, but the missing verdict is never reported
+    as a pass: it is stored on the run (council_delivery.status == "unavailable", visible in
+    the run data) and announced with its own event.
+    """
+    verdict = {
+        "status": "unavailable", "passed": None, "score": None, "advisory": True,
+        "reason": note, "suggestions": [],
+    }
+    try:
+        async with _gsf()() as _s:
+            await _s.execute(
+                _sa_update(_Run).where(_Run.id == run_id)
+                .values(council_delivery=verdict, status="completed",
+                        message="DeliveryCouncil did not run (" + note + ") - delivery was not independently reviewed")
+            )
+            await _s.commit()
+    except Exception as _db_exc:
+        logger.warning("[council] Could not record unavailable verdict for run %s: %s", run_id, _db_exc)
+    await publish_event(run_id, {
+        "type": "council_delivery_unavailable",
+        "passed": None,
+        "status": "completed",
+        "note": note,
+    })
 async def store_run_memory(
     run_id: str,
     org_id: Optional[str],

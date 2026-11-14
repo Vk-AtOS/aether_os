@@ -15,6 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+MAX_ROWS = 1000        # hard cap for per-run child lists (phase completions, events)
+MAX_PAGE = 500         # hard cap for any client-supplied page size
+
+
+def clamp_limit(limit: int, default: int = 100) -> int:
+    """Page size within [1, MAX_PAGE]; a bad value falls back to the default."""
+    try:
+        return min(max(int(limit), 1), MAX_PAGE)
+    except (TypeError, ValueError):
+        return default
+
 
 async def get_run_by_id(
     sess: AsyncSession, run_id: str, org_id: str
@@ -79,6 +90,7 @@ async def get_phase_completions(
         select(PhaseCompletion.phase_name, PhaseCompletion.status, PhaseCompletion.updated_at)
         .where(PhaseCompletion.run_id == run_id, PhaseCompletion.phase_name != "pipeline")
         .order_by(PhaseCompletion.updated_at.asc())
+        .limit(MAX_ROWS)
     )).all()
 
 
@@ -92,6 +104,7 @@ async def get_explicit_events(
         select(Event.agent, Event.action, Event.detail, Event.timestamp)
         .where(Event.run_id == run_id)
         .order_by(Event.timestamp.asc())
+        .limit(MAX_ROWS)
     )).all()
 
 
@@ -120,7 +133,7 @@ async def get_run_priority_and_live_url(
 
 
 async def get_run_snapshots(
-    sess: AsyncSession, run_id: str, org_id: str
+    sess: AsyncSession, run_id: str, org_id: str, limit: int = 100, offset: int = 0
 ) -> Tuple[bool, List[Any]]:
     """
     Return (run_found, snapshots) for a run.
@@ -136,6 +149,7 @@ async def get_run_snapshots(
         select(Snapshot)
         .where(Snapshot.run_id == run_id)
         .order_by(Snapshot.created_at.desc())
+        .limit(clamp_limit(limit)).offset(max(offset, 0))
     )).scalars().all()
     return True, list(rows)
 

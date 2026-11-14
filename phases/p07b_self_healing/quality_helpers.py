@@ -247,3 +247,11 @@ def apply_deterministic_fallback(project_dir: Path, entities: list, input_data: 
             logger.info("p07b: switched to deterministic fallback seed generator at %s", seed_path)
     except Exception as _fb_exc:
         logger.warning("p07b: fallback generator failed: %s", _fb_exc)
+
+def find_file(project_dir: Path, pattern: str) -> Optional[Path]:
+    _SKIP_DIRS = {"__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "p03_scaffolding"}
+    matches = [p for p in project_dir.rglob(pattern) if not any(part in _SKIP_DIRS for part in p.parts)]
+    if not matches:
+        matches = list(project_dir.rglob(pattern))
+    matches.sort(key=lambda p: len(p.parts), reverse=True)
+    return matches[0] if matches else None

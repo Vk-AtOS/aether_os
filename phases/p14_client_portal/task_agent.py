@@ -122,6 +122,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     </div>
   </div>
   <script>
+    // Ticket fields are user-supplied: never put them into innerHTML unescaped.
+    const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
     async function load() {{
       try {{
         const r = await fetch('/portal/tickets');
@@ -133,10 +135,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         document.getElementById('resolved-tickets').textContent = tickets.filter(t => t.status === 'closed').length;
         document.getElementById('tickets-body').innerHTML = tickets.map(t => `
           <tr>
-            <td>#${{t.id}}</td>
-            <td>${{t.title}}</td>
-            <td><span class="badge badge-${{t.status}}">${{t.status}}</span></td>
-            <td>${{new Date(t.created_at).toLocaleDateString()}}</td>
+            <td>#${{esc(t.id)}}</td>
+            <td>${{esc(t.title)}}</td>
+            <td><span class="badge badge-${{esc(t.status)}}">${{esc(t.status)}}</span></td>
+            <td>${{esc(new Date(t.created_at).toLocaleDateString())}}</td>
           </tr>
         `).join('') || '<tr><td colspan="4" style="text-align:center;color:#64748b">No tickets</td></tr>';
       }} catch(e) {{ console.error(e); }}
@@ -152,17 +154,32 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (portal_dir / "portal_router.py").write_text(
         '''import hashlib
 import json
+import logging
 import os
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/portal", tags=["Client Portal"])
+logger = logging.getLogger(__name__)
+
+try:  # the generated backend's auth dependencies (src/auth.py)
+    from src.auth import get_current_user, require_admin
+except ImportError:
+    try:
+        from auth import get_current_user, require_admin
+    except ImportError:
+        async def get_current_user():
+            # Fail closed: the portal must never be reachable without the app's auth.
+            raise HTTPException(status_code=503, detail="portal disabled: src.auth not found")
+
+        require_admin = get_current_user
+
+router = APIRouter(prefix="/portal", tags=["Client Portal"], dependencies=[Depends(get_current_user)])
 
 _TICKETS_FILE = Path(os.getenv("PORTAL_TICKETS_PATH", "portal_tickets.json"))
 _TICKETS: List[dict] = []
@@ -194,9 +211,9 @@ _load_tickets()
 
 
 class TicketCreate(BaseModel):
-    title: str
-    description: str
-    priority: str = "medium"
+    title: str = Field(max_length=255)
+    description: str = Field(max_length=10000)
+    priority: str = Field(default="medium", pattern="^(low|medium|high)$")
 
 
 class TicketUpdate(BaseModel):
@@ -246,7 +263,7 @@ def get_ticket(ticket_id: int):
     raise HTTPException(status_code=404, detail="Ticket not found")
 
 
-@router.patch("/tickets/{ticket_id}")
+@router.patch("/tickets/{ticket_id}", dependencies=[Depends(require_admin)])
 def update_ticket(ticket_id: int, update: TicketUpdate):
     _load_tickets()
     for t in _TICKETS:
@@ -260,7 +277,7 @@ def update_ticket(ticket_id: int, update: TicketUpdate):
     raise HTTPException(status_code=404, detail="Ticket not found")
 
 
-@router.get("/download")
+@router.get("/download", dependencies=[Depends(require_admin)])
 def download_artifacts():
     """Download a ZIP of all portal artifacts with provenance metadata."""
     portal_dir = Path(__file__).parent

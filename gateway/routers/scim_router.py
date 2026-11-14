@@ -18,11 +18,12 @@ IdP setup (Okta / Azure AD / Google):
   - Set SCIM_ORG_ID to the AetherOS org UUID that the IdP should provision into.
 """
 from __future__ import annotations
+import asyncio
 import logging
 import os
 import secrets
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from aether_os.core.db import get_session_factory
@@ -31,11 +32,30 @@ from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import User as _User
 from aether_os.gateway.auth import get_password_hash
 from datetime import datetime as _dt
-from sqlalchemy import select
+from sqlalchemy import func, select
 import bcrypt as _bcrypt
 import secrets as _sec
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["scim"])
+def _match_org_token(token: str, orgs) -> Optional[str]:
+    """Blocking (bcrypt): run in a thread. Returns the org id whose SCIM token matches."""
+    for org_id, token_hash, plaintext in orgs:
+        if token_hash:
+            try:
+                if _bcrypt.checkpw(token.encode(), token_hash.encode()):
+                    return org_id
+            except Exception as _bce:
+                logger.warning("SCIM bcrypt compare failed for org %s: %s", org_id, _bce)
+        # Legacy plaintext fallback (only during migration window)
+        elif plaintext and secrets.compare_digest(token.encode(), plaintext.encode()):
+            logger.warning(
+                "SCIM: org %s is using deprecated plaintext scim_token — "
+                "rotate via /settings/scim to migrate to hashed storage", org_id
+            )
+            return org_id
+    return None
+
+
 async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
     """
     Dedicated SCIM auth dependency — accepts only a provisioning Bearer token.
@@ -76,21 +96,10 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
                     Organisation.scim_token_hash.isnot(None) | Organisation.scim_token.isnot(None)
                 )
             )).scalars().all()
-        for org in orgs:
-            # Check hashed token first (new path)
-            if org.scim_token_hash:
-                try:
-                    if _bcrypt.checkpw(token.encode(), org.scim_token_hash.encode()):
-                        return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
-                except Exception as _bce:
-                    logger.warning("SCIM bcrypt compare failed for org %s: %s", org.id, _bce)
-            # Legacy plaintext fallback (only during migration window)
-            elif org.scim_token and secrets.compare_digest(token.encode(), org.scim_token.encode()):
-                logger.warning(
-                    "SCIM: org %s is using deprecated plaintext scim_token — "
-                    "rotate via /settings/scim to migrate to hashed storage", org.id
-                )
-                return {"org_id": org.id, "role": "admin", "sub": "scim-provisioner"}
+        # bcrypt is ~250 ms of CPU per compare: off the event loop, or one IdP sync stalls the worker.
+        org_id = await asyncio.to_thread(_match_org_token, token, [(o.id, o.scim_token_hash, o.scim_token) for o in orgs])
+        if org_id:
+            return {"org_id": org_id, "role": "admin", "sub": "scim-provisioner"}
     except Exception as exc:
         # Lookup failure is a denial, never a reason to try another credential type.
         logger.warning("SCIM per-org token lookup failed: %s", exc)
@@ -122,14 +131,15 @@ async def scim_list_users(
         raise HTTPException(status_code=403)
     sf = get_session_factory()
     async with sf() as session:
+        scope = (_User.org_id == user["org_id"], _User.deleted_at == None)
+        total = (await session.execute(select(func.count()).select_from(_User).where(*scope))).scalar_one()
         rows = (await session.execute(
-            select(_User)
-            .where(_User.org_id == user["org_id"], _User.deleted_at == None)
-            .offset(startIndex - 1).limit(min(count, 100))
+            select(_User).where(*scope).order_by(_User.id)
+            .offset(max(startIndex, 1) - 1).limit(min(max(count, 0), 100))
         )).scalars().all()
     return {
         "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-        "totalResults": len(rows),
+        "totalResults": total,  # all matching users, not the size of this page (RFC 7644 3.4.2)
         "startIndex": startIndex,
         "itemsPerPage": len(rows),
         "Resources": [_scim_user(u) for u in rows],
@@ -166,8 +176,9 @@ async def scim_create_user(
             id=str(uuid.uuid4()),
             org_id=user["org_id"],
             email=email,
-            password_hash=get_password_hash(_sec.token_urlsafe(24)),
+            password_hash=await asyncio.to_thread(get_password_hash, _sec.token_urlsafe(24)),
             role="member",
+            email_verified=True,  # provisioned by the org's IdP/admin; no password login exists
         )
         session.add(new_user)
         await session.commit()

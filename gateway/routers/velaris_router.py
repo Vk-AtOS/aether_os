@@ -20,6 +20,7 @@ from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavai
 from aether_os.core.velaris.identity import identity_for_user
 from aether_os.core.velaris.roles import MAY_ACT
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.routers.velaris_hr_router import HR_ALLOW
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/velaris", tags=["velaris"])
@@ -86,6 +87,32 @@ async def _ledger_after(who: Identity, action: str, outcome: str, detail: Dict[s
         logger.error("velaris %s: result could not be ledgered: %s", action, e)
 
 
+def _served_elsewhere(agent: str, method: str) -> bool:
+    """HR agents are served by /hr with a fixed method list that leaves out erasure and bulk export on
+    purpose. This generic route must not reopen them, so an HR agent is reachable here only for the
+    methods /hr itself allows (KAN-199)."""
+    # Agent names are upper case in Velaris; compare upper-cased so a case variant cannot slip past.
+    allowed = HR_ALLOW.get(agent.upper())
+    return allowed is not None and method not in allowed
+
+
+def _checked_tools(tools: Any) -> list:
+    """A flow may hand the model any tool, so its list is validated here and fails closed: a list of
+    "AGENT.method" names that pass the same name rule as the agent route, none of them excluded by /hr.
+    Only this canonical list is forwarded."""
+    if not isinstance(tools, list) or not tools:
+        raise HTTPException(status_code=400, detail="tools must be a non-empty list of AGENT.method names")
+    out, blocked = [], []
+    for t in tools:
+        agent, _, method = t.partition(".") if isinstance(t, str) else ("", "", "")
+        if not (_NAME.match(agent) and _NAME.match(method)):
+            raise HTTPException(status_code=400, detail="Each tool must be AGENT.method")
+        (blocked if _served_elsewhere(agent, method) else out).append(f"{agent}.{method}")
+    if blocked:
+        raise HTTPException(status_code=400, detail=f"These tools are not available here: {', '.join(sorted(blocked)[:10])}")
+    return out
+
+
 def _reply(status: int, data: Any) -> Any:
     if status >= 400:
         return _safe_error(status if status < 500 else 502, data)
@@ -131,6 +158,8 @@ async def call_agent(agent: str, method: str, body: Optional[Dict[str, Any]] = B
     in the Prime inbox. The method must be on Velaris's own allowlist; Velaris enforces it."""
     if not (_NAME.match(agent) and _NAME.match(method)):
         raise HTTPException(status_code=400, detail="Invalid agent or method name")
+    if _served_elsewhere(agent, method):
+        raise HTTPException(status_code=404, detail="This agent method is not available here")
     who = await _identity(user, acting=True)
     args = body or {}
     status, data = await _forward(who, "agent.call", "POST", f"/agents/{agent}/{method}", body=args,
@@ -148,8 +177,8 @@ async def flows_pending(user: Dict[str, Any] = Depends(get_current_user)) -> Any
 @router.post("/flows")
 async def start_flow(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(get_current_user)) -> Any:
     """Start a model-driven run: {"task": str, "tools": ["AGENT.method", ...]}."""
+    tools = _checked_tools(body.get("tools"))
     who = await _identity(user, acting=True)
-    tools = body.get("tools")
     detail = {"tools": sorted(t for t in tools if isinstance(t, str))[:30] if isinstance(tools, list) else None}
     return _reply(*await _forward(who, "flow.start", "POST", "/flows",
                                   body={"task": body.get("task"), "tools": tools}, detail=detail))

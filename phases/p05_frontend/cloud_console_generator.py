@@ -15,12 +15,14 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
+from aether_os.phases.p05_frontend.safe_text import safe_display_name
 from aether_os.phases.p05_frontend.cloud_console_app import (
     generate_console_package_json,
     generate_console_index_html,
     generate_console_main_jsx,
     generate_console_app_jsx,
     generate_console_vite_config,
+    generate_console_login_jsx,
 )
 from aether_os.phases.p05_frontend.cloud_console_pages import (
     generate_dashboard_jsx,
@@ -58,6 +60,12 @@ async def generate_cloud_console(
             for e in entities
         ]
 
+    # names from the spec go into JSX, HTML and JSON: neutralise them once, here
+    project_name = safe_display_name(project_name, "Cloud Platform")
+    services = [{**s, **{k: safe_display_name(s.get(k), "", 200) for k in ("name", "description", "icon") if k in s}}
+                for s in services]
+    entities = [{**e, **{k: safe_display_name(e.get(k), "", 80) for k in ("name", "table") if k in e}} for e in entities]
+
     frontend_dir = output_dir / "frontend"
     src_dir = frontend_dir / "src"
     pages_dir = src_dir / "pages"
@@ -68,6 +76,7 @@ async def generate_cloud_console(
     (frontend_dir / "index.html").write_text(generate_console_index_html(project_name))
     (src_dir / "main.jsx").write_text(generate_console_main_jsx())
     (src_dir / "App.jsx").write_text(generate_console_app_jsx(services))
+    (pages_dir / "Login.jsx").write_text(generate_console_login_jsx())
     (pages_dir / "Dashboard.jsx").write_text(generate_dashboard_jsx(services))
     (pages_dir / "ServiceCatalog.jsx").write_text(generate_service_catalog_jsx(services))
     (pages_dir / "ResourceExplorer.jsx").write_text(generate_resource_explorer_jsx(entities))

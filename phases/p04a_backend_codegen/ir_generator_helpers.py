@@ -10,6 +10,12 @@ Contains generators for:
 from __future__ import annotations
 
 from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField
+from aether_os.phases.p04a_backend_codegen.ir_seed_generator import (  # noqa: F401  (re-exported for callers)
+    _seed_value,
+    _sort_entities_by_deps,
+    generate_seed_py,
+    validate_seed_dependencies,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -28,28 +34,46 @@ import models, schemas
 """
 
 
+_ACTIONS = ("read", "create", "update", "delete")
+
+# Default role model for an IR that defines no permissions (decision D1): admin everything, member and
+# user read+create+update, viewer read, delete admin-only. Also used by the fallback generator.
+DEFAULT_ROLE_MODEL = {
+    "read": ["admin", "member", "user", "viewer"],
+    "create": ["admin", "member", "user"],
+    "update": ["admin", "member", "user"],
+    "delete": ["admin"],
+}
+
+
 def _role_sets(ir: DomainIR, entity_name: str) -> dict:
     """
     Build per-action allowed-role sets from ir.permissions for one entity.
     Returns: {"read": ["admin","manager"], "create": ["admin"], ...}
-    Only populated when the IR actually defines restrictions (empty = allow all).
+
+    Deny by default once the IR defines a permission model at all: an action that no grant covers is
+    admin-only, and admin is always allowed. Before, an entity or action without a grant had NO guard,
+    so any signed-in user could create and delete it (KAN-169). When the IR defines no permissions
+    anywhere, DEFAULT_ROLE_MODEL applies (it used to allow every signed-in user everything).
     """
-    mapping: dict = {}
+    if not ir.permissions:
+        return {k: list(v) for k, v in DEFAULT_ROLE_MODEL.items()}
+    mapping: dict = {a: {"admin"} for a in _ACTIONS}
     for perm in ir.permissions:
         if perm.entity.lower() != entity_name.lower():
             continue
         for action in perm.actions:
-            mapping.setdefault(action, set()).add(perm.role)
+            mapping.setdefault(str(action).lower(), {"admin"}).add(str(perm.role).lower())
     return {k: sorted(v) for k, v in mapping.items()}
 
 
 def _role_guard(roles: list) -> list:
-    """Return lines that raise 403 unless current_user.role in roles."""
+    """Return lines that raise 403 unless the caller's role (case-insensitive) is in roles."""
     if not roles:
         return []
-    roles_repr = repr(roles)
+    roles_repr = repr([r.lower() for r in roles])
     return [
-        f"    if (current_user.get('role') if isinstance(current_user, dict) else getattr(current_user, 'role', None)) not in {roles_repr}:",
+        f"    if str((current_user.get('role') if isinstance(current_user, dict) else getattr(current_user, 'role', None)) or '').lower() not in {roles_repr}:",
         f"        raise HTTPException(status_code=403, detail='Insufficient permissions')",
     ]
 
@@ -121,17 +145,19 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         f"@{router_var}.get('', response_model=schemas.PaginatedResponse)",
         f"async def list_{t}(",
         f"    page: int = Query(1, ge=1),",
-        f"    limit: int = Query(20, ge=1, le=100),",
+        f"    page_size: int = Query(20, ge=1, le=200),",
+        f"    limit: Optional[int] = Query(None, ge=1, le=200),   # older clients; page_size is the documented name",
         f"    db: AsyncSession = Depends(get_db),",
         f"    current_user=Depends(get_current_user),",
         f"):",
         *read_guard,
-        f"    offset = (page - 1) * limit",
+        f"    size = limit or page_size",
+        f"    offset = (page - 1) * size",
         f"    total_q = await db.execute(select(func.count()).select_from(models.{n}){_mt_list})",
         f"    total = total_q.scalar_one()",
-        f"    result = await db.execute(select(models.{n}){_mt_list}.offset(offset).limit(limit))",
-        f"    items = result.scalars().all()",
-        f"    return {{'items': items, 'total': total, 'page': page, 'limit': limit}}",
+        f"    result = await db.execute(select(models.{n}){_mt_list}.offset(offset).limit(size))",
+        f"    items = [schemas.{n}Response.model_validate(o) for o in result.scalars().all()]",
+        f"    return {{'items': items, 'total': total, 'page': page, 'page_size': size, 'limit': size}}",
         "",
         f"@{router_var}.post('', response_model=schemas.{n}Response, status_code=201)",
         f"async def create_{var}(",
@@ -253,228 +279,14 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None, mul
 
 
 # ---------------------------------------------------------------------------
-# seed.py generator  (Gap 1 — realistic deterministic data, no LLM needed)
-# ---------------------------------------------------------------------------
-
-_SEED_ADJECTIVES = [
-    "Premier", "Advanced", "Elite", "Core", "Prime",
-    "Pro", "Standard", "Enterprise", "Express", "Global",
-]
-_SEED_NAMES = [
-    "Alpha", "Beta", "Gamma", "Delta", "Epsilon",
-    "Zeta", "Eta", "Theta", "Iota", "Kappa",
-]
-
-
-def _seed_value(
-    field: IRField,
-    idx: int,
-    entity_name: str,
-    seed_vocabulary: dict | None = None,
-    domain: str = "general",
-    project_name: str = "",
-) -> str:
-    """Return a Python literal for a single seed value.
-
-    When seed_vocabulary contains domain-specific terms for this entity (or domain),
-    name/title/label fields use those terms instead of generic Alpha/Beta/Gamma.
-    The project_name prefix is prepended to make records easily attributable in logs.
-    """
-    n = field.name.lower()
-    t = field.type
-    vocab = seed_vocabulary or {}
-
-    if t == AetherType.FK:
-        return str((idx % 3) + 1)
-    if t == AetherType.BOOLEAN:
-        return "True"
-    if t == AetherType.INTEGER:
-        if any(k in n for k in ("max", "limit", "budget")):
-            return str([10, 20, 50, 100, 200][idx % 5])
-        if any(k in n for k in ("count", "qty", "quantity")):
-            return str([1, 2, 3, 5, 8][idx % 5])
-        if "age" in n:
-            return str(25 + idx * 3)
-        return str([1, 2, 3, 5, 10][idx % 5])
-    if t == AetherType.DECIMAL:
-        if any(k in n for k in ("price", "amount", "budget", "cost", "salary")):
-            return repr([99.99, 149.99, 299.99, 49.99, 199.99][idx % 5])
-        if "rate" in n:
-            return repr([0.05, 0.1, 0.15, 0.2, 0.08][idx % 5])
-        return repr([10.0, 25.0, 50.0, 100.0, 75.0][idx % 5])
-    if t == AetherType.EMAIL:
-        return repr(f"user{idx + 1}@example.com")
-    if t == AetherType.URL:
-        return repr(f"https://example.com/{entity_name.lower()}-{idx + 1}")
-    if t == AetherType.DATE:
-        return f"date(2024, {(idx % 12) + 1}, {(idx % 28) + 1})"
-    if t in (AetherType.DATETIME,):
-        return f"datetime(2024, {(idx % 12) + 1}, {(idx % 28) + 1}, tzinfo=timezone.utc)"
-    if t == AetherType.ENUM and field.enum_values:
-        return repr(field.enum_values[idx % len(field.enum_values)])
-    if t == AetherType.TEXT:
-        return repr(f"Sample description for {entity_name} record {idx + 1}.")
-
-    # STRING — field-name-aware defaults
-    if any(k in n for k in ("name", "title", "label")):
-        # Use domain-specific vocabulary when available (prefer entity → domain → generic)
-        vocab_list = vocab.get(entity_name, vocab.get(entity_name.lower(), vocab.get(domain, [])))
-        if vocab_list:
-            term = vocab_list[idx % len(vocab_list)]
-            prefix = f"{project_name} " if project_name else ""
-            return repr(f"{prefix}{term}")
-        prefix = f"{project_name} " if project_name else ""
-        return repr(f"{prefix}{_SEED_ADJECTIVES[idx % len(_SEED_ADJECTIVES)]} {entity_name} {idx + 1}")
-    if "slug" in n:
-        return repr(f"{entity_name.lower()}-{idx + 1}")
-    if "phone" in n:
-        return repr(f"+1-555-{100 + idx:03d}-{1000 + idx:04d}")
-    if "address" in n:
-        return repr(f"{100 + idx * 10} Main Street, City {idx + 1}")
-    if "status" in n:
-        return repr(["active", "active", "active", "inactive", "pending"][idx % 5])
-    if "type" in n:
-        return repr(["standard", "premium", "basic", "enterprise", "free"][idx % 5])
-    if "category" in n:
-        return repr(["General", "Support", "Billing", "Technical", "Other"][idx % 5])
-    if "priority" in n:
-        return repr(["low", "medium", "high", "critical", "medium"][idx % 5])
-    if "plan" in n:
-        return repr(["free", "pro", "enterprise", "basic", "premium"][idx % 5])
-    if "model" in n:
-        return repr(["gpt-4", "claude-3", "llama-2", "gemini", "gpt-3.5"][idx % 5])
-    if "role" in n:
-        return repr(["admin", "manager", "user", "viewer", "editor"][idx % 5])
-    if "color" in n:
-        return repr(["blue", "green", "red", "purple", "orange"][idx % 5])
-    return repr(f"{entity_name} {_SEED_NAMES[idx % len(_SEED_NAMES)]}")
-
-
-def _sort_entities_by_deps(entities: list) -> list:
-    """Topological sort of entities based on FK dependencies."""
-    sorted_entities: list = []
-    visited: set = set()
-    temp_visited: set = set()
-
-    entity_map = {e.name: e for e in entities}
-
-    def visit(name: str) -> None:
-        if name in temp_visited:
-            return  # Cycle or already handled
-        if name not in visited:
-            temp_visited.add(name)
-            ent = entity_map.get(name)
-            if ent:
-                for f in ent.fields:
-                    if f.type == AetherType.FK and f.ref_entity and f.ref_entity != name:
-                        visit(f.ref_entity)
-            temp_visited.remove(name)
-            visited.add(name)
-            if ent:
-                sorted_entities.append(ent)
-
-    for e in entities:
-        visit(e.name)
-    return sorted_entities
-
-
-def generate_seed_py(
-    ir: DomainIR,
-    seed_vocabulary: dict | None = None,
-    domain: str = "general",
-    project_name: str = "",
-) -> str:
-    """Generate complete deterministic seed.py from DomainIR (20 rows per entity).
-
-    Args:
-        ir: Domain IR with all entities and fields.
-        seed_vocabulary: Optional dict mapping entity name (or domain) → list of
-            domain-specific terms used as name/title/label values (e.g.
-            {"Policy": ["GDPR Alert", "HIPAA Baseline", ...], ...}).
-        domain: Domain string used as a vocabulary fallback key when no entity-
-            specific terms exist (e.g. "insurance", "legal").
-        project_name: Prepended to seed record names for traceability
-            (e.g. "PolicyLens GDPR Alert" instead of "Premier Policy 1").
-    """
-    domain_entities = [e for e in ir.entities if e.name != "User" and getattr(e, "table", "") != "users"]
-    domain_entities = _sort_entities_by_deps(domain_entities)
-    entity_names = [e.name for e in domain_entities]
-    vocab = seed_vocabulary or {}
-
-    lines = [
-        "from __future__ import annotations",
-        "import logging",
-        "import os",
-        "from datetime import date, datetime, timezone",
-        "from sqlalchemy import select, func",
-        "from database import AsyncSessionLocal",
-        "from auth import get_password_hash",
-        "from models import User",
-    ]
-    if entity_names:
-        lines.append(f"from models import {', '.join(entity_names)}")
-    lines += [
-        "",
-        "_logger = logging.getLogger(__name__)",
-        "_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Admin1234!')",
-        "",
-        "",
-        "async def seed_database() -> None:",
-        "    async with AsyncSessionLocal() as db:",
-        "        count = (await db.execute(select(func.count()).select_from(User))).scalar_one()",
-        "        if count > 0:",
-        "            return",
-        "",
-        "        admin = User(",
-        "            email='admin@example.com',",
-        "            password_hash=get_password_hash(_ADMIN_PASSWORD),",
-        "            role='admin',",
-        "            is_active=True,",
-        "        )",
-        "        db.add(admin)",
-        "        await db.flush()",
-        "",
-    ]
-
-    for entity in domain_entities:
-        lines.append(f"        db.add_all([")
-        for idx in range(20):
-            field_parts = []
-            for f in entity.fields:
-                if f.name in ("id", "created_at", "updated_at"):
-                    continue
-                val = _seed_value(
-                    f, idx, entity.name,
-                    seed_vocabulary=vocab,
-                    domain=domain,
-                    project_name=project_name,
-                )
-                field_parts.append(f"                {f.name}={val},")
-            lines.append(f"            {entity.name}(")
-            lines.extend(field_parts)
-            lines.append("            ),")
-        lines.append("        ])")
-        lines.append("")
-
-    lines += [
-        "        await db.commit()",
-        "        _logger.info('Seeded admin: admin@example.com / %s', _ADMIN_PASSWORD)",
-    ]
-    return "\n".join(lines) + "\n"
-
-
-async def validate_seed_dependencies(db_session) -> list:
-    """Verify that all FK references in the database point to existing records."""
-    # Structural check placeholder — in production this would iterate all tables and FKs.
-    return []
-
-
-# ---------------------------------------------------------------------------
 # stats.py router  (Gap 4 — computed KPI aggregates for dashboard)
 # ---------------------------------------------------------------------------
 
-def generate_stats_router(ir: DomainIR) -> str:
-    """Generate routers/stats.py with a /stats endpoint that returns real aggregates."""
+def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
+    """Generate routers/stats.py with a /stats endpoint that returns real aggregates.
+
+    multi_tenancy: every count and sum is limited to the caller's org_id (KAN-169); before, /stats counted
+    every tenant's rows."""
     domain_entities = [e for e in ir.entities if e.name != "User" and getattr(e, "table", "") != "users"]
 
     lines = [
@@ -495,13 +307,15 @@ def generate_stats_router(ir: DomainIR) -> str:
         "    current_user=Depends(get_current_user),",
         "):",
         "    stats: dict = {}",
-        "",
+        *(["    _org = current_user.get('org_id')", ""] if multi_tenancy else [""]),
     ]
+    _m = lambda e: f", models.{e.name}.org_id == _org" if multi_tenancy else ""           # extra where() terms
+    _w = lambda e: f".where(models.{e.name}.org_id == _org)" if multi_tenancy else ""     # a where() on its own
 
     # Count per entity
     for entity in domain_entities:
         lines += [
-            f"    _r = await db.execute(select(func.count()).select_from(models.{entity.name}))",
+            f"    _r = await db.execute(select(func.count()).select_from(models.{entity.name}){_w(entity)})",
             f"    stats['total_{entity.table}'] = _r.scalar_one()",
         ]
 
@@ -516,7 +330,7 @@ def generate_stats_router(ir: DomainIR) -> str:
         status_field = next(f for f in status_entity.fields if f.name in ("status", "stage"))
         lines += [
             f"    # Stats breakdown from {status_entity.name}.{status_field.name}",
-            f"    _total_r = await db.execute(select(func.count()).select_from(models.{status_entity.name}))",
+            f"    _total_r = await db.execute(select(func.count()).select_from(models.{status_entity.name}){_w(status_entity)})",
             f"    _total_n = _total_r.scalar_one()",
             f"    stats['total_{status_entity.table}'] = _total_n",
         ]
@@ -526,7 +340,7 @@ def generate_stats_router(ir: DomainIR) -> str:
                 lines += [
                     f"    _stage_{val.lower()}_r = await db.execute(",
                     f"        select(func.count()).select_from(models.{status_entity.name})",
-                    f"        .where(models.{status_entity.name}.{status_field.name} == '{val}')",
+                    f"        .where(models.{status_entity.name}.{status_field.name} == '{val}'{_m(status_entity)})",
                     f"    )",
                     f"    stats['stage_{val.lower()}'] = _stage_{val.lower()}_r.scalar_one()",
                 ]
@@ -534,7 +348,7 @@ def generate_stats_router(ir: DomainIR) -> str:
         lines += [
             f"    _succ_r = await db.execute(",
             f"        select(func.count()).select_from(models.{status_entity.name})",
-            f"        .where(models.{status_entity.name}.{status_field.name}.in_(['success', 'completed', 'done', 'active', 'Won']))",
+            f"        .where(models.{status_entity.name}.{status_field.name}.in_(['success', 'completed', 'done', 'active', 'Won']){_m(status_entity)})",
             f"    )",
             f"    _succ_n = _succ_r.scalar_one()",
             f"    stats['success_rate'] = round(_succ_n / _total_n * 100, 2) if _total_n else 0.0",
@@ -558,7 +372,7 @@ def generate_stats_router(ir: DomainIR) -> str:
     if cost_entity and cost_field:
         lines += [
             f"    # Total cost from {cost_entity.name}.{cost_field.name}",
-            f"    _cost_r = await db.execute(select(func.sum(models.{cost_entity.name}.{cost_field.name})))",
+            f"    _cost_r = await db.execute(select(func.sum(models.{cost_entity.name}.{cost_field.name})){_w(cost_entity)})",
             f"    stats['total_cost'] = float(_cost_r.scalar_one() or 0.0)",
             "",
         ]

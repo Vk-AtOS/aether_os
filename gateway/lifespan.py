@@ -19,7 +19,8 @@ from typing import Optional, Set
 from sqlalchemy import delete, text
 
 from aether_os.core.app_state import set_app_state
-from aether_os.core.db import close_db, get_engine, get_session_factory, init_db
+from aether_os.core.crash_recovery import mark_orphaned_runs
+from aether_os.core.db import SchemaNotMigrated, close_db, get_engine, get_session_factory, init_db
 from aether_os.core.guardian.watchdog import get_watchdog
 from aether_os.core.models import Webhook
 from aether_os.core.pipeline_state import get_redis
@@ -149,6 +150,9 @@ def create_lifespan(background_tasks: Set):
         # Initialise database (create tables + indexes)
         try:
             await init_db()
+        except SchemaNotMigrated as exc:
+            logger.critical("FATAL: %s", exc)
+            sys.exit(1)
         except Exception as exc:
             logger.warning("DB init failed: %s", exc)
 
@@ -180,20 +184,10 @@ def create_lifespan(background_tasks: Set):
 
         # ── Crash recovery ────────────────────────────────────────────────────
         try:
-            _ts = time.time()
             _sf = get_session_factory()
             async with _sf() as _cr_session:
-                _r1 = await _cr_session.execute(
-                    text("UPDATE phase_completions SET status='interrupted', updated_at=:ts WHERE status='running'"),
-                    {"ts": _ts},
-                )
-                _r2 = await _cr_session.execute(
-                    text("UPDATE runs SET status='interrupted', finished_at=:ts WHERE status='running'"),
-                    {"ts": _ts},
-                )
+                _fixed_phases, _fixed_runs = await mark_orphaned_runs(_cr_session)
                 await _cr_session.commit()
-            _fixed_phases = _r1.rowcount
-            _fixed_runs = _r2.rowcount
             if _fixed_phases or _fixed_runs:
                 logger.warning(
                     "Crash recovery: marked %d orphaned phase(s) and %d run(s) as 'interrupted'",

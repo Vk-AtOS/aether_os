@@ -112,7 +112,9 @@ export const api = {
     if (res.data.refresh_token) localStorage.setItem('aether_refresh_token', res.data.refresh_token);
     return res.data;
   },
-  logout: () => {
+  // Revoke the session server-side first (best effort), then drop the local tokens.
+  logout: async () => {
+    try { await client.post('/auth/logout'); } catch { /* already signed out */ }
     localStorage.removeItem('aether_token');
     localStorage.removeItem('aether_refresh_token');
   },
@@ -124,7 +126,7 @@ export const api = {
   updateOrgSettings: (data) => client.post('/account/settings', data),
   // FE-C1: corrected URL — backend soft-deletes the current org (no path param).
   // The caller is identified from the JWT, not from the URL.
-  deleteOrg: () => client.delete('/account/org'),
+  deleteOrg: () => client.delete('/org'),
 
   // SCIM
   getScimConfig: () => client.get('/settings/scim'),

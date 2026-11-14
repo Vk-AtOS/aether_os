@@ -14,8 +14,10 @@ import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.start_lock import org_start_lock
+from aether_os.phases.p03_scaffolding.validation import is_valid_project_name, validate_clone_url
 from aether_os.gateway.policy_guard import admit_run_start, enforce
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,20 @@ class FactoryStartRequest(BaseModel):
     domain: str = "general"
     project_name: Optional[str] = None
     github_url: str = ""
+
+    @field_validator("project_name")
+    @classmethod
+    def _project_name_is_a_plain_name(cls, v: Optional[str]) -> Optional[str]:
+        # joined into filesystem paths downstream: no separators, no '..'
+        if v is not None and v != "" and not is_valid_project_name(v):
+            raise ValueError("project_name: 1-64 letters, digits, space, '.', '_' or '-', starting with a letter or digit")
+        return v
+
+    @field_validator("github_url")
+    @classmethod
+    def _github_url_is_allowed(cls, v: str) -> str:
+        return validate_clone_url(v) if v and v.strip() else ""
+
     designer_spec: Optional[Dict[str, Any]] = None
     production_country: Optional[str] = None
     compliance_flags: Optional[Dict[str, Any]] = None
@@ -229,31 +245,33 @@ async def start_factory_run(
 
     # Policy again plus the atomic trial consume (platform capacity, concurrency and
     # the last trial run are all decided here, in one place, after the request is valid).
-    await admit_run_start(user)
+    # Serialised per org so N parallel starts cannot all pass the concurrency check.
+    async with org_start_lock(org_id):
+        await admit_run_start(user)
 
-    # Pre-generate run_id and insert Run record immediately so the client
-    # can poll /factory/runs/{run_id} without a 30s+ 404 window.
-    run_id = str(_uuid.uuid4())
-    user_id = user.get("sub")
-    try:
-        from aether_os.core.db import get_session_factory as _gsf_pre
-        from aether_os.core.models import Run as _Run_pre
-        import time as _time_pre
-        async with _gsf_pre()() as _s_pre:
-            _s_pre.add(_Run_pre(
-                id=run_id,
-                org_id=org_id,
-                user_id=user_id,
-                command=f"factory: {raw_input[:60]}",
-                raw_input=raw_input,
-                project_name=project_name,
-                domain=domain,
-                status="queued",
-                started_at=_time_pre.time(),
-            ))
-            await _s_pre.commit()
-    except Exception as _pre_exc:
-        logger.warning("Pre-insert run record failed: %s", _pre_exc)
+        # Pre-generate run_id and insert Run record immediately so the client
+        # can poll /factory/runs/{run_id} without a 30s+ 404 window.
+        run_id = str(_uuid.uuid4())
+        user_id = user.get("sub")
+        try:
+            from aether_os.core.db import get_session_factory as _gsf_pre
+            from aether_os.core.models import Run as _Run_pre
+            import time as _time_pre
+            async with _gsf_pre()() as _s_pre:
+                _s_pre.add(_Run_pre(
+                    id=run_id,
+                    org_id=org_id,
+                    user_id=user_id,
+                    command=f"factory: {raw_input[:60]}",
+                    raw_input=raw_input,
+                    project_name=project_name,
+                    domain=domain,
+                    status="queued",
+                    started_at=_time_pre.time(),
+                ))
+                await _s_pre.commit()
+        except Exception as _pre_exc:
+            logger.warning("Pre-insert run record failed: %s", _pre_exc)
 
     # ── SQS queuing (when configured) vs. direct background execution ─────────
     from aether_os.core.queue.sqs_client import is_enabled as _sqs_enabled, send_pipeline_job
@@ -287,7 +305,7 @@ async def start_factory_run(
         "agency_logo_url": agency_logo_url,
     }
     if _sqs_enabled():
-        _queued = send_pipeline_job(run_id, _enriched_payload)
+        _queued = await asyncio.to_thread(send_pipeline_job, run_id, _enriched_payload)  # boto3 blocks
         if _queued:
             try:
                 from aether_os.core.db import get_session_factory as _gsf_q

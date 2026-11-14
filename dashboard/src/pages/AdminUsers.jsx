@@ -6,8 +6,10 @@ import { InvitePanel, BulkImportPanel } from '../components/admin/UserPanels';
 import { ROLES, ROLE_BADGE } from '../components/admin/roles';
 import { confirmAction } from '../components/confirmAction';
 import { apiError } from '../apiError';
+import { useRole } from '../hooks/useRole';
 
 const AdminUsers = () => {
+  const { role } = useRole();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,6 +28,7 @@ const AdminUsers = () => {
   const [bulkStatus, setBulkStatus] = useState(null); // null | 'importing' | { ok, errors }
   const [bulkRole, setBulkRole] = useState('member');
   const [pruning, setPruning] = useState(false);
+  const [credentials, setCredentials] = useState(null); // { email?, password }: shown in-page, never alert()
   const [pruneResult, setPruneResult] = useState(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState(null); // userId or 'bulk'
   const [prunePreview, setPrunePreview] = useState(null); // { deleted_count, deleted_mb }
@@ -86,7 +89,7 @@ const AdminUsers = () => {
       const res = await api.client.post(`/admin/users/${userId}/reset-password`);
       const { temp_password } = res.data;
       navigator.clipboard?.writeText(temp_password).catch(() => {});
-      alert(`Temporary password (copied to clipboard):\n${temp_password}\n\nShare this securely with the user.`);
+      setCredentials({ label: 'Temporary password (copied to clipboard)', password: temp_password });
     } catch (err) {
       setError(apiError(err) || 'Failed to reset password.');
     }
@@ -127,10 +130,9 @@ const AdminUsers = () => {
       const data = res.data || {};
       if (data.email_sent === false && data.temp_password) {
         // Email failed — show temp password so admin can share it manually
-        const msg = `Invite created but email could not be sent.\n\nShare these credentials manually:\nEmail: ${inviteEmail}\nTemporary password: ${data.temp_password}`;
         navigator.clipboard?.writeText(`Email: ${inviteEmail}\nPassword: ${data.temp_password}`).catch(() => {});
         setInviteStatus('sent');
-        alert(msg);
+        setCredentials({ label: `Invite created but the email could not be sent. Share manually with ${inviteEmail}`, password: data.temp_password });
       } else {
         setInviteStatus('sent');
       }
@@ -152,13 +154,8 @@ const AdminUsers = () => {
     let ok = 0;
     for (const email of emails) {
       try {
-        await api.client.post('/scim/v2/Users', {
-          schemas: ['urn:ietf:params:scim:schemas:core:2.0:User'],
-          userName: email,
-          emails: [{ value: email, primary: true }],
-          externalId: null,
-          role: bulkRole,
-        });
+        // SCIM needs the org's SCIM bearer token, not a user JWT: use the admin invite route.
+        await api.client.post('/admin/users/invite', { email, role: bulkRole });
         ok++;
       } catch (err) {
         errors.push(`${email}: ${apiError(err) || 'failed'}`);
@@ -230,7 +227,7 @@ const AdminUsers = () => {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          <button
+          {role === 'superadmin' && <button
             onClick={handlePruneArtifacts}
             disabled={!!pruning}
             className="flex items-center gap-2 bg-danger/10 hover:bg-danger/20 text-danger text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-danger/30 disabled:opacity-50"
@@ -238,7 +235,7 @@ const AdminUsers = () => {
           >
             {pruning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
             {pruning === 'dry' ? 'Checking…' : pruning === 'running' ? 'Pruning…' : 'Prune Artifacts'}
-          </button>
+          </button>}
           <button
             onClick={() => { setShowBulk(v => !v); setShowInvite(false); }}
             className="flex items-center gap-2 bg-border hover:bg-border/80 text-muted hover:text-bright text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-border"
@@ -253,6 +250,15 @@ const AdminUsers = () => {
           </button>
         </div>
       </header>
+
+      {credentials && (
+        <div role="alert" className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-sm space-y-2">
+          <p className="text-bright font-bold">{credentials.label}</p>
+          <code className="block font-mono text-bright select-all break-all">{credentials.password}</code>
+          <p className="text-muted text-xs">Shown once. Share it securely, then dismiss.</p>
+          <button onClick={() => setCredentials(null)} className="text-xs text-accent hover:underline">Dismiss</button>
+        </div>
+      )}
 
       {/* Prune preview confirmation */}
       {prunePreview && (

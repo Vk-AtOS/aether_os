@@ -221,28 +221,30 @@ async def cancel_subscription(user: Dict[str, Any] = _current_user()):
     """Cancel active subscription via Stripe (if configured) then downgrade org to free."""
     await _require_billing_admin(user)
     org_id = user["org_id"]
-    # If Stripe is configured, cancel the active subscription there first
+    # If Stripe is configured, cancel the active subscription there FIRST. If that
+    # fails the org is still being billed, so the plan must not drop to free.
     stripe_key = os.environ.get("STRIPE_SECRET_KEY", "")
     if stripe_key:
         try:
             _stripe.api_key = stripe_key
-            sf = get_session_factory()
-            async with sf() as session:
+            async with get_session_factory()() as session:
                 row = (await session.execute(
                     _sel_cancel(Organisation).where(Organisation.id == org_id)
                 )).scalar_one_or_none()
             customer_id = getattr(row, "stripe_customer_id", None) if row else None
             if customer_id:
-                subs = _stripe.Subscription.list(customer=customer_id, status="active", limit=5)
-                for sub in subs.data:
-                    _stripe.Subscription.cancel(sub.id)
-                    logger.info("Cancelled Stripe subscription %s for org %s", sub.id, org_id)
+                subs = _stripe.Subscription.list(customer=customer_id, status="active", limit=5).data
+            else:
+                # Subscribed before the customer id was recorded: find it by the org tag.
+                subs = _stripe.Subscription.search(query=f"metadata['org_id']:'{org_id}' AND status:'active'").data
+            for sub in subs:
+                _stripe.Subscription.cancel(sub.id)
+                logger.info("Cancelled Stripe subscription %s for org %s", sub.id, org_id)
         except Exception as _stripe_err:
-            logger.warning("Stripe subscription cancel failed (proceeding with DB downgrade): %s", _stripe_err)
-    # Always update the plan in DB regardless of Stripe outcome
+            logger.error("Stripe subscription cancel failed for org %s: %s", org_id, _stripe_err)
+            raise HTTPException(status_code=502, detail="Could not cancel the subscription with the payment provider; nothing was changed. Try again.")
     try:
-        session_factory = get_session_factory()
-        async with session_factory() as session:
+        async with get_session_factory()() as session:
             await session.execute(
                 _upd_cancel(Organisation)
                 .where(Organisation.id == org_id)
@@ -250,7 +252,8 @@ async def cancel_subscription(user: Dict[str, Any] = _current_user()):
             )
             await session.commit()
     except Exception as _e:
-        logger.warning("cancel_subscription DB update failed: %s", _e)
+        logger.error("cancel_subscription DB update failed for org %s: %s", org_id, _e)
+        raise HTTPException(status_code=503, detail="Could not update the plan; try again.")
     return {"success": True, "plan": "free", "message": "Subscription cancelled. Plan downgraded to free."}
 # Lowest to highest. Raising the plan only ever happens through a verified payment.
 _PLAN_ORDER = ["free", "trial", "starter", "pro", "enterprise"]
@@ -281,7 +284,8 @@ async def downgrade_subscription(req: Dict[str, Any], user: Dict[str, Any] = _cu
             )
             await session.commit()
     except Exception as _e:
-        logger.warning("downgrade_subscription DB update failed: %s", _e)
+        logger.error("downgrade_subscription DB update failed: %s", _e)
+        raise HTTPException(status_code=503, detail="Could not update the plan; try again.")
     return {"success": True, "plan": target_plan, "message": f"Plan downgraded to {target_plan}."}
 @router.post("/billing/webhook")
 async def razorpay_webhook(request: Request):

@@ -33,7 +33,7 @@ async def _run_stage(tmp_path, monkeypatch, questions):
     monkeypatch.setattr("aether_os.core.projects.get_project_manager",
                         lambda: SimpleNamespace(get_output_dir=get_output_dir))
 
-    async def sub_phase(self, name, _phase_input, _memory, pm):
+    async def sub_phase(self, name, _phase_input, _memory, pm, critical=True):
         out = pm.get_output_dir("run-1", name)
         if name == "p02b_domain_ir":
             ir = DomainIR(domain="general", app_name="Rota")

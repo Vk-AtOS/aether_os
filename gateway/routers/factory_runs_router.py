@@ -31,7 +31,7 @@ from aether_os.core.services.run_service import (
 from dataclasses import asdict
 from dataclasses import asdict as _asdict
 from sqlalchemy import select as _sel_ev
-from aether_os.core.quality.metrics import score_project
+from aether_os.core.quality.score_async import score_project_async
 from aether_os.core.projects import get_project_manager
 from aether_os.core.models import RunMetadata as _RM_pri
 from aether_os.core.models import PipelineEvent
@@ -173,7 +173,7 @@ async def get_factory_run(
 
         _qdir = project_dir
         if _qdir.exists():
-            _qscore = score_project(_qdir)
+            _qscore = await score_project_async(_qdir)
             detail["quality"] = _asdict(_qscore)
     except Exception as _qe:
         logger.debug("Quality score enrichment failed for run %s: %s", run_id, _qe)
@@ -198,7 +198,7 @@ async def get_run_quality(
         raise HTTPException(status_code=404, detail="Project output not found")
 
     try:
-        score = score_project(project_dir)
+        score = await score_project_async(project_dir)
     except Exception as exc:
         logger.warning("quality score failed for run %s: %s", run_id, exc)
         raise HTTPException(status_code=500, detail=f"Quality scoring failed: {exc}")

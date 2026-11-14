@@ -14,15 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm import client as _llm_client
-from aether_os.phases.p05_frontend.prompts import (
-    DOMAIN_FALLBACK_WIDGETS,
-    DOMAIN_COMPONENT_DESC,
-)
+from aether_os.phases.p05_frontend.prompts import DOMAIN_COMPONENT_DESC, DOMAIN_FALLBACK_WIDGETS
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +186,8 @@ async def _generate_domain_component(
         + "\nReturn ONLY the React component code. No markdown fences, no explanation."
     )
 
+    if os.environ.get("ENVIRONMENT") == "test":  # like the other page writers; this one stalled every test run 90 s
+        return None
     client = _llm_client.get_llm_client()
     try:
         result = await asyncio.wait_for(
@@ -337,8 +337,8 @@ export default function Home() {{
             </div>
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
               <Star className="text-{primary_color} mb-4" size={{32}} />
-              <h3 className="text-xl font-bold mb-2">Top Rated</h3>
-              <p className="text-gray-600">Trusted by thousands of businesses worldwide for their daily operations.</p>
+              <h3 className="text-xl font-bold mb-2">Built for {domain.replace('_', ' ')}</h3>
+              <p className="text-gray-600">Designed around the way {domain.replace('_', ' ')} teams actually work.</p>
             </div>
           </div>
         </div>
@@ -561,6 +561,7 @@ def _generate_sse_hook(features: List[Any], project_name: str) -> str:
 // On unmount or error the connection is cleanly closed.
 
 import {{ useEffect, useRef }} from 'react'
+import {{ getToken }} from '../lib/auth'
 
 export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
   // Keep a stable ref to the latest callback so the effect closure never goes stale.
@@ -570,7 +571,7 @@ export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
   }})
 
   useEffect(() => {{
-    const token = localStorage.getItem('token') ?? ''
+    const token = getToken() ?? ''
     const url = `/api/realtime/stream${{token ? `?token=${{encodeURIComponent(token)}}` : ''}}`
     const es = new EventSource(url)
 

@@ -582,6 +582,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     agent = CICDAgent()
     result_dict = await agent.run(phase_input)
 
+    # Repair mode reports its own outcome; the scan-mode gate below needs ci.yml/Dockerfile
+    # keys it never sets, so a successful repair used to come back success=False.
+    if result_dict.get("status") in ("repaired", "failed"):
+        repaired = result_dict["status"] == "repaired"
+        return TaskResult(
+            output_path=result_dict.get("output_path", ""),
+            confidence=result_dict.get("confidence", 0.9 if repaired else 0.0),
+            success=repaired,
+            issues=[] if repaired else [result_dict.get("explanation", "repair failed")],
+            metadata=result_dict,
+        )
+
     # Problem 68: gate fails if CI workflow or Dockerfile are missing
     scan_results = result_dict.get("scan_results", result_dict)
     gate_issues = scan_results.get("issues", [])

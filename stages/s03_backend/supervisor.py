@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any, List
 
 from aether_os.phases.base import PhaseBase, TaskResult, GateOutcome
-from stages.s03_backend.helpers import validate_backend_output, get_entity_count
+from aether_os.phases.utils import get_domain_ir
+from aether_os.stages.s03_backend.helpers import validate_backend_output, get_entity_count
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ class BackendStageSupervisor(PhaseBase):
         merged_data.setdefault("api_routes", self._load_api_routes(merged_data))
 
         # ── Seed entities ─────────────────────────────────────────────────────
-        entities: list = (data.get("domain_ir") or {}).get("entities", []) or data.get("entities", [])
+        entities: list = get_domain_ir(data).get("entities", []) or data.get("entities", [])
         merged_data["seed_entities"] = [e.get("name", "") for e in entities if e.get("name")]
 
         # ── Design tokens placeholder (populated by UI/UX sub-phase if present) ─
@@ -133,7 +134,7 @@ class BackendStageSupervisor(PhaseBase):
                 try:
                     _event = RepairEvent(
                         bug_class=BugClass.MISSING_ROUTER,
-                        domain=(data.get("domain_ir") or {}).get("domain_name", "unknown"),
+                        domain=get_domain_ir(data).get("domain_name", "unknown"),
                         entity=str(_phantom),
                         file_path="",
                         fix_applied=f"phantom entity detected by governor: {_phantom}",
