@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from aether_os.phases.p21_sre_agent.k8s_api_src import K8S_API_SRC
+
 logger = logging.getLogger(__name__)
 
 # Failure classification matrix (alertname → category)
@@ -44,6 +46,7 @@ Runs as a long-lived server inside a Kubernetes Deployment (see sre/manifests/).
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -59,14 +62,22 @@ logger = logging.getLogger("{app_name}-sre-operator")
 APP_NAME = os.environ.get("APP_NAME", "{app_name}")
 NAMESPACE = os.environ.get("NAMESPACE", "{namespace}")
 OPERATOR_PORT = int(os.environ.get("OPERATOR_PORT", "9876"))
+# Shared secret AlertManager must send as 'Authorization: Bearer <token>'. Unset => every request is refused.
+WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "")
+MAX_BODY = 1_000_000
 
 
 class AlertWebhookHandler(BaseHTTPRequestHandler):
     """HTTP handler for AlertManager webhook POST requests."""
 
     def do_POST(self) -> None:  # noqa: N802
+        supplied = self.headers.get("Authorization", "")
+        if not WEBHOOK_TOKEN or not hmac.compare_digest(supplied, "Bearer " + WEBHOOK_TOKEN):
+            self.send_response(401)
+            self.end_headers()
+            return
         try:
-            length = int(self.headers.get("Content-Length", 0))
+            length = min(int(self.headers.get("Content-Length", 0)), MAX_BODY)
             body = self.rfile.read(length)
             payload: Dict[str, Any] = json.loads(body.decode("utf-8"))
         except Exception as exc:
@@ -198,9 +209,9 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from typing import Optional
 
+{K8S_API_SRC}
 logger = logging.getLogger("{app_name}-remediation")
 
 APP_NAME = os.environ.get("APP_NAME", "{app_name}")
@@ -212,7 +223,7 @@ _REMEDIATIONS = {{
     "memory_exhaustion": "kubectl scale deployment/{{app}} --replicas=2 -n {{ns}}",
     "latency_degradation": "kubectl scale deployment/{{app}} --replicas=3 -n {{ns}}",
     "connection_pool": "kubectl rollout restart deployment/{{app}} -n {{ns}}",
-    "certificate": "kubectl delete secret {{app}}-tls -n {{ns}} --ignore-not-found",
+    # certificate: deliberately absent. Deleting a TLS secret is destructive and needs a human.
     "elevated_errors": "kubectl rollout restart deployment/{{app}} -n {{ns}}",
 }}
 
@@ -234,26 +245,17 @@ def generate_remediation(category: str, app_name: str, namespace: str) -> Option
 
 def apply_remediation(command: str, alert_name: str) -> bool:
     """
-    Execute a kubectl remediation command.
+    Execute a pre-approved remediation through the Kubernetes API (no kubectl binary).
 
     Returns True on success, False on failure.
     Always logs the outcome. Never raises.
     """
     try:
-        result = subprocess.run(
-            command.split(),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        logger.info("remediation applied for %s: %s", alert_name, result.stdout.strip())
+        run_remediation(command)
+        logger.info("remediation applied for %s: %s", alert_name, command)
         return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("remediation failed for %s: %s", alert_name, exc.stderr.strip())
-        return False
     except Exception as exc:
-        logger.error("unexpected error in remediation for %s: %s", alert_name, exc)
+        logger.error("remediation failed for %s: %s", alert_name, exc)
         return False
 '''
     (sre_dir / "remediation_generator.py").write_text(remediation_src, encoding="utf-8")
@@ -418,6 +420,11 @@ spec:
           value: "{namespace}"
         - name: OPERATOR_PORT
           value: "9876"
+        - name: WEBHOOK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {app_name}-sre-secrets
+              key: webhook-token
         - name: PROMETHEUS_URL
           value: "http://prometheus:9090"
         volumeMounts:
@@ -467,11 +474,8 @@ rules:
   resources: ["deployments", "deployments/scale"]
   verbs: ["get", "list", "watch", "patch", "update"]
 - apiGroups: [""]
-  resources: ["pods", "pods/log", "secrets", "events"]
-  verbs: ["get", "list", "watch", "delete"]
-- apiGroups: ["batch"]
-  resources: ["jobs"]
-  verbs: ["get", "list", "watch", "create", "delete"]
+  resources: ["pods", "pods/log", "events"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -498,6 +502,9 @@ roleRef:
 #     webhook_configs:
 #     - url: 'http://{app_name}-sre-operator.{namespace}.svc.cluster.local:9876/webhook'
 #       send_resolved: false
+#       http_config:
+#         authorization:
+#           credentials_file: /etc/alertmanager/secrets/sre-webhook-token   # same value as secret key webhook-token
 #
 #   route:
 #     receiver: '{app_name}-sre-operator'
@@ -523,6 +530,12 @@ spec:
     webhookConfigs:
     - url: 'http://{app_name}-sre-operator.{namespace}.svc.cluster.local:9876/webhook'
       sendResolved: false
+      httpConfig:
+        authorization:
+          type: Bearer
+          credentials:
+            name: {app_name}-sre-secrets
+            key: webhook-token
 """, encoding="utf-8")
 
 
