@@ -142,3 +142,23 @@ def test_generated_ir_backend_starts_lists_and_enforces_roles(tmp_path, monkeypa
         assert r[f"admin_create_{ent}"] == 201 and r[f"admin_items_{ent}"] >= 1, (ent, r)   # list was a 500
         assert r[f"user_delete_{ent}"] == 403 and r[f"admin_delete_{ent}"] == 204, (ent, r)
         assert r[f"admin_list_{ent}"] == 200, (ent, r)
+
+
+def test_generated_requirements_cover_what_the_code_imports(built):
+    # auth.py builds and loads its RS256 keys with `cryptography`, which was missing from requirements.txt,
+    # so a clean install could not import the app.
+    _, app = built
+    req = (app / "requirements.txt").read_text().lower()
+    auth = (app / "src" / "auth.py").read_text()
+    assert "cryptography" in auth and "cryptography" in req
+
+
+def test_generated_postgres_engine_uses_arguments_asyncpg_accepts(built):
+    # `connect_args={"options": ...}` is rejected by asyncpg with a TypeError, so the production database
+    # (PostgreSQL) never connected; the timeout is passed as a server setting instead.
+    import inspect
+    asyncpg = pytest.importorskip("asyncpg")
+    _, app = built
+    db = (app / "src" / "database.py").read_text()
+    assert '"options"' not in db and "server_settings" in db
+    assert "server_settings" in inspect.signature(asyncpg.connect).parameters

@@ -77,7 +77,8 @@ else:
         pool_size=int(os.environ.get("DB_POOL_SIZE", str(max(4, (os.cpu_count() or 1) * 2)))),
         max_overflow=int(os.environ.get("DB_MAX_OVERFLOW", "20")),
         pool_recycle=300,
-        connect_args={"options": "-c statement_timeout=30000"},
+        # asyncpg has no `options` argument (it raised TypeError); server settings are how it sets the timeout
+        connect_args={"server_settings": {"statement_timeout": "30000"}},
     )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
