@@ -62,11 +62,14 @@ def _validate_permission_model(model: dict) -> list[str]:
     errors = []
     if not isinstance(model.get("roles"), list) or len(model.get("roles", [])) == 0:
         errors.append("permission_model.roles must be a non-empty list")
+    # The prompt and the defaults use role names (strings) and {role: {resource: [actions]}};
+    # a validator that demanded dicts and a list rejected every valid model. Accept both
+    # the string and the {"name": ...} role form, and a dict (or the older list) of permissions.
     for role in model.get("roles", []):
-        if not isinstance(role, dict) or "name" not in role:
-            errors.append(f"each role must have a 'name' field, got: {role}")
-    if not isinstance(model.get("permissions"), list):
-        errors.append("permission_model.permissions must be a list")
+        if not (isinstance(role, str) and role) and not (isinstance(role, dict) and "name" in role):
+            errors.append(f"each role must be a name or have a 'name' field, got: {role}")
+    if not isinstance(model.get("permissions"), (dict, list)):
+        errors.append("permission_model.permissions must be a dict (or list)")
     return errors
 
 
