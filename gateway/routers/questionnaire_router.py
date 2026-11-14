@@ -63,7 +63,8 @@ async def _verify_run_ownership(run_id: str, user: Dict[str, Any], db) -> Run:
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     org_id = user.get("org_id")
-    if org_id and run.org_id and run.org_id != org_id:
+    # Fail closed: a caller without an org, or a run without one, must not pass.
+    if not org_id or not run.org_id or run.org_id != org_id:
         raise HTTPException(status_code=403, detail="Access denied")
     return run
 

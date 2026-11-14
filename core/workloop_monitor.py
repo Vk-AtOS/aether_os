@@ -255,22 +255,19 @@ Return ONLY the JSON array, no markdown."""
             key, _, val = fix_action.partition("=")
             key = key.strip().upper()
             val = val.strip()
+            # The diagnosis is LLM output derived from run data (prompt-injectable) and the
+            # process environment is shared by every concurrent run, so it is NEVER written
+            # here. Allow-listed changes are recorded for an operator to apply.
             if key in self._SAFE_ENV_VARS:
-                old = os.environ.get(key, "<unset>")
-                os.environ[key] = val
-                record = {
+                self._fix_log.append({
                     "at": time.time(),
-                    "type": "env_var",
-                    "key": key,
-                    "old": old,
-                    "new": val,
+                    "type": "recommendation",
+                    "action": f"set {key}={val}",
+                    "current": os.environ.get(key, "<unset>"),
                     "reason": finding.get("root_cause", ""),
-                }
-                self._fix_log.append(record)
-                logger.info(
-                    "WorkloopMonitor: auto-fixed %s: %s → %s (%s)",
-                    key, old, val, finding.get("root_cause", ""),
-                )
+                })
+                logger.warning("WorkloopMonitor: recommends %s=%s (not applied): %s",
+                               key, val, finding.get("root_cause", ""))
         elif fix_type == "restart":
             # Never auto-restart — just log the recommendation
             self._fix_log.append({
