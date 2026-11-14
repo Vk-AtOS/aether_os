@@ -33,6 +33,14 @@ _USER_ATTRIBUTES = [
 _USER_FILTER = "(&(objectClass=person)(objectCategory=user))"
 
 
+def _escape_filter(value: str) -> str:
+    """RFC 4515 escaping of a value placed inside an LDAP search filter."""
+    return "".join(
+        {"\\": "\\5c", "*": "\\2a", "(": "\\28", ")": "\\29", "\x00": "\\00"}.get(ch, ch)
+        for ch in value
+    )
+
+
 def _run_sync(fn, *args):
     """Run a synchronous function in the default thread pool executor."""
     loop = asyncio.get_running_loop()
@@ -164,6 +172,8 @@ class LDAPConnector(BaseConnector):
         Returns a list of dicts with keys: cn, sAMAccountName, userPrincipalName,
         mail, displayName, department, title, telephoneNumber, memberOf.
         """
+        max_results = max(1, min(int(max_results), 1000))
+
         def _sync():
             conn = self._make_connection(bind_dn, bind_password)
             _base = base_dn or self.config.get("base_dn", "")
@@ -221,7 +231,13 @@ class LDAPConnector(BaseConnector):
 
         Returns True if authentication succeeds, False otherwise.
         """
+        # An empty password makes LDAP treat the bind as anonymous/unauthenticated, which
+        # many servers accept: that would "authenticate" any known username.
+        if not username or not password:
+            return False
+
         def _sync() -> bool:
+            safe_user = _escape_filter(username)
             # Step 1: find the user's DN using the service account
             svc_conn = self._make_connection(bind_dn, bind_password)
             _base = base_dn or self.config.get("base_dn", "")
@@ -232,8 +248,8 @@ class LDAPConnector(BaseConnector):
             try:
                 # Search by sAMAccountName (AD) or uid (OpenLDAP)
                 search_filter = (
-                    f"(|(sAMAccountName={username})(uid={username})"
-                    f"(userPrincipalName={username}))"
+                    f"(|(sAMAccountName={safe_user})(uid={safe_user})"
+                    f"(userPrincipalName={safe_user}))"
                 )
                 svc_conn.search(
                     search_base=_base,
