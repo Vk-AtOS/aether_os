@@ -5,6 +5,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useRunStream } from './useRunStream';
 import {
   PHASES, countFiles, findIndexHtml, formatEvent, stageStates, summariseRunEvents,
 } from '../components/project/projectConstants';
@@ -38,9 +39,7 @@ export function useProjectView(id) {
   const [feedDone, setFeedDone]   = useState(false);
   const feedEndRef         = useRef(null);
   const feedContainerRef   = useRef(null);
-  const esRef              = useRef(null);
   const llmLineRef         = useRef('');
-  const reconnectAttempts  = useRef(0);
 
   const [appRunning, setAppRunning]         = useState(false);
   const [qualityData, setQualityData]       = useState(null);
@@ -146,74 +145,32 @@ export function useProjectView(id) {
     setFeedLines((prev) => [...prev.slice(-300), line]);
   }, []);
 
-  useEffect(() => {
-    if (!run || run.status !== 'running') return;
-    if (esRef.current) return;
-
-    let cancelled = false;
-    let done = false;
-
-    const scheduleReconnect = () => {
-      if (cancelled || done) return;
-      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-      reconnectAttempts.current += 1;
-      setTimeout(() => { if (!cancelled && !done) connectSSE(); }, delay);
-    };
-
-    const connectSSE = async () => {
-      try {
-        const exchRes = await fetch(`/api/factory/runs/${id}/sse-token`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${api.getToken()}`, 'Content-Type': 'application/json' },
-        });
-        if (!exchRes.ok || cancelled) { if (!exchRes.ok) scheduleReconnect(); return; }
-        const { sse_token } = await exchRes.json();
-        if (cancelled) return;
-
-        const es = new EventSource(`/api/factory/runs/${id}/stream?sse_token=${encodeURIComponent(sse_token)}`);
-        esRef.current = es;
-
-        es.onmessage = (e) => {
-          let event;
-          try { event = JSON.parse(e.data); } catch { return; }
-
-          if (event.type === 'llm_chunk') {
-            llmLineRef.current += event.text || '';
-            const nl = llmLineRef.current.lastIndexOf('\n');
-            if (nl !== -1) {
-              const flushed = llmLineRef.current.slice(0, nl);
-              llmLineRef.current = llmLineRef.current.slice(nl + 1);
-              flushed.split('\n').forEach((l) => appendLine(l));
-            }
-          } else {
-            if (llmLineRef.current) { appendLine(llmLineRef.current); llmLineRef.current = ''; }
-            const line = formatEvent(event);
-            if (line) appendLine(line);
-          }
-
-          if (event.type === 'spec_review_ready') {
-            api.getRunSpec(id).then(r => { setSpecReview(r.data?.spec || {}); setSpecModalOpen(true); }).catch(() => setSpecModalOpen(true));
-          }
-          if (event.type === 'app_started') setAppRunning(true);
-          if (event.type === 'pipeline_complete') {
-            if (llmLineRef.current) { appendLine(llmLineRef.current); llmLineRef.current = ''; }
-            done = true; setFeedDone(true); es.close(); esRef.current = null;
-            fetchRunDetail(); fetchFileTree();
-          }
-        };
-
-        es.onerror = () => { es.close(); esRef.current = null; scheduleReconnect(); };
-      } catch (err) {
-        if (import.meta.env.DEV) console.error('SSE connect failed:', err);
-        scheduleReconnect();
+  const handleStreamEvent = useCallback((event) => {
+    if (event.type === 'llm_chunk') {
+      llmLineRef.current += event.text || '';
+      const nl = llmLineRef.current.lastIndexOf('\n');
+      if (nl !== -1) {
+        const flushed = llmLineRef.current.slice(0, nl);
+        llmLineRef.current = llmLineRef.current.slice(nl + 1);
+        flushed.split('\n').forEach((l) => appendLine(l));
       }
-    };
+    } else {
+      if (llmLineRef.current) { appendLine(llmLineRef.current); llmLineRef.current = ''; }
+      const line = formatEvent(event);
+      if (line) appendLine(line);
+    }
+    if (event.type === 'spec_review_ready') {
+      api.getRunSpec(id).then(r => { setSpecReview(r.data?.spec || {}); setSpecModalOpen(true); }).catch(() => setSpecModalOpen(true));
+    }
+    if (event.type === 'app_started') setAppRunning(true);
+    if (event.type === 'pipeline_complete') {
+      if (llmLineRef.current) { appendLine(llmLineRef.current); llmLineRef.current = ''; }
+      setFeedDone(true);
+      fetchRunDetail(); fetchFileTree();
+    }
+  }, [id, appendLine, fetchRunDetail, fetchFileTree]);
 
-    reconnectAttempts.current = 0;
-    connectSSE();
-    return () => { cancelled = true; if (esRef.current) { esRef.current.close(); esRef.current = null; } };
-  }, [run?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  useRunStream(id, { enabled: !!run && run.status === 'running', onEvent: handleStreamEvent });
 
   useEffect(() => {
     if (activeArtifactTab === 'live' && feedContainerRef.current) {

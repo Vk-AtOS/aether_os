@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from aether_os.core.billing.stripe_events import apply_event
@@ -58,6 +59,17 @@ def _current_user():
     return Depends(get_current_user)
 
 
+def _checked_return_url(url: Any, base_url: str, default_path: str) -> str:
+    """Client-supplied Stripe return URL: must be on the APP_BASE_URL origin (open-redirect /
+    phishing guard). Empty -> default; foreign origin -> 422."""
+    if not url:
+        return f"{base_url.rstrip('/')}{default_path}"
+    base, got = urlsplit(base_url), urlsplit(str(url))
+    if (got.scheme, got.netloc) != (base.scheme, base.netloc):
+        raise HTTPException(status_code=422, detail="success_url/cancel_url must be on this application's origin")
+    return str(url)
+
+
 @router.post("/billing/stripe/checkout")
 async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     """Create a Stripe Checkout Session for a plan upgrade.
@@ -87,8 +99,8 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
 
     # Build absolute URLs — caller may pass them; fall back to env-based defaults
     base_url     = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-    success_url  = req.get("success_url") or f"{base_url}/billing?upgrade=success"
-    cancel_url   = req.get("cancel_url")  or f"{base_url}/billing?upgrade=cancelled"
+    success_url  = _checked_return_url(req.get("success_url"), base_url, "/dashboard/admin/billing?upgrade=success")
+    cancel_url   = _checked_return_url(req.get("cancel_url"), base_url, "/dashboard/admin/billing?upgrade=cancelled")
 
     try:
         session = stripe.checkout.Session.create(
@@ -157,7 +169,7 @@ async def stripe_portal(user: Dict[str, Any] = _current_user()):
     org_id    = user["org_id"]
     email     = user.get("email", "")
     base_url  = os.environ.get("APP_BASE_URL", "http://localhost:3000")
-    return_url = f"{base_url}/billing"
+    return_url = f"{base_url}/dashboard/admin/billing"
 
     # Resolve Stripe customer ID from DB or create one
     customer_id = await _get_or_create_stripe_customer(org_id, email, stripe)

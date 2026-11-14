@@ -25,7 +25,7 @@ import ProjectLivePreviewPanel from '../components/project/ProjectLivePreviewPan
 import { TraceTab } from '../components/TraceTab';
 import {
   ExternalLink, FileCode, ChevronLeft, Loader2, AlertTriangle, Pause,
-  Play, Smartphone, Monitor, ExternalLink as OpenTab, Radio, Download,
+  Play, Monitor, ExternalLink as OpenTab, Radio, Download,
   GitBranch, Zap, ShieldCheck, Users, GitPullRequest, CheckCircle2, List,
 } from 'lucide-react';
 import {
@@ -54,7 +54,7 @@ const ProjectView = () => {
     run, elapsed, loading, error, setError, setLoading, fileTree, toast, setToast,
     controlLoading, priority, deploying,
     activeArtifactTab, setActiveArtifactTab,
-    viewMode, setViewMode, previewMode, setPreviewMode,
+    previewMode, setPreviewMode,
     previewHtml, previewLoading, previewFile,
     iframeDevice, setIframeDevice, iframeKey, setIframeKey,
     feedLines, feedDone, feedEndRef, feedContainerRef,
@@ -126,14 +126,6 @@ const ProjectView = () => {
   const isRunning = runStatus === 'running';
   const isPaused  = runStatus === 'paused';
   const isDone    = ['completed', 'failed', 'cancelled', 'interrupted'].includes(runStatus);
-
-  const openPreviewTab = () => {
-    if (!previewHtml) return;
-    const blob = new Blob([previewHtml], { type: 'text/html' });
-    const url  = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  };
 
   // The portal download needs the sign-in header, which a plain link cannot send.
   const downloadCompliance = async () => {
@@ -404,13 +396,6 @@ const ProjectView = () => {
                   </button>
                 ))}
               </div>
-              {activeArtifactTab === 'preview' && previewHtml && (
-                <div className="flex items-center space-x-2 pr-2">
-                  <button onClick={() => setViewMode('mobile')} className={`p-1.5 rounded transition-colors ${viewMode === 'mobile' ? 'text-accent bg-accent/10' : 'text-muted hover:text-bright'}`}><Smartphone className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => setViewMode('desktop')} className={`p-1.5 rounded transition-colors ${viewMode === 'desktop' ? 'text-accent bg-accent/10' : 'text-muted hover:text-bright'}`}><Monitor className="w-3.5 h-3.5" /></button>
-                  <button onClick={openPreviewTab} className="p-1.5 rounded text-muted hover:text-bright transition-colors"><OpenTab className="w-3.5 h-3.5" /></button>
-                </div>
-              )}
             </div>
 
             {activeArtifactTab === 'live' && <LiveFeedTab feedLines={feedLines} feedDone={feedDone} isRunning={isRunning} feedContainerRef={feedContainerRef} feedEndRef={feedEndRef} />}
@@ -436,11 +421,10 @@ const ProjectView = () => {
                     fileTree === null ? <div className="flex items-center justify-center flex-1 text-muted text-sm">Loading file tree...</div>
                     : <div className="flex flex-col items-center justify-center flex-1 space-y-4 p-8 text-center"><Monitor className="w-12 h-12 text-muted/40" /><div><div className="text-bright font-bold mb-1">No frontend preview available.</div><div className="text-muted text-sm">The generated project is a backend API. Use the Artifacts tab to view the generated code.</div></div></div>
                   ) : (
-                    <div className="flex-1 overflow-hidden flex flex-col bg-white">
-                      {previewFile && <div className="bg-border/20 px-3 py-1.5 border-b border-border shrink-0"><span className="text-[10px] font-mono text-muted">{previewFile}</span></div>}
-                      <div className="flex-1 flex items-start justify-center overflow-auto bg-[#0a0c10] p-4">
-                        <iframe srcDoc={previewHtml} sandbox="allow-scripts allow-same-origin" style={{ width: viewMode === 'mobile' ? '390px' : '100%', height: '100%', minHeight: '320px', border: 'none', borderRadius: '6px', background: 'white', flexShrink: 0 }} title="Project Preview" />
-                      </div>
+                    <div className="flex flex-col items-center justify-center flex-1 space-y-3 p-8 text-center">
+                      <Monitor className="w-10 h-10 text-muted/40" />
+                      <div className="text-bright font-bold">Generated code is never run inside the dashboard.</div>
+                      <div className="text-muted text-sm max-w-md">{previewFile ? `${previewFile} is part of the generated project. ` : ''}Start the app from the Run tab to preview it on the isolated preview origin, or read the files in the Artifacts tab.</div>
                     </div>
                   )
                 )}

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PHASE_LABELS, STAGE_STATUS_LABEL } from '../project/projectConstants';
 
 import { fmtDuration } from './format';
+import { useRunStream } from '../../hooks/useRunStream';
 
 export const StatusBadge = ({ status }) => {
   const cfg = {
@@ -72,38 +73,11 @@ export const LiveEventLog = ({ runId }) => {
   const [connected, setConnected] = useState(false);
   const bottomRef = useRef(null);
 
-  useEffect(() => {
-    // The stream only accepts a short-lived, run-scoped token. Sending the session
-    // JWT in the query string was rejected (401) and would leak it into server logs.
-    let es = null;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/factory/runs/${runId}/sse-token`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${localStorage.getItem('aether_token')}` },
-        });
-        if (!res.ok || cancelled) return;
-        const { sse_token } = await res.json();
-        if (cancelled) return;
-        es = new EventSource(`/api/factory/runs/${runId}/stream?sse_token=${encodeURIComponent(sse_token)}`);
-        es.onopen = () => setConnected(true);
-        es.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data);
-            const msg = data.message || data.text || JSON.stringify(data);
-            setLines(prev => [...prev.slice(-200), msg]);
-          } catch {
-            setLines(prev => [...prev.slice(-200), e.data]);
-          }
-        };
-        es.onerror = () => { setConnected(false); es.close(); };
-      } catch (err) {
-        console.warn('Live log: could not open the event stream', err);
-      }
-    })();
-    return () => { cancelled = true; es?.close(); };
-  }, [runId]);
+  const onEvent = useCallback((data) => {
+    const msg = data.message || data.text || JSON.stringify(data);
+    setLines(prev => [...prev.slice(-200), msg]);
+  }, []);
+  useRunStream(runId, { onEvent, onOpen: () => setConnected(true), onClose: () => setConnected(false) });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -7,6 +7,7 @@ import { inputClass, labelClass } from '../prime/parts';
 const FIELDS = ['from', 'from_domain', 'to', 'cc', 'subject', 'body', 'list_id', 'has_attachment', 'size', 'spam_score', 'spf', 'dmarc'];
 const OPS = ['==', '!=', 'contains', 'matches', '>', '>=', '<', '<=', 'exists', 'absent'];
 const ACTIONS = ['move', 'label', 'forward', 'auto_reply', 'mark_read', 'flag', 'stop'];
+const NO_VALUE = ['exists', 'absent'];
 const blank = { name: '', field: 'from', op: 'contains', value: '', action: 'label', arg: '' };
 
 const toRule = (f) => {
@@ -15,7 +16,7 @@ const toRule = (f) => {
   if (f.action === 'label') a.label = f.arg;
   if (f.action === 'forward') a.to = f.arg.split(/[,\s]+/).filter(Boolean);
   if (f.action === 'auto_reply') a.body = f.arg;
-  return { name: f.name, enabled: true, conditions: f.value ? [{ field: f.field, op: f.op, value: f.value }] : [], actions: [a] };
+  return { name: f.name, enabled: true, conditions: [{ field: f.field, op: f.op, ...(NO_VALUE.includes(f.op) ? {} : { value: f.value.trim() }) }], actions: [a] };
 };
 
 const Rules = ({ mb }) => {
@@ -41,7 +42,7 @@ const Rules = ({ mb }) => {
           <label><span className={labelClass}>Then</span>{sel('action', ACTIONS)}</label>
           <label className="col-span-3"><span className={labelClass}>Folder / label / addresses / reply text</span><input className={inputClass} aria-label="Action detail" value={form.arg} onChange={(e) => setForm({ ...form, arg: e.target.value })} /></label>
         </div>
-        <div className="flex gap-2"><button className={btn('ghost')} onClick={dryRun}>Dry run</button><button className={btn()} disabled={!form.name} onClick={save}>Save rule</button></div>
+        <div className="flex gap-2"><button className={btn('ghost')} disabled={!NO_VALUE.includes(form.op) && !form.value.trim()} onClick={dryRun}>Dry run</button><button className={btn()} disabled={!form.name || (!NO_VALUE.includes(form.op) && !form.value.trim())} title="A rule needs a condition value, or it would match every message" onClick={save}>Save rule</button></div>
         {dry && <Notice>Checked the latest {dry.checked_latest} messages: {dry.would_match.length} would match and get: {dry.would_do.join(', ')}. Nothing was changed.{dry.forward_needs_second_approver && ' Forwarding needs a second approver.'}</Notice>}
         {msg && <p role="alert" className="text-xs text-danger">{msg}</p>}
       </Card>

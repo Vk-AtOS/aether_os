@@ -26,6 +26,7 @@ const WebhookSettings = () => {
   const [editError, setEditError] = useState(null);
   const [testing, setTesting] = useState({});
   const [testResults, setTestResults] = useState({});
+  const [newSecret, setNewSecret] = useState(null); // shown once: the server cannot return it again
 
   const fetchWebhooks = async () => {
     setLoading(true);
@@ -48,7 +49,8 @@ const WebhookSettings = () => {
     setAddError(null);
     setSaving(true);
     try {
-      await api.createWebhook({ url: form.url, events: form.events });
+      const created = await api.createWebhook({ url: form.url, events: form.events });
+      if (created?.data?.secret) setNewSecret(created.data.secret);
       setForm({ url: '', events: ['run.completed', 'run.failed'] });
       setAdding(false);
       await fetchWebhooks();
@@ -130,6 +132,16 @@ const WebhookSettings = () => {
         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-danger text-xs flex items-center gap-2">
           <span className="flex-1">{deleteError}</span>
           <button onClick={() => setDeleteError(null)} className="text-muted hover:text-bright">✕</button>
+        </div>
+      )}
+      {newSecret && (
+        <div role="alert" className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
+          <p className="text-bright font-bold">Signing secret (shown once). Copy it now; receivers need it to verify the signature.</p>
+          <code className="block break-all font-mono text-bright select-all">{newSecret}</code>
+          <div className="flex gap-3">
+            <button onClick={() => navigator.clipboard?.writeText(newSecret)} className="text-accent hover:underline">Copy</button>
+            <button onClick={() => setNewSecret(null)} className="text-muted hover:text-bright">I have saved it</button>
+          </div>
         </div>
       )}
       <header className="flex justify-between items-center">

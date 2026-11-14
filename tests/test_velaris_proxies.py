@@ -269,3 +269,22 @@ async def test_downloads_are_forced_to_a_safe_download_whatever_velaris_says(cty
     assert h["content-security-policy"] == "sandbox; default-src 'none'"
     pdf = _safe_download_headers({"content-type": "application/pdf", "content-disposition": "attachment; filename=a.pdf"})
     assert pdf["content-type"] == "application/pdf" and pdf["content-disposition"].startswith("attachment; filename")
+
+
+async def test_mail_rule_without_condition_or_value_is_refused(http, velaris):
+    """KAN-154: an empty value / no conditions matches every message; refused before Velaris sees it."""
+    good = {"name": "n", "enabled": True, "actions": [{"type": "flag"}],
+            "conditions": [{"field": "from", "op": "contains", "value": "boss"}]}
+    bad = [{**good, "conditions": []},
+           {**good, "conditions": [{"field": "from", "op": "contains", "value": " "}]},
+           {**good, "conditions": [{"op": "contains", "value": "x"}]}]
+    n = len(velaris.seen)
+    for body in bad:
+        for path in ("/mail/mailboxes/m1/rules", "/mail/mailboxes/m1/rules/dry-run"):
+            assert (await http.post(path, json=body)).status_code == 422
+    assert (await http.put("/mail/mailboxes/m1/rules/r1", json={**good, "conditions": []})).status_code == 422
+    assert len(velaris.seen) == n
+    # exists/absent need no value, a disabled rule may keep its old conditions
+    ok = {**good, "conditions": [{"field": "list_id", "op": "exists"}]}
+    assert (await http.post("/mail/mailboxes/m1/rules", json=ok)).status_code == 200
+    assert (await http.put("/mail/mailboxes/m1/rules/r1", json={**good, "enabled": False, "conditions": []})).status_code == 200

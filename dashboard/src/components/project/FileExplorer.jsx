@@ -64,6 +64,7 @@ const FileExplorer = ({ runId, fileTree, isViewer, onToast }) => {
 
   const handleFileClick = async (file) => {
     setSelectedFile(file);
+    setEditContent(null); // an unsaved edit of file A must never be saved over file B
     setFileLoading(true);
     setFileContent(null);
     try {
@@ -107,9 +108,9 @@ const FileExplorer = ({ runId, fileTree, isViewer, onToast }) => {
             <div className="bg-border/20 px-4 py-2 border-b border-border flex items-center justify-between shrink-0">
               <span className="text-xs font-mono text-muted truncate">{selectedFile.path}</span>
               <div className="flex items-center space-x-3 shrink-0 ml-4">
-                {fileContent?.truncated && <span className="text-[10px] text-warning">Truncated (50K)</span>}
+                {fileContent?.truncated && <span className="text-[10px] text-warning" title="Saving would overwrite the full file with the shortened text, so editing is off">Truncated (50K), read-only</span>}
                 <span className="text-[10px] text-muted">{formatBytes(fileContent?.size_bytes)}</span>
-                {!isViewer && editContent === null ? (
+                {!isViewer && !fileContent?.truncated && editContent === null ? (
                   <button
                     onClick={() => setEditContent(fileContent?.content || '')}
                     className="text-[10px] px-2 py-0.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded transition-colors"
