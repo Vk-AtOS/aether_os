@@ -159,10 +159,8 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
             if not user.is_active or user.deleted_at or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Account is deactivated")
             if not user.email_verified:
-                # Signed assertion proves the address; rotate any pre-registered password.
-                user.email_verified = True
-                user.password_hash = get_password_hash(secrets.token_urlsafe(32))
-                await session.commit()
+                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts.
+                raise HTTPException(status_code=403, detail="Verify your email address before signing in with SSO")
             return user, org
         if idp_org_id:
             # JIT-provision into the IdP's own org as a plain member — never a new owner.

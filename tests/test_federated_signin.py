@@ -5,13 +5,16 @@ import urllib.parse
 from aether_os.gateway import auth_oauth
 
 
-def test_oauth_verifies_pre_registered_email_and_rotates_password(gw):
+def test_oauth_refuses_to_link_unverified_account(gw):
+    import pytest
+    from fastapi import HTTPException
     u = gw.register("fedorg")
     gw.sql("UPDATE users SET email_verified = 0 WHERE email = ?", (u.email,))
-    old = gw.sql("SELECT password_hash FROM users WHERE email = ?", (u.email,))[0][0]
-    user, _ = asyncio.run(auth_oauth._upsert_oauth_user(u.email))
-    assert user.email_verified is True
-    assert user.password_hash != old
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(auth_oauth._upsert_oauth_user(u.email))
+    assert ei.value.status_code == 403
+    # the pre-registrant keeps nothing new: account untouched, still unverified
+    assert gw.sql("SELECT email_verified FROM users WHERE email = ?", (u.email,))[0][0] == 0
 
 
 def test_oauth_new_user_is_verified(gw):
