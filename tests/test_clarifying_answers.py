@@ -200,7 +200,7 @@ async def test_s02_puts_recorded_answers_in_the_context_and_summary(tmp_path, mo
     monkeypatch.setattr("aether_os.core.projects.get_project_manager",
                         lambda: SimpleNamespace(get_output_dir=get_output_dir))
 
-    async def sub_phase(self, name, phase_input, _memory, pm):
+    async def sub_phase(self, name, phase_input, _memory, pm, critical=True):
         out = pm.get_output_dir(run_id, name)
         if name == "p02b_domain_ir":
             seen["answers_at_p02b"] = dict(phase_input.input_data["clarifying_answers"])
