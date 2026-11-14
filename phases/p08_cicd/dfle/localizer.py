@@ -18,6 +18,29 @@ def _node_id(frame: StackFrame) -> str:
     return f"{frame.filename}:{frame.line}:{frame.function}"
 
 
+def _resolve_node(frame: StackFrame, call_graph: CallGraph) -> str:
+    """Map a log frame to the call graph's node id.
+
+    The graph keys functions as "<repo-relative path>:<def line>:<name>", while a log frame has
+    the CI machine's path (often absolute) and the line of the executing statement inside the
+    function, so they never compared equal. Match by function name, path suffix and the nearest
+    def line at or above the frame's line. Falls back to the frame's own id when nothing matches.
+    """
+    path = frame.filename.replace("\\", "/")
+    best: tuple[int, str] | None = None
+    for node_id in call_graph.callees:
+        rel, _, rest = node_id.partition(":")
+        line_s, _, name = rest.partition(":")
+        if name != frame.function or not line_s.isdigit():
+            continue
+        if not (path == rel or path.endswith("/" + rel)):
+            continue
+        def_line = int(line_s)
+        if def_line <= frame.line and (best is None or def_line > best[0]):
+            best = (def_line, node_id)
+    return best[1] if best else _node_id(frame)
+
+
 def _is_test_file(path: str) -> bool:
     """Heuristic: path is a test file if under tests/ or named test_*.py."""
     parts = path.replace("\\", "/").split("/")
@@ -36,7 +59,7 @@ def _score_frame(
     """
     Score a single frame. Returns (confidence, dependency_radius, affected_tests).
     """
-    node_id = _node_id(frame)
+    node_id = _resolve_node(frame, call_graph)
 
     # AST proximity: is the function in the call graph (i.e. indexed)?
     # Use 0.5 when call graph is empty so scores degrade gracefully
