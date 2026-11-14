@@ -56,7 +56,6 @@ from fastapi import Request
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase
 from starlette.middleware.base import BaseHTTPMiddleware
-from aether_os.core.run_app.child_env import child_env
 
 logger = logging.getLogger(__name__)
 
