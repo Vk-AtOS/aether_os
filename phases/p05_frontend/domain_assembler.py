@@ -430,12 +430,14 @@ async def assemble_domain_pages(
         if domain_ir:
             try:
 
+                # the referenced entity's real table, not a guess: MembershipPlan is `membership_plans`, not `membershipplans`
+                _table_of = {e.name.lower(): e.table for e in (domain_ir.entities or []) if getattr(e, "table", "")}
                 for ir_ent in (domain_ir.entities or []):
                     for ir_field in ir_ent.fields:
                         if ir_field.type == AetherType.FK and ir_field.ref_entity:
                             ref_lower = ir_field.ref_entity.lower()
                             _global_fk_refs[ir_field.name] = {
-                                "endpoint": f"/api/{pluralise_fn(ref_lower)}",
+                                "endpoint": f"/api/{_table_of.get(ref_lower) or pluralise_fn(ref_lower)}",
                                 "label_key": getattr(ir_field, "display_field", None) or "name",
                             }
             except Exception as _fk_exc:

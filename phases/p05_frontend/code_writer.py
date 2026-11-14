@@ -2027,7 +2027,9 @@ export function CrudModal<T extends Record<string, unknown>>({
       const endpoint = field.fkEndpoint ?? fkConfig?.[field.name]
       if (!endpoint) return
       const labelKey = field.fkLabelKey ?? 'name'
-      apiClient.get<{ items?: unknown[]; [k: string]: unknown }>(endpoint)
+      // the client's baseURL already ends in /api: a configured "/api/x" would be requested as /api/api/x.
+      // 200 is the most rows a list endpoint returns per page.
+      apiClient.get<{ items?: unknown[]; [k: string]: unknown }>(endpoint.replace(/^\\/api(?=\\/)/, ''), { params: { page: 1, page_size: 200 } })
         .then(res => {
           const records: unknown[] = (res.data as any)?.items ?? (Array.isArray(res.data) ? res.data : [])
           const opts = records.map((r: any) => ({
@@ -3643,18 +3645,19 @@ export default function {pascal}Page() {{
 
   const handleExport = () => {{
     if (!data.length) return
-    // Properly escape values that contain commas, double-quotes, or newlines
+    // Quote cells with commas, quotes or line breaks, and defuse spreadsheet formulas: a text cell that starts with
+    // = + - @ (or tab/CR) is EXECUTED by Excel and Sheets, so it gets a leading apostrophe.
     const escapeCell = (v: unknown): string => {{
-      const s = String(v ?? '')
-      return s.includes(',') || s.includes('"') || s.includes('\\n')
-        ? `"${{s.replace(/"/g, '""')}}"`
-        : s
+      let s = String(v ?? '')
+      if (typeof v !== 'number' && /^[=+\\-@\\t\\r]/.test(s)) s = "'" + s
+      return /[",\\n\\r]/.test(s) ? `"${{s.replace(/"/g, '""')}}"` : s
     }}
-    const headers = columns.map(c => escapeCell(c.header ?? '')).join(',')
+    // the record id is not a table column but it is what identifies a row (and what foreign keys refer to)
+    const headers = ['id', ...columns.map(c => String(c.header ?? ''))].map(escapeCell).join(',')
     const rows = data.map(item =>
-      columns.map(c => escapeCell((item as any)[c.id as string])).join(',')
+      [(item as any).id, ...columns.map(c => (item as any)[c.id as string])].map(escapeCell).join(',')
     )
-    const csv = [headers, ...rows].join('\\n')
+    const csv = '\\ufeff' + [headers, ...rows].join('\\r\\n')
     const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }})
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -5396,7 +5399,7 @@ export default function {pascal}CalendarPage() {{
   const {{ data: rawData = [] }} = useQuery({{
     queryKey: ['{entity_name}', 'calendar', year, month],
     queryFn: async () => {{
-      const res = await {camel}Api.list(1, 500)
+      const res = await {camel}Api.list(1, 200)
       return (Array.isArray(res) ? res : ((res as any)?.items ?? [])) as CalItem[]
     }},
   }})
