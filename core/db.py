@@ -55,6 +55,37 @@ def _build_db_url() -> str:
     return f"sqlite+aiosqlite:///{db_path}"
 
 
+def _postgres_engine_kwargs() -> dict:
+    """Pool + per-connection settings for PostgreSQL.
+
+    DB_STATEMENT_TIMEOUT_MS (default 30000) caps every query. Behind PgBouncer in transaction mode
+    (DB_PGBOUNCER=true) asyncpg's prepared-statement cache must be off (statement_cache_size=0) or
+    queries fail with "prepared statement does not exist", and startup parameters are not kept per
+    server connection, so the timeout is enforced by PgBouncer's query_timeout instead
+    (deploy/pgbouncer.ini) and set per transaction is not needed.
+    """
+    pool_size = int(os.environ.get("DB_POOL_SIZE", "3"))
+    max_overflow = int(os.environ.get("DB_MAX_OVERFLOW", "7"))
+    timeout_ms = int(os.environ.get("DB_STATEMENT_TIMEOUT_MS", "30000"))
+    behind_pgbouncer = os.environ.get("DB_PGBOUNCER", "").lower() in ("1", "true", "yes")
+    connect_args: dict = {}
+    if behind_pgbouncer:
+        connect_args["statement_cache_size"] = 0
+        connect_args["prepared_statement_cache_size"] = 0
+    else:
+        connect_args["server_settings"] = {"statement_timeout": str(timeout_ms)}
+    return {
+        # N workers x (pool_size + max_overflow) must stay under PG max_connections (or PgBouncer
+        # max_client_conn); default 3+7 per worker.
+        "pool_size": pool_size,
+        "max_overflow": max_overflow,
+        "pool_timeout": 30,
+        "pool_recycle": 300,    # cloud DBs drop idle conns
+        "pool_pre_ping": True,  # no "closed connection" 500s
+        "connect_args": connect_args,
+    }
+
+
 def get_engine() -> AsyncEngine:
     """Return the global async engine (lazy init)."""
     global _engine
@@ -81,18 +112,7 @@ def get_engine() -> AsyncEngine:
             # With WORKERS=8 (default): 8 × (pool_size + max_overflow) ≤ max_connections.
             # DB_POOL_SIZE default=3 → 8×(3+7)=80 connections, safe under PG default of 100.
             # Use PgBouncer in production to allow larger effective concurrency.
-            _pool_size = int(os.environ.get("DB_POOL_SIZE", "3"))
-            _max_overflow = int(os.environ.get("DB_MAX_OVERFLOW", "7"))
-            engine_kwargs.update({
-                "pool_size": _pool_size,
-                "max_overflow": _max_overflow,
-                "pool_timeout": 30,
-                "pool_recycle": 300,    # recycle every 5 min — cloud DBs drop idle conns
-                "pool_pre_ping": True,  # test conn before use; prevents "closed conn" 500s
-                # Hard cap per-query so a runaway query can't starve the pool (30 s)
-                # asyncpg uses server_settings dict, not psycopg2's options string
-                "connect_args": {"server_settings": {"statement_timeout": "30000"}},
-            })
+            engine_kwargs.update(_postgres_engine_kwargs())
 
         _engine = create_async_engine(url, **engine_kwargs)
 
@@ -147,9 +167,32 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
+class SchemaNotMigrated(RuntimeError):
+    """PostgreSQL schema is not at the Alembic head: run `alembic upgrade head` first."""
+
+
+async def _require_migrated(engine: AsyncEngine) -> None:
+    """Alembic owns the PostgreSQL schema: refuse to start on an un-migrated or stale database."""
+    try:
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
+    except Exception as exc:
+        raise SchemaNotMigrated(f"alembic_version not readable ({exc}); run `alembic upgrade head`") from exc
+    ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+    if not ini.exists():
+        return
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    heads = set(ScriptDirectory.from_config(Config(str(ini))).get_heads())
+    if set(rows) != heads:
+        raise SchemaNotMigrated(f"database at {sorted(rows)}, code expects {sorted(heads)}; run `alembic upgrade head`")
+
+
 async def init_db() -> None:
     """
-    Create all tables and indexes. Called on application startup.
+    SQLite (dev/tests): create all tables and indexes. PostgreSQL: Alembic owns the schema, so
+    only verify it is at head (set AETHER_DB_CREATE_ALL=1 to force create_all, e.g. throwaway DBs).
+    Called on application startup.
 
     Indexes created here match the query patterns in api.py and the pipeline:
     - org_id: nearly every query filters by org
@@ -160,6 +203,10 @@ async def init_db() -> None:
     from . import models  # Ensure all models are registered with Base
     from .billing import payments  # noqa: F401  registers billing_payments for callers that never load the gateway
     engine = get_engine()
+    if engine.dialect.name == "postgresql" and os.environ.get("AETHER_DB_CREATE_ALL", "").lower() not in ("1", "true"):
+        await _require_migrated(engine)
+        logger.info("PostgreSQL schema is at the Alembic head")
+        return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -189,6 +236,13 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS ix_learning_clarif_user   ON learning_clarifications_pending(org_id, user_id)",
             # Run specs lookup by run
             "CREATE INDEX IF NOT EXISTS ix_run_specs_run_id       ON run_specs(run_id)",
+            # Hot composite filters (same set as alembic add_hot_filter_indexes)
+            "CREATE INDEX IF NOT EXISTS ix_runs_org_status        ON runs(org_id, status)",
+            "CREATE INDEX IF NOT EXISTS ix_runs_org_started_at    ON runs(org_id, started_at)",
+            "CREATE INDEX IF NOT EXISTS ix_notifications_org_user_unread ON notifications(org_id, user_id, is_read)",
+            "CREATE INDEX IF NOT EXISTS ix_artifact_embeddings_org_run ON artifact_embeddings(org_id, run_id)",
+            "CREATE INDEX IF NOT EXISTS ix_marketplace_profiles_org ON marketplace_profiles(org_id)",
+            "CREATE INDEX IF NOT EXISTS ix_marketplace_profiles_published ON marketplace_profiles(is_published, created_at)",
         ]
         for ddl in index_ddl:
             try:
