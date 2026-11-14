@@ -440,15 +440,15 @@ def _fallback_crud_routers(
 
         # Multi-tenancy filter clause (injected into list and get queries)
         mt_list_filter = (
-            f".where(models.{name}.org_id == current_user['org_id'])"
+            f".where(models.{name}.org_id == current_user.get('org_id'))"
             if multi_tenancy else ""
         )
         mt_get_filter = (
-            f", models.{name}.org_id == current_user['org_id']"
+            f", models.{name}.org_id == current_user.get('org_id')"
             if multi_tenancy else ""
         )
         mt_create_kwarg = (
-            f", org_id=current_user['org_id']"
+            f", org_id=current_user.get('org_id')"
             if multi_tenancy else ""
         )
 

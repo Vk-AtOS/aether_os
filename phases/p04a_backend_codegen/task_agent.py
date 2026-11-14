@@ -187,7 +187,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         if not models_code or not schemas_code:
             await _emit({"type": "llm_chunk", "phase": "p04a", "text": "⚙ Generating models + schemas (deterministic)…"})
             # Pass domain so money/PHI constraints are applied in fallback codegen.
-            models_code = _fallback_models(project_name, entities, domain=domain)
+            models_code = _fallback_models(project_name, entities, domain=domain, multi_tenancy=multi_tenancy)
             schemas_code = _fallback_schemas(entities, domain=domain)
             generated_via = "deterministic_fallback"
 
@@ -201,7 +201,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         # arguments (e.g. Column(default=True, ..., default=False)) which
         # ast.parse() silently accepts on Python 3.10.
         for _fname, _code, _fallback_fn, _fallback_args in [
-            ("models.py", models_code, _fallback_models, [project_name, entities, domain]),
+            ("models.py", models_code, _fallback_models, [project_name, entities, domain, multi_tenancy]),
             ("schemas.py", schemas_code, _fallback_schemas, [entities, domain]),
         ]:
             try:
@@ -222,7 +222,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     len(models_code), len(_llm_classes), len(schemas_code))
     except Exception as exc:
         logger.warning("[p04a] models/schemas generation failed (%s), using fallback", exc)
-        models_code = _fallback_models(project_name, entities, domain=domain)
+        models_code = _fallback_models(project_name, entities, domain=domain, multi_tenancy=multi_tenancy)
         schemas_code = _fallback_schemas(entities, domain=domain)
         models_code = fix_relative_imports(models_code)
         schemas_code = fix_relative_imports(schemas_code)

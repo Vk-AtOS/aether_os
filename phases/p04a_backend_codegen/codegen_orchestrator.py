@@ -164,7 +164,8 @@ def run_pipeline_and_seed_steps(
         # schema (Contact, Company, ...) and create no admin user. They used to be read into seed_code and
         # then never written, so the app had NO seed.py: no admin, no data (KAN-169). The seed is built from
         # the project's own entities instead; wiring the templates in properly is a separate ticket.
-        seed_code = fallback_seed_fn(project_name, entities, seed_vocabulary=seed_vocabulary, domain=domain)
+        seed_code = fallback_seed_fn(project_name, entities, seed_vocabulary=seed_vocabulary, domain=domain,
+                                     multi_tenancy=multi_tenancy)
         try:
             ast.parse(seed_code)
         except SyntaxError as _syn:
