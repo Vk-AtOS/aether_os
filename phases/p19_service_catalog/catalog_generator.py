@@ -119,7 +119,7 @@ FastAPI service catalog router for {slug} — Layer 7 / p19.
 Mounts at /api — attach to the main FastAPI app with:
     app.include_router(catalog_router, prefix="")
 
-All endpoints require a valid Bearer token (tenant_id extracted from JWT sub).
+All tenant endpoints require a valid signed Bearer token (tenant_id = org_id or sub).
 """
 from __future__ import annotations
 
@@ -141,23 +141,35 @@ catalog_router = APIRouter(tags=["service-catalog"])
 KNOWN_SERVICES: List[str] = [{service_list}]
 
 
-def _get_tenant(request: Request) -> str:
-    """Extract tenant_id from Authorization header (sub claim of JWT).
+try:  # the generated backend's token verification (src/auth.py)
+    from src.auth import ALGORITHM as _ALG, _PUBLIC_KEY, jwt as _jwt
+except ImportError:
+    try:
+        from auth import ALGORITHM as _ALG, _PUBLIC_KEY, jwt as _jwt
+    except ImportError:
+        _jwt = None
 
-    Falls back to 'default' when running locally without auth middleware.
+
+def _get_tenant(request: Request) -> str:
+    """Tenant of the caller, from a signature-verified access token (org_id, else sub).
+
+    Fails closed: no token, an invalid token, or a backend without src.auth is an
+    error, never a shared 'default' tenant.
     """
+    if _jwt is None:
+        raise HTTPException(status_code=503, detail="service catalog disabled: src.auth not found")
     token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
     if not token:
-        return "default"
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        import base64
-        payload_b64 = token.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return str(payload.get("sub", "default"))
+        claims = _jwt.decode(token, _PUBLIC_KEY, algorithms=[_ALG])
     except Exception as e:
-        logger.warning("catalog: JWT parse failed, using 'default' tenant: %s", e)
-        return "default"
+        logger.warning("catalog: token rejected: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from e
+    tenant = claims.get("org_id") or claims.get("sub")
+    if not tenant or claims.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return str(tenant)
 
 
 async def _get_db(request: Request) -> AsyncSession:
@@ -285,7 +297,9 @@ async def launch_service(
         )
         await db.commit()
     except Exception as e:
-        logger.warning("catalog: launch DB write failed: %s", e)
+        logger.error("catalog: launch DB write failed: %s", e)
+        await db.rollback()
+        raise HTTPException(status_code=503, detail="Could not record the launch; nothing was provisioned") from e
 
     return {{"id": instance_id, "status": "provisioning", "service_name": service_name}}
 
@@ -370,7 +384,7 @@ async def billing_invoice(
     }}
     return JSONResponse(
         content=invoice,
-        headers={{"Content-Disposition": f\'attachment; filename="invoice-{{data[\'month\']}}.json"\'}}
+        headers={{"Content-Disposition": f\'attachment; filename="invoice-{{data["month"]}}.json"\'}}
     )
 '''
 
