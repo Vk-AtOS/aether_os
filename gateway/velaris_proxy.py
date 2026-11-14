@@ -177,6 +177,25 @@ def _check_param(name: str, value: str) -> str:
     return value
 
 
+_RULE_ACTIONS = ("mail.rule.create", "mail.rule.dry_run", "mail.rule.update")
+
+
+def check_mail_rule(body: Dict[str, Any]) -> None:
+    """A mail rule with no conditions, or a condition with an empty value, matches every message
+    (move / mark-read / auto-reply would hit all mail), so an ENABLED one is refused. A disabled
+    rule is allowed so an existing match-all rule can still be switched off."""
+    if body.get("enabled") is False:
+        return
+    conds = body.get("conditions")
+    if not isinstance(conds, list) or not conds:
+        raise HTTPException(status_code=422, detail="A mail rule needs at least one condition (it would match every message)")
+    for c in conds:
+        if not isinstance(c, dict) or not c.get("field"):
+            raise HTTPException(status_code=422, detail="Each rule condition needs a field")
+        if c.get("op") not in ("exists", "absent") and not str(c.get("value", "")).strip():
+            raise HTTPException(status_code=422, detail="A rule condition needs a value (an empty value matches every message)")
+
+
 def _query(request: Request, route: Route) -> Tuple[str, float]:
     """The query string to forward (timeouts clamped) and how long the upstream call may take."""
     items = list(request.query_params.multi_items())
@@ -272,6 +291,8 @@ def _endpoint(route: Route, upstream: str) -> Any:
                     raise HTTPException(status_code=400, detail="The body is not JSON") from None
                 if not isinstance(parsed, (dict, list)):
                     raise HTTPException(status_code=400, detail="The body must be a JSON object")
+                if route.action in _RULE_ACTIONS:
+                    check_mail_rule(parsed if isinstance(parsed, dict) else {})
                 if isinstance(parsed, dict):
                     detail["fields"] = sorted(parsed)[:20]
                     detail.update({k: str(parsed[k])[:80] for k in route.log if k in parsed})

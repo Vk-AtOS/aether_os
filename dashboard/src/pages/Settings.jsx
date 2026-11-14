@@ -13,8 +13,10 @@ import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components
 import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
 import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 import { apiError } from '../apiError';
+import { useRole } from '../hooks/useRole';
 
 const Settings = () => {
+  const { isAdmin } = useRole(); // the server enforces it too; this only greys out org-wide controls
   const { orgName, updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
   const location = useLocation();
   const ssoRef = useRef(null);
@@ -485,11 +487,13 @@ const Settings = () => {
             langsmithSaveStatus={langsmithSaveStatus}
             onSave={handleSaveLangsmith}
           />
+          <fieldset disabled={!isAdmin} title={isAdmin ? undefined : 'Only organisation owners and admins can change this'} className={isAdmin ? '' : 'opacity-60'}>
           <PhaseControlsPanel
             PHASES={PHASES} PHASE_NAMES={PHASE_NAMES}
             phaseConfigs={phaseConfigs}
             onSavePhaseConfig={handleSavePhaseConfig}
           />
+          </fieldset>
           <FileBrowserPanel
             runs={runs} selectedRun={selectedRun} onRunSelect={handleRunSelect}
             runFiles={runFiles} loadingFiles={loadingFiles}
@@ -525,6 +529,7 @@ const Settings = () => {
             auditExportStatus={auditExportStatus}
             onExport={handleAuditExport}
           />
+          <fieldset disabled={!isAdmin} title={isAdmin ? undefined : 'Only organisation owners and admins can change this'} className={isAdmin ? '' : 'opacity-60'}>
           <OrgConfigPanel
             orgConfig={orgConfig} setOrgConfig={setOrgConfig}
             orgSaveStatus={orgSaveStatus} onSave={handleSaveOrgConfig}
@@ -537,6 +542,7 @@ const Settings = () => {
             dataRegion={dataRegion} setDataRegion={setDataRegion}
             regionSaveStatus={regionSaveStatus} onSave={handleSaveDataRegion}
           />
+          </fieldset>
           <VersionInfoPanel health={health} />
         </aside>
       </div>
