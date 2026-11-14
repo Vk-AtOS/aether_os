@@ -27,7 +27,7 @@ mkdir -p "$REPO/.local" "$REPO/benchmarks/results"
 set -a; . "$REPO/.env"; set +a
 # Velaris is reached over its HTTP API (also set VELARIS_API_SECRET and
 # VELARIS_IDENTITY_PRIVATE_KEY in .env; see core/velaris/client.py).
-export VELARIS_API_URL="${VELARIS_API_URL:-http://127.0.0.1:8100}"
+export VELARIS_API_URL="${VELARIS_API_URL:-http://127.0.0.1:8730}"
 # Generated apps are served from their own origin (a different port is a different origin).
 # Open the dashboard at http://127.0.0.1:$PORT so the preview iframe is same-site.
 export AETHER_DASHBOARD_ORIGIN="${AETHER_DASHBOARD_ORIGIN:-http://127.0.0.1:$PORT}"
