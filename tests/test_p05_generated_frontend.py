@@ -88,3 +88,24 @@ def test_generated_frontend_has_no_syntax_errors_or_undefined_names(tmp_path, mo
     out = subprocess.run([tsc, "--noEmit", "-p", str(root)], capture_output=True, text=True, timeout=240).stdout
     bad = [ln for ln in out.splitlines() if re.search(r"error TS(1\d{3}|2304|2552):", ln)]
     assert bad == [], bad[:8]
+
+
+def test_frontend_requests_reach_the_routes_the_generated_backend_serves(tmp_path, monkeypatch):
+    # The backend serves every route under /api. The frontend's nginx and Vite proxies stripped /api, and with
+    # VITE_API_URL set the client sent no /api at all, so outside the AetherOS preview every call was a 404.
+    # Each way of reaching the backend is simulated for the path the client uses; it must land on /api/<x>.
+    root = build_frontend(tmp_path / "fe", "saas", monkeypatch)
+    nginx = (root / "nginx.conf").read_text()
+    vite = (root / "vite.config.ts").read_text()
+    client = (root / "src" / "lib" / "api.ts").read_text()
+    call = "/patients"                                    # a path as written in api.ts, relative to baseURL
+    assert "const API_PREFIX = '/api'" in client
+    browser = "/api" + call                               # what the browser requests (BASE is empty) and what
+    assert browser == "/api/patients"                     # VITE_API_URL=<server> sends to that server
+    # nginx: `location /api/ { proxy_pass http://app:8000<URI>; }` strips the location prefix only when the
+    # proxy_pass target has a URI part (a trailing slash)
+    target = re.search(r"proxy_pass\s+http://[^\s;/]+(?::\d+)?(/[^\s;]*)?;", nginx).group(1)
+    assert target is None, f"nginx proxy_pass has a URI part {target!r}: it would strip /api"
+    # Vite dev proxy: no rewrite may remove /api (only the /app-preview prefix may go)
+    for rw in re.findall(r"rewrite:[^\n]*replace\(([^)]*)\)", vite):
+        assert "api" not in rw.replace("app-preview", ""), rw

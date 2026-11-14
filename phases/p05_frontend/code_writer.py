@@ -141,12 +141,11 @@ export default defineConfig({
       '/app-preview/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\\/app-preview\\/api/, ''),
+        rewrite: (path: string) => path.replace(/^\\/app-preview/, ''),
       },
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\\/api/, ''),
       },
     }
   }
@@ -556,10 +555,11 @@ server {{
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
-  # Proxy /api/* to the backend (strips /api prefix)
+  # Proxy /api/* to the backend unchanged: the generated backend serves every route under /api.
+  # (A trailing "/" on proxy_pass would strip the prefix and every call would 404.)
   # Backend service is named '{container_name}' in docker-compose.yml
   location /api/ {{
-    proxy_pass http://{container_name}:{app_port}/;
+    proxy_pass http://{container_name}:{app_port};
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -943,10 +943,10 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     all_type_imports = type_imports + create_imports
     lines.append(f"import type {{ {', '.join(all_type_imports)} }} from '../types'")
     lines.append("")
-    lines.append("// When VITE_API_URL is set: direct calls to backend URL (prod/Docker)")
-    lines.append("// When unset: Vite dev proxy rewrites /api/* → backend; nginx does the same in prod")
+    lines.append("// The backend serves every route under /api. With VITE_API_URL set the browser calls that server")
+    lines.append("// directly; unset, the Vite dev proxy and nginx forward /api/* to it unchanged.")
     lines.append("const BASE = import.meta.env.VITE_API_URL ?? ''")
-    lines.append("const API_PREFIX = BASE ? '' : '/api'")
+    lines.append("const API_PREFIX = '/api'")
     lines.append("")
     lines.append("export const apiClient = axios.create({ baseURL: BASE + API_PREFIX })")
     lines.append("export const api = apiClient  // alias used by IR-generated components")
