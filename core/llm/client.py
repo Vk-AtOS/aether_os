@@ -61,6 +61,7 @@ from aether_os.core.llm.providers import (         # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
+_cost_tasks: set = set()  # strong refs so fire-and-forget cost writes are not GC'd
 
 # ── Per-request org context ───────────────────────────────────────────────────
 # _current_org_id is imported from ._org_context above (and re-exported).
@@ -253,40 +254,25 @@ class LLMClient:
                     _call_cost = (tokens_in + tokens_out) / 1000.0 * 0.001
 
                 _cost_run_id = run_id or (context.get("run_id") if context else None)
-                _cost_org_id = org_id or (context.get("org_id") if context else None)
 
-                if _call_cost > 0 and (_cost_run_id or _cost_org_id):
-                    async def _persist_cost(
-                        _rid=_cost_run_id, _oid=_cost_org_id, _cost=_call_cost, _model=model
-                    ):
+                # Per-org monthly usage/cost is recorded by the router into
+                # token_budget_records (the table the cap reads); only the per-run
+                # cost lives here, on runs.cost (pipeline_runs/org_llm_usage never existed).
+                if _call_cost > 0 and _cost_run_id:
+                    async def _persist_cost(_rid=_cost_run_id, _cost=_call_cost):
                         try:
                             from aether_os.core.db import get_session_factory
                             from sqlalchemy import text as _text
                             async with get_session_factory()() as _db:
-                                if _rid:
-                                    await _db.execute(
-                                        _text("UPDATE pipeline_runs SET cost = COALESCE(cost, 0) + :c WHERE id = :r"),
-                                        {"c": _cost, "r": _rid},
-                                    )
-                                if _oid:
-                                    import datetime as _dt
-                                    _today = _dt.date.today().isoformat()
-                                    _month = _today[:7]
-                                    # Update org daily/monthly accumulator in org_usage table if it exists
-                                    await _db.execute(
-                                        _text("""
-                                            INSERT INTO org_llm_usage (org_id, date, month, cost_usd, call_count)
-                                            VALUES (:org, :day, :mon, :cost, 1)
-                                            ON CONFLICT (org_id, date) DO UPDATE
-                                            SET cost_usd = org_llm_usage.cost_usd + :cost,
-                                                call_count = org_llm_usage.call_count + 1
-                                        """),
-                                        {"org": _oid, "day": _today, "mon": _month, "cost": _cost},
-                                    )
+                                await _db.execute(
+                                    _text("UPDATE runs SET cost = COALESCE(cost, 0) + :c WHERE id = :r"),
+                                    {"c": _cost, "r": _rid},
+                                )
                                 await _db.commit()
                         except Exception as _ce:
-                            logger.debug("Cost persistence failed (non-blocking): %s", _ce)
-                    asyncio.create_task(_persist_cost())
+                            logger.warning("Run cost persistence failed: %s", _ce)
+                    _cost_tasks.add(t := asyncio.create_task(_persist_cost()))
+                    t.add_done_callback(_cost_tasks.discard)
             except Exception as _pe:
                 logger.debug("Cost computation failed (non-blocking): %s", _pe)
 
