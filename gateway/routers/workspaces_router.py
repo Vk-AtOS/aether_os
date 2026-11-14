@@ -36,14 +36,16 @@ def _current_user():
 
 
 @router.get("/workspaces")
-async def list_workspaces(user: Dict[str, Any] = _current_user()):
+async def list_workspaces(limit: int = 100, offset: int = 0, user: Dict[str, Any] = _current_user()):
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Workspace
+    from aether_os.core.services.run_service import clamp_limit
     from sqlalchemy import select as _sel
     sf = get_session_factory()
     async with sf() as sess:
         rows = (await sess.execute(
             _sel(Workspace).where(Workspace.org_id == user["org_id"]).order_by(Workspace.created_at)
+            .limit(clamp_limit(limit)).offset(max(offset, 0))
         )).scalars().all()
     return [
         {
