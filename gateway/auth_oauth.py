@@ -129,11 +129,10 @@ async def _upsert_oauth_user(email: str):
         if row:
             user, org = row
             if not user.email_verified:
-                # The IdP proved ownership of this address. Rotate the password so
-                # whoever pre-registered it unverified cannot keep a way in.
-                user.email_verified = True
-                user.password_hash = get_password_hash(secrets.token_urlsafe(32))
-                await session.commit()
+                # Never auto-link an unverified local account: whoever pre-registered
+                # it may hold refresh tokens, API keys, MFA secrets or invites. The
+                # owner confirms the address via the verification email first.
+                raise HTTPException(status_code=403, detail="Verify your email address before signing in with a provider")
         else:
             handle = email.split("@")[0].lower().replace(".", "-")
             slug = f"{handle}-{secrets.token_hex(3)}"
@@ -242,6 +241,8 @@ async def google_callback(
 
         user, org = await _upsert_oauth_user(email=email)
         return _signin_redirect(user, org)
+    except HTTPException as exc:
+        return _redirect_with_error(str(exc.detail))
     except Exception as exc:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("Google OAuth callback failed")
@@ -326,6 +327,8 @@ async def github_callback(
 
         user, org = await _upsert_oauth_user(email=email)
         return _signin_redirect(user, org)
+    except HTTPException as exc:
+        return _redirect_with_error(str(exc.detail))
     except Exception as exc:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("GitHub OAuth callback failed")
