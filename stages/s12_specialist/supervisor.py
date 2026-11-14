@@ -122,6 +122,10 @@ class SpecialistStageSupervisor(PhaseBase):
         ):
             triggered.append(("p20_multiregion", "multiregion_path"))
 
+        # s04 already generated these (same folder, same inputs): do not generate twice.
+        _already = set(phase_input.input_data.get("specialist_phases_run") or [])
+        triggered = [(p, k) for p, k in triggered if p not in _already]
+
         # ── Early exit: nothing to do ─────────────────────────────────────────
         if not triggered:
             logger.info(
