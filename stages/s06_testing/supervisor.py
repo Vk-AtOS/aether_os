@@ -173,8 +173,9 @@ class TestingStageSupervisor(PhaseBase):
             output_path=str(_cached),
             confidence=confidence,
             metadata=consolidated,
-            # Stage 6 is non-critical: pipeline continues regardless of test outcome
-            success=True,
+            # Non-critical: the run continues, but a failing test verdict is reported as a
+            # failed stage (run result stage_summary) instead of "passed".
+            success=quality_flag != "fail",
             issues=issues if quality_flag == "fail" else [],
         )
 
