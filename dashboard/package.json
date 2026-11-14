@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "build:ci": "npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -34,7 +36,8 @@
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.3",
     "typescript": "^6.0.3",
-    "vite": "^8.0.9"
+    "vite": "^8.0.9",
+    "vitest": "^4.0.0"
   },
   "optionalDependencies": {
     "@rolldown/binding-linux-x64-gnu": "*"
