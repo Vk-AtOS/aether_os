@@ -13,6 +13,7 @@ All connectors:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,26 @@ logger = logging.getLogger(__name__)
 class ConnectorError(Exception):
     """Raised when a connector call fails. Pipeline phases catch this."""
     pass
+
+
+# Config keys that hold an address the ORG typed in (everything else points at a fixed vendor API).
+_ORG_URL_KEYS = ("base_url", "url", "instance_url")
+
+
+async def assert_public_urls(config: Dict[str, Any]) -> None:
+    """Refuse connector configs that point at the platform's own network (SSRF).
+
+    Every address the host resolves to must be public (core.security.safe_http).
+    Raises ConnectorError.
+    """
+    from aether_os.core.security.safe_http import UnsafeURL, resolve_public
+    for key in _ORG_URL_KEYS:
+        value = config.get(key)
+        if value:
+            try:
+                await asyncio.to_thread(resolve_public, str(value))
+            except UnsafeURL as exc:
+                raise ConnectorError(f"{key} rejected: {exc}") from exc
 
 
 class BaseConnector:

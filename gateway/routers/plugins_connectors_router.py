@@ -137,6 +137,14 @@ async def list_available_skills(
     return [p.to_dict() for p in skills]
 
 
+async def _public_instance(instance_url: str) -> None:
+    from aether_os.core.plugins.connectors import ConnectorError, assert_public_urls
+    try:
+        await assert_public_urls({"instance_url": instance_url})
+    except ConnectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 # ── Salesforce connector endpoints ────────────────────────────────────────────
 
 @router.post("/connectors/salesforce/validate")
@@ -145,6 +153,7 @@ async def validate_salesforce(
     user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Validate Salesforce credentials by calling the REST API root endpoint."""
+    await _public_instance(req.instance_url)
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
         {"instance_url": req.instance_url, "access_token": req.access_token}
@@ -159,6 +168,7 @@ async def list_salesforce_objects(
     user: Dict[str, Any] = _admin(),
 ) -> List[str]:
     """List all available SObjects in the Salesforce org."""
+    await _public_instance(instance_url)
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector, ConnectorError as SF_ConnectorError
     connector = SalesforceConnector(
         {"instance_url": instance_url, "access_token": access_token}
@@ -177,6 +187,7 @@ async def describe_salesforce_object(
     user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Describe a Salesforce SObject — returns fields and metadata."""
+    await _public_instance(instance_url)
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
         {"instance_url": instance_url, "access_token": access_token}
@@ -193,6 +204,7 @@ async def query_salesforce(
     user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Execute a SOQL query against Salesforce."""
+    await _public_instance(req.instance_url)
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
         {"instance_url": req.instance_url, "access_token": req.access_token}

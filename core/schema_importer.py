@@ -29,6 +29,22 @@ def _validate_sqlite_path(connection_string: str) -> None:
         )
 
 
+def _assert_public_host(connection_string: str) -> None:
+    """Raise ValueError unless the database host resolves only to public addresses."""
+    from sqlalchemy.engine import make_url
+    from aether_os.core.security.safe_http import UnsafeURL, resolve_public
+    try:
+        url = make_url(connection_string)
+    except Exception as exc:
+        raise ValueError(f"invalid connection string: {exc}") from exc
+    if not url.host:
+        raise ValueError("connection string has no host")
+    try:
+        resolve_public(f"http://{url.host}:{url.port or 80}/")
+    except UnsafeURL as exc:
+        raise ValueError(f"database host rejected: {exc}") from exc
+
+
 async def import_schema(connection_string: str) -> Dict[str, Any]:
     """Connect to an existing database and return its schema in p02 db_schema format.
 
@@ -58,6 +74,14 @@ async def import_schema(connection_string: str) -> Dict[str, Any]:
             _validate_sqlite_path(connection_string)
         except ValueError as ve:
             logger.warning("[schema_importer] rejected unsafe SQLite path: %s", ve)
+            return {"error": str(ve), "tables": []}
+
+    # SSRF: the host is typed by the caller; never let it be the platform's own network.
+    if not connection_string.lower().startswith("sqlite"):
+        try:
+            await asyncio.to_thread(_assert_public_host, connection_string)
+        except ValueError as ve:
+            logger.warning("[schema_importer] rejected non-public database host: %s", ve)
             return {"error": str(ve), "tables": []}
 
     try:
