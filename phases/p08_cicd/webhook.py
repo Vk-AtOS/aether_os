@@ -7,6 +7,7 @@ from the repo root. It is rebuilt on each webhook receipt for the target repo.
 This ensures AST-proximity scoring is active, not degraded-mode (0.5 fallback).
 """
 from __future__ import annotations
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -14,6 +15,10 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
+
+from aether_os.phases.p08_cicd.dfle.ast_index import build_index
+from aether_os.phases.p08_cicd.dfle.call_graph import build_call_graph
+from aether_os.phases.p08_cicd.pipeline import run_repair
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +34,11 @@ def _build_call_graph_for_repo(repo_root: str) -> Optional[Any]:
     Returns None if the repo doesn't exist or call graph fails to build.
     """
     try:
-        from aether_os.phases.p08_cicd.dfle.call_graph import CallGraph
         root = Path(repo_root)
         if not root.exists():
             logger.warning("Repo root does not exist: %s — call graph skipped", repo_root)
             return None
-        cg = CallGraph.build_call_graph(str(root))
+        cg = build_call_graph(build_index(root), root)
         logger.info("Call graph built for %s", repo_root)
         return cg
     except Exception as exc:
@@ -79,16 +83,20 @@ async def _run_repair_async(
     call_graph: Optional[Any],
 ) -> None:
     """Background repair task."""
+    if not request_data.repo_root:
+        logger.error("Repair job %s skipped: no repo_root in the webhook payload", job_id)
+        return
     try:
-        from aether_os.phases.p08_cicd.pipeline import run_repair
-        result = await run_repair(
-            ci_log=request_data.ci_log,
-            repo_name=request_data.repo_name,
-            branch=request_data.branch,
-            job_id=job_id,
+        # run_repair is synchronous (subprocess tests, LLM call): keep it off the event loop.
+        result = await asyncio.to_thread(
+            run_repair,
+            log_content=request_data.ci_log,
+            root_dir=request_data.repo_root,
+            historical_records=[],
+            ast_index=None,
             call_graph=call_graph,
         )
-        logger.info("Repair job %s completed: %s", job_id, result)
+        logger.info("Repair job %s completed: success=%s %s", job_id, result.success, result.explanation)
     except Exception as exc:
         logger.error("Repair job %s failed: %s", job_id, exc)
 
