@@ -55,6 +55,7 @@ ACTIONS: Dict[str, ActionRule] = {
     "portal.token.list": ActionRule("admin"),
     "portal.token.revoke": ActionRule("admin"),
     "portal.approval.list": ActionRule("member"),
+    "plugin.manage": ActionRule("admin"),
     "provider.test": ActionRule("admin"),
     "provider.test_platform": ActionRule("superadmin"),
 }

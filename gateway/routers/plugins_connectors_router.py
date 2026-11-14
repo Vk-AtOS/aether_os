@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plugins", tags=["plugins"])
@@ -82,6 +83,15 @@ class LDAPAuthRequest(BaseModel):
 def _auth():
     return Depends(get_current_user)
 
+async def _require_plugin_admin(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Installing, configuring or invoking connectors uses org-wide credentials: admin only."""
+    await enforce("plugin.manage", user)
+    return user
+
+
+def _admin():
+    return Depends(_require_plugin_admin)
+
 
 # ── Skill generation ───────────────────────────────────────────────────────────
 
@@ -132,7 +142,7 @@ async def list_available_skills(
 @router.post("/connectors/salesforce/validate")
 async def validate_salesforce(
     req: SalesforceValidateRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Validate Salesforce credentials by calling the REST API root endpoint."""
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
@@ -146,7 +156,7 @@ async def validate_salesforce(
 async def list_salesforce_objects(
     instance_url: str,
     access_token: str,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> List[str]:
     """List all available SObjects in the Salesforce org."""
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector, ConnectorError as SF_ConnectorError
@@ -164,7 +174,7 @@ async def describe_salesforce_object(
     object_name: str,
     instance_url: str,
     access_token: str,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Describe a Salesforce SObject — returns fields and metadata."""
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
@@ -180,7 +190,7 @@ async def describe_salesforce_object(
 @router.post("/connectors/salesforce/query")
 async def query_salesforce(
     req: SalesforceQueryRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Execute a SOQL query against Salesforce."""
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
@@ -198,7 +208,7 @@ async def query_salesforce(
 @router.post("/connectors/ldap/validate")
 async def validate_ldap(
     req: LDAPValidateRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Test LDAP/Active Directory connectivity by performing a service account bind."""
     from aether_os.core.connectors.ldap_connector import LDAPConnector
@@ -215,7 +225,7 @@ async def validate_ldap(
 @router.post("/connectors/ldap/users")
 async def list_ldap_users(
     req: LDAPListUsersRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> List[Dict[str, Any]]:
     """Search for all user objects in the LDAP/AD directory."""
     from aether_os.core.connectors.ldap_connector import LDAPConnector
@@ -239,7 +249,7 @@ async def list_ldap_users(
 @router.post("/connectors/ldap/authenticate")
 async def authenticate_ldap_user(
     req: LDAPAuthRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Authenticate a user against Active Directory / LDAP."""
     from aether_os.core.connectors.ldap_connector import LDAPConnector

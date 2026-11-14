@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plugins", tags=["plugins"])
@@ -38,6 +39,15 @@ class ConnectorInvokeRequest(BaseModel):
 
 def _auth():
     return Depends(get_current_user)
+
+async def _require_plugin_admin(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Installing, configuring or invoking connectors uses org-wide credentials: admin only."""
+    await enforce("plugin.manage", user)
+    return user
+
+
+def _admin():
+    return Depends(_require_plugin_admin)
 
 
 # ── Catalog ────────────────────────────────────────────────────────────────────
@@ -96,7 +106,7 @@ async def list_installed(
 @router.post("/install")
 async def install_plugin(
     req: InstallRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Install a plugin for this org with the given config."""
     from aether_os.core.plugins.registry import get_plugin_registry
@@ -122,7 +132,7 @@ async def install_plugin(
 @router.delete("/installed/{plugin_id}")
 async def uninstall_plugin(
     plugin_id: str,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, str]:
     """Uninstall a plugin for this org."""
     from aether_os.core.plugins.registry import get_plugin_registry
@@ -136,7 +146,7 @@ async def uninstall_plugin(
 async def update_plugin_config(
     plugin_id: str,
     req: UpdateConfigRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, str]:
     """Update the config (credentials) for an installed plugin."""
     from aether_os.core.plugins.registry import get_plugin_registry
@@ -149,7 +159,7 @@ async def update_plugin_config(
 @router.post("/installed/{plugin_id}/test")
 async def test_plugin_connection(
     plugin_id: str,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Test credentials for an installed plugin by making a real API call."""
     from aether_os.core.plugins.registry import get_plugin_registry
@@ -175,7 +185,7 @@ async def test_plugin_connection(
 @router.post("/connectors/invoke")
 async def invoke_connector(
     req: ConnectorInvokeRequest,
-    user: Dict[str, Any] = _auth(),
+    user: Dict[str, Any] = _admin(),
 ) -> Any:
     """
     Invoke a specific action on an installed connector.
