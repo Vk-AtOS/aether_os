@@ -38,3 +38,72 @@ def test_no_permissions_means_the_default_role_model_not_allow_all(tmp_path, mon
     for ent in ("customers", "invoices"):
         assert r[f"user_list_{ent}"] == 200 and r[f"user_create_{ent}"] == 201, (ent, r)
         assert r[f"user_delete_{ent}"] == 403 and r[f"admin_delete_{ent}"] == 204, (ent, r)
+
+
+def _crm(tmp_path, monkeypatch, **kw):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    return generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch, **kw)[1]
+
+
+def test_sign_up_policy_is_active_and_bcrypt_limits(tmp_path, monkeypatch):
+    # Open self-registration took any password, kept the email case, never looked at is_active (a disabled user
+    # logged in and refreshed forever) and a >72-byte password reached bcrypt (ValueError, HTTP 500).
+    app = _crm(tmp_path, monkeypatch)
+    r = run_script(app, r'''
+import main, asyncio
+from fastapi.testclient import TestClient
+from sqlalchemy import update
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    reg = lambda e, p: c.post("/api/auth/register", json={"email": e, "password": p, "name": "N"})
+    out["short"] = reg("a@x.io", "Short1!").status_code
+    out["long"] = reg("b@x.io", "Aa1!" * 19).status_code            # 76 bytes
+    ok = reg("MiXed@X.io", "Passw0rd!xyz1")
+    out["ok"] = ok.status_code
+    out["dup_other_case"] = reg("mixed@x.IO", "Passw0rd!xyz1").status_code
+    out["login_other_case"] = c.post("/api/auth/login", json={"email": "MIXED@x.io", "password": "Passw0rd!xyz1"}).status_code
+    out["login_long_pw"] = c.post("/api/auth/login", json={"email": "mixed@x.io", "password": "Aa1!" * 40}).status_code
+    refresh = ok.json()["refresh_token"]
+    from database import AsyncSessionLocal
+    from models import User
+    async def disable():
+        async with AsyncSessionLocal() as db:
+            await db.execute(update(User).where(User.email == "mixed@x.io").values(is_active=False)); await db.commit()
+    asyncio.run(disable())
+    out["login_disabled"] = c.post("/api/auth/login", json={"email": "mixed@x.io", "password": "Passw0rd!xyz1"}).status_code
+    out["refresh_disabled"] = c.post("/api/auth/refresh", json={"refresh_token": refresh}).status_code
+''')
+    assert r["short"] == 422 and r["long"] == 422 and r["ok"] == 201, r
+    assert r["dup_other_case"] == 409 and r["login_other_case"] == 200 and r["login_long_pw"] == 401, r
+    assert r["login_disabled"] == 401 and r["refresh_disabled"] == 401, r
+
+
+def test_sign_up_can_be_switched_off(tmp_path, monkeypatch):
+    app = _crm(tmp_path, monkeypatch)
+    r = run_script(app, r'''
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    out["register"] = c.post("/api/auth/register", json={"email": "z@x.io", "password": "Passw0rd!xyz1"}).status_code
+    out["admin_login"] = c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}).status_code
+''', env_extra={"ALLOW_SIGNUP": "false"})
+    assert r == {"register": 403, "admin_login": 200}
+
+
+def test_signing_key_is_private_shared_and_not_regenerated(tmp_path, monkeypatch):
+    # private_key.pem was written 0644 and each replica generated its own, so tokens failed across replicas.
+    app = _crm(tmp_path, monkeypatch)
+    keys = tmp_path / "shared" / "k.pem"
+    body = r'''
+import auth, stat
+out["mode"] = oct(stat.S_IMODE(os.stat(os.environ["RSA_PRIVATE_KEY_PATH"]).st_mode))
+tok = auth.create_access_token(1, "a@b.io", "admin")
+out["tok"] = tok
+'''
+    env = {"RSA_PRIVATE_KEY_PATH": str(keys), "RSA_PUBLIC_KEY_PATH": str(tmp_path / "shared" / "p.pem")}
+    a = run_script(app, body, env)
+    b = run_script(app, body.replace("out[\"tok\"] = tok", "import jwt; out['verified'] = jwt.decode(os.environ['T'], auth._PUBLIC_KEY, algorithms=['RS256'])['sub']"),
+                   {**env, "T": a["tok"]})
+    assert a["mode"] == "0o600" and b["verified"] == "1", (a, b)    # the second process reused the first one's key
+    c = run_script(app, "import auth; out['ok'] = auth._PRIVATE_KEY.key_size",
+                   {"RSA_PRIVATE_KEY_PATH": str(tmp_path / "none" / "x.pem"), "RSA_PRIVATE_KEY": (keys.read_text()).replace("\n", "\\n")})
+    assert c["ok"] == 2048 and not (tmp_path / "none").exists()      # env PEM wins, no file written
