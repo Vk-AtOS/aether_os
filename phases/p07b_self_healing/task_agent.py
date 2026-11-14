@@ -46,6 +46,9 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
     Problem 50 fix: Parse exec validation error output (stdout/stderr from Python
     import/syntax check) to identify the EXACT failing file and line number.
 
+    Only files inside project_dir are returned: a traceback names arbitrary paths
+    (stdlib, site-packages, host files) and the caller overwrites the result.
+
     Priority order:
     1. Python traceback  File "/path/to/file.py", line N  (most precise)
     2. pytest ERROR collecting / FAILED markers
@@ -56,14 +59,14 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
     if traceback_matches:
         # Walk from last to first — skip test files and site-packages
         for candidate_str in reversed(traceback_matches):
-            if "site-packages" in candidate_str or "pytest" in candidate_str:
+            if "site-packages" in candidate_str or "/_pytest/" in candidate_str:
                 continue
             candidate = Path(candidate_str)
             if not candidate.is_absolute():
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            if candidate.exists():
+            if candidate.exists() and candidate.is_relative_to(project_dir.resolve()):
                 logger.debug("[p07b] Traceback identified failing file: %s", candidate)
                 return candidate
 
@@ -87,7 +90,7 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            if candidate.exists():
+            if candidate.exists() and candidate.is_relative_to(project_dir.resolve()):
                 logger.debug("[p07b] Pattern matched failing file: %s", candidate)
                 return candidate
     return None
