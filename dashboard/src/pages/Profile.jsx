@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
+import { appPath } from '../appUrl';
 import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff, ShieldCheck, QrCode, Trash2, AlertTriangle } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
 import { apiError } from '../apiError';
@@ -50,7 +51,7 @@ const Profile = () => {
     try {
       await api.client.delete('/account');
       api.clearToken();
-      window.location.href = '/login';
+      window.location.href = appPath('/login');
     } catch (e) {
       setEraseError(apiError(e) || 'Erasure failed. Please try again.');
       setErasing(false);
@@ -409,9 +410,9 @@ const Profile = () => {
           </div>
 
           <div className="flex gap-4">
-            <a href="/legal?doc=privacy" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Privacy Policy ↗</a>
-            <a href="/legal?doc=tos" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Terms of Service ↗</a>
-            <a href="/legal?doc=dpa" target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">DPA ↗</a>
+            <a href={appPath('/legal?doc=privacy')} target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Privacy Policy ↗</a>
+            <a href={appPath('/legal?doc=tos')} target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">Terms of Service ↗</a>
+            <a href={appPath('/legal?doc=dpa')} target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline">DPA ↗</a>
           </div>
 
           <div className="border-t border-border/50 pt-5 space-y-3">
