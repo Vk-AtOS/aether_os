@@ -20,6 +20,7 @@ from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavai
 from aether_os.core.velaris.identity import identity_for_user
 from aether_os.core.velaris.roles import MAY_ACT
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.routers.velaris_hr_router import HR_ALLOW
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/velaris", tags=["velaris"])
@@ -86,6 +87,14 @@ async def _ledger_after(who: Identity, action: str, outcome: str, detail: Dict[s
         logger.error("velaris %s: result could not be ledgered: %s", action, e)
 
 
+def _served_elsewhere(agent: str, method: str) -> bool:
+    """HR agents are served by /hr with a fixed method list that leaves out erasure and bulk export on
+    purpose. This generic route must not reopen them, so an HR agent is reachable here only for the
+    methods /hr itself allows (KAN-199)."""
+    allowed = HR_ALLOW.get(agent)
+    return allowed is not None and method not in allowed
+
+
 def _reply(status: int, data: Any) -> Any:
     if status >= 400:
         return _safe_error(status if status < 500 else 502, data)
@@ -131,6 +140,8 @@ async def call_agent(agent: str, method: str, body: Optional[Dict[str, Any]] = B
     in the Prime inbox. The method must be on Velaris's own allowlist; Velaris enforces it."""
     if not (_NAME.match(agent) and _NAME.match(method)):
         raise HTTPException(status_code=400, detail="Invalid agent or method name")
+    if _served_elsewhere(agent, method):
+        raise HTTPException(status_code=404, detail="This agent method is not available here")
     who = await _identity(user, acting=True)
     args = body or {}
     status, data = await _forward(who, "agent.call", "POST", f"/agents/{agent}/{method}", body=args,
@@ -148,8 +159,13 @@ async def flows_pending(user: Dict[str, Any] = Depends(get_current_user)) -> Any
 @router.post("/flows")
 async def start_flow(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(get_current_user)) -> Any:
     """Start a model-driven run: {"task": str, "tools": ["AGENT.method", ...]}."""
-    who = await _identity(user, acting=True)
     tools = body.get("tools")
+    # A flow may hand the model any allowlisted tool, so the same exclusion applies to its tool list.
+    if isinstance(tools, list):
+        blocked = sorted(t for t in tools if isinstance(t, str) and "." in t and _served_elsewhere(*t.split(".", 1)))
+        if blocked:
+            raise HTTPException(status_code=400, detail=f"These tools are not available here: {', '.join(blocked[:10])}")
+    who = await _identity(user, acting=True)
     detail = {"tools": sorted(t for t in tools if isinstance(t, str))[:30] if isinstance(tools, list) else None}
     return _reply(*await _forward(who, "flow.start", "POST", "/flows",
                                   body={"task": body.get("task"), "tools": tools}, detail=detail))

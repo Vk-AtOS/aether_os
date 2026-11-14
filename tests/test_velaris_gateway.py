@@ -199,6 +199,21 @@ async def test_names_are_validated(http, velaris):
     assert velaris.seen == []
 
 
+async def test_generic_route_cannot_reopen_what_the_hr_proxy_leaves_out(http, velaris):
+    # KAN-199: erasure and bulk export of employee and candidate data are deliberately not on /hr;
+    # the generic route and flow tools must not reach them either, and Velaris is never called.
+    for agent, method in (("EMPLOYEE_RECORDS", "erase_subject"), ("EMPLOYEE_RECORDS", "export_subject"),
+                          ("ATS_CORE", "erase_candidates"), ("ATS_CORE", "export_candidate")):
+        assert (await http.post(f"/velaris/agents/{agent}/{method}", json={})).status_code == 404
+    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["PAY.get", "EMPLOYEE_RECORDS.erase_subject"]})
+    assert r.status_code == 400 and "EMPLOYEE_RECORDS.erase_subject" in r.json()["detail"]
+    assert velaris.seen == []
+    # an HR method that /hr allows, and an agent /hr does not serve, still pass through to Velaris
+    await http.post("/velaris/agents/EMPLOYEE_RECORDS/get_employee", json={})
+    assert (await http.post("/velaris/agents/PAY/get", json={})).status_code == 200
+    assert [s["path"] for s in velaris.seen] == ["/agents/EMPLOYEE_RECORDS/get_employee", "/agents/PAY/get"]
+
+
 async def test_flows(http, velaris):
     assert (await http.get("/velaris/flows/pending")).json()["approval"] == "prime"
     assert (await http.get("/velaris/flows/run1")).json()["run_id"] == "run1"
