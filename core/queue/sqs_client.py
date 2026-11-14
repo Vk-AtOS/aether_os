@@ -65,6 +65,7 @@ def receive_jobs(max_messages: int = 1, wait_seconds: int = 20) -> List[Dict[str
             MaxNumberOfMessages=max_messages,
             WaitTimeSeconds=wait_seconds,
             MessageAttributeNames=["All"],
+            AttributeNames=["ApproximateReceiveCount"],
             VisibilityTimeout=3600,  # 1 hour — matches pipeline timeout
         )
         messages = response.get("Messages", [])
@@ -77,6 +78,8 @@ def receive_jobs(max_messages: int = 1, wait_seconds: int = 20) -> List[Dict[str
                     "receipt_handle": msg["ReceiptHandle"],
                     "run_id": run_id,
                     "params": body,
+                    "receive_count": int(msg.get("Attributes", {}).get("ApproximateReceiveCount", 1)),
+                    "body": msg["Body"],
                 })
             except Exception as parse_exc:
                 logger.error("SQS message parse error: %s", parse_exc)
@@ -110,3 +113,19 @@ def change_visibility(receipt_handle: str, visibility_timeout: int = 3600) -> No
         )
     except Exception as exc:
         logger.warning("SQS change_visibility failed: %s", exc)
+
+
+def send_to_dlq(body: str, reason: str) -> bool:
+    """Park a poison message in SQS_DLQ_URL (if configured) so it can be inspected; True if parked."""
+    dlq = os.environ.get("SQS_DLQ_URL", "")
+    if not dlq:
+        return False
+    try:
+        _client().send_message(
+            QueueUrl=dlq, MessageBody=body,
+            MessageAttributes={"reason": {"DataType": "String", "StringValue": reason[:200]}},
+        )
+        return True
+    except Exception as exc:
+        logger.error("SQS DLQ send failed: %s", exc)
+        return False

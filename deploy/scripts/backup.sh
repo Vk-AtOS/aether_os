@@ -6,7 +6,7 @@
 #   bash backup.sh
 #
 # Crontab (run at 02:00 UTC daily):
-#   0 2 * * * /opt/aetheros/deploy/scripts/backup.sh >> /var/log/aetheros/backup.log 2>&1
+#   0 2 * * * /home/aether_os/deploy/scripts/backup.sh >> /var/log/aetheros/backup.log 2>&1
 #
 # Env vars (set in /etc/environment or the systemd override):
 #   DATABASE_URL   — full PostgreSQL connection URL
@@ -24,7 +24,7 @@ BACKUP_FILE="$BACKUP_DIR/aetheros_${TIMESTAMP}.dump"
 DB_URL="${DATABASE_URL:-}"
 if [[ -z "$DB_URL" ]]; then
     # Try loading from .env
-    ENV_FILE="/opt/aetheros/.env"
+    ENV_FILE="/home/aether_os/.env"
     if [[ -f "$ENV_FILE" ]]; then
         DB_URL=$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr -d "'")
     fi

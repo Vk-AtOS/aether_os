@@ -59,3 +59,34 @@ def test_wrong_or_superseded_scim_token_is_rejected(gw):
     assert gw.client.get("/scim/v2/Users", headers=_bearer("not-a-token")).status_code == 401
     assert gw.client.get("/scim/v2/Users").status_code == 401
     assert gw.client.get("/scim/v2/Users", headers=_bearer(new)).status_code == 200
+
+
+def test_scim_list_reports_total_not_page_size(gw):
+    a = gw.register("scimtotal")
+    token = gw.client.post("/settings/scim/rotate", headers=a.auth).json()["token"]
+    for i in range(3):
+        r = gw.client.post("/scim/v2/Users", headers=_bearer(token), json={"userName": f"p{i}_{uuid.uuid4().hex[:6]}@test.com"})
+        assert r.status_code == 201, r.text
+    page = gw.client.get("/scim/v2/Users?startIndex=1&count=2", headers=_bearer(token)).json()
+    assert page["totalResults"] == 4 and page["itemsPerPage"] == 2 and len(page["Resources"]) == 2
+
+
+def test_scim_bcrypt_does_not_run_on_the_event_loop(gw, monkeypatch):
+    import asyncio
+    import aether_os.gateway.routers.scim_router as sr
+    a = gw.register("scimthread")
+    token = gw.client.post("/settings/scim/rotate", headers=a.auth).json()["token"]
+    on_loop = []
+    real = sr._bcrypt.checkpw
+
+    def spy(*x):
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(True)
+        except RuntimeError:
+            on_loop.append(False)
+        return real(*x)
+
+    monkeypatch.setattr(sr._bcrypt, "checkpw", spy)
+    assert gw.client.get("/scim/v2/Users", headers=_bearer(token)).status_code == 200
+    assert on_loop and not any(on_loop)

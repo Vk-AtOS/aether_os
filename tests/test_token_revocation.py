@@ -115,3 +115,43 @@ def test_deleted_orgs_api_key_stops_working(gw, redis_sync):
     assert gw.client.get("/billing/status", headers=auth).status_code == 200
     gw.sql("UPDATE organisations SET is_deleted = 1 WHERE id = ?", (s.org_id,))
     assert gw.client.get("/billing/status", headers=auth).status_code == 401
+
+
+def test_liveness_verdict_is_cached_briefly_and_revoke_clears_it(monkeypatch):
+    """A burst on one token costs one Redis round trip; logout on this worker is seen at once."""
+    import asyncio
+    import time as _t
+    import aether_os.gateway.auth_refresh as ar
+
+    class R:
+        calls = 0
+        revoked = False
+
+        async def mget(self, keys):
+            R.calls += 1
+            return [("1" if R.revoked else None)] + [None] * (len(keys) - 1)
+
+        async def set(self, *a, **k):
+            R.revoked = True
+
+    r = R()
+
+    async def red():
+        return r
+
+    monkeypatch.setattr(ar, "_redis", red)
+    ar._verdicts.clear()
+    claims = {"jti": "cj1", "fam": "f", "user_id": "u", "exp": _t.time() + 600}
+
+    async def go():
+        for _ in range(5):
+            await ar.assert_access_token_live(claims)
+        assert R.calls == 1
+        await ar.revoke_session(claims)
+        try:
+            await ar.assert_access_token_live(claims)
+        except Exception as e:
+            return e.status_code
+
+    assert asyncio.run(go()) == 401
+    assert R.calls == 2
