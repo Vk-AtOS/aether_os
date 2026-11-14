@@ -22,6 +22,7 @@ from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
 from aether_os.orchestrator.events import emit as _global_emit
 from aether_os.core.sandbox import phase_exec
+from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
@@ -388,6 +389,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _gov_exc:
             logger.warning("p04_backend governor check failed (non-fatal): %s", _gov_exc)
 
+    except (SandboxUnavailable, PipelineBlockedError):
+        raise  # the run must stop: never downgrade a blocked gate or a missing sandbox to a warning
     except Exception as e:
         logger.warning("p04a_backend_codegen failed: %s", e)
 
@@ -410,11 +413,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     summary_path = output_dir / "consolidated.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
-    any_success = any(v.success for v in results.values())
+    # The backend is the deliverable of this phase: a successful design alone is not success.
+    backend = results.get("backend_codegen")
+    backend_ok = bool(backend and backend.success)
     return TaskResult(
         output_path=str(summary_path),
-        confidence=0.85 if any_success else 0.3,
+        confidence=0.85 if backend_ok else 0.3,
         metadata=summary,
-        success=any_success or bool(results),
-        issues=[] if any_success else ["All sub-tasks failed"],
+        success=backend_ok,
+        issues=[] if backend_ok else ["Backend code generation failed or did not run"],
     )
