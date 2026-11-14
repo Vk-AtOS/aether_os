@@ -267,11 +267,14 @@ async def patch_envvars(
 @router.get("/factory/runs/{run_id}/snapshots")
 async def list_run_snapshots(
     run_id: str,
+    limit: int = 100,
+    offset: int = 0,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """List all code snapshots for a run (versioned file history)."""
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Run, Snapshot
+    from aether_os.core.services.run_service import clamp_limit
     from sqlalchemy import select as _sel
 
     sf = get_session_factory()
@@ -284,6 +287,7 @@ async def list_run_snapshots(
                 _sel(Snapshot)
                 .where(Snapshot.run_id == run_id)
                 .order_by(Snapshot.created_at.desc())
+                .limit(clamp_limit(limit)).offset(max(offset, 0))
             )
         ).scalars().all()
     return {
