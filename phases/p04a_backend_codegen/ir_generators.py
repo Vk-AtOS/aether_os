@@ -41,6 +41,14 @@ from database import Base
 """
 
 
+def _with_decimal(imports: str) -> str:
+    """Add `from decimal import Decimal` after the `from __future__` line: a __future__ import must be the
+    first statement, so putting Decimal first made every money-domain models.py and schemas.py fail to
+    compile (KAN-169)."""
+    future = "from __future__ import annotations\n"
+    return imports.replace(future, future + "from decimal import Decimal\n", 1)
+
+
 def _pluralise(word: str) -> str:
     """English pluralisation for SQLAlchemy table names."""
     w = word.lower()
@@ -193,7 +201,7 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
     # Money domains need Decimal import at module level.
     sa_imports = _SA_IMPORTS
     if _is_money_domain(domain):
-        sa_imports = "from decimal import Decimal\n" + sa_imports
+        sa_imports = _with_decimal(sa_imports)
 
     lines = [sa_imports, ""]
 
@@ -360,7 +368,7 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
     # Inject Decimal import for money domains so generated schemas compile.
     pydantic_imports = _PYDANTIC_IMPORTS
     if _is_money_domain(domain):
-        pydantic_imports = "from decimal import Decimal\n" + pydantic_imports
+        pydantic_imports = _with_decimal(pydantic_imports)
 
     lines = [pydantic_imports, ""]
 
