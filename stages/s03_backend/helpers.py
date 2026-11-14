@@ -11,30 +11,30 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Files that must exist for the generated backend to be considered complete.
-_REQUIRED_FILES = [
-    "src/main.py",
-    "src/models.py",
-    "src/routers/crud.py",
-    "src/seed.py",
-    "src/auth.py",
-]
+# Files that must exist per backend language (relative to the backend root).
+_REQUIRED_FILES_BY_LANG = {
+    "python": ["src/main.py", "src/models.py", "src/routers/crud.py", "src/seed.py", "src/auth.py"],
+    "go": ["main.go", "go.mod"],
+    "typescript": ["package.json", "src/index.ts"],
+}
+_REQUIRED_FILES = _REQUIRED_FILES_BY_LANG["python"]  # kept for importers
+
+
+def detect_backend_lang(root: Path) -> str:
+    """Language of the generated backend, from its marker files (python is the default)."""
+    if (root / "go.mod").is_file() or (root / "main.go").is_file():
+        return "go"
+    if (root / "package.json").is_file() and not (root / "src" / "main.py").is_file():
+        return "typescript"
+    return "python"
 
 
 def validate_backend_output(output_path: str) -> list[str]:
     """Return a list of required files that are missing from *output_path*.
 
-    Checks for the canonical FastAPI project layout produced by p04_backend /
-    p04a_backend_codegen.  An empty list means the backend is structurally
-    complete.
-
-    Args:
-        output_path: Absolute path to the backend output directory
-                     (the directory that contains ``src/``).
-
-    Returns:
-        List of relative file paths (e.g. ``"src/main.py"``) that are absent.
-        Empty list when all required files exist.
+    The required set depends on the backend language (FastAPI, Go or TypeScript),
+    detected from the generated files; an empty list means the backend is
+    structurally complete. An absent or non-directory path reports the Python set.
     """
     if not output_path:
         return list(_REQUIRED_FILES)
@@ -44,11 +44,8 @@ def validate_backend_output(output_path: str) -> list[str]:
         logger.warning("validate_backend_output: path does not exist or is not a dir: %s", output_path)
         return list(_REQUIRED_FILES)
 
-    missing: list[str] = []
-    for rel in _REQUIRED_FILES:
-        if not (root / rel).is_file():
-            missing.append(rel)
-
+    required = _REQUIRED_FILES_BY_LANG[detect_backend_lang(root)]
+    missing = [rel for rel in required if not (root / rel).is_file()]
     if missing:
         logger.debug("validate_backend_output: %d missing file(s): %s", len(missing), missing)
     return missing
