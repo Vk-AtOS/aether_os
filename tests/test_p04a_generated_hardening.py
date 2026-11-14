@@ -347,3 +347,34 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
 ''')
     assert r["admin_list"] == 200 and r["create"] == 201 and r["admin_sees"] >= 2 and r["register"] == 201, r
     assert r["t2_sees"] == 0 and r["t2_reads_mine"] == 404, r
+
+
+def test_ir_seed_uses_real_foreign_keys_and_unique_strings(tmp_path, monkeypatch):
+    # The seed wrote customer_id = (row % 3) + 1 whether or not such a parent existed (a foreign-key violation on
+    # PostgreSQL; SQLite does not enforce it unless asked) and gave a UNIQUE string column the same value from row 11
+    # on (ten-entry value lists, twenty rows). Foreign keys are enforced here with PRAGMA foreign_keys=ON.
+    ents = [{"name": "Customer", "table": "customers", "fields": [
+                {"name": "name", "type": "string", "nullable": False},
+                {"name": "code", "type": "string", "unique": True}]},
+            {"name": "Task", "table": "tasks", "fields": [
+                {"name": "title", "type": "string"},
+                {"name": "customer_id", "type": "fk", "ref_entity": "Customer"},
+                {"name": "owner_id", "type": "fk", "ref_entity": "User"},
+                {"name": "parent_id", "type": "fk", "ref_entity": "Task"}]}]
+    app = _crm(tmp_path, monkeypatch, ir_override=_ir_with(entities=ents, business_rules=[], permissions=[]))
+    r = run_script(app, r'''
+from sqlalchemy import event, text
+import database
+@event.listens_for(database.engine.sync_engine, "connect")
+def _fk_on(conn, _rec): conn.execute("PRAGMA foreign_keys=ON")
+import main, asyncio
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    async def count():
+        async with database.AsyncSessionLocal() as db:
+            n = (await db.execute(text("select count(*), count(distinct code) from customers"))).one()
+            t = (await db.execute(text("select count(*), count(owner_id), count(customer_id), count(parent_id) from tasks"))).one()
+            return list(n) + list(t)
+    out["counts"] = asyncio.run(count())
+''')
+    assert r["counts"] == [20, 20, 20, 20, 20, 0], r
