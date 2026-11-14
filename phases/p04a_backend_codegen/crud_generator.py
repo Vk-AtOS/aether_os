@@ -10,6 +10,7 @@ import logging
 import re
 from typing import Dict, List, Tuple
 
+from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import DEFAULT_ROLE_MODEL
 from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
 from phases.p04a_backend_codegen.prompts import build_crud_prompt, build_seed_prompt
 
@@ -335,11 +336,9 @@ def _get_roles_for_action(entity_name: str, action: str, perm_model: dict | None
     Returns a sorted, deduplicated list of role names that have the action permitted,
     or None when no permission model is present so callers fall back to get_current_user.
     """
-    if not perm_model:
-        return None
-    permissions: dict = perm_model.get("permissions", {})
+    permissions: dict = (perm_model or {}).get("permissions", {})
     if not permissions:
-        return None
+        return list(DEFAULT_ROLE_MODEL[action]) if action in DEFAULT_ROLE_MODEL else ["admin"]   # decision D1
     allowed: list = []
     for role_name, resources in permissions.items():
         if not isinstance(resources, dict):
