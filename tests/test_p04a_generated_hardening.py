@@ -254,3 +254,28 @@ def test_alembic_env_sees_the_apps_tables(tmp_path, monkeypatch):
     assert p.returncode == 0, p.stderr[-1500:]
     rev = next((app / "alembic" / "versions").glob("*.py")).read_text()
     assert "create_table('customers'" in rev and "create_table('invoices'" in rev, rev[:600]
+
+
+@pytest.mark.parametrize("domain", ["fintech", "healthcare"])
+def test_pipelines_are_generated_gated_and_never_report_success_for_stubs(tmp_path, monkeypatch, domain):
+    # generate_pipeline_code read step.service_required, which the ProcessStep class that is actually in use
+    # does not have: AttributeError, no pipelines for fintech and healthcare. The trigger routes then answered 202
+    # to any signed-in user while the stub service "succeeded" without doing anything.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    app = generate(tmp_path, domain=domain, use_ir=True, monkeypatch=monkeypatch)[1]
+    router = (app / "src" / "routers" / "pipeline_events.py")
+    assert router.exists(), "pipeline generation failed"
+    import re
+    path = "/api/pipeline-events/" + re.search(r'@router.post\("/([^"]+)"\)', router.read_text()).group(1)
+    r = run_script(app, f'''
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    h = lambda t: {{"Authorization": "Bearer " + t}}
+    user = c.post("/api/auth/register", json={{"email": "p@x.io", "password": "Passw0rd!xyz1"}}).json()["access_token"]
+    adm = c.post("/api/auth/login", json={{"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}}).json()["access_token"]
+    out["anon"] = c.post("{path}", json={{}}).status_code
+    out["user"] = c.post("{path}", json={{}}, headers=h(user)).status_code
+    out["admin"] = c.post("{path}", json={{}}, headers=h(adm)).status_code
+''')
+    assert r == {"anon": 401, "user": 403, "admin": 501}, r
