@@ -61,7 +61,7 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
     _smoke_test,
 )
 from aether_os.phases.p04a_backend_codegen.helpers_cache import _generate_cache_service
-from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports
+from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports, safe_project_name
 from aether_os.phases.p04a_backend_codegen.pattern_injector import detect_active_patterns, inject_patterns
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     _emit = getattr(phase_input, "emit", _noop_emit)
 
     raw_input: str = data.get("raw_input", "") or data.get("requirements", "") or ""
-    project_name: str = data.get("project_name", "App")
+    project_name: str = safe_project_name(data.get("project_name", "App"))
     domain: str = data.get("domain", "general")
     entities: list = data.get("entities", [])
     api_endpoints: list = data.get("api_endpoints", [])
@@ -322,6 +322,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "DEBUG=false\n"
         "ADMIN_PASSWORD={admin}\n"
         "# REDIS_URL=redis://localhost:6379  # Uncomment to enable response caching\n"
+        "# ALLOW_SIGNUP=true                 # false = invite-only\n"
+        "# ENABLE_DOCS=false                 # true keeps /docs and /openapi.json when ENVIRONMENT=production\n"
+        "# JWT signing key: with several replicas every one must share it (same volume file, or PEM text in RSA_PRIVATE_KEY)\n"
+        "# RSA_PRIVATE_KEY_PATH=/keys/private_key.pem\n"
         "# CACHE_TTL=30                      # Cache time-to-live in seconds\n"
     )
     # .env holds this app's own random secrets; .env.example is the committed copy and holds placeholders only.

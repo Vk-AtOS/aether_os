@@ -153,15 +153,19 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/appdb
-      SECRET_KEY: ${SECRET_KEY:-changeme-set-in-env}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      RSA_PRIVATE_KEY_PATH: /keys/private_key.pem
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       ENVIRONMENT: production
+    volumes:
+      - keys:/keys       # the JWT signing key, shared by every replica of the app
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  keys:
 """
 
 _CONFIG_PY = '''\
