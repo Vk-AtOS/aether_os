@@ -168,6 +168,7 @@ async def scim_create_user(
             email=email,
             password_hash=get_password_hash(_sec.token_urlsafe(24)),
             role="member",
+            email_verified=True,  # provisioned by the org's IdP/admin; no password login exists
         )
         session.add(new_user)
         await session.commit()

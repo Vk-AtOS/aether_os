@@ -91,6 +91,18 @@ def _redirect_with_token(token: str) -> RedirectResponse:
     )
 
 
+def _signin_redirect(user, org) -> RedirectResponse:
+    """Token redirect, or a pending-MFA token when the account has MFA enabled."""
+    if getattr(user, "mfa_enabled", False):
+        from aether_os.gateway.auth import create_access_token
+        mfa_token = create_access_token({"mfa_pending": True, "user_id": user.id}, expires_hours=1)
+        return RedirectResponse(
+            url=f"{_frontend_url()}/auth/callback?mfa_required=1&mfa_token={urllib.parse.quote(mfa_token)}",
+            status_code=302,
+        )
+    return _redirect_with_token(_make_jwt(user, org))
+
+
 def _redirect_with_error(message: str) -> RedirectResponse:
     return RedirectResponse(
         url=f"{_frontend_url()}/login?error={urllib.parse.quote(message)}",
@@ -116,6 +128,12 @@ async def _upsert_oauth_user(email: str):
         ).fetchone()
         if row:
             user, org = row
+            if not user.email_verified:
+                # The IdP proved ownership of this address. Rotate the password so
+                # whoever pre-registered it unverified cannot keep a way in.
+                user.email_verified = True
+                user.password_hash = get_password_hash(secrets.token_urlsafe(32))
+                await session.commit()
         else:
             handle = email.split("@")[0].lower().replace(".", "-")
             slug = f"{handle}-{secrets.token_hex(3)}"
@@ -132,6 +150,7 @@ async def _upsert_oauth_user(email: str):
                 email=email,
                 password_hash=get_password_hash(secrets.token_urlsafe(32)),
                 role="owner",
+                email_verified=True,
             )
             session.add(user)
             await session.commit()
@@ -222,7 +241,7 @@ async def google_callback(
             return _redirect_with_error("Google account email is not verified")
 
         user, org = await _upsert_oauth_user(email=email)
-        return _redirect_with_token(_make_jwt(user, org))
+        return _signin_redirect(user, org)
     except Exception as exc:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("Google OAuth callback failed")
@@ -306,7 +325,7 @@ async def github_callback(
             return _redirect_with_error("GitHub did not return a verified email address")
 
         user, org = await _upsert_oauth_user(email=email)
-        return _redirect_with_token(_make_jwt(user, org))
+        return _signin_redirect(user, org)
     except Exception as exc:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("GitHub OAuth callback failed")
