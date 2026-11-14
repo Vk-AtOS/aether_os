@@ -20,8 +20,9 @@ def _fallback_seed(
     entities: list,
     seed_vocabulary: Dict[str, List[str]] | None = None,
     domain: str = "general",
+    multi_tenancy: bool = False,
 ) -> str:
-    """Generate a minimal seed.py that creates an admin user.
+    """Generate a minimal seed.py that creates an admin user (and org_id='default' on every row when multi_tenancy).
 
     When seed_vocabulary contains domain-specific terms and entities has records,
     those terms are used to produce more realistic seed record names rather than the
@@ -110,6 +111,8 @@ def _fallback_seed(
                         kwargs.append(f"{fn}='active'")        # NOT NULL in the model and allowed by its CHECK
                     elif fn == "title":
                         kwargs.append(f"{fn}={repr(f'{name} {i + 1}')}")
+                if multi_tenancy:
+                    kwargs.append("org_id='default'")
                 rows_parts.append(f"            {name}({', '.join(kwargs)}),")
             rows = "\n".join(rows_parts)
             entity_blocks.append(
@@ -157,14 +160,15 @@ def _fallback_seed(
                     email="admin@example.com",
                     password_hash=get_password_hash(_admin_password()),
                     role="admin",
-                    is_active=True,
+                    is_active=True,__ADMIN_ORG__
                 )
                 db.add(admin)
                 # the admin is committed first: a failing demo row must never take the admin account with it
                 await db.commit()
                 __ENTITY_SEED__
                 _logger.info("Seeded admin user admin@example.com")
-    """).replace("        __ENTITY_SEED__", entity_seed_code.rstrip("\n"))
+    """).replace("        __ENTITY_SEED__", entity_seed_code.rstrip("\n")).replace(
+        "__ADMIN_ORG__", "\n                    org_id='default'," if multi_tenancy else "")
     # The entity blocks are already indented for the function body (8 spaces). They used to be pasted into the
     # template before textwrap.dedent, which stripped 8 spaces from all but the first line and left an
     # IndentationError, so every fallback seed was replaced by an empty one: no admin, no data (KAN-169).

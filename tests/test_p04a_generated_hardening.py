@@ -314,3 +314,36 @@ def test_gate_fails_on_missing_files_and_broken_code(tmp_path, monkeypatch):
     assert not bad.passed
     text = " ".join(bad.issues)
     assert "models.py does not compile" in text and "seed.py is missing" in text and "extra.py imports" in text
+
+
+def test_fallback_generator_isolates_tenants_too(tmp_path, monkeypatch):
+    # The IR path had org_id columns; the fallback generator's CRUD filtered on models.X.org_id but its models and seed
+    # had no such column (AttributeError on the first request).
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    app = generate(tmp_path, domain="crm", tenancy=True, use_ir=False, monkeypatch=monkeypatch)[1]
+    assert "org_id" in (app / "src" / "models.py").read_text()
+    r = run_script(app, r'''
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    tok = lambda r: {"Authorization": "Bearer " + r.json()["access_token"]}
+    admin = tok(c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}))
+    out["admin_list"] = c.get("/api/customers", headers=admin).status_code
+    out["admin_sees"] = len(c.get("/api/customers", headers=admin).json().get("items", []))
+    r = c.post("/api/customers", headers=admin, json={"name": "Mine", "email": "m@x.io", "status": "active"}); out["create"] = r.status_code
+    mine = r.json().get("id")
+    import asyncio
+    from sqlalchemy import update
+    from database import AsyncSessionLocal
+    from models import User
+    reg = c.post("/api/auth/register", json={"email": "t2@x.io", "password": "Passw0rd!xyz1"}); out["register"] = reg.status_code
+    async def promote():
+        async with AsyncSessionLocal() as db:
+            await db.execute(update(User).where(User.email == "t2@x.io").values(role="admin")); await db.commit()
+    asyncio.run(promote())
+    t2 = tok(c.post("/api/auth/login", json={"email": "t2@x.io", "password": "Passw0rd!xyz1"}))
+    out["t2_sees"] = len(c.get("/api/customers", headers=t2).json().get("items", []))
+    out["t2_reads_mine"] = c.get(f"/api/customers/{mine}", headers=t2).status_code
+''')
+    assert r["admin_list"] == 200 and r["create"] == 201 and r["admin_sees"] >= 2 and r["register"] == 201, r
+    assert r["t2_sees"] == 0 and r["t2_reads_mine"] == 404, r
