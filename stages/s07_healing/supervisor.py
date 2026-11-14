@@ -32,6 +32,7 @@ CRITICAL: No — pipeline continues even if healing fails (handoff includes fail
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
@@ -101,6 +102,7 @@ class HealingStageSupervisor(PhaseBase):
                 output_path=str(output_dir),
                 metadata={
                     "skipped": True,
+                    "live_test_results": {"skipped": True, "reason": "live tests not run: already healed via gate hook"},
                     "healing_passed": True,
                     "repairs_applied": [],
                     "error_patterns": [],
@@ -125,7 +127,10 @@ class HealingStageSupervisor(PhaseBase):
         #   - MAX_ATTEMPTS=5 repair loop (LLM → deterministic fallback)
         #   - QualityMonitor L1–L4 probe (startup, auth, CRUD, seed data)
         #   - ErrorRegistry recording + RepairLearning events
-        result = await heal_run(phase_input, memory_ctx, output_dir)
+        async def _live_hook(port: int) -> Dict[str, Any]:
+            return await _run_live_tests(phase_input, memory_ctx, output_dir, port)
+
+        result = await heal_run(phase_input, memory_ctx, output_dir, live_hook=_live_hook)
 
         # ── Post-heal: run static validators to surface structural violations ──
         # This is additive — it never overwrites the repair result, only appends
@@ -189,57 +194,14 @@ class HealingStageSupervisor(PhaseBase):
         })
 
         # ── Post-heal live tests (perf + a11y + E2E) ─────────────────────────
-        # These were deferred from Stage 6 because they need a running app.
-        # Run them now only if the app is confirmed healthy (L1 passed).
-        _input_data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
-        _backend_port = _meta.get("backend_port") or _input_data.get("backend_port")
-        _frontend_url = _meta.get("frontend_url") or _input_data.get("frontend_url")
-        _l1_passed = _meta.get("quality_probe", {}).get("l1_passed", False)
-
-        if _l1_passed and (_backend_port or _frontend_url):
-            try:
-                from aether_os.stages.s06_testing.supervisor import LIVE_TEST_PHASES, _consolidate_results
-                _live_dir = output_dir / "live_tests"
-                _live_dir.mkdir(exist_ok=True)
-
-                async def _run_live(key: str, module_path: str, fn_name: str) -> TaskResult:
-                    import importlib
-                    mod = importlib.import_module(module_path)
-                    fn = getattr(mod, fn_name)
-                    sub_dir = _live_dir / key
-                    sub_dir.mkdir(exist_ok=True)
-                    return await asyncio.wait_for(fn(phase_input, memory_ctx, sub_dir), timeout=150.0)
-
-                _live_raw = await asyncio.gather(
-                    *[_run_live(k, m, f) for k, m, f in LIVE_TEST_PHASES],
-                    return_exceptions=True,
-                )
-                _live_results: dict = {}
-                _live_issues: list = []
-                for (key, _, _), outcome in zip(LIVE_TEST_PHASES, _live_raw):
-                    if isinstance(outcome, Exception):
-                        logger.warning("s07: live test %s failed (non-critical): %s", key, outcome)
-                        _live_issues.append(f"{key}: {outcome}")
-                    else:
-                        _live_results[key] = outcome
-                        logger.info("s07: live test %s done — success=%s", key, outcome.success)
-
-                _live_consolidated = _consolidate_results(_live_results, _live_issues)
-                result.metadata["live_test_results"] = _live_consolidated
-                logger.info(
-                    "s07_healing: live tests complete — flag=%s perf=%s a11y=%s e2e=%s",
-                    _live_consolidated.get("test_quality_flag"),
-                    "perf" in _live_results,
-                    "accessibility_testing" in _live_results,
-                    "e2e_testing" in _live_results,
-                )
-            except Exception as exc:
-                logger.warning("s07_healing: live test pass failed (non-critical): %s", exc)
-        else:
-            logger.info(
-                "s07_healing: skipping live tests (l1_passed=%s, port=%s, url=%s)",
-                _l1_passed, _backend_port, _frontend_url,
-            )
+        # They ran inside the probe (the app only lives there); record why if not.
+        _qp = _meta.get("quality_probe") or {}
+        _live = _qp.get("live_tests")
+        if _live is None:
+            _why = (_qp.get("reason") or "app not healthy (L1 failed)") if not _qp.get("l1_passed") else "no live tests"
+            _live = {"skipped": True, "reason": f"live tests not run: {_why}"}
+            logger.info("s07_healing: %s", _live["reason"])
+        result.metadata["live_test_results"] = _live
 
         return result
 
@@ -256,6 +218,38 @@ class HealingStageSupervisor(PhaseBase):
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
+
+
+async def _run_live_tests(phase_input: Any, memory_ctx: List[Dict], output_dir: Path,
+                          port: int) -> Dict[str, Any]:
+    """Run perf + a11y + E2E against the live probe app on `port`; return the consolidated dict."""
+    import importlib
+
+    from aether_os.stages.s06_testing.supervisor import LIVE_TEST_PHASES, _consolidate_results
+
+    live_input = phase_input.model_copy(update={
+        "input_data": {**(phase_input.input_data or {}), "backend_port": port},
+    })
+    live_dir = output_dir / "live_tests"
+    live_dir.mkdir(exist_ok=True)
+
+    async def _one(key: str, module_path: str, fn_name: str) -> TaskResult:
+        fn = getattr(importlib.import_module(module_path), fn_name)
+        sub = live_dir / key
+        sub.mkdir(exist_ok=True)
+        return await asyncio.wait_for(fn(live_input, memory_ctx, sub), timeout=150.0)
+
+    raw = await asyncio.gather(*[_one(*t) for t in LIVE_TEST_PHASES], return_exceptions=True)
+    results: Dict[str, Any] = {}
+    issues: List[str] = []
+    for (key, _, _), outcome in zip(LIVE_TEST_PHASES, raw):
+        if isinstance(outcome, BaseException):
+            logger.warning("s07: live test %s failed (non-critical): %s", key, outcome)
+            issues.append(f"{key}: {outcome}")
+        else:
+            results[key] = outcome
+    # json round-trip: the dict is dumped into self_healing.json by the healer
+    return json.loads(json.dumps(_consolidate_results(results, issues), default=str))
 
 
 def _build_repairs_list(meta: Dict[str, Any]) -> List[str]:
