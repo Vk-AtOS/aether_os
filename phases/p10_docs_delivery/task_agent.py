@@ -397,20 +397,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as exc:
         logger.warning("[p10] client_portal failed (non-critical): %s", exc)
 
-    # Sub-task 3: Change requests (optional phase, graceful if absent)
-    try:
-        from aether_os.phases.p15_change_requests.task_agent import run as cr_run  # type: ignore[import]
-        sub_dir = output_dir / "change_requests"
-        r = await asyncio.wait_for(cr_run(phase_input, memory_ctx, sub_dir), timeout=_SUBTASK_TIMEOUT)
-        results["change_requests"] = r
-        logger.info("[p10] change_requests: %s", r.output_path)
-    except ImportError:
-        pass  # p15 is optional
-    except asyncio.TimeoutError:
-        logger.warning("[p10] change_requests timed out after %.0fs", _SUBTASK_TIMEOUT)
-    except Exception as exc:
-        logger.warning("[p10] change_requests failed (non-critical): %s", exc)
-
     # Problem 70: check for docs at the canonical paths under p10_docs_delivery/docs/
     docs_dir = output_dir / "docs"
     _p70_issues = []

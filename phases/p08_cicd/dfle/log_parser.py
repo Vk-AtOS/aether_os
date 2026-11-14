@@ -33,8 +33,9 @@ class StackTrace:
 
     @property
     def top_frame(self) -> StackFrame | None:
-        """First frame (entry point / failure location)."""
-        return self.frames[0] if self.frames else None
+        """Frame where the exception was raised: Python prints "most recent call last", so it is
+        the LAST frame (the first one is only the entry point, e.g. the test runner)."""
+        return self.frames[-1] if self.frames else None
 
     @property
     def failure_site(self) -> str | None:

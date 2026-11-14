@@ -7,6 +7,8 @@ No LLM involvement — pure deterministic output.
 from __future__ import annotations
 from pathlib import Path
 
+from aether_os.phases.p04a_backend_codegen.pre_gen_validator import safe_project_name
+
 # ── Application entry-point template ──────────────────────────────────────────
 
 _MAIN_PY_TEMPLATE = '''\
@@ -45,6 +47,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from database import engine, Base
@@ -82,13 +85,18 @@ async def lifespan(app: FastAPI):
     logger.info("{PROJECT_NAME} API shutting down")
 
 
+# The interactive docs list every route and schema: off in production unless ENABLE_DOCS=true.
+_docs_on = (os.environ.get("ENABLE_DOCS", "").lower() in ("1", "true", "yes")
+            or os.environ.get("ENVIRONMENT", "development").lower() != "production")
+
 app = FastAPI(
     title="{PROJECT_NAME} API",
     version="1.0.0",
     description="Auto-generated production backend by AetherOS",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
     root_path=os.environ.get("ROOT_PATH", ""),
 )
 
@@ -142,6 +150,14 @@ async def request_id_middleware(request: Request, call_next):
     return response
 
 
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    # A NOT NULL / UNIQUE / FOREIGN KEY violation is the caller's data, not a server fault: 409, not 500.
+    logger.warning("Integrity error %s %s: %s", request.method, request.url.path, exc.orig)
+    return JSONResponse(status_code=status.HTTP_409_CONFLICT,
+                        content={"detail": "The data conflicts with an existing record or a required field is missing"})
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled %s %s: %s", request.method, request.url.path, exc, exc_info=True)
@@ -175,13 +191,13 @@ async def ready():
             await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
         return {"status": "ready", "db": "ok"}
     except Exception as exc:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=503, content={"status": "not_ready", "db": str(exc)})
+        logger.warning("readiness check failed: %s", exc)      # the detail stays in the log, not in the response
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
 
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return {"message": "{PROJECT_NAME} API", "docs": "/docs"}
+    return {"message": "{PROJECT_NAME} API"}
 '''
 
 _ROUTERS_INIT_PY = "from .crud import all_routers\n\n__all__ = ['all_routers']\n"
@@ -196,6 +212,7 @@ psycopg2-binary>=2.9.0
 alembic>=1.13.0
 pydantic[email]>=2.0.0
 PyJWT>=2.8.0
+cryptography>=42.0.0
 bcrypt>=4.0.0
 python-multipart>=0.0.9
 httpx>=0.27.0
@@ -209,10 +226,13 @@ prometheus-fastapi-instrumentator>=0.9.0
 _DOCKERFILE = """\
 FROM python:3.11-slim
 WORKDIR /app
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+# the app runs as an unprivileged user; /app and /keys are the only places it writes (SQLite file, signing key)
+RUN useradd --system --uid 10001 --no-create-home app && mkdir -p /keys && chown app /keys
+COPY --chown=app . .
+USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \\
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
@@ -256,9 +276,11 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 import os, sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from src.database import Base
-from src import models  # noqa: F401 — ensures all models are registered
+# The app imports its modules as `database` / `models` with src/ on sys.path. Importing them as `src.database`
+# made a second module (and a second, empty Base), so autogenerate saw no tables.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+from database import Base
+import models  # noqa: F401 — ensures all models are registered
 
 config = context.config
 if config.config_file_name is not None:
@@ -328,13 +350,13 @@ def _build_main_py(project_name: str, routers_have_all_routers: bool) -> str:
     else:
         router_imports = "# No CRUD routers"
         router_includes = ""
-    return _MAIN_PY_TEMPLATE.replace("{PROJECT_NAME}", project_name).replace(
+    return _MAIN_PY_TEMPLATE.replace("{PROJECT_NAME}", safe_project_name(project_name)).replace(
         "{ROUTER_IMPORTS}", router_imports
     ).replace("{ROUTER_INCLUDES}", router_includes)
 
 
 def _generate_makefile(project_name: str) -> str:
-    slug = project_name.lower().replace(" ", "-")
+    slug = safe_project_name(project_name).lower().replace(" ", "-")
     return f"""\
 .PHONY: dev test lint migrate seed install clean
 
@@ -370,6 +392,7 @@ clean:
 
 
 def _generate_backend_readme(project_name: str, entities: list) -> str:
+    project_name = safe_project_name(project_name)
     entity_list = "\n".join(
         f"- {e.get('name', e.get('table', ''))} — `/api/{e.get('table', '')}`"
         for e in entities[:10]
@@ -407,9 +430,13 @@ GET  /api/auth/me        — current user (requires Bearer token)
 | Variable | Default | Description |
 |---|---|---|
 | DATABASE_URL | sqlite+aiosqlite:///./app.db | DB connection |
-| SECRET_KEY | change-me | JWT signing key |
-| CORS_ORIGINS | * | Comma-separated allowed origins |
-| ENVIRONMENT | development | development / production |
+| CORS_ORIGINS | localhost dev origins | Comma-separated allowed origins |
+| ENVIRONMENT | development | development / production (production turns /docs and /openapi.json off) |
+| ENABLE_DOCS | false | true keeps /docs in production |
+| ALLOW_SIGNUP | true | false = invite-only (only the seeded admin creates users) |
+| RSA_PRIVATE_KEY_PATH | private_key.pem | JWT signing key file (created 0600). All replicas must share it |
+| RSA_PRIVATE_KEY | | PEM text of the signing key (alternative to the file, for a secret manager) |
+| REDIS_URL | | Enables response caching |
 
 ## Tests
 

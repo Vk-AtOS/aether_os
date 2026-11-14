@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import json
 import logging
+import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p21_sre_agent.k8s_api_src import K8S_API_SRC
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +47,18 @@ _DOMAIN_PATTERNS: Dict[str, str] = {
 
 
 def _build_cronjob_yaml(app_name: str, namespace: str, domain: str) -> str:
-    """Return a Kubernetes CronJob YAML string for the SRE agent."""
+    """Return a Kubernetes CronJob YAML string for the SRE agent (with the ConfigMap it mounts)."""
+    script = textwrap.indent(_build_classifier_script(app_name, domain), "    ")
     return f"""\
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {app_name}-sre-scripts
+  namespace: {namespace}
+data:
+  sre_failure_classifier.py: |
+{script}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -79,6 +91,8 @@ spec:
               value: "http://prometheus:9090"
             - name: APP_NAME
               value: "{app_name}"
+            - name: NAMESPACE
+              value: "{namespace}"
             - name: DOMAIN
               value: "{domain}"
             - name: PAGERDUTY_KEY
@@ -142,8 +156,9 @@ Domain: {domain}
 \"\"\"
 import os
 import requests
-import subprocess
 import logging
+
+{K8S_API_SRC}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("{app_name}-sre")
@@ -188,22 +203,13 @@ def query_prometheus(prom_query: str) -> list:
 
 
 def apply_remediation(failure_name: str, command: str) -> bool:
-    \"\"\"Run a kubectl remediation command. Returns True on success.\"\"\"
+    \"\"\"Run a pre-approved remediation via the Kubernetes API. Returns True on success.\"\"\"
     try:
-        result = subprocess.run(
-            command.split(),
-            check=True,
-            timeout=60,
-            capture_output=True,
-            text=True,
-        )
-        logger.info("Remediation applied for %s: %s", failure_name, result.stdout.strip())
+        run_remediation(command)
+        logger.info("Remediation applied for %s: %s", failure_name, command)
         return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("Remediation command failed for %s: %s", failure_name, exc.stderr.strip())
-        return False
     except Exception as exc:
-        logger.error("Unexpected error applying remediation for %s: %s", failure_name, exc)
+        logger.error("Remediation failed for %s: %s", failure_name, exc)
         return False
 
 

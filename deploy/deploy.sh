@@ -3,7 +3,7 @@
 # AetherOS — Zero-downtime deploy script (run on the VPS after setup_vps.sh)
 #
 # Usage:
-#   cd /opt/aetheros
+#   cd /home/aether_os
 #   bash deploy/deploy.sh [--domain app.example.com]
 #
 # First-time deploy:
@@ -43,29 +43,20 @@ echo "→ Installing Python dependencies..."
 echo "→ Installing aether_os package (editable)..."
 "$VENV/pip" install -q -e "$INSTALL_DIR"
 
-# 4. Run database migrations
-# AetherOS has two Alembic heads — do NOT use "alembic upgrade head" (fails with
-# "Multiple heads are present").  Run the main head first, then the field-
-# encryption head only when AETHER_FIELD_KEY is configured.
-echo "→ Running database migrations (main head)..."
+# 4. Run database migrations. There is a single Alembic head: always upgrade to it
+#    (this includes the ledger and field-encryption migrations; the latter needs
+#    AETHER_FIELD_KEY in the environment). A failed migration must stop the deploy.
+echo "→ Running database migrations..."
 cd "$INSTALL_DIR"
-"$VENV/python" -m alembic upgrade revision_merge_guardian_heads \
-    || echo "⚠ Alembic not configured yet — skipping migrations"
-
-if [[ -n "${AETHER_FIELD_KEY:-}" ]]; then
-    echo "→ Running field-encryption migration (AETHER_FIELD_KEY is set)..."
-    "$VENV/python" -m alembic upgrade encrypt_sensitive_columns \
-        || echo "⚠ Field-encryption migration failed — check AETHER_FIELD_KEY"
-else
-    echo "→ Skipping field-encryption migration (AETHER_FIELD_KEY not set)"
-fi
+set -a; [[ -f "$INSTALL_DIR/.env" ]] && . "$INSTALL_DIR/.env"; set +a
+"$VENV/python" -m alembic upgrade head
 
 # 5. Configure nginx domain (first deploy or when --domain is passed)
 if [[ -n "$DOMAIN" ]]; then
     echo "→ Configuring nginx domain: $DOMAIN"
     NGINX_CONF=/etc/nginx/sites-available/aetheros
     if [[ -f "$NGINX_CONF" ]]; then
-        sed -i "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" "$NGINX_CONF"
+        sed -i -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/${PREVIEW_DOMAIN:-preview.$DOMAIN}/g" "$NGINX_CONF"
         ln -sfn "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
         nginx -t && systemctl reload nginx || echo "⚠ nginx reload failed — check config"
     fi

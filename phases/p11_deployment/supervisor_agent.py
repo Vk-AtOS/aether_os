@@ -23,7 +23,9 @@ class DeploymentSupervisor(PhaseBase):
         return TaskResult(
             output_path=result.get("output_file", str(output_dir)),
             confidence=0.9 if result.get("success") else 0.4,
-            success=result.get("success", False) or result.get("skipped", False),
+            # a skip is a success only when the agent says so (Docker absent); "success": False +
+            # "skipped": True is a failed deploy (no main.py, frontend build failed)
+            success=bool(result.get("success", False)),
             metadata=result,
         )
 

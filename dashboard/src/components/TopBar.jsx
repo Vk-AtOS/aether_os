@@ -308,7 +308,7 @@ const TopBar = ({ activeRunCount = 0 }) => {
           <NotificationBell />
 
           <button
-            onClick={() => { api.logout?.(); api.clearToken?.(); navigate('/login'); }}
+            onClick={async () => { await api.logout(); navigate('/login'); }}
             aria-label="Sign out of AetherOS"
             className="text-slate-500 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-red-500/[0.06]"
           >

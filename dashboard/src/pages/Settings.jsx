@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api';
+import { appPath } from '../appUrl';
 import StorageWidget from '../components/StorageWidget';
 import { useSettings } from '../contexts/useSettings';
 
@@ -12,8 +13,10 @@ import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components
 import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
 import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 import { apiError } from '../apiError';
+import { useRole } from '../hooks/useRole';
 
 const Settings = () => {
+  const { isAdmin } = useRole(); // the server enforces it too; this only greys out org-wide controls
   const { orgName, updateLlmConfig: ctxUpdateLlmConfig, reload: ctxReload } = useSettings();
   const location = useLocation();
   const ssoRef = useRef(null);
@@ -421,8 +424,8 @@ const Settings = () => {
   const handleDeleteOrg = async () => {
     setDeleteOrgStatus('deleting');
     try {
-      await api.client.delete('/account/org');
-      setTimeout(() => { api.clearToken(); window.location.href = '/login'; }, 2000);
+      await api.deleteOrg();
+      setTimeout(() => { api.clearToken(); window.location.href = appPath('/login'); }, 2000);
       setDeleteOrgStatus('done');
     } catch {
       setDeleteOrgStatus('error');
@@ -484,11 +487,13 @@ const Settings = () => {
             langsmithSaveStatus={langsmithSaveStatus}
             onSave={handleSaveLangsmith}
           />
+          <fieldset disabled={!isAdmin} title={isAdmin ? undefined : 'Only organisation owners and admins can change this'} className={isAdmin ? '' : 'opacity-60'}>
           <PhaseControlsPanel
             PHASES={PHASES} PHASE_NAMES={PHASE_NAMES}
             phaseConfigs={phaseConfigs}
             onSavePhaseConfig={handleSavePhaseConfig}
           />
+          </fieldset>
           <FileBrowserPanel
             runs={runs} selectedRun={selectedRun} onRunSelect={handleRunSelect}
             runFiles={runFiles} loadingFiles={loadingFiles}
@@ -524,6 +529,7 @@ const Settings = () => {
             auditExportStatus={auditExportStatus}
             onExport={handleAuditExport}
           />
+          <fieldset disabled={!isAdmin} title={isAdmin ? undefined : 'Only organisation owners and admins can change this'} className={isAdmin ? '' : 'opacity-60'}>
           <OrgConfigPanel
             orgConfig={orgConfig} setOrgConfig={setOrgConfig}
             orgSaveStatus={orgSaveStatus} onSave={handleSaveOrgConfig}
@@ -536,6 +542,7 @@ const Settings = () => {
             dataRegion={dataRegion} setDataRegion={setDataRegion}
             regionSaveStatus={regionSaveStatus} onSave={handleSaveDataRegion}
           />
+          </fieldset>
           <VersionInfoPanel health={health} />
         </aside>
       </div>

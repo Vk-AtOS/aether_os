@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
+import { appPath } from '../appUrl';
 import { useToast } from '../contexts/useToast';
 import {
   Brain, CheckCircle, HelpCircle, Loader2, Star, Trophy,
@@ -230,7 +231,7 @@ const Learning = () => {
                 <div className="flex items-center gap-4 text-[10px] text-muted">
                   {gb.entity_count != null && <span>{gb.entity_count} entities</span>}
                   {gb.created_at && <span>{new Date(gb.created_at).toLocaleDateString()}</span>}
-                  <a href={`/project/${gb.run_id}`} className="text-accent hover:underline ml-auto">View run →</a>
+                  <a href={appPath(`/project/${gb.run_id}`)} className="text-accent hover:underline ml-auto">View run →</a>
                 </div>
               </div>
             ))

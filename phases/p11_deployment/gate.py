@@ -11,7 +11,7 @@ def validate(result: TaskResult) -> GateOutcome:
     meta = result.metadata
 
     # ── Legitimately skipped (no Docker, no deployable code) ─────────────────
-    if meta.get("skipped"):
+    if meta.get("skipped") and meta.get("success") is not False:
         return GateOutcome(
             passed=True,
             confidence=0.7,

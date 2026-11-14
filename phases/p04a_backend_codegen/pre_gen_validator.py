@@ -38,72 +38,114 @@ class PreGenReport:
 
 # ── Individual checks ─────────────────────────────────────────────────────────
 
-def check_entity_fk_ordering(entities: List[Dict]) -> List[str]:
-    """Detect circular FK references (A → B → A) that break seed-data generation.
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_UNSAFE_TEXT = re.compile(r"[\'\"\\\x00-\x1f`]")
 
-    Parameters
-    ----------
-    entities:
-        List of entity dicts, each with at least {"name": str, "fields": list}.
-        Field dicts may contain {"name": str, "type": str} where type patterns
-        like "ForeignKey('table.id')" indicate a FK relationship.
 
-    Returns
-    -------
-    List of error strings (empty means no circular deps found).
+def check_identifiers(entities: List[Dict], business_rules: Optional[List[Dict]] = None) -> List[str]:
+    """Names that are written into generated Python/SQL source must be plain identifiers (KAN-169).
+
+    Entity, table, field and reference names, rule names and enum values come from a model-written spec; one
+    containing a quote or a newline would become code in models.py / schemas.py / crud.py. Reject, never escape.
     """
     errors: List[str] = []
-    # Build a dependency graph: entity → set of entities it FK-references
-    graph: Dict[str, set] = {}
-    entity_names = {(e.get("name") or "").lower() for e in entities}
 
-    for entity in entities:
-        name = (entity.get("name") or "").lower()
+    def bad_ident(kind: str, value) -> None:
+        if value not in (None, "") and not (isinstance(value, str) and _IDENT.match(value)):
+            errors.append(f"unsafe_name: {kind} {str(value)[:40]!r} is not a plain identifier")
+
+    for e in entities:
+        bad_ident("entity name", e.get("name"))
+        bad_ident("table name", e.get("table"))
+        for f in e.get("fields") or []:
+            if not isinstance(f, dict):
+                continue
+            bad_ident("field name", f.get("name"))
+            bad_ident("referenced entity", f.get("ref_entity"))
+            for v in f.get("enum_values") or []:
+                if not isinstance(v, str) or _UNSAFE_TEXT.search(v):
+                    errors.append(f"unsafe_name: enum value {str(v)[:40]!r} of field {f.get('name')!r} contains a quote, backslash or control character")
+    for rule in business_rules or []:
+        bad_ident("business rule entity", rule.get("entity"))
+    return errors
+
+
+def _fk_edges(entities: List[Dict]) -> Dict[str, Dict[str, bool]]:
+    """entity -> {referenced entity: every FK between the two is NOT NULL}. Reads IR fields (type 'fk' with
+    ref_entity) and legacy ForeignKey('table.id') type strings."""
+    names = {(e.get("name") or "").lower() for e in entities if e.get("name")}
+    tables = {(e.get("table") or "").lower(): (e.get("name") or "").lower() for e in entities}
+    graph: Dict[str, Dict[str, bool]] = {}
+    for e in entities:
+        name = (e.get("name") or "").lower()
         if not name:
             continue
-        deps: set = set()
-        for field_def in entity.get("fields", []):
-            ftype = str(field_def.get("type", "")).lower()
-            # Detect patterns: ForeignKey('tablename.id'), Integer FK, etc.
-            if "foreignkey" in ftype or "foreign_key" in ftype:
-                # Extract table name from e.g. ForeignKey('orders.id')
-                match = re.search(r"['\"]([a-z_]+)\.", ftype)
-                if match:
-                    ref_table = match.group(1)
-                    # Map table name back to entity name (strip trailing 's' heuristic)
-                    for ename in entity_names:
-                        if ename == ref_table or ename + "s" == ref_table or ename == ref_table + "s":
-                            if ename != name:
-                                deps.add(ename)
-        graph[name] = deps
+        deps: Dict[str, bool] = graph.setdefault(name, {})
+        for f in e.get("fields") or []:
+            if not isinstance(f, dict):
+                continue
+            ftype = str(f.get("type", "")).lower()
+            target = None
+            if ftype == "fk" and f.get("ref_entity"):
+                target = str(f["ref_entity"]).lower()
+            elif "foreignkey" in ftype or "foreign_key" in ftype:
+                m = re.search(r"['\"]([a-z_]+)\.", ftype)
+                if m:
+                    t = m.group(1)
+                    target = tables.get(t) or next((n for n in names if n in (t, t + "s", t.rstrip("s"))), None)
+            if target and target in names and target != name:
+                required = f.get("nullable") is False
+                deps[target] = deps.get(target, True) and required
+    return graph
 
-    # Cycle detection via DFS
-    visited: set = set()
-    rec_stack: set = set()
 
-    def _dfs(node: str) -> Optional[str]:
-        visited.add(node)
-        rec_stack.add(node)
-        for neighbour in graph.get(node, set()):
-            if neighbour not in visited:
-                cycle = _dfs(neighbour)
-                if cycle:
-                    return cycle
-            elif neighbour in rec_stack:
-                return f"{node} -> {neighbour}"
-        rec_stack.discard(node)
-        return None
+def check_entity_fk_ordering(entities: List[Dict]) -> List[str]:
+    """Detect circular FK references (A -> B -> A). A cycle whose every foreign key is NOT NULL cannot be seeded
+    or inserted (each row needs the other first): error. If some key in the cycle is nullable the cycle can be
+    broken by inserting NULL first: it is reported by check_fk_cycles_nullable as a warning.
 
-    for node in list(graph):
-        if node not in visited:
-            cycle_path = _dfs(node)
-            if cycle_path:
-                errors.append(
-                    f"circular_fk: circular foreign-key reference detected: {cycle_path}. "
-                    "Seed data generation will deadlock — remove or break the cycle."
-                )
+    Reads both IR fields (type 'fk' + ref_entity) and ForeignKey('table.id') type strings; before, only the
+    latter were read, so no IR cycle was ever found (KAN-169).
+    """
+    return [m for m in _fk_cycles(entities) if m.startswith("circular_fk:")]
 
-    return errors
+
+def check_fk_cycles_nullable(entities: List[Dict]) -> List[str]:
+    return [m for m in _fk_cycles(entities) if m.startswith("circular_fk_nullable:")]
+
+
+def _fk_cycles(entities: List[Dict]) -> List[str]:
+    graph = _fk_edges(entities)
+    found: List[str] = []
+    seen_cycles: set = set()
+
+    def dfs(node: str, path: List[str]) -> None:
+        for nxt in graph.get(node, {}):
+            if nxt in path:
+                cyc = path[path.index(nxt):] + [nxt]
+                key = frozenset(cyc)
+                if key in seen_cycles:
+                    continue
+                seen_cycles.add(key)
+                hard = all(graph[a][b] for a, b in zip(cyc, cyc[1:]))
+                label = "circular_fk" if hard else "circular_fk_nullable"
+                found.append(f"{label}: foreign keys form a cycle {' -> '.join(cyc)}"
+                             + ("; every key is NOT NULL, so no row can be inserted first" if hard else
+                                "; seed rows must insert one side with NULL first"))
+            elif nxt not in path:
+                dfs(nxt, path + [nxt])
+
+    for n in list(graph):
+        dfs(n, [n])
+    return found
+
+
+def safe_project_name(name: object) -> str:
+    """The project name is written into Python strings, docstrings, comments, Markdown and a Makefile of the
+    generated app. Keep letters, digits, spaces and `.,&()-_`; drop everything else (quotes, backslashes,
+    newlines, braces, `$`). At most 60 characters; "App" when nothing is left."""
+    cleaned = re.sub(r"[^\w .,&()\-]", "", str(name or ""), flags=re.UNICODE)
+    return re.sub(r"\s+", " ", cleaned).strip()[:60] or "App"
 
 
 def check_unique_fields_identified(entities: List[Dict]) -> List[str]:
@@ -188,6 +230,10 @@ def run_pre_gen_checks(domain_ir: Dict) -> PreGenReport:
         all_errors.extend(fk_errors)
     except Exception as exc:
         logger.warning("[pre_gen_validator] FK ordering check failed (non-fatal): %s", exc)
+
+    # Check 1b: names that become source code must be plain identifiers (code injection) — hard error
+    all_errors.extend(check_identifiers(entities, domain_ir.get("business_rules")))
+    all_warnings.extend(check_fk_cycles_nullable(entities))
 
     # Check 2: implicit unique fields — warning only
     try:

@@ -113,12 +113,12 @@ async def submit_run_feedback(
 async def get_learning_stats(user: Dict[str, Any] = _current_user()):
     """Return self-improvement system statistics."""
     from aether_os.core.learning.golden_retriever import get_stats
-    return await get_stats()
+    return await get_stats(user["org_id"])
 
 
 @router.get("/learning/golden-builds")
 async def list_golden_builds(user: Dict[str, Any] = _current_user()):
     """List active golden build examples."""
     from aether_os.core.learning.golden_retriever import get_golden_builds_list
-    builds = await get_golden_builds_list(limit=20)
+    builds = await get_golden_builds_list(user["org_id"], limit=20)
     return {"golden_builds": builds}

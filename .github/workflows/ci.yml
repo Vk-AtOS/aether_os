@@ -6,16 +6,34 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     services:
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: aether_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d aether_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
 
     env:
       AETHER_SECRET_KEY: test-secret-key-32-chars-minimum-x
@@ -23,12 +41,18 @@ jobs:
       AETHER_ADMIN_EMAIL: admin@test.com
       AETHER_ADMIN_PASSWORD: TestAdmin@123
       AETHER_FIELD_KEY: ${{ secrets.AETHER_FIELD_KEY || '' }}
+      # The Postgres-specific tests (ledger scale, advisory locks) skip without this.
+      AETHER_PG_TEST_URL: postgresql://ci:ci-only-password@localhost:5432/aether_ci
       CORS_ORIGINS: http://localhost:3000
       ENVIRONMENT: test
       REQUIRE_REDIS: "false"
+      # Raise this as coverage grows; it must never go down.
+      COVERAGE_FLOOR: "50"
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans history
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,12 +61,33 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.lock
+        # The package must be importable as aether_os: the checkout dir is that package.
+        run: |
+          pip install -r requirements.lock
+          pip install ruff bandit pip-audit pytest-cov pytest-timeout
+          mkdir -p "$RUNNER_TEMP/pkg" && ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pkg/aether_os"
+          echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
 
-      - name: Lint with ruff
-        run: ruff check . --select E,F,W --ignore E501,W503 || true
+      - name: Lint with ruff (blocking)
+        # Syntax errors, undefined names, invalid comparisons: real bugs, zero tolerance.
+        # Style rules (E,F,W) have ~1400 findings today; ratchet them down separately.
+        run: ruff check . --select E9,F63,F7,F82
+
+      - name: Static security analysis (bandit, high severity)
+        run: bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'
+
+      - name: Dependency vulnerabilities (pip-audit)
+        # report-only until the pinned dependencies are upgraded (137 known findings at 15 Nov 2026); see the Jira ticket on dependency upgrades
+        continue-on-error: true
+        run: pip-audit -r requirements.lock --no-deps --disable-pip
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run tests
+        working-directory: ${{ runner.temp }}/pkg/aether_os
         run: |
           pytest tests/ \
             --timeout=300 \
@@ -51,7 +96,7 @@ jobs:
             --cov=. \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
-            --ignore=tests/playwright_audit_report.md
+            --cov-fail-under=$COVERAGE_FLOOR
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -59,3 +104,23 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # package-lock.json is git-ignored, so `npm ci` cannot run (also in deploy.sh/setup_vps.sh).
+      - run: npm install --no-audit --no-fund
+      - name: Lint
+        run: npm run lint --if-present
+      - name: Unit tests
+        run: npm test --if-present
+      - name: Build
+        run: npm run build

@@ -59,5 +59,11 @@ data:
   PRICE_CLAUDE_HAIKU_4_5_INPUT: {{ .Values.config.PRICE_CLAUDE_HAIKU_4_5_INPUT | quote }}
   PRICE_CLAUDE_HAIKU_4_5_OUTPUT: {{ .Values.config.PRICE_CLAUDE_HAIKU_4_5_OUTPUT | quote }}
 
+  # ── Sandbox / preview / Velaris ────────────────────────────────────────────
+  AETHER_SANDBOX: {{ .Values.config.AETHER_SANDBOX | quote }}
+  AETHER_SANDBOX_IMAGE: {{ .Values.config.AETHER_SANDBOX_IMAGE | quote }}
+  AETHER_PREVIEW_ORIGIN: {{ required "config.AETHER_PREVIEW_ORIGIN is required" .Values.config.AETHER_PREVIEW_ORIGIN | quote }}
+  VELARIS_API_URL: {{ .Values.config.VELARIS_API_URL | quote }}
+
   # ── Metrics ────────────────────────────────────────────────────────────────
   METRICS_API_KEY: {{ .Values.config.METRICS_API_KEY | quote }}

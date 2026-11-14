@@ -89,11 +89,11 @@ async def _hook_quality_gate(
     """After p07_testing: run quality gate and self-healing loop (up to 3 attempts)."""
     if phase_name != "s06_testing":
         return
-    from aether_os.core.quality.metrics import score_project
+    from aether_os.core.quality.score_async import score_project_async
     from aether_os.core.errors import PipelineBlockedError
 
     for attempt in range(1, 4):
-        quality = score_project(project_dir)
+        quality = await score_project_async(project_dir, use_cache=False)
         if quality.total >= 80:
             logger.info("[quality] Gate passed: %.1f%%", quality.total)
             await emit_fn({"type": "quality_gate_passed", "score": quality.total}, run_id=run_id)

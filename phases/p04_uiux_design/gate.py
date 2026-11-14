@@ -12,11 +12,12 @@ def validate(result: TaskResult) -> GateOutcome:
     issues: list[str] = []
 
     # Prefer json_path from metadata; fall back to output_path
-    json_path = Path(result.metadata.get("json_path", "") if result.metadata else "")
-    if not json_path or not json_path.exists():
+    # (Path("") is "." and exists, so test the strings, and require a file)
+    json_path = Path((result.metadata or {}).get("json_path") or "")
+    if not json_path.name or not json_path.is_file():
         json_path = Path(result.output_path or "")
 
-    if not json_path.exists():
+    if not json_path.name or not json_path.is_file():
         return GateOutcome(passed=False, confidence=0.0,
                            issues=["Design output file not found"])
 
@@ -29,10 +30,11 @@ def validate(result: TaskResult) -> GateOutcome:
 
     if not data.get("pages"):
         issues.append("No pages defined in design output")
-    if not data.get("component_inventory"):
-        issues.append("component_inventory missing — UI components not listed")
+    # the agent writes "components"; "component_inventory" is the older name
+    if not (data.get("components") or data.get("component_inventory")):
+        issues.append("components missing — UI components not listed")
 
-    if any(k in issues for k in ["No pages", "component_inventory"]):
+    if issues:  # both are required: a design with no pages or no components is unusable
         return GateOutcome(passed=False, confidence=0.1, issues=issues)
 
     return GateOutcome(passed=True, confidence=0.9 if not issues else 0.7, issues=issues)

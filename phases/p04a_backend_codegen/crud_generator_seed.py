@@ -20,8 +20,9 @@ def _fallback_seed(
     entities: list,
     seed_vocabulary: Dict[str, List[str]] | None = None,
     domain: str = "general",
+    multi_tenancy: bool = False,
 ) -> str:
-    """Generate a minimal seed.py that creates an admin user.
+    """Generate a minimal seed.py that creates an admin user (and org_id='default' on every row when multi_tenancy).
 
     When seed_vocabulary contains domain-specific terms and entities has records,
     those terms are used to produce more realistic seed record names rather than the
@@ -106,13 +107,21 @@ def _fallback_seed(
                     fn = field_def.get("name", "")
                     if fn in unique_field_names and fn != "name":
                         kwargs.append(f"{fn}={_seed_value_for_field(field_def, i, name)}")
+                    elif fn in ("status", "type", "stage", "priority"):
+                        kwargs.append(f"{fn}='active'")        # NOT NULL in the model and allowed by its CHECK
+                    elif fn == "title":
+                        kwargs.append(f"{fn}={repr(f'{name} {i + 1}')}")
+                if multi_tenancy:
+                    kwargs.append("org_id='default'")
                 rows_parts.append(f"            {name}({', '.join(kwargs)}),")
             rows = "\n".join(rows_parts)
             entity_blocks.append(
                 f"        try:\n"
                 f"            from models import {name}\n"
                 f"            db.add_all([\n{rows}\n            ])\n"
+                f"            await db.commit()\n"
                 f"        except Exception as _e:\n"
+                f"            await db.rollback()\n"
                 f"            _logger.warning('Seed {name} failed (non-fatal): %s', _e)\n"
             )
 
@@ -127,7 +136,20 @@ def _fallback_seed(
         from models import User
 
         _logger = logging.getLogger(__name__)
-        _ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Admin1234!")
+        def _admin_password() -> str:
+            # ADMIN_PASSWORD from the environment, else a random one written once to a 0600 file.
+            # Never a known default, and never logged.
+            pw = os.environ.get('ADMIN_PASSWORD')
+            if pw:
+                return pw
+            import secrets
+            pw = secrets.token_urlsafe(16)
+            path = os.path.join(os.getcwd(), 'admin_initial_password.txt')
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as f:
+                f.write(pw)
+            _logger.warning('ADMIN_PASSWORD is not set: a random admin password was written to %s', path)
+            return pw
 
         async def seed_database() -> None:
             async with AsyncSessionLocal() as db:
@@ -136,16 +158,20 @@ def _fallback_seed(
                     return
                 admin = User(
                     email="admin@example.com",
-                    password_hash=get_password_hash(_ADMIN_PASSWORD),
+                    password_hash=get_password_hash(_admin_password()),
                     role="admin",
-                    is_active=True,
+                    is_active=True,__ADMIN_ORG__
                 )
                 db.add(admin)
-                await db.flush()
-        {entity_seed_code}
+                # the admin is committed first: a failing demo row must never take the admin account with it
                 await db.commit()
-                _logger.info("Seeded admin user: admin@example.com / %s", _ADMIN_PASSWORD)
-    """)
+                __ENTITY_SEED__
+                _logger.info("Seeded admin user admin@example.com")
+    """).replace("        __ENTITY_SEED__", entity_seed_code.rstrip("\n")).replace(
+        "__ADMIN_ORG__", "\n                    org_id='default'," if multi_tenancy else "")
+    # The entity blocks are already indented for the function body (8 spaces). They used to be pasted into the
+    # template before textwrap.dedent, which stripped 8 spaces from all but the first line and left an
+    # IndentationError, so every fallback seed was replaced by an empty one: no admin, no data (KAN-169).
 
 
 async def generate_llm_seed(

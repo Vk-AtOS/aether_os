@@ -19,6 +19,11 @@ from aether_os.gateway.dependencies import get_current_user, require_run_user
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["run-streaming"])
 
+POLL_S = 2.0              # max wait for a pub/sub wake-up before re-reading the history list
+KEEPALIVE_S = 15.0        # comment line when idle: proxies/LBs drop silent connections
+MAX_STREAM_S = 4 * 3600   # hard cap per connection; the client reconnects with Last-Event-ID
+TERMINAL_STATUSES = {"completed", "failed", "cancelled", "error", "timeout"}
+
 
 # ── Auth helper ────────────────────────────────────────────────────────────────
 
@@ -126,6 +131,7 @@ async def stream_run_events(
             # The pipeline writes to _local_history when Redis is down, so we
             # tail it here rather than abandoning the stream.
             seen = len(history)
+            _idle = 0
             _deadline = asyncio.get_event_loop().time() + 1800  # 30-min hard timeout
             while True:
                 if asyncio.get_event_loop().time() > _deadline:
@@ -142,39 +148,65 @@ async def stream_run_events(
                         logger.debug(
                             "Failed to parse SSE event from local history buffer: %s", exc
                         )
+                if await request.is_disconnected():
+                    return
+                _idle += 1
+                if _idle % 30 == 0:
+                    yield ": keepalive\n\n"
                 await asyncio.sleep(0.5)
             return
 
+        # The history list is the source of truth (indexed, so no gap and no duplicate); pub/sub only
+        # wakes us early. Events published between the replay read and the subscribe are in the list
+        # too, so re-reading it from our position on every wake-up and every POLL_S misses nothing.
+        key = f"pipeline:history:{run_id}"
+        channel = f"pipeline:events:{run_id}"
         pubsub = r.pubsub()
-        await pubsub.subscribe(f"pipeline:events:{run_id}")
-        _live_idx = len(history)
         try:
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    event = json.loads(message["data"])
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to parse SSE Redis pubsub message for run %s: %s", run_id, exc
-                    )
-                    continue
-                # Fix 22: also gate spec_review_ready on live events
-                _etype = event.get("type", "")
-                if _etype in ("spec_review_ready", "PhaseApprovalRequired"):
-                    _did = event.get("decision_id")
-                    if _did and _did in _decided_ids:
-                        event = {**event, "type": "decision_already_made", "original_type": _etype}
-                yield f"id: {_live_idx}\ndata: {json.dumps(event)}\n\n"
-                _live_idx += 1
-                if event.get("type") == "pipeline_complete":
-                    break
+            await pubsub.subscribe(channel)
+            next_idx = len(history)
+            if any(e.get("type") == "pipeline_complete" for e in history):
+                return  # finished run: replay, then close instead of idling forever
+            loop = asyncio.get_running_loop()
+            last_sent = loop.time()
+            deadline = loop.time() + MAX_STREAM_S
+            while loop.time() < deadline:
+                if await request.is_disconnected():
+                    return
+                await pubsub.get_message(ignore_subscribe_messages=True, timeout=POLL_S)
+                for raw in await r.lrange(key, next_idx, -1):
+                    try:
+                        event = json.loads(raw)
+                    except Exception as exc:
+                        logger.debug("Unparseable history entry for run %s: %s", run_id, exc)
+                        event = None
+                    if event is not None:
+                        _etype = event.get("type", "")
+                        _did = event.get("decision_id")
+                        if _etype in ("spec_review_ready", "PhaseApprovalRequired") and _did and _did in _decided_ids:
+                            event = {**event, "type": "decision_already_made", "original_type": _etype}
+                        yield f"id: {next_idx}\ndata: {json.dumps(event)}\n\n"
+                        last_sent = loop.time()
+                        if event.get("type") == "pipeline_complete":
+                            return
+                    next_idx += 1
+                if loop.time() - last_sent >= KEEPALIVE_S:
+                    yield ": keepalive\n\n"   # keeps proxies from closing an idle stream
+                    last_sent = loop.time()
+                    run = await get_ledger().async_get_run_detail(run_id, org_id=org_id)
+                    if run and run.get("status") in TERMINAL_STATUSES:
+                        yield f"data: {json.dumps({'type': 'stream_end', 'status': run.get('status')})}\n\n"
+                        return  # run finished but its completion event was lost: do not hang
+            yield f"data: {json.dumps({'type': 'stream_timeout', 'message': 'stream limit reached; reconnect with Last-Event-ID'})}\n\n"
         except Exception as _sse_exc:
-            logger.warning("SSE Redis pubsub error for run %s: %s", run_id, _sse_exc)
+            logger.warning("SSE Redis stream error for run %s: %s", run_id, _sse_exc)
             yield f"data: {json.dumps({'type': 'stream_error', 'message': 'SSE connection lost; please reconnect'})}\n\n"
         finally:
-            await pubsub.unsubscribe(f"pipeline:events:{run_id}")
-            await pubsub.aclose()
+            try:
+                await pubsub.unsubscribe(channel)
+                await pubsub.aclose()
+            except Exception as exc:
+                logger.debug("SSE pubsub cleanup failed for run %s: %s", run_id, exc)
 
     return StreamingResponse(
         event_generator(),

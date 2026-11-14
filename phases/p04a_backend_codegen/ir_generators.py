@@ -41,6 +41,14 @@ from database import Base
 """
 
 
+def _with_decimal(imports: str) -> str:
+    """Add `from decimal import Decimal` after the `from __future__` line: a __future__ import must be the
+    first statement, so putting Decimal first made every money-domain models.py and schemas.py fail to
+    compile (KAN-169)."""
+    future = "from __future__ import annotations\n"
+    return imports.replace(future, future + "from decimal import Decimal\n", 1)
+
+
 def _pluralise(word: str) -> str:
     """English pluralisation for SQLAlchemy table names."""
     w = word.lower()
@@ -111,8 +119,8 @@ def _sa_column(field: IRField, domain: str = "") -> str:
 
     # FIX 7: Add DB-level enum constraints
     if atype == AetherType.ENUM and field.enum_values:
-        enum_list = ", ".join([f"'{v}'" for v in field.enum_values])
-        parts.append(f"CheckConstraint(\"{field.name} IN ({enum_list})\", name='ck_{field.name}')")
+        enum_list = ", ".join(["'" + str(v).replace("'", "''") + "'" for v in field.enum_values])
+        parts.append(f"CheckConstraint({field.name + ' IN (' + enum_list + ')'!r}, name='ck_{field.name}')")
 
     # FK columns always get an index for join performance
     if atype == AetherType.FK:
@@ -126,7 +134,7 @@ def _sa_column(field: IRField, domain: str = "") -> str:
         # FK already added index=True above; avoid duplicates
         parts.append("index=True")
     if field.default is not None and atype == AetherType.BOOLEAN:
-        parts.append(f"default={str(field.default).capitalize()}")
+        parts.append(f"default={str(field.default).lower() in ('true', '1', 'yes')}")
 
     # Healthcare PHI comment so developers know these fields need special handling.
     phi_comment = (
@@ -145,24 +153,31 @@ def _relationship_line(field: IRField) -> str | None:
     return f"    {field.ref_entity.lower()} = relationship('{field.ref_entity}', foreign_keys=[{field.name}], lazy='selectin')"
 
 
-def _sql_check_constraints(entity_name: str, rules: list) -> list:
+_SAFE_RULE_RE = _re.compile(r"^([A-Za-z_]\w*)\s*(>=|<=|!=|>|<|=)\s*(-?\d+(?:\.\d+)?|[A-Za-z_]\w*)$")
+
+
+def _sql_check_constraints(entity_name: str, rules: list, columns: set | None = None) -> list:
     """
     Convert IRBusinessRule expressions to SQLAlchemy CheckConstraint strings.
-    Handles patterns: field op value, field op field (e.g. 'salary > 0').
-    Returns list of CheckConstraint(...) strings for __table_args__.
+
+    Only `column op number` and `column op column` are accepted (the pattern below is the whole grammar);
+    anything else is skipped and never pasted into the source: the expression is model-written text, and a
+    quote in it used to become code and SQL (KAN-169). Every identifier must be a column of the entity,
+    otherwise CREATE TABLE fails. The expression is emitted with repr(), the name is reduced to \\w.
     """
     constraints = []
-    sql_op_pattern = _re.compile(
-        r'^(\w+)\s*(>=|<=|!=|>|<|=)\s*(.+)$'
-    )
     for rule in rules:
         if rule.entity != entity_name:
             continue
-        m = sql_op_pattern.match(rule.expression.strip())
-        if m:
-            expr = rule.expression.strip()
-            cname = f"ck_{entity_name.lower()}_{rule.name}"[:63]
-            constraints.append(f"        CheckConstraint('{expr}', name='{cname}')")
+        m = _SAFE_RULE_RE.match(str(rule.expression).strip())
+        if not m:
+            continue
+        idents = [m.group(1)] + ([m.group(3)] if not m.group(3).lstrip("-")[0].isdigit() else [])
+        if columns is not None and any(i not in columns for i in idents):
+            continue
+        expr = f"{m.group(1)} {m.group(2)} {m.group(3)}"
+        cname = _re.sub(r"\W", "_", f"ck_{entity_name.lower()}_{rule.name}")[:63]
+        constraints.append(f"        CheckConstraint({expr!r}, name={cname!r})")
     return constraints
 
 
@@ -181,7 +196,7 @@ class User(Base):
 """
 
 
-def generate_models_py(ir: DomainIR, domain: str = "") -> str:
+def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Generate complete models.py from DomainIR.
 
     domain: propagated to _sa_column so that domain-specific column types are
@@ -193,18 +208,22 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
     # Money domains need Decimal import at module level.
     sa_imports = _SA_IMPORTS
     if _is_money_domain(domain):
-        sa_imports = "from decimal import Decimal\n" + sa_imports
+        sa_imports = _with_decimal(sa_imports)
 
     lines = [sa_imports, ""]
 
     # Always emit User model first so auth router import works
     lines.append(_USER_MODEL)
+    if multi_tenancy:
+        # the user's tenant goes into the access token; every entity row carries it (KAN-169)
+        lines.append("    org_id = Column(String(64), nullable=True, index=True)")
 
     for entity in ir.entities:
         # Skip User — always emitted above from _USER_MODEL to avoid duplicate table
         if entity.name == "User" or getattr(entity, "table", "") == "users":
             continue
-        constraints = _sql_check_constraints(entity.name, ir.business_rules)
+        constraints = _sql_check_constraints(
+            entity.name, ir.business_rules, {f.name for f in entity.fields} | {'id', 'created_at', 'updated_at'})
 
         # Build performance indexes for commonly-queried field patterns
         perf_indexes = []
@@ -241,6 +260,8 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
             if rel:
                 lines.append(rel)
 
+        if multi_tenancy:
+            lines.append("    org_id = Column(String(64), nullable=False, index=True)")
         lines.append("    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))")
         lines.append("    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))")
         lines.append("")
@@ -248,9 +269,9 @@ def generate_models_py(ir: DomainIR, domain: str = "") -> str:
     return "\n".join(lines)
 
 
-def ir_to_models(ir: DomainIR, domain: str = "") -> str:
+def ir_to_models(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Alias for generate_models_py to match v2 directive."""
-    return generate_models_py(ir, domain=domain)
+    return generate_models_py(ir, domain=domain, multi_tenancy=multi_tenancy)
 
 
 # ---------------------------------------------------------------------------
@@ -331,9 +352,9 @@ def _pydantic_validators(entity_name: str, rules: list) -> list:
         except ValueError:
             continue
         msg = rule.error_message or f"{field_name} must be {op} {val}"
-        vname = f"check_{rule.name}"
+        vname = "check_" + _re.sub(r"\W", "_", str(rule.name))
         validators += [
-            f"    @field_validator('{field_name}', mode='before')",
+            f"    @field_validator('{field_name}', mode='before', check_fields=False)",
             f"    @classmethod",
             f"    def {vname}(cls, v):",
             f"        if v is not None and not (v {py_op} {val}):",
@@ -360,7 +381,7 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
     # Inject Decimal import for money domains so generated schemas compile.
     pydantic_imports = _PYDANTIC_IMPORTS
     if _is_money_domain(domain):
-        pydantic_imports = "from decimal import Decimal\n" + pydantic_imports
+        pydantic_imports = _with_decimal(pydantic_imports)
 
     lines = [pydantic_imports, ""]
 
@@ -370,6 +391,7 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
         "    items: List[Any]",
         "    total: int",
         "    page: int",
+        "    page_size: int",
         "    limit: int",
         "",
     ])

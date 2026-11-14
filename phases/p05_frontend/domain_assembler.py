@@ -28,7 +28,10 @@ from aether_os.phases.p05_frontend.llm_page_writer import (
     write_dashboard_llm,
     get_design_tokens,
 )
-from aether_os.phases.p05_frontend.preview import vlm_rubric_critique
+from aether_os.phases.p05_frontend.code_writer import (
+    _generate_pagination, _generate_role_guard, _generate_skeleton,
+)
+from aether_os.phases.p05_frontend.approval_gates import run_gate2_preview, run_gate3_approval  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +203,11 @@ def write_scaffold_and_components(
     write_with_guard_fn(src_dir / "components" / "CrudModal.tsx", generate_crud_modal_fn())
     write_with_guard_fn(src_dir / "components" / "Toaster.tsx", generate_toaster_fn())
     write_with_guard_fn(src_dir / "components" / "ErrorBoundary.tsx", generate_error_boundary_fn())
+    # Every generated entity page imports these three; the generators existed but nothing wrote the files,
+    # so the build failed with "cannot resolve ../components/Pagination" (KAN-168).
+    write_with_guard_fn(src_dir / "components" / "Pagination.tsx", _generate_pagination())
+    write_with_guard_fn(src_dir / "components" / "Skeleton.tsx", _generate_skeleton())
+    write_with_guard_fn(src_dir / "components" / "RoleGuard.tsx", _generate_role_guard())
 
 
 async def generate_domain_widget(
@@ -422,12 +430,14 @@ async def assemble_domain_pages(
         if domain_ir:
             try:
 
+                # the referenced entity's real table, not a guess: MembershipPlan is `membership_plans`, not `membershipplans`
+                _table_of = {e.name.lower(): e.table for e in (domain_ir.entities or []) if getattr(e, "table", "")}
                 for ir_ent in (domain_ir.entities or []):
                     for ir_field in ir_ent.fields:
                         if ir_field.type == AetherType.FK and ir_field.ref_entity:
                             ref_lower = ir_field.ref_entity.lower()
                             _global_fk_refs[ir_field.name] = {
-                                "endpoint": f"/api/{pluralise_fn(ref_lower)}",
+                                "endpoint": f"/api/{_table_of.get(ref_lower) or pluralise_fn(ref_lower)}",
                                 "label_key": getattr(ir_field, "display_field", None) or "name",
                             }
             except Exception as _fk_exc:
@@ -466,127 +476,3 @@ async def assemble_domain_pages(
     )
     write_domain_pages_fn(src_dir, domain, build_types)
     return {"llm_count": llm_count, "template_count": template_count}
-
-
-async def run_gate3_approval(
-    *,
-    domain_ir: Any,
-    data: Dict[str, Any],
-    is_autonomous: bool,
-    derive_admin_features_fn: Any,
-) -> List[str]:
-    """Run Gate 3 — Admin Requirements Approval Gate.
-
-    Returns the (possibly human-corrected) list of admin_features.
-    In autonomous mode, returns the features without waiting.
-    """
-
-    customer_flows = [wf.trigger for wf in domain_ir.workflows] if domain_ir else []
-    admin_features = derive_admin_features_fn(customer_flows)
-    try:
-
-
-
-        run_id = ACTIVE_RUN_ID.get()
-
-        if run_id and not is_autonomous:
-            logger.info("p05: Waiting for Gate 3 (Admin Requirements) approval...")
-            engine = get_decision_engine()
-            decision = Decision(
-                run_id=run_id, org_id=data.get("org_id", ""),
-                decision_type="admin_spec_approval", title="Gate 3: Admin Portal Requirements",
-                what=f"Admin panel features: {', '.join(admin_features)}",
-                why="Confirm admin features before generation.", phase="p05_frontend",
-            )
-            await engine.request_approval(decision)
-            await publish_event(run_id, {
-                "type": "PhaseApprovalRequired", "phase": "p05_frontend", "gate": "gate_3",
-                "decision_id": decision.id,
-                "data": {"admin_features": admin_features},
-                "allow_overrides": True,
-            })
-            resolved = await engine.await_decision(decision.id)
-            if resolved.status == "approved" and resolved.human_choice:
-                try:
-                    if resolved.human_choice.strip().startswith("["):
-                        admin_features = json.loads(resolved.human_choice)
-                    else:
-                        admin_features = [f.strip() for f in resolved.human_choice.split(",") if f.strip()]
-                except Exception as _parse_exc:
-                    logger.warning("p05: Gate 3 choice parse failed: %s", _parse_exc)
-        else:
-            logger.info("p05: Autonomous mode — bypassing Gate 3 approval.")
-    except Exception as exc:
-        logger.warning("p05: Gate 3 skipped: %s", exc)
-    return admin_features
-
-
-async def run_gate2_preview(
-    *,
-    run_id: Optional[str],
-    frontend_dir: Path,
-    output_dir: Path,
-    domain: str,
-    project_name: str,
-    data: Dict[str, Any],
-    is_autonomous: bool,
-    take_screenshot_fn: Any,
-    apply_revisions_fn: Any,
-) -> None:
-    """Run Gate 2 — Customer Portal Preview Approval Gate.
-
-    Takes a screenshot, publishes a PhaseApprovalRequired event, and applies
-    any human-provided revision instructions.  Skipped in autonomous mode.
-    """
-    screenshot_path = ""
-    preview_path = output_dir / "customer_portal_preview.png"
-    _shot_ok = await take_screenshot_fn(frontend_dir, preview_path)
-    if _shot_ok:
-        screenshot_path = str(preview_path)
-
-    # Autonomous 2-round critique: run apply_revisions with a generic
-    # "improve visual polish" instruction, re-screenshot, then run again.
-    # Human-review path (non-autonomous) still runs at most one round below.
-    if is_autonomous and _shot_ok:
-
-        _critique = await vlm_rubric_critique(preview_path, domain, project_name)
-        for _round in (1, 2):
-            try:
-                await apply_revisions_fn(_critique, frontend_dir, domain, project_name)
-                # Re-screenshot before the next round so a second pass sees the delta.
-                if _round == 1:
-                    await take_screenshot_fn(frontend_dir, preview_path)
-                    _critique = await vlm_rubric_critique(preview_path, domain, project_name)
-            except Exception as _auto_exc:
-                logger.warning("p05: autonomous critique round %d failed: %s", _round, _auto_exc)
-                break
-
-    try:
-        if run_id and not is_autonomous:
-    
-    
-            engine = get_decision_engine()
-            decision = Decision(
-                run_id=run_id, org_id=data.get("org_id", ""),
-                decision_type="portal_preview_approval", title="Gate 2: Customer Portal Preview",
-                what=f"Preview available at {screenshot_path}" if screenshot_path else "Preview unavailable.",
-                why="Human confirmation of visual design.", phase="p05_frontend",
-            )
-            await engine.request_approval(decision)
-            await publish_event(run_id, {
-                "type": "PhaseApprovalRequired", "phase": "p05_frontend", "gate": "gate_2",
-                "decision_id": decision.id,
-                "screenshot_url": (
-                    f"/api/artifacts/{run_id}/p05_frontend/customer_portal_preview.png"
-                    if screenshot_path else None
-                ),
-            })
-            resolved = await engine.await_decision(decision.id)
-            if resolved.status == "approved" and resolved.human_choice:
-                await apply_revisions_fn(
-                    resolved.human_choice.strip(), frontend_dir, domain, project_name
-                )
-        elif run_id:
-            logger.info("p05: Autonomous mode — bypassing Gate 2 approval.")
-    except Exception as _gate2_exc:
-        logger.warning("p05: Gate 2 skipped: %s", _gate2_exc)

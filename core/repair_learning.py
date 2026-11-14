@@ -14,7 +14,8 @@ from __future__ import annotations
 import ast
 import json
 import logging
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -27,6 +28,8 @@ _VALIDATOR_STORE = Path(__file__).parent / "knowledge_graph" / "auto_validators.
 
 # Directory where auto-generated validators land, relative to this file's package root
 _VALIDATORS_DIR = Path(__file__).parent / "validators" / "auto_generated"
+
+_SAFE_TEXT = re.compile(r"[^A-Za-z0-9_ .-]")
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +403,15 @@ def generate_validator(event: RepairEvent) -> str:
     if generator_fn is None:
         raise ValueError(f"No validator generator for bug class {event.bug_class!r}")
 
+    # Domain/entity are interpolated into the generated source (docstring). They
+    # come from user-influenced IR, so a quote or triple-quote would break out of
+    # the docstring and run as code when load_validators() imports the file.
+    event = replace(
+        event,
+        domain=_SAFE_TEXT.sub("_", str(event.domain))[:80],
+        entity=_SAFE_TEXT.sub("_", str(event.entity))[:80],
+    )
+
     source = generator_fn(event)  # type: ignore[call-arg]
 
     # Validate syntax before returning — hard guard so bad code never lands on disk
@@ -499,6 +511,16 @@ def load_validators() -> list:
         if not validator_path:
             continue
         vp = Path(validator_path)
+        # Only import files inside the generated-validators dir; the metadata
+        # store is writable data and must not be able to point at arbitrary code.
+        try:
+            inside = vp.resolve().is_relative_to(_VALIDATORS_DIR.resolve())
+        except OSError as exc:
+            logger.warning("repair_learning: cannot resolve %s: %s", vp, exc)
+            continue
+        if not inside or vp.suffix != ".py":
+            logger.warning("repair_learning: refusing validator outside %s: %s", _VALIDATORS_DIR, vp)
+            continue
         if not vp.exists():
             logger.debug("repair_learning: validator file missing, skipping: %s", vp)
             continue

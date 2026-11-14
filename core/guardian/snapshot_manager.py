@@ -213,7 +213,11 @@ class SnapshotManager:
         async with sf() as sess:
             row = (await sess.execute(
                 select(GuardianSnapshot)
-                .where(GuardianSnapshot.status == "ok")
+                # A restored snapshot is still known-good. The forensic copy taken just
+                # before a recovery is the (possibly corrupt) state being replaced and
+                # must never be chosen as the restore target.
+                .where(GuardianSnapshot.status.in_(("ok", "restored")))
+                .where(GuardianSnapshot.trigger != "pre_recovery")
                 .order_by(desc(GuardianSnapshot.created_at))
                 .limit(1)
             )).scalars().first()
@@ -253,6 +257,14 @@ class SnapshotManager:
             )
             return False
 
+        # The dump predates its own catalogue row (and every later one), so a restore
+        # wipes the snapshot list. Keep the rows and put them back afterwards.
+        async with sf() as sess:
+            catalogue = [
+                {c.name: getattr(r, c.name) for c in GuardianSnapshot.__table__.columns}
+                for r in (await sess.execute(select(GuardianSnapshot))).scalars().all()
+            ]
+
         success = False
         if snap.db_backend == "postgresql":
             success = await self._pg_restore(dest)
@@ -261,6 +273,10 @@ class SnapshotManager:
 
         status = "restored" if success else "failed"
         async with sf() as sess:
+            if success:
+                for row in catalogue:
+                    await sess.merge(GuardianSnapshot(**row))
+                await sess.flush()
             s = (await sess.execute(
                 select(GuardianSnapshot).where(GuardianSnapshot.id == snapshot_id)
             )).scalars().first()

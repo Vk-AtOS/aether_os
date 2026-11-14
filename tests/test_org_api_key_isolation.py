@@ -104,7 +104,7 @@ def _prompt(tag: str) -> str:
 
 
 async def _call(org_id, tag="hello"):
-    return await router_mod.ModelRouter().call(_prompt(tag), task_type="summarize", org_id=org_id)
+    return await router_mod.ModelRouter().call(_prompt(tag), task_type="summarize", org_id=org_id, plan="starter")
 
 
 async def test_saving_an_org_key_never_touches_the_process_environment(keys):

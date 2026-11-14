@@ -194,6 +194,8 @@ async def update_phase_config(
     req: PhaseConfigUpdate,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
+    if user.get("role") not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only org owners/admins may change stage configuration.")
     # Only real stage ids, and never a stage the pipeline cannot run without: a
     # saved toggle the pipeline would silently ignore is a lie in the settings UI.
     if phase_name not in PHASE_SEQUENCE:
