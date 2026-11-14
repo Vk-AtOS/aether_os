@@ -81,3 +81,64 @@ def _write_ir(domain, _cache={}):
     path = Path(tempfile.mkdtemp()) / "domain_ir.json"
     path.write_text(json.dumps({**IR, "domain": domain}))
     return path
+
+
+# ── running the generated backend (subprocess: it has modules named main, models, auth, database) ──
+
+_RUNNER = r'''
+import json, os, sys
+app_dir = sys.argv[1]
+os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, "src"))
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(app_dir, "t.db")
+import main
+from fastapi.testclient import TestClient
+out = {}
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    r = c.post("/api/auth/register", json={"email": "u1@x.io", "password": "Passw0rd!xyz", "name": "U"})
+    out["register"] = r.status_code
+    u = {"Authorization": "Bearer " + r.json()["access_token"]}
+    r = c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]})
+    out["admin_login"] = r.status_code
+    a = {"Authorization": "Bearer " + r.json()["access_token"]}
+    for ent in sys.argv[2].split(","):
+        out[f"user_list_{ent}"] = c.get(f"/api/{ent}", headers=u).status_code
+        out[f"user_create_{ent}"] = c.post(f"/api/{ent}", headers=u, json={"name": "A", "amount": 5}).status_code
+        out[f"admin_list_{ent}"] = c.get(f"/api/{ent}", headers=a).status_code
+        body = {"name": "A", "email": "a@b.io", "status": "active", "balance": 1} if ent == "customers" else {"amount": 5}
+        r = c.post(f"/api/{ent}", headers=a, json=body)
+        out[f"admin_create_{ent}"] = r.status_code
+        rid = r.json().get("id") if r.status_code == 201 else None
+        r = c.get(f"/api/{ent}", headers=a)
+        out[f"admin_items_{ent}"] = len(r.json().get("items", [])) if r.status_code == 200 else None
+        if rid:
+            out[f"user_delete_{ent}"] = c.delete(f"/api/{ent}/{rid}", headers=u).status_code
+            out[f"admin_delete_{ent}"] = c.delete(f"/api/{ent}/{rid}", headers=a).status_code
+print("RESULT " + json.dumps(out))
+'''
+
+
+def run_app(app_dir, entities):
+    import os
+    import subprocess
+    import sys
+    for mod in ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx"):
+        pytest.importorskip(mod)
+    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
+    p = subprocess.run([sys.executable, "-c", _RUNNER, str(app_dir), entities], capture_output=True, text=True,
+                       env=env, timeout=120, cwd=str(app_dir))
+    line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line, f"generated app did not run:\n{p.stdout[-800:]}\n{p.stderr[-1500:]}"
+    return json.loads(line[7:])
+
+
+def test_generated_ir_backend_starts_lists_and_enforces_roles(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    _, app = generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch)
+    r = run_app(app, "customers,invoices")
+    assert r["register"] == 201 and r["admin_login"] == 200
+    for ent in ("customers", "invoices"):
+        # the IR grants admin on Customer and nothing on Invoice: a plain signed-in user gets neither
+        assert r[f"user_list_{ent}"] == 403 and r[f"user_create_{ent}"] == 403, (ent, r)
+        assert r[f"admin_create_{ent}"] == 201 and r[f"admin_items_{ent}"] >= 1, (ent, r)   # list was a 500
+        assert r[f"user_delete_{ent}"] == 403 and r[f"admin_delete_{ent}"] == 204, (ent, r)
+        assert r[f"admin_list_{ent}"] == 200, (ent, r)
