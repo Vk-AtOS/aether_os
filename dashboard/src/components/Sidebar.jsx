@@ -29,9 +29,9 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const { latestRunId } = useRuns();
   const { orgName } = useSettings();
-  // Identity for display only; the server enforces roles.
+  // Identity for display only; the server enforces roles. Same default as useRole (viewer: show least).
   const payload = useMemo(() => decodeToken(api.getToken() || '') || {}, []);
-  const userRole = payload.role || 'member';
+  const userRole = payload.role || 'viewer';
   const userEmail = payload.sub || '';
 
   // A section opens by itself on a page inside it; a click overrides that until the next navigation.
