@@ -133,6 +133,11 @@ export const api = {
   createOrgApiKey: (name) => client.post('/auth/api-keys', { name }),
   revokeOrgApiKey: (id) => client.delete(`/auth/api-keys/${id}`),
 
+  // Notification preferences
+  getNotificationPrefs: () => client.get('/notifications/preferences'),
+  setNotificationPref: (body) => client.put('/notifications/preferences', body),
+  setOrgNotificationPref: (body) => client.put('/notifications/preferences/org', body),
+
   // SCIM
   getScimConfig: () => client.get('/settings/scim'),
   rotateScimToken: () => client.post('/settings/scim/rotate'),
