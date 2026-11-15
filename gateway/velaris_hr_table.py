@@ -112,7 +112,7 @@ HR_ALLOW: Dict[str, FrozenSet[str]] = {}
 for _r in HR_ROUTES:
     _a, _m = _r.path.strip("/").split("/")
     HR_ALLOW[_a] = HR_ALLOW.get(_a, frozenset()) | {_m}
-# Rows the generic /velaris/agents route and flow tools must NOT reach: they need the admin check or the typed
-# confirmation that only these rows carry. (A viewer-visible, member-level row may still be reached generically.)
+# Rows that carry the admin check or a typed confirmation (reported by GET /hr/allowlist). The generic
+# /velaris/agents route and flow tools refuse EVERY HR agent, not just these (KAN-199).
 HR_DEDICATED: FrozenSet[Tuple[str, str]] = frozenset(
     tuple(r.path.strip("/").split("/")) for r in HR_ROUTES if r.admin or r.confirm)   # type: ignore[arg-type]

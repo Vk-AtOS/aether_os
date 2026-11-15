@@ -207,22 +207,27 @@ def check_mail_rule(body: Dict[str, Any]) -> None:
             raise HTTPException(status_code=422, detail="A rule condition needs a value (an empty value matches every message)")
 
 
-def check_body(route: Route, parsed: Dict[str, Any]) -> bool:
-    """Row rules for a JSON object body. Returns True when `parsed` was changed (so it must be re-serialised):
-    the typed confirmation is verified and removed, a page size is clamped. Refuses an identity override."""
+def guard_args(parsed: Dict[str, Any], confirm: Optional[str] = None) -> bool:
+    """THE shared guard for any JSON object the gateway forwards to Velaris (dedicated rows and the generic agent
+    route alike): refuses body keys that name who or which organisation, verifies and removes the typed
+    confirmation, clamps a page size. Returns True when `parsed` was changed (so it must be re-serialised)."""
     bad = FORBIDDEN_KEYS.intersection(parsed)
     if bad:
         raise HTTPException(status_code=400, detail=f"{', '.join(sorted(bad))} cannot be set here: it comes from your sign-in")
     changed = False
-    if route.confirm:
-        if parsed.get("confirm") != route.confirm:
-            raise HTTPException(status_code=422, detail=f"Type {route.confirm} to confirm this action")
+    if confirm:
+        if parsed.get("confirm") != confirm:
+            raise HTTPException(status_code=422, detail=f"Type {confirm} to confirm this action")
         del parsed["confirm"]
         changed = True
     if "limit" in parsed:
         parsed["limit"] = _clamp_limit(parsed["limit"])
         changed = True
     return changed
+
+
+def check_body(route: Route, parsed: Dict[str, Any]) -> bool:
+    return guard_args(parsed, route.confirm)
 
 
 def _clamp_limit(value: Any) -> int:

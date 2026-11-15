@@ -213,10 +213,10 @@ async def test_generic_route_cannot_reopen_what_the_hr_proxy_leaves_out(http, ve
                 ["employee_records.erase_subject"], {"t": "A.b"}):
         assert (await http.post("/velaris/flows", json={"task": "t", "tools": bad})).status_code == 400, bad
     assert velaris.seen == []
-    # an HR method that /hr allows, and an agent /hr does not serve, still pass through to Velaris
-    await http.post("/velaris/agents/EMPLOYEE_RECORDS/get_employee", json={})
+    # every HR agent is /hr-only, even for methods /hr allows; an agent /hr does not serve still passes through
+    assert (await http.post("/velaris/agents/EMPLOYEE_RECORDS/get_employee", json={})).status_code == 404
     assert (await http.post("/velaris/agents/PAY/get", json={})).status_code == 200
-    assert [s["path"] for s in velaris.seen] == ["/agents/EMPLOYEE_RECORDS/get_employee", "/agents/PAY/get"]
+    assert [s["path"] for s in velaris.seen] == ["/agents/PAY/get"]
 
 
 async def test_flows(http, velaris):

@@ -182,6 +182,27 @@ async def test_account_secret_and_hr_values_never_reach_the_ledger(http, velaris
     assert "secret" in ledger                                                          # field NAMES only
 
 
+async def test_every_hr_method_is_404_on_the_generic_route_even_member_level_ones(http, velaris):
+    from aether_os.gateway.velaris_hr_table import HR_ALLOW
+    for agent, methods in HR_ALLOW.items():
+        for method in methods:
+            assert (await http.post(f"/velaris/agents/{agent}/{method}", json={})).status_code == 404, (agent, method)
+    assert velaris.seen == []
+
+
+async def test_generic_route_applies_the_same_body_guard_as_the_rows(http, velaris):
+    for key in ("org_id", "reviewed_by", "tenant_id", "actor"):
+        r = await http.post("/velaris/agents/PAY/get", json={key: "x"})
+        assert r.status_code == 400 and "sign-in" in r.json()["detail"], key
+    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["PAY.get"], "org_id": "other"})
+    assert r.status_code == 400
+    assert velaris.seen == []
+    assert (await http.post("/velaris/agents/PAY/get", json={"limit": 10**6, "q": "a"})).status_code == 200
+    assert json.loads(velaris.seen[-1]["body"]) == {"limit": 200, "q": "a"}
+    assert (await http.post("/velaris/agents/PAY/get", json={"limit": "lots"})).status_code == 400
+    assert len(velaris.seen) == 1
+
+
 async def test_dedicated_only_rows_are_not_reachable_on_the_generic_route_or_as_flow_tools(http, velaris):
     assert len(HR_DEDICATED) > 40
     for agent, method in sorted(HR_DEDICATED):
@@ -190,7 +211,6 @@ async def test_dedicated_only_rows_are_not_reachable_on_the_generic_route_or_as_
     r = await http.post("/velaris/flows", json={"task": "t", "tools": ["PAYROLL_ENGINE.compute_bulk"]})
     assert r.status_code == 400
     assert velaris.seen == []
-    assert (await http.post("/velaris/agents/PAYROLL_ENGINE/get_payslip", json={})).status_code == 200   # member-level row
 
 
 async def test_flow_verify_trace_and_decide(http, velaris):

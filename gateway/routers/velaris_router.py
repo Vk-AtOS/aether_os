@@ -20,7 +20,8 @@ from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavai
 from aether_os.core.velaris.identity import identity_for_user
 from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.velaris_hr_table import HR_ALLOW, HR_DEDICATED
+from aether_os.gateway.velaris_proxy import guard_args
+from aether_os.gateway.velaris_hr_table import HR_ALLOW
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/velaris", tags=["velaris"])
@@ -88,15 +89,11 @@ async def _ledger_after(who: Identity, action: str, outcome: str, detail: Dict[s
 
 
 def _served_elsewhere(agent: str, method: str) -> bool:
-    """HR agents are served by /hr with a fixed method list that leaves out erasure and bulk export on
-    purpose. This generic route must not reopen them, so an HR agent is reachable here only for the
-    member-level methods /hr itself allows: the admin-only and typed-confirmation rows (export, erasure, payroll
-    runs...) are reachable only through /hr, where those checks are (KAN-199)."""
-    # Agent names are upper case in Velaris; compare upper-cased so a case variant cannot slip past.
-    allowed = HR_ALLOW.get(agent.upper())
-    if allowed is None:
-        return False
-    return method not in allowed or (agent.upper(), method) in HR_DEDICATED
+    """Every HR agent is served by /hr, and only there (KAN-199): its table carries the role check, the typed
+    confirmation for export and erasure, the caps and the ledger rules, and a second route to the same methods
+    would be a second, weaker door. Agent names are upper case in Velaris; compare upper-cased so a case
+    variant cannot slip past."""
+    return agent.upper() in HR_ALLOW
 
 
 def _checked_tools(tools: Any) -> list:
@@ -165,6 +162,7 @@ async def call_agent(agent: str, method: str, body: Optional[Dict[str, Any]] = B
         raise HTTPException(status_code=404, detail="This agent method is not available here")
     who = await _identity(user, acting=True)
     args = body or {}
+    guard_args(args)                     # same guard as every dedicated row: no identity override, page size clamped
     status, data = await _forward(who, "agent.call", "POST", f"/agents/{agent}/{method}", body=args,
                                   detail={"agent": agent, "method": method, "params": sorted(args)[:20]})
     return _reply(status, data)
@@ -180,6 +178,7 @@ async def flows_pending(user: Dict[str, Any] = Depends(get_current_user)) -> Any
 @router.post("/flows")
 async def start_flow(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(get_current_user)) -> Any:
     """Start a model-driven run: {"task": str, "tools": ["AGENT.method", ...]}."""
+    guard_args(body)
     tools = _checked_tools(body.get("tools"))
     who = await _identity(user, acting=True)
     detail = {"tools": sorted(t for t in tools if isinstance(t, str))[:30] if isinstance(tools, list) else None}
