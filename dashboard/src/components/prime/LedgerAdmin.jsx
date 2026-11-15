@@ -4,12 +4,15 @@ import { confirmAction } from '../confirmAction';
 import { primeApi, useLoad, errText } from './primeApi';
 import { Facts, ErrorBox, inputClass, labelClass } from './parts';
 import { fmtDate } from './labels';
+import LedgerOps from './LedgerOps';
+import { useRole } from '../../hooks/useRole';
 
 const btn = 'px-3 py-1.5 border border-border hover:border-accent text-bright text-xs font-bold rounded-lg disabled:opacity-40';
 
 // This organisation's chain: where it stands, a check you can run, the export you keep,
 // and (admins) erasure of one person's audit data.
 const LedgerAdmin = ({ isAdmin }) => {
+  const { isSuperadmin } = useRole();
   const latest = useLoad(primeApi.anchorLatest, 'Could not load the chain status.');
   const [check, setCheck] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -99,6 +102,7 @@ const LedgerAdmin = ({ isAdmin }) => {
           {erased && <p role="status" className="text-xs text-emerald-400">{erased}</p>}
         </form>
       )}
+      <LedgerOps isAdmin={isAdmin} isSuperadmin={isSuperadmin} />
       {note && <div className="lg:col-span-2"><ErrorBox>{note}</ErrorBox></div>}
     </div>
   );
