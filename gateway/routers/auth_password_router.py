@@ -62,7 +62,7 @@ async def verify_email(token: str, request: Request) -> Dict[str, str]:
         raise
     except Exception as exc:
         logger.warning("Email verify token validation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal error during token validation")
+        raise HTTPException(status_code=500, detail="Internal error during token validation") from exc
     sf = get_session_factory()
     async with sf() as session:
         user = await session.get(User, user_id.decode() if isinstance(user_id, bytes) else user_id)
@@ -172,7 +172,7 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
         raise
     except Exception as exc:
         logger.warning("Password reset token validation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal error during token validation")
+        raise HTTPException(status_code=500, detail="Internal error during token validation") from exc
     # Password safety: complexity + HIBP breach check
     try:
         _pw_safe, _pw_reason = await check_password_safety(req.new_password)

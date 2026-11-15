@@ -20,7 +20,7 @@ def _validate_sandbox_path(file_path: str) -> str:
     except ValueError:
         raise ValueError(
             f"Path '{abs_path}' is outside the allowed sandbox directory '{sandbox_root}'"
-        )
+        ) from None
     return str(abs_path)
 
 

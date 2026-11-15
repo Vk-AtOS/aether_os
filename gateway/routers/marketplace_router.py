@@ -161,7 +161,7 @@ async def install_marketplace_profile(
             domain=profile.base_domain,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     return {
         "installed": True,
         "profile_id": profile_id,

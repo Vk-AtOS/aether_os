@@ -56,7 +56,7 @@ async def org_start_lock(org_id: str):
     try:
         await asyncio.wait_for(lock.acquire(), WAIT_S)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail="Another run start is in progress for this organisation; retry.")
+        raise HTTPException(status_code=503, detail="Another run start is in progress for this organisation; retry.") from None
     try:
         yield
     finally:

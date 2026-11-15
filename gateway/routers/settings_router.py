@@ -164,7 +164,7 @@ async def update_api_keys(
         )
     except Exception as exc:
         logger.error("Failed to save org API key: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to save API key")
+        raise HTTPException(status_code=500, detail="Failed to save API key") from exc
 
     return {"success": True, "message": f"{req.provider} key saved for your organisation."}
 
@@ -281,7 +281,7 @@ async def test_provider(
                 messages=[{"role": "user", "content": "hi"}]
             ))
         except Exception as e:
-            raise _test_failed(req.provider, e)
+            raise _test_failed(req.provider, e) from e
 
     elif req.provider == "gemini":
         try:
@@ -289,7 +289,7 @@ async def test_provider(
             client = genai.Client(api_key=api_key)
             await asyncio.to_thread(lambda: client.models.generate_content(model="gemini-2.0-flash", contents="hi"))
         except Exception as e:
-            raise _test_failed(req.provider, e)
+            raise _test_failed(req.provider, e) from e
 
     elif req.provider in ("openai", "openrouter"):
         try:
@@ -307,7 +307,7 @@ async def test_provider(
                     json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
                 )
         except Exception as e:
-            raise _test_failed(req.provider, e)
+            raise _test_failed(req.provider, e) from e
         if r.status_code == 401:
             raise HTTPException(status_code=400, detail="Invalid API key")
         if r.status_code == 429:
@@ -329,6 +329,6 @@ async def test_provider(
                 accept="application/json",
             ))
         except Exception as e:
-            raise _test_failed(req.provider, e)
+            raise _test_failed(req.provider, e) from e
 
     return {"success": True, "message": "Connected"}
