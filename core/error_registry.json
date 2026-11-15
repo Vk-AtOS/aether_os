@@ -326,5 +326,325 @@
     "fix_applied": false,
     "run_id": "",
     "timestamp": "2026-11-15T10:38:44.646055+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:29.163718+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:34.193271+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:38.533954+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:43.500883+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:48.197847+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:55.286626+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:59.484481+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:59.635170+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:41:59.848495+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:42:23.800447+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:42:28.359785+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:42:54.365981+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:43:57.646278+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:43:59.427609+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:44:53.009392+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:45:26.938589+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:46:08.683699+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:47:07.651129+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:47:10.617262+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:47:13.304410+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:47:16.197949+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:00.868567+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:11.531093+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:13.290390+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:14.080916+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:14.825860+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:16.059842+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:17.104555+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:48:18.058014+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:49:57.086097+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:49:58.707751+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:50:00.342886+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:50:02.221644+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:50:08.444515+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:50:41.755555+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:51:28.167095+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:51:44.355585+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:52:53.675072+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:53:42.221347+00:00"
+  },
+  {
+    "category": "relative_import",
+    "phase": "p04a",
+    "detail": "routers/__init__.py: relative_import: line 1: 'from .crud import'",
+    "fix_applied": false,
+    "run_id": "",
+    "timestamp": "2026-11-15T10:54:56.477244+00:00"
   }
 ]
