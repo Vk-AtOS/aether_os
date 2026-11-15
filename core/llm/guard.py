@@ -17,7 +17,9 @@ from typing import List, Optional
 from aether_os.core.errors import LLMUnavailable
 from aether_os.core.llm import controls
 from aether_os.core.llm.budget import _COST_PER_INPUT_TOKEN, _COST_PER_OUTPUT_TOKEN, get_budget_manager
-from aether_os.core.llm.plans import PLATFORM_PLAN
+import os
+
+from aether_os.core.llm.plans import PLATFORM_ORG, PLATFORM_PLAN
 from aether_os.core.llm.sensitivity import classify
 
 logger = logging.getLogger(__name__)
@@ -57,9 +59,14 @@ async def admit(org_id: Optional[str], plan: Optional[str], prompt: str, system:
             raise LLMUnavailable("LLM calls are disabled for this organisation")
         plan, cap = plan or policy.plan, policy.cap_usd
     else:
-        # Platform-owned call (no tenant): nothing to charge a per-org cap to; the kill switches above
-        # and the provider's own billing limits govern it.
-        return Admission(PLATFORM_PLAN, "sonnet", reasons)
+        # Platform-owned call (no tenant): charged to the platform budget (PLATFORM_ORG row, plan "platform",
+        # monthly cap PLATFORM_LLM_MONTHLY_CAP_USD or the plan default), so a runaway platform job stops too.
+        org_id, plan = PLATFORM_ORG, PLATFORM_PLAN
+        raw_cap = os.environ.get("PLATFORM_LLM_MONTHLY_CAP_USD", "").strip()
+        try:
+            cap = float(raw_cap) if raw_cap else None
+        except ValueError:
+            raise LLMUnavailable("PLATFORM_LLM_MONTHLY_CAP_USD is not a number") from None
     if not plan:
         raise LLMUnavailable(f"Cannot determine plan for org {org_id}")
     try:

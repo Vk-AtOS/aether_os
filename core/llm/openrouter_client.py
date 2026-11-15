@@ -108,7 +108,13 @@ async def call_openrouter(
     the org in the current context (falling back to the platform key).
     """
     import httpx
+    from aether_os.core.errors import LLMUnavailable
+    from aether_os.core.llm import controls
+    from aether_os.core.llm.data_policy import effective_level, permits
 
+    # Every OpenRouter call, whoever makes it (router, council, compressor): kill switch and data policy.
+    if await controls.global_kill_active():
+        raise LLMUnavailable("LLM calls are disabled by the platform kill switch")
     if api_key is None:
         api_key = await get_api_key("openrouter", _current_org_id.get())
     api_key = (api_key or "").strip()
@@ -116,6 +122,8 @@ async def call_openrouter(
         raise RuntimeError("OPENROUTER_API_KEY not configured for this org or system.")
 
     chosen_model = model or select_openrouter_model(task_type)
+    if not permits("openrouter", chosen_model, effective_level(None, prompt, system or "")):
+        raise LLMUnavailable("This data may not be sent to OpenRouter (restricted data, or community models not enabled)")
     system_content = system or (
         "You are AetherOS, an expert autonomous software development system. "
         "Provide precise, production-quality responses."

@@ -23,6 +23,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from aether_os.core.llm.plans import PLATFORM_ORG
+from aether_os.core.llm.data_policy import effective_level, filter_chain
 from aether_os.core.model_router_providers import (
     ModelSpec,
     get_fallback_chain,
@@ -135,6 +137,7 @@ class ModelRouter:
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
         primary_provider: Optional[str] = None,
+        data_level: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Execute the fallback chain and return (text, provider).
@@ -200,15 +203,8 @@ class ModelRouter:
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
 
-        # Free/community endpoints may log or train on prompts: never use them for
-        # customer data unless the operator explicitly opts in.
-        if not enforce_local and os.environ.get("ALLOW_COMMUNITY_LLM", "").lower() not in ("1", "true", "yes"):
-            chain = [s for s in chain if not (s.provider == "openrouter" and s.model.endswith(":free"))]
-        # Sensitive prompts never reach community endpoints, even when the operator opted in above.
-        if admission.sensitive_reasons and not enforce_local:
-            chain = [s for s in chain if s.provider != "openrouter"]
-            if not chain:
-                raise LLMUnavailable("Prompt contains sensitive data and no approved provider is configured")
+        # The data policy (core/llm/data_policy.py) is applied as the LAST step of building the chain, below.
+        level = effective_level(data_level, prompt, system or "")
 
         # ── Caller-pinned provider (ContextVar-safe; avoids os.environ mutation) ──
         if primary_provider is not None and not enforce_local:
@@ -254,6 +250,14 @@ class ModelRouter:
                     "No free models available in fallback chain."
                 )
             chain = filtered_chain
+
+        # Last step, after org overrides, AHM and plan filters: nothing above can add a community/free pool back.
+        if not enforce_local:
+            chain = filter_chain(chain, level)
+            if not chain:
+                raise LLMUnavailable(
+                    "No approved provider is configured for this data"
+                    + (" (restricted data never goes to a free or third-party pool)" if level == "restricted" else ""))
 
         error_class = "fallback"  # default for first iteration
         for spec in chain:
@@ -329,12 +333,12 @@ class ModelRouter:
                     # Record token usage for budget tracking (approximate)
                     _est_input = len(_active_prompt) // 4
                     _est_output = len(result) // 4
-                    if org_id:
+                    if org_id or not enforce_local:    # platform-owned calls are charged to the platform budget
                         try:
                             from aether_os.core.llm.budget import get_budget_manager
                             _ct2 = asyncio.create_task(
                                 get_budget_manager().record_usage(
-                                    org_id=org_id,
+                                    org_id=org_id or PLATFORM_ORG,
                                     input_tokens=_est_input,
                                     output_tokens=_est_output,
                                     model=spec.model,

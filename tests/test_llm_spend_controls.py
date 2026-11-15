@@ -12,7 +12,7 @@ from aether_os.core.llm.plans import PLAN_LIMITS
 from aether_os.core.llm.sensitivity import classify
 from aether_os.core.models import Notification, Organisation
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.platform_budget]
 CARD = "4111 1111 1111 1111"  # Luhn-valid test number
 
 
