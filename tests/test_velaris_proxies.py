@@ -19,13 +19,14 @@ from aether_os.core.velaris.client import VelarisClient
 from aether_os.gateway import velaris_proxy
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers import (velaris_chat_router, velaris_control_router, velaris_hr_router,
-                                       velaris_mail_router)
+                                       velaris_mail_router, velaris_providers_router)
 from aether_os.tests.prime_helpers import ALICE, API_KEY, DAVE, MEMBER, ORG, OUTSIDER, OWNER, svc  # noqa: F401
 
 pytestmark = pytest.mark.asyncio
 SECRET = "x" * 40
 KEY = Ed25519PrivateKey.generate()
-ROUTERS = (velaris_chat_router, velaris_mail_router, velaris_control_router, velaris_hr_router)
+ROUTERS = (velaris_chat_router, velaris_mail_router, velaris_control_router, velaris_hr_router,
+           velaris_providers_router)
 SSE = b'id: 0\nevent: message\ndata: {"id":0,"type":"message"}\n\n'
 
 
@@ -288,3 +289,34 @@ async def test_mail_rule_without_condition_or_value_is_refused(http, velaris):
     ok = {**good, "conditions": [{"field": "list_id", "op": "exists"}]}
     assert (await http.post("/mail/mailboxes/m1/rules", json=ok)).status_code == 200
     assert (await http.put("/mail/mailboxes/m1/rules/r1", json={**good, "enabled": False, "conditions": []})).status_code == 200
+
+
+async def test_provider_proxy_forwards_with_the_users_roles_and_never_ledgers_a_key(http, velaris):
+    key = "sk-live-ABCDEFGH-1234567890"
+    r = await http.post("/model-providers", json={"id": "gw", "kind": "openai_compatible", "api_key": key,
+                                                  "base_url": "https://gw.example.com/v1"})
+    assert r.status_code == 200
+    seen = velaris.seen[-1]
+    assert (seen["method"], seen["raw"]) == ("POST", "/providers") and json.loads(seen["body"])["api_key"] == key
+    assert "model_admin" in seen["claims"]["roles"]                       # owner holds it
+    assert (await http.get("/model-providers/usage?days=3")).status_code == 200 and velaris.seen[-1]["raw"] == "/providers/usage?days=3"
+    assert (await http.put("/model-providers/gw", json={"enabled": False})).status_code == 200
+    assert (await http.delete("/model-providers/gw")).status_code == 200
+    assert (await http.post("/model-providers/gw/rotate", json={"api_key": "sk-second-KEY-0000-9999"})).status_code == 200
+    entries = [e for e in await chain.read_entries(limit=1000) if e["action"].startswith("velaris.providers.")]
+    assert {e["action"] for e in entries} == {"velaris.providers.create", "velaris.providers.update",
+                                              "velaris.providers.delete", "velaris.providers.rotate"}
+    assert key not in json.dumps(entries) and "sk-second" not in json.dumps(entries)
+    assert "api_key" in json.dumps(entries)                                # the field NAME is recorded
+
+
+async def test_a_member_has_no_provider_role_and_a_viewer_cannot_act(http, velaris):
+    http.who["user"] = MEMBER
+    assert (await http.get("/model-providers")).status_code == 200        # reaches Velaris, which refuses without the role
+    assert "model_admin" not in velaris.seen[-1]["claims"]["roles"]
+    async with db.get_session_factory()() as s:
+        await s.execute(update(User).where(User.id == DAVE).values(role="viewer"))
+        await s.commit()
+    n = len(velaris.seen)
+    assert (await http.post("/model-providers", json={"id": "x", "kind": "ollama"})).status_code == 403
+    assert len(velaris.seen) == n

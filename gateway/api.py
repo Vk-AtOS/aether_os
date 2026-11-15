@@ -285,6 +285,7 @@ def create_app() -> FastAPI:
         ("ledger_ops",    "aether_os.gateway.routers.ledger_ops_router",    "router",       {},                        False),
         ("velaris",       "aether_os.gateway.routers.velaris_router",       "router",       {},                        False),
         ("velaris_chat", "aether_os.gateway.routers.velaris_chat_router", "router", {}, False),
+        ("velaris_providers", "aether_os.gateway.routers.velaris_providers_router", "router", {}, False),
         ("velaris_mail", "aether_os.gateway.routers.velaris_mail_router", "router", {}, False),
         ("velaris_control", "aether_os.gateway.routers.velaris_control_router", "router", {}, False),
         ("velaris_hr", "aether_os.gateway.routers.velaris_hr_router", "router", {}, False),
