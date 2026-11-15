@@ -35,6 +35,17 @@ export const STATE_STYLE = {
   rejected:  'text-danger bg-danger/10',
 };
 
+export const URGENCY_STYLE = {
+  urgent:  'text-yellow-400 bg-yellow-400/10',
+  overdue: 'text-danger bg-danger/10',
+};
+
+export const RISK_STYLE = {
+  standard: 'text-emerald-400 bg-emerald-400/10',
+  high:     'text-yellow-400 bg-yellow-400/10',
+  critical: 'text-danger bg-danger/10',
+};
+
 export const EXECUTION = {
   running:         { label: 'Being carried out',                  color: 'text-sky-400' },
   succeeded:       { label: 'Carried out',                        color: 'text-emerald-400' },

@@ -22,8 +22,9 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import User
 from aether_os.core.security.redact import redact_secrets
 from aether_os.prime.authz import (
-    ACTION_TYPES, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
+    ACTION_TYPES, AUTHORITY, EXECUTOR_AUTHORITY, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
 )
+from aether_os.prime import corrections, detail
 from aether_os.prime.executors import (
     DEFAULT_EXECUTOR, ExecutionContext, ExecutionFailed, get_executor,
 )
@@ -36,10 +37,11 @@ from aether_os.prime.service import PrimeService
 
 logger = logging.getLogger(__name__)
 
-REQUEST_TTL = timedelta(hours=72)
+REQUEST_TTL = timedelta(hours=72)   # the default; an organisation sets its own (prime/limits.py)
 # A request still "running" after this long was interrupted mid-execution. It is
 # shown as needs_attention and never picked up again by code.
 EXECUTION_STALE_AFTER = timedelta(minutes=5)
+URGENT_WITHIN = timedelta(hours=24)   # "urgent" in the badge and the view
 _ACTING = {Outcome.EXECUTE, Outcome.EXECUTE_AND_NOTIFY}
 _WAITING = {Outcome.NEEDS_APPROVAL, Outcome.ROUTE_TO_DEPUTY}
 
@@ -75,6 +77,8 @@ def compute_hash(row: PrimeRequest) -> str:
         "amount": row.amount, "currency": row.currency, "params": row.params or {},
         "executor": row.executor, "delegation_id": row.delegation_id, "deputy": row.deputy,
         "expires_at": row.expires_at.isoformat(),
+        # Only once edited, so the hash of a request that was never edited is what it always was.
+        **({"revision": row.revision} if row.revision else {}),
     }).encode("utf-8")).hexdigest()
 
 
@@ -82,6 +86,14 @@ def _state(row: PrimeRequest, now: datetime) -> str:
     if row.status == "pending" and row.expires_at <= now:
         return "expired"
     return row.status
+
+
+def _urgency(row: PrimeRequest, now: datetime) -> Optional[str]:
+    """How soon an open request lapses: overdue | urgent (within 24h) | normal; None once decided."""
+    if row.status != "pending":
+        return None
+    left = row.expires_at - now
+    return "overdue" if left <= timedelta(0) else "urgent" if left <= URGENT_WITHIN else "normal"
 
 
 def _exec_status(row: PrimeRequest, now: datetime) -> Optional[str]:
@@ -141,7 +153,8 @@ class ApprovalService:
             outcome=decision.outcome.value, reason=decision.reason,
             status="approved" if auto else "pending",
             created_at=now,
-            expires_at=min(now + REQUEST_TTL, _naive_utc(delegation.valid_until)),
+            expires_at=min(now + timedelta(hours=(await get_limits(org_id)).request_ttl_hours),
+                           _naive_utc(delegation.valid_until)),
         )
         row.request_hash = compute_hash(row)
         if auto:
@@ -158,36 +171,67 @@ class ApprovalService:
 
     # ── read ──────────────────────────────────────────────────────────────────
 
-    async def inbox(self, uid: str, identities: Iterable[str], org_id: str,
-                    state: str = "pending", limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """Requests the caller owns or is the active deputy for, pending first."""
-        now = _now()
-        ids = list(identities)
+    async def _queue(self, uid: str, ids: list, org_id: str, state: str, now: datetime):
+        """(who-it-concerns condition, state condition, open condition) for one caller.
+        An approver's open queue holds only what their ROLE may decide (AUTHORITY and
+        EXECUTOR_AUTHORITY); history and expired lists keep every request that concerns them."""
+        person = await person_in_org(org_id, uid)
+        role = person[0] if person else None
         mine = and_(PrimeRequest.org_id == org_id, or_(
             PrimeRequest.on_behalf_of == uid,
             and_(PrimeRequest.deputy.in_(ids), _live_delegation(now))))
         open_ = and_(PrimeRequest.status == "pending", PrimeRequest.expires_at > now)
+        if state == "pending":
+            types = [t for t, roles in AUTHORITY.items() if role in roles]
+            executors = [e for e, roles in EXECUTOR_AUTHORITY.items() if role in roles]
+            open_ = and_(open_, PrimeRequest.action_type.in_(types), PrimeRequest.executor.in_(executors))
         where = {
             "pending": open_,
             "expired": and_(PrimeRequest.status == "pending", PrimeRequest.expires_at <= now),
             "decided": PrimeRequest.status != "pending",
             "all": PrimeRequest.id.is_not(None),
         }[state]
+        return mine, where, open_
+
+    async def inbox(self, uid: str, identities: Iterable[str], org_id: str,
+                    state: str = "pending", limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Requests the caller owns or is the active deputy for, most urgent (soonest to expire) first."""
+        now = _now()
+        ids = list(identities)
+        mine, where, open_ = await self._queue(uid, ids, org_id, state, now)
         async with get_session_factory()() as session:
             total = (await session.execute(
                 select(func.count()).select_from(PrimeRequest).where(mine, where))).scalar_one()
             rows = (await session.execute(
                 select(PrimeRequest).where(mine, where)
-                .order_by(case((open_, 0), else_=1), PrimeRequest.created_at.desc(),
-                          PrimeRequest.id)
+                .order_by(case((open_, 0), else_=1),
+                          case((open_, PrimeRequest.expires_at), else_=None).asc(),
+                          PrimeRequest.created_at.desc(), PrimeRequest.id)
                 .limit(limit).offset(offset))).scalars().all()
         return {"total": total, "limit": limit, "offset": offset, "state": state,
                 "requests": [await self._view(r, uid, ids) for r in rows]}
 
+    async def counts(self, uid: str, identities: Iterable[str], org_id: str) -> Dict[str, int]:
+        """Badge numbers: requests this caller may decide now, and those lapsing within 24h."""
+        now = _now()
+        mine, where, _ = await self._queue(uid, list(identities), org_id, "pending", now)
+        async with get_session_factory()() as session:
+            pending = (await session.execute(
+                select(func.count()).select_from(PrimeRequest).where(mine, where))).scalar_one()
+            urgent = (await session.execute(select(func.count()).select_from(PrimeRequest).where(
+                mine, where, PrimeRequest.expires_at <= now + URGENT_WITHIN))).scalar_one()
+        return {"pending": pending, "urgent": urgent}
+
     async def get(self, request_id: str, uid: str, identities: Iterable[str],
                   org_id: str) -> Dict[str, Any]:
         row = await self._visible(request_id, uid, list(identities), org_id)
-        return await self._view(row, uid, list(identities))
+        view = await self._view(row, uid, list(identities))
+        person = await person_in_org(org_id, uid)
+        role = person[0] if person else None
+        view["detail"] = await detail.build(row, await self._delegations.get(row.delegation_id), role)
+        view["action"]["params"] = await detail.mask_params(
+            org_id, row.params or {}, pseudonymise=role not in detail.MAY_SEE_PERSONAL)
+        return view
 
     async def service_view(self, request_id: str, org_id: str, executor: str) -> Dict[str, Any]:
         """The request as GET /prime/requests/{id} shows it, for a system acting for `org_id`
@@ -231,13 +275,21 @@ class ApprovalService:
         async with get_session_factory()() as session:
             won = (await session.execute(
                 update(PrimeRequest)
-                .where(PrimeRequest.id == row.id, PrimeRequest.status == "pending")
+                .where(PrimeRequest.id == row.id, PrimeRequest.status == "pending",
+                       PrimeRequest.request_hash == row.request_hash)   # still what was shown
                 .values(status=wanted, decided_by=uid, decided_at=now,
                         decision_reason=reason, decided_hash=row.request_hash))).rowcount
             await session.commit()
         row = await self._load(row.id)
         if not won and not (row.status == wanted and row.decided_by == uid):
             raise RequestError(409, "someone else decided this request first")
+        if won and not approve and reason.strip():
+            role = (await person_in_org(org_id, uid) or (None,))[0]
+            await corrections.record(
+                org_id=org_id, request_id=row.id, revision=None, action_type=row.action_type,
+                params_before=row.params or {}, before={"amount": row.amount, "params": row.params or {}},
+                after={"rejected": True}, reason=reason, requested_by=row.requested_by,
+                on_behalf_of=row.on_behalf_of, corrected_by=uid, approver_role=role)
         if approve:
             await self._execute(row.id)  # claims the row, so a duplicate call runs nothing
         return await self._view(await self._load(row.id), uid, ids)
@@ -249,6 +301,8 @@ class ApprovalService:
             return 409, "this request has expired; it was not approved"
         if row.requested_by in {uid, *ids}:
             return 403, "you cannot decide a request you made yourself"
+        if set(row.edited_by or ()) & {uid, *ids}:
+            return 403, "you cannot decide a request you edited"
         if not approve:
             return None
         delegation = await self._delegations.get(row.delegation_id)
@@ -294,10 +348,13 @@ class ApprovalService:
     async def _no_second_person(self, row: PrimeRequest) -> bool:
         """Money or an external effect approved only by whoever asked for it. For an
         external effect the approver must also not be Prime or the person acted for."""
+        approver = (row.decided_by or "").lower()
+        if approver in {e.lower() for e in row.edited_by or ()}:
+            return True   # an editor is a contributor: never the sole approver of their own edit
         if not needs_second_person(row.action_type, row.executor):
             return False
         grantor = await self._grantor_ids(row)
-        requester, approver = row.requested_by.lower(), (row.decided_by or "").lower()
+        requester = row.requested_by.lower()
         if row.executor in EXTERNAL_EFFECT and (not approver or approver == PRIME or approver in grantor):
             return True
         return approver == requester or (approver == PRIME and requester in grantor)
@@ -403,6 +460,7 @@ class ApprovalService:
             blocked = await self._why_not(row, uid, list(ids), approve=True)
         return {
             "id": row.id, "state": state, "request_hash": row.request_hash,
+            "revision": row.revision or 0, "edited_by": list(row.edited_by or ()),
             "action": {"type": row.action_type, "on_behalf_of": row.on_behalf_of,
                        "requested_by": row.requested_by, "amount": row.amount,
                        "currency": row.currency, "params": row.params or {}},
@@ -412,6 +470,7 @@ class ApprovalService:
             "outcome": row.outcome, "why": row.reason,
             "delegation_id": row.delegation_id, "deputy": row.deputy,
             "created_at": _iso(row.created_at), "expires_at": _iso(row.expires_at),
+            "urgency": _urgency(row, now),
             "decided_by": row.decided_by, "decided_at": _iso(row.decided_at),
             "decision_reason": row.decision_reason,
             "execution": ({"status": _exec_status(row, now), "result": row.exec_result,
