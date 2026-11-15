@@ -31,14 +31,15 @@ def upgrade() -> None:
             sa.Column("org_id", sa.String(length=36), nullable=False, server_default="default")
         )
 
-    # Recreate the primary key constraint to include org_id.
-    # batch_alter_table handles SQLite-safe PK recreation automatically.
-    with op.batch_alter_table("phase_configs", schema=None) as batch_op:
-        batch_op.drop_constraint("pk_phase_configs", type_="primary") if False else None
-        try:
+    # Recreate the primary key to include org_id. On PostgreSQL the old (phase_name) key must be dropped first
+    # (the earlier try/except could not catch the failure: the error surfaced when the batch flushed).
+    insp = sa.inspect(op.get_bind())
+    if insp.get_pk_constraint("phase_configs").get("constrained_columns") != ["org_id", "phase_name"]:
+        old = insp.get_pk_constraint("phase_configs").get("name")
+        with op.batch_alter_table("phase_configs", schema=None) as batch_op:
+            if old and op.get_bind().dialect.name == "postgresql":
+                batch_op.drop_constraint(old, type_="primary")
             batch_op.create_primary_key("pk_phase_configs", ["org_id", "phase_name"])
-        except Exception as exc:
-            logger.debug("PK constraint creation skipped (may already exist on PostgreSQL): %s", exc)
 
     # T3-06: Add missing FK indexes
     with op.batch_alter_table("events", schema=None) as batch_op:
