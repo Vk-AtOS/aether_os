@@ -30,7 +30,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from aether_os.core.run_app import safe_fs
 from aether_os.core.spec_approval import decide_spec
+from aether_os.core.decisions.decision_engine import AlreadyDecided
 from aether_os.gateway.dependencies import get_current_user, require_run_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
@@ -50,7 +52,8 @@ async def approve_decision(
     decision_id: str,
     user: Dict[str, Any] = Depends(require_run_user),
 ):
-    """Approve a pending decision gate."""
+    """Approve a pending decision gate (member or above; a viewer reads, never decides)."""
+    await enforce("decision.decide", user)
     from aether_os.core.decisions.decision_engine import get_decision_engine
     from aether_os.core.pipeline_state import publish_event as _pub_evt
     engine = get_decision_engine()
@@ -59,6 +62,7 @@ async def approve_decision(
             decision_id=decision_id,
             org_id=user["org_id"],
             approved=True,
+            run_id=run_id,
         )
         try:
             await _pub_evt(run_id, {
@@ -120,6 +124,8 @@ async def approve_decision(
         }
     except PermissionError:
         raise HTTPException(status_code=403, detail="Decision belongs to a different org")
+    except AlreadyDecided as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.post("/factory/runs/{run_id}/decisions/{decision_id}/decide")
@@ -129,7 +135,8 @@ async def decide_decision(
     req: Dict[str, Any],
     user: Dict[str, Any] = Depends(require_run_user),
 ):
-    """Resolve a decision gate with approve/reject."""
+    """Resolve a decision gate with approve/reject (member or above)."""
+    await enforce("decision.decide", user)
     from aether_os.core.decisions.decision_engine import get_decision_engine
     engine = get_decision_engine()
     approved = str(req.get("decision", "approve")).lower() == "approve"
@@ -140,12 +147,15 @@ async def decide_decision(
             org_id=user["org_id"],
             approved=approved,
             choice=choice,
+            run_id=run_id,
         )
         return decision.to_dict()
     except LookupError:
         raise HTTPException(status_code=404, detail="Decision not found")
     except PermissionError:
         raise HTTPException(status_code=403, detail="Decision belongs to a different org")
+    except AlreadyDecided as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.post("/factory/runs/{run_id}/validate-spec")

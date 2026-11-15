@@ -51,6 +51,10 @@ class Decision:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
+class AlreadyDecided(Exception):
+    """The decision is no longer pending."""
+
+
 class DecisionEngine:
     """
     Redis-backed decision store — works across multiple uvicorn workers.
@@ -67,6 +71,28 @@ class DecisionEngine:
 
     async def list_for_run(self, run_id: str, status: Optional[str] = None) -> List[Decision]:
         return await self._db_list(run_id=run_id, status=status)
+
+    async def list_for_org(self, org_id: str, status: Optional[str] = None,
+                           limit: int = 50, offset: int = 0) -> List[Decision]:
+        """Decisions of one organisation, newest first. A DB failure raises: an approver must not see an
+        empty inbox when the query actually failed (unlike the per-run list, which logs and returns [])."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Decision as DecisionModel
+        from sqlalchemy import select
+
+        q = select(DecisionModel).where(DecisionModel.org_id == org_id)
+        if status:
+            q = q.where(DecisionModel.status == status)
+        q = q.order_by(DecisionModel.created_at.desc()).limit(limit).offset(offset)
+        async with get_session_factory()() as session:
+            rows = (await session.execute(q)).scalars().all()
+        return [Decision(
+            id=r.id, run_id=r.run_id, org_id=r.org_id, decision_type=r.decision_type, title=r.title,
+            what=r.what, why=r.why, alternatives=r.alternatives or [], impact=r.impact or "",
+            phase=r.phase or "", status=r.status, human_choice=r.human_choice,
+            timeout_seconds=r.timeout_seconds,
+            created_at=r.created_at.timestamp() if r.created_at else time.time(),
+            decided_at=r.decided_at.timestamp() if r.decided_at else None) for r in rows]
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -110,13 +136,21 @@ class DecisionEngine:
         org_id: str,
         approved: bool,
         choice: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> Decision:
-        """Approve or deny a pending decision and publish to Redis."""
+        """Approve or deny a pending decision and publish to Redis.
+
+        Raises LookupError (unknown, or not a decision of `run_id`), PermissionError (other org) and
+        AlreadyDecided: a second approver or a late click must not flip an outcome the pipeline already acted on.
+        """
         decision = await self._db_get(decision_id)
-        if not decision:
+        if not decision or (run_id is not None and decision.run_id != run_id):
             raise LookupError(f"Decision {decision_id} not found")
         if decision.org_id and decision.org_id != org_id:
             raise PermissionError("Decision belongs to a different org")
+        # ponytail: check-then-write, two simultaneous resolves can both pass; a conditional UPDATE would close it.
+        if decision.status != "pending":
+            raise AlreadyDecided(f"Decision {decision_id} is already {decision.status}")
 
         decision.status = "approved" if approved else "denied"
         decision.human_choice = choice

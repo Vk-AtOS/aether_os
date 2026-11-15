@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, func
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
@@ -177,6 +177,9 @@ class Decision(Base):
     timeout_seconds: Mapped[int] = mapped_column(default=300)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # The org-wide pending-decisions inbox filters by org and status, newest first.
+    __table_args__ = (Index("ix_decisions_org_status_created", "org_id", "status", "created_at"),)
 
 class Webhook(Base):
     __tablename__ = "webhooks"
