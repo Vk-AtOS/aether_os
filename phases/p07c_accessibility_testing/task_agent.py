@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.domain_knowledge.loader import load_pack
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ const { injectAxe } = require('axe-playwright');
     await injectAxe(page);
     // axe.run returns violations/passes/incomplete. The old helper call had skipFailures=true,
     // which never throws, so the script always reported 0 violations.
-    const r = await page.evaluate(() => axe.run());
+    const tags = JSON.parse(process.argv[3] || '[]');
+    const r = await page.evaluate((t) => axe.run(document, t.length ? { runOnly: { type: 'tag', values: t } } : {}), tags);
     console.log(JSON.stringify({
       violations: r.violations.length,
       passes: r.passes.length,
@@ -49,6 +51,17 @@ _WCAG_CHECKLIST = [
 ]
 
 
+_BASE_AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
+
+
+def axe_tags_for(domain: str) -> list:
+    """WCAG 2.1 AA always; the Section 508 ruleset too when the domain's compliance rules name it
+    (govtech, edtech): that is how the domain pack's "inject Section 508 into p07c" instruction is carried out."""
+    pack = load_pack(domain or "")
+    names = " ".join(f"{r.standard} {r.rule}" for r in (pack.compliance if pack else []))
+    return _BASE_AXE_TAGS + (["section508"] if "508" in names else [])
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -71,9 +84,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     frontend_port: int = data.get("frontend_port", 5173)
     frontend_url = data.get("frontend_url") or f"http://localhost:{frontend_port}"
 
+    tags = axe_tags_for(data.get("domain", ""))
     results: Dict = {
         "target": frontend_url,
-        "wcag_level": "WCAG 2.1 AA",
+        "wcag_level": "WCAG 2.1 AA" + (" + Section 508" if "section508" in tags else ""),
+        "axe_tags": tags,
         "checklist": _WCAG_CHECKLIST,
         "violations": 0,
         "passes": 0,
@@ -89,7 +104,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             await client.get(frontend_url)
 
         proc = await asyncio.create_subprocess_exec(
-            "node", str(axe_script), frontend_url,
+            "node", str(axe_script), frontend_url, json.dumps(tags),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
