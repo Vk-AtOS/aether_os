@@ -76,15 +76,15 @@ jobs:
       - name: Static security analysis (bandit, high severity)
         run: bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'
 
-      - name: Dependency vulnerabilities (pip-audit)
-        # report-only until the pinned dependencies are upgraded (137 known findings at 15 Nov 2026); see the Jira ticket on dependency upgrades
-        continue-on-error: true
-        run: pip-audit -r requirements.lock --no-deps --disable-pip
+      - name: Dependency vulnerabilities (pip-audit, blocking)
+        # Audits the pinned lock file; any finding fails. Accepted no-fix findings are listed with reasons in the script.
+        run: bash scripts/ci/audit_deps.sh
 
-      - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Secret scan (gitleaks, full history, blocking)
+        # Pinned, checksum-verified binary: no GITLEAKS_LICENSE needed. Config: .gitleaks.toml.
+        run: |
+          bash scripts/ci/install_gitleaks.sh "$RUNNER_TEMP/bin"
+          PATH="$RUNNER_TEMP/bin:$PATH" bash scripts/ci/secret_scan.sh
 
       - name: Run tests
         working-directory: ${{ runner.temp }}/pkg/aether_os

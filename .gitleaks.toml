@@ -19,6 +19,7 @@ paths = [
   '''tests/test_prime_executors\.py''',
   '''tests/test_run_message_redaction\.py''',
   '''tests/test_security_fixes\.py''',
+  '''tests/test_velaris_proxies\.py''',
 ]
 
 [[allowlists]]
