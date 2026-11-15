@@ -1,4 +1,5 @@
 """KAN-110/D7: the role floor is enforced centrally for every authenticated mutating route."""
+import inspect
 import re
 
 import pytest
@@ -30,7 +31,7 @@ def test_viewer_cannot_mutate_anything_outside_the_self_service_allowlist(gw):
     viewer = gw.user_with_role("viewer", owner.org_id)
     checked = 0
     for method, path in _auth_routes(gw.app):
-        if _matches(path, VIEWER_MAY + POLICY_GATED):
+        if _matches(path, VIEWER_MAY) or path in POLICY_GATED:
             continue
         checked += 1
         resp = gw.client.request(method, _url(path), headers=viewer.auth, json={})
@@ -59,3 +60,38 @@ def test_api_key_callers_are_not_admins(gw):
     secret = secret.get("key") or secret.get("api_key")
     r = gw.client.post("/webhooks", headers={"Authorization": f"Bearer {secret}"}, json={})
     assert r.status_code == 403
+
+
+def _deps(dep):
+    for d in dep.dependencies:
+        yield d.call
+        yield from _deps(d)
+
+
+def test_every_policy_gated_entry_really_enforces_policy(gw):
+    """An entry here removes the viewer floor, so its handler must itself ask the policy engine."""
+    routes = {r.path: r for r in gw.app.routes if getattr(r, "dependant", None) is not None}
+    for path in POLICY_GATED:
+        r = routes.get(path)
+        assert r is not None, f"{path} is not a route (stale entry)"
+        src = inspect.getsource(r.endpoint) + "".join(
+            inspect.getsource(c) for c in _deps(r.dependant)
+            if callable(c) and not str(getattr(c, "__module__", "")).startswith(("fastapi", "starlette")))
+        assert re.search(r"await enforce\(|admit_run_start\(|_require_billing_admin\(", src), \
+            f"{path} is exempt from the viewer floor but its handler never calls the policy engine"
+    assert not any(p.endswith("/") for p in POLICY_GATED), "POLICY_GATED must list exact routes, not prefixes"
+
+
+def test_agents_run_is_policy_gated_for_every_agent_and_snapshots_stay_in_the_callers_org(gw):
+    a, b = gw.register("agtA"), gw.register("agtB")
+    viewer = gw.user_with_role("viewer", a.org_id)
+    for agent in ("policy_agent", "snapshot_agent", "risk_agent"):
+        r = gw.client.post(f"/agents/{agent}/run", headers=viewer.auth, json={"metadata": {}})
+        assert r.status_code == 403 and r.json()["detail"]["action"] == "agent.run", (agent, r.text)
+    member = gw.user_with_role("member", a.org_id)
+    run_b = "run-of-org-b"
+    gw.sql("INSERT INTO runs (id, org_id, command, status, started_at, cost, run_version) "
+           "VALUES (?, ?, 'x', 'completed', 1, 0, 1)", (run_b, b.org_id))
+    r = gw.client.post("/agents/snapshot_agent/run", headers=member.auth, json={"metadata": {"run_id": run_b}})
+    assert r.status_code == 200 and r.json()["status"] != "ok"
+    assert gw.sql("SELECT count(*) FROM snapshots WHERE run_id = ?", (run_b,))[0][0] == 0

@@ -59,6 +59,7 @@ ACTIONS: Dict[str, ActionRule] = {
     "portal.token.revoke": ActionRule("admin"),
     "portal.approval.list": ActionRule("member"),
     "plugin.manage": ActionRule("admin"),
+    "agent.run": ActionRule("member"),  # POST /agents/{name}/run dispatches ANY registered agent
     "user.add": ActionRule("admin", adds_seat=True),
     "provider.test": ActionRule("admin"),
     "provider.test_platform": ActionRule("superadmin"),

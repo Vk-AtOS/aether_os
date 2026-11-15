@@ -30,13 +30,24 @@ VIEWER_MAY = (
     "/chat/", "/mail/", "/hr/", "/velaris/", "/control/",
 )
 
-# Routes whose handler asks the policy engine (core/policy): it decides by role, returns the
-# structured denial the dashboard keys on and ledgers it, so the gate does not pre-empt it.
+# Routes whose handler REALLY asks the policy engine (enforce / admit_run_start / the billing and plugin
+# admin helpers): it decides by role, returns the structured denial the dashboard keys on and ledgers it,
+# so the gate does not pre-empt it. EXACT templates only, never prefixes: a new route under the same
+# prefix would silently lose the viewer floor. tests/test_role_gate.py verifies every entry by reading
+# the handler, so an entry whose handler stops enforcing policy fails the build.
 POLICY_GATED = (
-    "/factory/start", "/mcp/start_pipeline", "/settings/test-provider", "/marketplace/install/",
+    "/factory/start", "/mcp/start_pipeline", "/settings/test-provider", "/marketplace/install/{profile_id}",
     "/factory/runs/{run_id}/rerun", "/factory/runs/{run_id}/branch", "/factory/runs/{run_id}/restart",
     "/factory/runs/{run_id}/clarifying-answers", "/factory/runs/{run_id}/portal-tokens",
-    "/billing/", "/v2/plugins/", "/agents/",
+    "/factory/runs/{run_id}/portal-tokens/{token_id}",
+    "/billing/create-order", "/billing/verify-payment", "/billing/cancel", "/billing/downgrade",
+    "/billing/stripe/checkout",
+    "/v2/plugins/install", "/v2/plugins/installed/{plugin_id}", "/v2/plugins/installed/{plugin_id}/config",
+    "/v2/plugins/installed/{plugin_id}/test", "/v2/plugins/connectors/invoke",
+    "/v2/plugins/connectors/ldap/authenticate", "/v2/plugins/connectors/ldap/users",
+    "/v2/plugins/connectors/ldap/validate", "/v2/plugins/connectors/salesforce/query",
+    "/v2/plugins/connectors/salesforce/validate",
+    "/agents/{agent_name}/run",
 )
 
 # Organisation-wide state: outbound webhooks and publishing to the marketplace.
@@ -46,6 +57,10 @@ ADMIN_ONLY = ("/webhooks", "/marketplace/publish")
 def _matches(template: str, rules: tuple) -> bool:
     return any(template == r or (r.endswith("/") and template.startswith(r)) or template.startswith(r + "/")
                for r in rules)
+
+
+def _exact(template: str, rules: tuple) -> bool:
+    return template in rules
 
 
 def check_role(request: Request, user: Dict[str, Any]) -> None:
@@ -60,7 +75,7 @@ def check_role(request: Request, user: Dict[str, Any]) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Unknown role")
     if _matches(template, ADMIN_ONLY) and rank < ROLE_RANK["admin"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    if role == "viewer" and not _matches(template, VIEWER_MAY + POLICY_GATED):
+    if role == "viewer" and not (_matches(template, VIEWER_MAY) or _exact(template, POLICY_GATED)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Viewers have read-only access")
 
 
