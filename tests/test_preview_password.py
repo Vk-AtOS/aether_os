@@ -21,6 +21,7 @@ def test_preview_password_is_random_and_not_logged(tmp_path):
         assert email == "owner@example.org" and len(pw) >= 12 and pw != "Admin1234!"
         assert pw not in log.read_text()
         assert json.loads((root / "preview_credentials.json").read_text())["password"] == pw
-        assert pw in (root / "backend" / "src" / "seed.py").read_text()
+        # the seed reads it from ADMIN_PASSWORD in the preview app's environment: it is never written into source
+        assert pw not in (root / "backend" / "src" / "seed.py").read_text()
         out.append(pw)
     assert out[0] != out[1]
