@@ -116,7 +116,7 @@ export const OrgConfigPanel = ({
       {/* Danger Zone */}
       <div className="border border-danger/30 rounded-xl p-5 space-y-4 mt-4">
         <h4 className="text-xs font-bold text-danger uppercase tracking-widest">Danger Zone</h4>
-        <p className="text-xs text-muted">Delete this organisation and all associated data. This will deactivate all users and schedule data for permanent deletion in 30 days.</p>
+        <p className="text-xs text-muted">Delete this organisation. This cannot be undone and there is no grace period: all users are signed out and anonymised, passwords are destroyed, and personal data in the audit ledger is erased. Only an owner can do this.</p>
         {deleteOrgStatus !== 'confirming' ? (
           <button
             onClick={() => setDeleteOrgStatus('confirming')}
@@ -140,7 +140,7 @@ export const OrgConfigPanel = ({
                 onClick={onDeleteOrg}
                 className="text-[10px] font-bold bg-danger text-white px-4 py-1.5 rounded uppercase tracking-wider hover:bg-danger/90 transition-colors disabled:opacity-40"
               >
-                {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'done' ? 'Scheduled' : deleteOrgStatus === 'error' ? '✗ Error' : 'Confirm Delete'}
+                {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'done' ? 'Deleted' : deleteOrgStatus === 'error' ? '✗ Error' : 'Confirm Delete'}
               </button>
               <button
                 onClick={() => { setDeleteOrgStatus(null); setDeleteOrgInput(''); }}
