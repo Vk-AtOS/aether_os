@@ -29,8 +29,17 @@ VIEWER_MAY = (
     "/chat/", "/mail/", "/hr/", "/velaris/", "/control/",
 )
 
-# Organisation-wide state: outbound webhooks, marketplace publishing and installs.
-ADMIN_ONLY = ("/webhooks", "/marketplace/publish", "/marketplace/install/")
+# Routes whose handler asks the policy engine (core/policy): it decides by role, returns the
+# structured denial the dashboard keys on and ledgers it, so the gate does not pre-empt it.
+POLICY_GATED = (
+    "/factory/start", "/mcp/start_pipeline", "/settings/test-provider", "/marketplace/install/",
+    "/factory/runs/{run_id}/rerun", "/factory/runs/{run_id}/branch", "/factory/runs/{run_id}/restart",
+    "/factory/runs/{run_id}/clarifying-answers", "/factory/runs/{run_id}/portal-tokens",
+    "/billing/", "/v2/plugins/",
+)
+
+# Organisation-wide state: outbound webhooks and publishing to the marketplace.
+ADMIN_ONLY = ("/webhooks", "/marketplace/publish")
 
 
 def _matches(template: str, rules: tuple) -> bool:
@@ -50,5 +59,5 @@ def check_role(request: Request, user: Dict[str, Any]) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Unknown role")
     if _matches(template, ADMIN_ONLY) and rank < ROLE_RANK["admin"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    if role == "viewer" and not _matches(template, VIEWER_MAY):
+    if role == "viewer" and not _matches(template, VIEWER_MAY + POLICY_GATED):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Viewers have read-only access")

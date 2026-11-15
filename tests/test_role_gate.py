@@ -4,7 +4,7 @@ import re
 import pytest
 
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.role_gate import VIEWER_MAY, ADMIN_ONLY, _matches
+from aether_os.gateway.role_gate import ADMIN_ONLY, POLICY_GATED, VIEWER_MAY, _matches
 
 MUTATING = ("POST", "PUT", "PATCH", "DELETE")
 
@@ -30,7 +30,7 @@ def test_viewer_cannot_mutate_anything_outside_the_self_service_allowlist(gw):
     viewer = gw.user_with_role("viewer", owner.org_id)
     checked = 0
     for method, path in _auth_routes(gw.app):
-        if _matches(path, VIEWER_MAY):
+        if _matches(path, VIEWER_MAY + POLICY_GATED):
             continue
         checked += 1
         resp = gw.client.request(method, _url(path), headers=viewer.auth, json={})
@@ -48,7 +48,7 @@ def test_org_wide_routes_need_admin(gw, role):
             hit += 1
             resp = gw.client.request(method, _url(path), headers=user.auth, json={})
             assert resp.status_code == 403, f"{role} reached {method} {path}: {resp.status_code}"
-    assert hit >= 5
+    assert hit >= 4
     admin = gw.user_with_role("admin", owner.org_id)
     assert gw.client.post("/webhooks", headers=admin.auth, json={}).status_code != 403
 
