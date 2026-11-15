@@ -26,16 +26,18 @@ ROLE_RANK: Dict[str, int] = {"viewer": 0, "member": 1, "api": 1, "admin": 2, "ow
 class Entitlement:
     runs_per_period: Optional[int]  # None = no cap in the rolling window
     concurrent_runs: int
+    seats: Optional[int] = None     # active users in the org; None = no cap
 
 
 # trial: the org's own lifetime allowance (trial_runs_limit) is the cap, not the window.
 # pro / enterprise are sold as "unlimited runs"; 3 at once is the platform's per-org ceiling.
+# Seat numbers are defaults for the owner to review; enterprise is uncapped.
 PLAN_ENTITLEMENTS: Dict[str, Entitlement] = {
-    "free": Entitlement(runs_per_period=3, concurrent_runs=1),
-    "trial": Entitlement(runs_per_period=None, concurrent_runs=3),
-    "starter": Entitlement(runs_per_period=30, concurrent_runs=2),
-    "pro": Entitlement(runs_per_period=None, concurrent_runs=3),
-    "enterprise": Entitlement(runs_per_period=None, concurrent_runs=3),
+    "free": Entitlement(runs_per_period=3, concurrent_runs=1, seats=1),
+    "trial": Entitlement(runs_per_period=None, concurrent_runs=3, seats=5),
+    "starter": Entitlement(runs_per_period=30, concurrent_runs=2, seats=5),
+    "pro": Entitlement(runs_per_period=None, concurrent_runs=3, seats=25),
+    "enterprise": Entitlement(runs_per_period=None, concurrent_runs=3, seats=None),
 }
 
 
@@ -44,6 +46,7 @@ class ActionRule:
     min_role: str
     new_run: bool = False       # consumes run quota (trial allowance, runs per period)
     occupies_slot: bool = False  # needs a free concurrent-run slot
+    adds_seat: bool = False      # adds an active user: needs a free seat
 
 
 ACTIONS: Dict[str, ActionRule] = {
@@ -56,6 +59,8 @@ ACTIONS: Dict[str, ActionRule] = {
     "portal.token.revoke": ActionRule("admin"),
     "portal.approval.list": ActionRule("member"),
     "plugin.manage": ActionRule("admin"),
+    "agent.run": ActionRule("member"),  # POST /agents/{name}/run dispatches ANY registered agent
+    "user.add": ActionRule("admin", adds_seat=True),
     "provider.test": ActionRule("admin"),
     "provider.test_platform": ActionRule("superadmin"),
 }
@@ -73,6 +78,7 @@ class Facts:
     trial_runs_used: int = 0
     trial_runs_limit: int = 0
     platform_active_runs: int = 0
+    seats_used: int = 0
 
 
 @dataclass(frozen=True)
@@ -100,12 +106,14 @@ def evaluate(action: str, facts: Facts) -> Decision:
         return _deny("role_unknown")
     if rank < ROLE_RANK[rule.min_role]:
         return _deny("role_insufficient", required_role=rule.min_role)
-    if not (rule.new_run or rule.occupies_slot):
+    if not (rule.new_run or rule.occupies_slot or rule.adds_seat):
         return Decision(True, "ok")
 
     entitlement = PLAN_ENTITLEMENTS.get(facts.plan)
     if entitlement is None:
         return _deny("plan_unknown")
+    if rule.adds_seat and entitlement.seats is not None and facts.seats_used >= entitlement.seats:
+        return _deny("quota_seats", used=facts.seats_used, limit=entitlement.seats)
     if rule.new_run:
         if facts.plan == "trial" and facts.trial_runs_used >= facts.trial_runs_limit:
             return _deny("trial_limit_reached", used=facts.trial_runs_used, limit=facts.trial_runs_limit)

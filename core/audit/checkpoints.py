@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import stat
 from functools import lru_cache
 from pathlib import Path
@@ -25,7 +26,7 @@ from typing import Any, Dict, Optional
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from sqlalchemy import Float, Integer, String, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -132,14 +133,38 @@ def sign(chain_id: str, chain_seq: int, head_hash: str, created_at: float) -> Di
     return cp
 
 
+def retired_keys_dir() -> Path:
+    return Path(os.environ.get("AETHER_LEDGER_RETIRED_KEYS_DIR") or key_path().parent / "retired_keys")
+
+
+def _public_key_for(kid: str) -> Optional[Ed25519PublicKey]:
+    """Public key that signed checkpoints with id `kid`: the current key, or a retired/rotated
+    one kept as a public PEM in the retired-keys directory (so a rotated or lost private key,
+    or a verify-only replica, does not make every stored checkpoint fail). The file name is not
+    trusted: the loaded key must hash to `kid`."""
+    key = signing_key(create=False)
+    if key is not None and key_id(key) == kid:
+        return key.public_key()
+    if not re.fullmatch(r"[0-9a-f]{16}", kid or ""):
+        return None
+    path = retired_keys_dir() / f"{kid}.pem"
+    if not path.is_file():
+        return None
+    pub = serialization.load_pem_public_key(path.read_bytes())
+    if not isinstance(pub, Ed25519PublicKey):
+        return None
+    raw = pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return pub if hashlib.sha256(raw).hexdigest()[:16] == kid else None
+
+
 def signature_ok(cp: Dict[str, Any]) -> bool:
-    """True only if `cp` was signed by this installation's key. Fails closed: no key,
-    another key, a malformed checkpoint or a bad signature are all False."""
+    """True only if `cp` was signed by a key this installation knows (current or retired).
+    Fails closed: unknown key, a malformed checkpoint or a bad signature are all False."""
     try:
-        key = signing_key(create=False)
-        if key is None or cp.get("key_id") != key_id(key):
+        pub = _public_key_for(cp.get("key_id"))
+        if pub is None:
             return False
-        key.public_key().verify(base64.b64decode(cp["signature"], validate=True), message(cp))
+        pub.verify(base64.b64decode(cp["signature"], validate=True), message(cp))
         return True
     except (InvalidSignature, KeyError, TypeError, ValueError) as e:
         logger.warning("ledger checkpoint failed signature check: %s", e)

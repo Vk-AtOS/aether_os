@@ -142,10 +142,10 @@ class ModelRouter:
         from aether_os.core.errors import LLMUnavailable
         from aether_os.core.telemetry.langsmith_tracer import trace_call
 
-        # ── 0. Global kill switch (D6): nothing is sent to any model ──────────
-        from aether_os.core.llm.budget import kill_switch_on, resolve_plan
-        if kill_switch_on():
-            raise LLMUnavailable("LLM calls are disabled by the platform kill switch")
+        # ── 0. Kill switches, org/plan/USD allowance, sensitivity (D6) — before anything is sent ──
+        from aether_os.core.llm.guard import admit
+        admission = await admit(org_id, plan, prompt, system, max_tokens, enforce_local)
+        plan = admission.plan
 
         # ── 1. Semantic cache check ───────────────────────────────────────────
         if not enforce_local:
@@ -172,21 +172,8 @@ class ModelRouter:
             except Exception as _ce:
                 logger.debug("Cache check failed (continuing): %s", _ce)
 
-        # ── 2. Token budget check — fails closed (D6) ─────────────────────────
-        _recommended_model: Optional[str] = None
-        if org_id and not enforce_local:
-            plan = await resolve_plan(org_id, plan)
-            try:
-                from aether_os.core.llm.budget import get_budget_manager
-                allowed, reason, _recommended_model = await get_budget_manager().check_budget(
-                    org_id=org_id, plan=plan
-                )
-            except Exception as _be:
-                raise LLMUnavailable(f"Token budget check unavailable: {_be}") from _be
-            if not allowed:
-                raise LLMUnavailable(f"Token budget exceeded: {reason}")
-            if _recommended_model == "haiku":
-                logger.info("Router: budget downgrade → Haiku (%s)", reason)
+        # ── 2. Budget downgrade hint (the check itself ran in admit()) ────────
+        _recommended_model: Optional[str] = admission.model_hint
 
         # Reset daily fallback counter on calendar-day boundary
         today = time.strftime("%Y-%m-%d")
@@ -215,6 +202,11 @@ class ModelRouter:
         # customer data unless the operator explicitly opts in.
         if not enforce_local and os.environ.get("ALLOW_COMMUNITY_LLM", "").lower() not in ("1", "true", "yes"):
             chain = [s for s in chain if not (s.provider == "openrouter" and s.model.endswith(":free"))]
+        # Sensitive prompts never reach community endpoints, even when the operator opted in above.
+        if admission.sensitive_reasons and not enforce_local:
+            chain = [s for s in chain if s.provider != "openrouter"]
+            if not chain:
+                raise LLMUnavailable("Prompt contains sensitive data and no approved provider is configured")
 
         # ── Caller-pinned provider (ContextVar-safe; avoids os.environ mutation) ──
         if primary_provider is not None and not enforce_local:

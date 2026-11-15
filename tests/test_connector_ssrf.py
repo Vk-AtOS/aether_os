@@ -27,3 +27,34 @@ def test_member_cannot_probe_and_admin_gets_400_for_internal_salesforce(gw):
     r = gw.client.post("/v2/plugins/connectors/salesforce/validate", headers=org.auth,
                        json={"instance_url": "http://127.0.0.1:9", "access_token": "x"})
     assert r.status_code == 400
+
+
+def test_org_url_connectors_connect_through_the_pinned_client(monkeypatch):
+    """DNS rebinding: a check at install time is not enough, the connection itself must be pinned
+    to an address that passed the check. GitLab/Jira/Supabase used plain httpx."""
+    from aether_os.core.plugins import connectors, connectors_registry
+
+    seen = []
+
+    class R:
+        status_code = 200
+        def json(self):
+            return [] if seen and seen[-1].endswith("/projects") else {"username": "u", "displayName": "d"}
+        def raise_for_status(self):
+            pass
+
+    async def fake(method, url, **kw):
+        seen.append(url)
+        return R()
+
+    monkeypatch.setattr(connectors, "safe_request", fake)
+    monkeypatch.setattr(connectors_registry, "safe_request", fake)
+    monkeypatch.setattr("httpx.AsyncClient", lambda *a, **k: (_ for _ in ()).throw(AssertionError("plain httpx")))
+    for conn, cfg in (
+        (connectors.GitLabConnector, {"base_url": "https://git.example.com", "token": "t"}),
+        (connectors.JiraConnector, {"base_url": "https://j.example.com", "email": "e", "api_token": "t"}),
+        (connectors_registry.SupabaseConnector, {"url": "https://s.example.com"}),
+    ):
+        assert asyncio.run(conn(cfg).test())["ok"]
+    assert asyncio.run(connectors.GitLabConnector({"base_url": "https://g.x"}).action_list_projects({})) == []
+    assert len(seen) == 4

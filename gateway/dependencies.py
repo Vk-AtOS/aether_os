@@ -21,7 +21,9 @@ from sqlalchemy import select
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
 from aether_os.core.billing.payments import expire_if_due
+from aether_os.core.api_rate_limit import enforce_api_rate
 from aether_os.gateway.auth_refresh import assert_access_token_live
+from aether_os.gateway.role_gate import check_admin_mfa, check_role
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -95,6 +97,14 @@ async def get_current_user(
                 # The plan claim is as old as the token; the org row (and whether its
                 # paid period has ended) is the truth for this request.
                 payload["plan"] = await expire_if_due(session, db_org)
+                # The role claim is as old as the token too: a demoted or removed admin must
+                # lose admin rights now, not when the (up to 15 min / refresh-extended) JWT expires.
+                payload["role"] = db_user.role
+                payload["org_id"] = db_user.org_id
+                request.state.audit_identity = {"org_id": db_user.org_id, "user_id": str(user_id)}
+                check_role(request, payload)
+                check_admin_mfa(request, payload, bool(db_user.mfa_enabled), db_org)
+                await enforce_api_rate(str(user_id), db_user.org_id)
 
         return payload
 
@@ -118,13 +128,17 @@ async def get_current_user(
                 api_key, org = row
                 api_key.last_used_at = time.time()
                 await session.commit()
-                return {
+                request.state.audit_identity = {"org_id": org.id, "user_id": f"api_key:{api_key.id}"}
+                claims = {
                     "sub": "api_key",
                     "org_id": org.id,
                     "org_slug": org.slug,
                     "plan": await expire_if_due(session, org),
                     "role": "api",
                 }
+                check_role(request, claims)
+                await enforce_api_rate(f"api_key:{api_key.id}", org.id)
+                return claims
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
