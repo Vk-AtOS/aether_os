@@ -10,6 +10,36 @@ import logging
 import os
 import sys
 
+from aether_os.core.security.redact import redact_pii, redact_secrets
+from aether_os.core.telemetry.trace_context import current_trace_id
+
+# Keys whose values are identifiers or timestamps: never rewritten (a UUID or date must stay searchable).
+_KEEP = frozenset({"timestamp", "level", "logger", "trace_id", "org_id", "user_id", "run_id", "request_id"})
+_MAX_DEPTH = 4
+
+
+def _clean(value, depth=0):
+    if isinstance(value, str):
+        return redact_pii(redact_secrets(value, limit=100_000))
+    if depth < _MAX_DEPTH and isinstance(value, dict):
+        return {k: (v if k in _KEEP else _clean(v, depth + 1)) for k, v in value.items()}
+    if depth < _MAX_DEPTH and isinstance(value, (list, tuple)):
+        return [_clean(v, depth + 1) for v in value]
+    return value
+
+
+def add_trace_id(_logger, _method, event_dict):
+    """Put the request's trace id on every log line (structlog and stdlib records alike)."""
+    tid = current_trace_id()
+    if tid and "trace_id" not in event_dict:
+        event_dict["trace_id"] = tid
+    return event_dict
+
+
+def redact_event(_logger, _method, event_dict):
+    """Last processor before rendering: secrets and personal data never reach the log sink (KAN-50)."""
+    return {k: (v if k in _KEEP else _clean(v)) for k, v in event_dict.items()}
+
 
 def configure_logging() -> None:
     """Configure structlog for JSON output in production, pretty output in dev."""
@@ -29,6 +59,7 @@ def configure_logging() -> None:
 
     shared_processors = [
         structlog.contextvars.merge_contextvars,
+        add_trace_id,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
@@ -48,7 +79,8 @@ def configure_logging() -> None:
     )
 
     formatter = structlog.stdlib.ProcessorFormatter(
-        processor=renderer,
+        processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta, structlog.processors.format_exc_info,
+                    redact_event, renderer],
         foreign_pre_chain=shared_processors,
     )
 
