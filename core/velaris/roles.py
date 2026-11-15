@@ -7,16 +7,17 @@ grants and policies, security_admin zero-trust settings, flow_approver decides r
 
 A role not in the table (viewer, api, anything unknown, None) gets no Velaris role.
 The mapping is intentionally narrow: only owner and admin hold admin roles, and the two
-most sensitive ones (governance_admin, security_admin) are the owner's alone.
+most sensitive ones (governance_admin, security_admin) are the owner's alone. model_admin (model providers and their
+keys, velaris/api/providers_api.py) is held by owner and admin, like the organisation's own API-key settings.
 """
 from __future__ import annotations
 
 from typing import Dict, FrozenSet, Optional
 
 VELARIS_ROLES: Dict[str, FrozenSet[str]] = {
-    "owner": frozenset({"hr_admin", "payroll_admin", "flow_approver",
+    "owner": frozenset({"hr_admin", "payroll_admin", "flow_approver", "model_admin",
                         "governance_admin", "security_admin"}),
-    "admin": frozenset({"hr_admin", "payroll_admin", "flow_approver"}),
+    "admin": frozenset({"hr_admin", "payroll_admin", "flow_approver", "model_admin"}),
     "member": frozenset(),
     "viewer": frozenset(),
 }

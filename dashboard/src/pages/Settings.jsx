@@ -10,6 +10,7 @@ import { ApiKeyPanel, PlanLimitsPanel, LLMStatusPanel, FactoryStatsPanel, Versio
 import { ModelConfigPanel, BedrockPanel, CouncilPanel, LangsmithPanel } from '../components/settings/LLMSettings';
 import { SSOPanel, SCIMPanel } from '../components/settings/SecuritySettings';
 import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components/settings/OrgSettings';
+import ModelProvidersPanel from '../components/settings/ModelProvidersPanel';
 import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
 import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 import { apiError } from '../apiError';
@@ -452,6 +453,7 @@ const Settings = () => {
             orgKeys={orgKeys}
             onUpdateKey={handleUpdateKey} onTestKey={handleTestKey}
           />
+          <ModelProvidersPanel isAdmin={isAdmin} />
           <PlanLimitsPanel
             usageLoading={usageLoading} usageError={usageError} usageData={usageData}
           />
