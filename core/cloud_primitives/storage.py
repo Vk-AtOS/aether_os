@@ -8,10 +8,22 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+
+def bucket_name(slug: str, table: str) -> str:
+    """S3 bucket for an entity: lower-case letters, digits and hyphens only (underscores are invalid)."""
+    return re.sub(r"[^a-z0-9-]+", "-", f"{slug}-{table}s".lower()).strip("-")
+
+
+def bucket_env_var(table: str) -> str:
+    """Environment variable that holds the entity's bucket name. The ONE definition: the .env
+    file and the generated client both use it (they used to derive it separately and disagree)."""
+    return "BUCKET_" + re.sub(r"[^A-Z0-9]+", "_", f"{table}s".upper())
 
 
 def generate_minio_helm_values(slug: str, storage_size_gb: int = 50) -> str:
@@ -51,7 +63,7 @@ minio:
 
 def generate_bucket_policy(entity_name: str, slug: str) -> str:
     """JSON bucket policy: read for authenticated users, write for app service account."""
-    bucket = f"{slug}-{entity_name}s"
+    bucket = bucket_name(slug, entity_name)
     policy = {
         "Version": "2012-10-17",
         "Statement": [
@@ -94,8 +106,8 @@ def generate_storage_env(slug: str, bucket_names: List[str]) -> str:
         "",
     ]
     for bucket in bucket_names:
-        entity = bucket.replace(f"{slug}-", "").rstrip("s").upper()
-        lines.append(f"BUCKET_{entity}={bucket}")
+        # bucket = "<slug>-<table>s": the variable is the one the generated client reads for <table>
+        lines.append(f"BUCKET_{re.sub(r'[^A-Z0-9]+', '_', bucket.removeprefix(slug + '-').upper())}={bucket}")
     lines.append("")
     return "\n".join(lines)
 
@@ -108,7 +120,7 @@ def generate_python_storage_client(entities: List[dict]) -> str:
     )
     entity_cases_download = entity_cases_upload
     entity_buckets_init = "\n        ".join(
-        f'self.bucket_{e.get("table", "item")} = os.environ["BUCKET_{e.get("table", "item").upper()}"]'
+        f'self.bucket_{e.get("table", "item")} = os.environ["{bucket_env_var(e.get("table", "item"))}"]'
         for e in entities
     )
 
@@ -232,7 +244,7 @@ def generate_storage_package(
     storage_dir = output_dir / "storage"
     storage_dir.mkdir(parents=True, exist_ok=True)
 
-    bucket_names = [f"{slug}-{e.get('table', 'item')}s" for e in entities]
+    bucket_names = [bucket_name(slug, e.get("table", "item")) for e in entities]
 
     # Helm values (for Kubernetes deployments)
     (storage_dir / "minio-values.yaml").write_text(
