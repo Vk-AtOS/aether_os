@@ -55,3 +55,15 @@ def test_decision_must_belong_to_the_run_in_the_url(gw):
     d = _make(org.org_id, r1)
     assert gw.client.post(f"/factory/runs/{r2}/decisions/{d.id}/decide", headers=org.auth,
                           json={"decision": "approve"}).status_code == 404
+
+
+def test_reject_really_denies_and_a_body_without_a_verdict_is_refused(gw):
+    org = gw.register("inboxdeny")
+    rid = _run(gw, org)
+    d1, d2, d3 = (_make(org.org_id, rid, f"d{i}") for i in range(3))
+    base = f"/factory/runs/{rid}/decisions"
+    # The dashboard sends {approved: false}; that must deny, not approve.
+    assert gw.client.post(f"{base}/{d1.id}/decide", headers=org.auth, json={"approved": False}).json()["status"] == "denied"
+    assert gw.client.post(f"{base}/{d2.id}/decide", headers=org.auth, json={"decision": "deny"}).json()["status"] == "denied"
+    assert gw.client.post(f"{base}/{d3.id}/decide", headers=org.auth, json={}).status_code == 422
+    assert gw.client.post(f"{base}/{d3.id}/decide", headers=org.auth, json={"decision": "approve"}).json()["status"] == "approved"
