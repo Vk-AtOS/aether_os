@@ -154,11 +154,14 @@ class _Any(dict):
 
 
 async def test_hr_allowlist_refuses_everything_else(http, velaris):
-    for agent, method in (("ATS_CORE", "erase_candidates"), ("ATS_CORE", "_private"), ("PAYROLL_ENGINE", "compute"),
-                          ("NOPE", "x"), ("ESIGN", "open_signing"), ("EMPLOYEE_RECORDS", "erase_subject")):
+    for agent, method in (("ATS_CORE", "_private"), ("PAYROLL_ENGINE", "pay_out"), ("NOPE", "x"),
+                          ("ESIGN", "open_signing"), ("ATS_CORE", "erase_candidate"), ("ats_core", "pipeline")):
         assert (await http.post(f"/hr/{agent}/{method}", json={})).status_code == 404
     assert velaris.seen == []
-    assert not any("erase" in m for ms in velaris_hr_router.HR_ALLOW.values() for m in ms)
+    # erasure exists only behind admin + typed confirmation (KAN-142/144/199): bare, it is refused unseen
+    for agent, method in (("ATS_CORE", "erase_candidates"), ("EMPLOYEE_RECORDS", "erase_subject")):
+        assert (await http.post(f"/hr/{agent}/{method}", json={})).status_code == 422
+    assert velaris.seen == []
 
 
 async def test_hr_call_passes_202_and_ledgers_names_only(http, velaris):

@@ -225,6 +225,22 @@ services:
       timeout: 5s
       retries: 3
 
+  # Velaris PUBLIC app (careers, scheduling, interview participant, e-sign): its own process, never the API above.
+  # Reached only through its own nginx host (deploy/nginx_velaris_public.conf), so it listens on loopback only.
+  velaris_public:
+    profiles: ["velaris"]
+    image: ${VELARIS_IMAGE:?VELARIS_IMAGE is required for the velaris profile}
+    command: ["python3.11", "-m", "velaris.api.public"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8731:8731"
+    environment:
+      VELARIS_DATA: /data
+      VELARIS_PUBLIC_TRUST_PROXY: "1"
+      VELARIS_PUBLIC_CORS_ORIGINS: ${VELARIS_PUBLIC_CORS_ORIGINS:-}
+    volumes:
+      - velaris_data:/data
+
 volumes:
   velaris_data:
   pg_data:
