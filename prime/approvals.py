@@ -24,6 +24,7 @@ from aether_os.core.security.redact import redact_secrets
 from aether_os.prime.authz import (
     ACTION_TYPES, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
 )
+from aether_os.prime import detail
 from aether_os.prime.executors import (
     DEFAULT_EXECUTOR, ExecutionContext, ExecutionFailed, get_executor,
 )
@@ -187,7 +188,13 @@ class ApprovalService:
     async def get(self, request_id: str, uid: str, identities: Iterable[str],
                   org_id: str) -> Dict[str, Any]:
         row = await self._visible(request_id, uid, list(identities), org_id)
-        return await self._view(row, uid, list(identities))
+        view = await self._view(row, uid, list(identities))
+        person = await person_in_org(org_id, uid)
+        role = person[0] if person else None
+        view["detail"] = await detail.build(row, await self._delegations.get(row.delegation_id), role)
+        view["action"]["params"] = detail.mask_params(
+            org_id, row.params or {}, pseudonymise=role not in detail.MAY_SEE_PERSONAL)
+        return view
 
     async def service_view(self, request_id: str, org_id: str, executor: str) -> Dict[str, Any]:
         """The request as GET /prime/requests/{id} shows it, for a system acting for `org_id`
