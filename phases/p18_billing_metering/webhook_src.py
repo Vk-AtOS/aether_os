@@ -32,14 +32,16 @@ import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import Column, Float, String, select
 
-try:  # the generated backend's own modules
-    from src.database import AsyncSessionLocal, Base
-except ImportError:
-    from database import AsyncSessionLocal, Base
+# The generated backend's own modules, by the plain names main.py imports them under. Trying
+# "src.database" first made a second module with its own Base, so create_all never made billing_accounts.
 try:
-    from src.auth import get_current_user
+    from database import AsyncSessionLocal, Base
 except ImportError:
+    from src.database import AsyncSessionLocal, Base
+try:
     from auth import get_current_user
+except ImportError:
+    from src.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
