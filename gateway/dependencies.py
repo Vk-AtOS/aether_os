@@ -95,6 +95,10 @@ async def get_current_user(
                 # The plan claim is as old as the token; the org row (and whether its
                 # paid period has ended) is the truth for this request.
                 payload["plan"] = await expire_if_due(session, db_org)
+                # The role claim is as old as the token too: a demoted or removed admin must
+                # lose admin rights now, not when the (up to 15 min / refresh-extended) JWT expires.
+                payload["role"] = db_user.role
+                payload["org_id"] = db_user.org_id
 
         return payload
 
