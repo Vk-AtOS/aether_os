@@ -127,3 +127,9 @@ token.txt
 auth_res.json
 *.db.bak
 .local/
+
+# Generated/personal files that must never be tracked (KAN-192, KAN-194)
+snapshots/
+*_snapshot.md
+tests/playwright_audit_report.md
+uv.lock
