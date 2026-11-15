@@ -33,6 +33,22 @@ _RULES = [
 ]
 
 
+# Personal data that must not sit in logs: e-mail addresses and phone numbers.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_PHONE = re.compile(r"(?<![\w.:/\-])\+?\d[\d ()\-]{8,}\d(?![\w.:/\-])")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def _mask_phone(m: "re.Match[str]") -> str:
+    digits = sum(c.isdigit() for c in m.group(0))
+    return "[phone]" if 10 <= digits <= 15 and not _DATE.match(m.group(0)) else m.group(0)
+
+
+def redact_pii(text: str) -> str:
+    """Mask e-mail addresses and phone-number-like runs of 10-15 digits (ISO dates and ids are left alone)."""
+    return _PHONE.sub(_mask_phone, _EMAIL.sub("[email]", text))
+
+
 def redact_secrets(text: Optional[object], limit: int = 500) -> str:
     """Return `text` with credentials masked, capped at `limit` characters."""
     out = "" if text is None else str(text)
