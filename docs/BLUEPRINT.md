@@ -1,5 +1,7 @@
 # Blueprint: what goes where, and what happens when
 
+> This document is a plan and working reference, not a description of what is built. Where it says what the system "does", it means what it must do. Build status is in section 6 and in Jira project KAN.
+
 Last updated 2026-11-11. This is the working reference for the build. The full
 reasoning is in the architecture dossier; this file is the short, enforceable version.
 
@@ -37,7 +39,7 @@ Rules that hold everywhere:
 | `prime/` | Delegations, autonomy levels, the never-list, `authorize()` | Model calls, direct execution |
 | `dashboard/` | React user interface | Secrets |
 | `scripts/local.sh` | Local setup: `check`, `up`, `e2e`, `down` | — |
-| `benchmarks/results/` | Recorded end-to-end build reports: the evidence | — |
+| `benchmarks/results/` | Recorded end-to-end build reports: the evidence (empty at commit `e5c23fd`, 15 Nov 2026: no recorded run yet) | — |
 | `tests/` | Tests that exercise real code paths | Tests that mock the function under test |
 
 Generated applications are written to `~/.aether_os/projects/<run_id>/`, one folder per

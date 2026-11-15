@@ -1,10 +1,9 @@
 """
 AetherOS — Multi-Model Router
 ==============================
-Fallback chain (in priority order):
-  1. Anthropic  claude-sonnet-4-6   — 30 s timeout, 2 retries
-  2. Gemini     gemini-2.5-flash    — 45 s timeout, 2 retries
-  3. Ollama     qwen2.5-coder:3b    — 90 s timeout, 2 retries
+Fallback chain, per-provider timeouts and retry counts are defined in
+get_fallback_chain() in model_router_providers.py (the single source of truth;
+timeouts are partly set by env vars such as BEDROCK_TIMEOUT and OLLAMA_TIMEOUT).
 
 Each provider is skipped if its credentials are absent.
 Retry vs fallback decision is based on error-message classification:

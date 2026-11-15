@@ -1,3 +1,5 @@
+> **These are prompts (a plan), written July 2026. They are not a record of work done.** Counts in them (51 items, 748 files) are as of then. Instructions such as "git filter-repo purge" were not completed: the history rewrite is pending owner approval (KAN-175). Current status: Jira project KAN.
+
 # AetherOS — 4-Session Parallel-Agent Execution Prompts
 **Purpose:** copy-paste prompts that drive Claude/Sonnet + parallel subagents through all 51 open items in `plans2.md`, at minimum token cost.
 
