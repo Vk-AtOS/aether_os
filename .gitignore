@@ -79,7 +79,8 @@ log/
 
 # AetherOS runtime data
 ~/.aether_os/
-data/
+# Anchored to the repo root: a bare `data/` also hid deploy/terraform/aws/modules/data, which was never committed.
+/data/
 
 # Outputs (generated projects)
 outputs/
