@@ -71,6 +71,12 @@ async def _verify_run_ownership(run_id: str, user: Dict[str, Any], db) -> Run:
     return run
 
 
+async def _own_run_or_deny(run_id: str, user: Dict[str, Any]) -> None:
+    """Tenant check first: validation errors must not answer differently for another org's run."""
+    async with get_session_factory()() as db:
+        await _verify_run_ownership(run_id, user, db)
+
+
 def _is_expired(qs: QuestionnaireSession) -> bool:
     expires = qs.token_expires_at
     if expires.tzinfo is None:
@@ -260,6 +266,7 @@ async def send_questionnaire(
       agency_logo_url:  str | None
     """
     await enforce("questionnaire.manage", user)
+    await _own_run_or_deny(run_id, user)
     stage_id = body.get("stage_id", "")
     respondent_email = body.get("respondent_email", "")
     respondent_name = body.get("respondent_name", "")
@@ -334,6 +341,7 @@ async def fill_questionnaire(
       answers:  dict
     """
     await enforce("questionnaire.manage", user)
+    await _own_run_or_deny(run_id, user)
     stage_id = body.get("stage_id", "")
     answers = body.get("answers") or {}
     if not stage_id:

@@ -335,9 +335,6 @@ async def add_changelog(
 ) -> Dict[str, Any]:
     """Add entry to project changelog (member or above)."""
     await enforce("run.annotate", user)
-    entry = req.get("entry")
-    if not isinstance(entry, str) or not entry.strip() or len(entry) > 2000:
-        raise HTTPException(status_code=422, detail="entry must be 1-2000 characters")
     from aether_os.core.memory.memory_manager import MemoryManager
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Run
@@ -351,6 +348,10 @@ async def add_changelog(
         run = (await session.execute(stmt)).scalar_one_or_none()
         if not run:
             raise HTTPException(status_code=404)
+        # Validated after the tenant check, so another org's run id always answers 404.
+        entry = req.get("entry")
+        if not isinstance(entry, str) or not entry.strip() or len(entry) > 2000:
+            raise HTTPException(status_code=422, detail="entry must be 1-2000 characters")
 
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
         MemoryManager.add_changelog_entry(project_dir, entry, user["sub"])
