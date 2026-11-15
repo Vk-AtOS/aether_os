@@ -13,6 +13,7 @@ import QualityPanel from '../components/project/QualityPanel';
 import FeedbackPanel from '../components/project/FeedbackPanel';
 import CouncilPanel from '../components/project/CouncilPanel';
 import DecisionsPanel from '../components/project/DecisionsPanel';
+import QuestionnairePanel from '../components/project/QuestionnairePanel';
 import EnvVarsPanel from '../components/project/EnvVarsPanel';
 import RunAppPanel from '../components/project/RunAppPanel';
 import SpecReviewModal from '../components/project/SpecReviewModal';
@@ -25,7 +26,7 @@ import ProjectLivePreviewPanel from '../components/project/ProjectLivePreviewPan
 import { TraceTab } from '../components/TraceTab';
 import {
   ExternalLink, FileCode, ChevronLeft, Loader2, AlertTriangle, Pause,
-  Play, Monitor, ExternalLink as OpenTab, Radio, Download,
+  ClipboardList, Play, Monitor, ExternalLink as OpenTab, Radio, Download,
   GitBranch, Zap, ShieldCheck, Users, GitPullRequest, CheckCircle2, List,
 } from 'lucide-react';
 import {
@@ -387,6 +388,7 @@ const ProjectView = () => {
                   { id: 'trace', label: 'Trace', icon: ShieldCheck },
                   { id: 'council', label: 'Council', icon: Users },
                   { id: 'decisions', label: 'Decisions', icon: GitPullRequest },
+                  { id: 'questionnaires', label: 'Questionnaires', icon: ClipboardList },
                 ].map((tab) => (
                   <button key={tab.id} onClick={() => setActiveArtifactTab(tab.id)}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-200 ${activeArtifactTab === tab.id ? 'bg-white/[0.08] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
@@ -433,6 +435,7 @@ const ProjectView = () => {
             {activeArtifactTab === 'iframe' && <AppPreviewPanel appRunning={appRunning} run={run} iframeDevice={iframeDevice} setIframeDevice={setIframeDevice} iframeKey={iframeKey} setIframeKey={setIframeKey} />}
             {activeArtifactTab === 'env' && <EnvVarsPanel runId={run.run_id || run.id} onToast={showToast} />}
             {activeArtifactTab === 'council' && <CouncilPanel runId={run.run_id || run.id} />}
+            {activeArtifactTab === 'questionnaires' && <QuestionnairePanel runId={run.run_id || run.id} isViewer={isViewer} />}
             {activeArtifactTab === 'decisions' && <DecisionsPanel runId={run.run_id || run.id} />}
             {activeArtifactTab === 'run' && <RunAppPanel runId={run.run_id || run.id} onToast={showToast} onRunningChange={setAppRunning} />}
           </div>
