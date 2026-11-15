@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from . import schema_ddl
+from .resilience.breaker import CircuitBreaker, CircuitOpen, get_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,38 @@ def _postgres_engine_kwargs() -> dict:
     }
 
 
+def install_postgres_breaker(engine: AsyncEngine, breaker: CircuitBreaker | None = None) -> CircuitBreaker:
+    """Fail fast while PostgreSQL is down instead of making every request wait for a connect timeout.
+
+    After `failure_threshold` consecutive connect failures / dropped connections the breaker opens: new connections are
+    refused immediately with CircuitOpen (answered 503, see DEPENDENCY_DOWN) for `reset_after_s`, then one probe goes
+    through. Connections already in the pool keep working, so a healthy database is never affected. Per process.
+    """
+    breaker = breaker or get_breaker("postgres", failure_threshold=int(os.environ.get("DB_BREAKER_FAILURES", "5")),
+                                     reset_after_s=float(os.environ.get("DB_BREAKER_RESET_S", "15")))
+    sync_engine = engine.sync_engine
+
+    @event.listens_for(sync_engine, "do_connect")
+    def _connect(dialect, conn_rec, cargs, cparams):
+        # Connect ourselves so a refused/timed-out connect is counted even when it is a raw OSError (not a DBAPI error,
+        # so no handle_error event fires for it).
+        breaker.before_call()          # raises CircuitOpen while open; in half-open exactly one caller probes
+        try:
+            conn = dialect.connect(*cargs, **cparams)
+        except Exception as exc:
+            breaker.record_failure(exc)
+            raise
+        breaker.record_success()
+        return conn
+
+    @event.listens_for(sync_engine, "handle_error")
+    def _on_error(ctx):
+        if ctx.is_disconnect:          # an established connection dropped: the database went away mid-flight
+            breaker.record_failure(ctx.original_exception)
+
+    return breaker
+
+
 def get_engine() -> AsyncEngine:
     """Return the global async engine (lazy init)."""
     global _engine
@@ -116,6 +149,8 @@ def get_engine() -> AsyncEngine:
             engine_kwargs.update(_postgres_engine_kwargs())
 
         _engine = create_async_engine(url, **engine_kwargs)
+        if is_postgres:
+            install_postgres_breaker(_engine)
 
         if is_sqlite:
             # Enable WAL mode synchronously on the underlying sync driver.
@@ -170,7 +205,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # "The database cannot be reached" (not "the query is wrong"): the API answers these with 503, see gateway/api.py.
 # DBAPIError is only included through its connection-level subclasses so that a bad query stays a 500.
-DEPENDENCY_DOWN = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError, ConnectionError)
+DEPENDENCY_DOWN = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError, ConnectionError, CircuitOpen)
 
 
 class SchemaNotMigrated(RuntimeError):
