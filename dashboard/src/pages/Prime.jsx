@@ -8,7 +8,7 @@ import Inbox from '../components/prime/Inbox';
 import Deputies from '../components/prime/Deputies';
 import LimitsSettings from '../components/prime/LimitsSettings';
 import LedgerBrowser from '../components/prime/LedgerBrowser';
-import { useLoad } from '../components/prime/primeApi';
+import { primeApi, useLoad } from '../components/prime/primeApi';
 
 const TABS = [
   { key: 'delegations', label: 'Delegations', path: '/prime', Panel: DelegationsPanel },
@@ -22,6 +22,7 @@ const Prime = () => {
   const { tab = 'delegations' } = useParams();
   const { isAdmin } = useRole();
   const { data: ledger } = useLoad(api.verifyLedger);
+  const { data: counts } = useLoad(primeApi.inboxCount);   // badge: what this person may decide now
 
   const tabs = TABS.filter((t) => !t.adminOnly || isAdmin);
   const current = tabs.find((t) => t.key === tab);
@@ -63,6 +64,12 @@ const Prime = () => {
               isActive ? 'border-accent text-bright' : 'border-transparent text-muted hover:text-bright'}`}
           >
             {t.label}
+            {t.key === 'inbox' && counts?.pending > 0 && (
+              <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${counts.urgent > 0 ? 'bg-yellow-400/20 text-yellow-400' : 'bg-accent/20 text-bright'}`}
+                    aria-label={`${counts.pending} waiting${counts.urgent ? `, ${counts.urgent} urgent` : ''}`}>
+                {counts.pending}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>
