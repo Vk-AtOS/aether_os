@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, func
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
@@ -34,6 +34,9 @@ class Organisation(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking
+    # LLM spend control (KAN-116): per-org USD cap overriding the plan default, and an org-level kill switch.
+    llm_monthly_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    llm_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")

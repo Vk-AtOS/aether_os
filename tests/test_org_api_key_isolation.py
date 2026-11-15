@@ -19,7 +19,8 @@ import aether_os.core.db as db
 import aether_os.core.model_router as router_mod
 from aether_os.core import api_key_store
 from aether_os.core.errors import LLMUnavailable
-from aether_os.core.llm import client as llm_client
+from aether_os.core.llm import client as llm_client, controls
+from aether_os.core.models import Organisation
 from aether_os.core.llm._org_context import _current_org_id
 from aether_os.core.llm.ahm import default_ahm
 
@@ -77,6 +78,11 @@ async def keys(tmp_path, monkeypatch):
     engine = db.get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(db.Base.metadata.create_all)
+    async with db.get_session_factory()() as _s:   # the spend guard refuses calls for orgs that do not exist
+        for _oid in (ORG_A, ORG_B):
+            _s.add(Organisation(id=_oid, name=_oid, slug=_oid, plan="enterprise"))
+        await _s.commit()
+    monkeypatch.setattr(controls, "_orgs", {})
 
     monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeAnthropic)
     monkeypatch.setattr("httpx.AsyncClient", FakeHttpx)
