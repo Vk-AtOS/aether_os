@@ -472,7 +472,7 @@ def _spa_catchall(path: str = ""):
     }))
     with open(log_path, "a") as _lf:
         _lf.write(
-            f"[AetherOS] Preview credentials: {_preview_email} / {_PREVIEW_PASSWORD}\n"
+            f"[AetherOS] Preview credentials written to preview_credentials.json for {_preview_email}\n"
         )
 
     return _preview_email, _PREVIEW_PASSWORD

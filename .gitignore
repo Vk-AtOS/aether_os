@@ -141,3 +141,9 @@ crash.log
 # Playwright output
 dashboard/test-results/
 dashboard/playwright-report/
+
+# Generated/personal files that must never be tracked (KAN-192, KAN-194)
+snapshots/
+*_snapshot.md
+tests/playwright_audit_report.md
+uv.lock

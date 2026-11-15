@@ -481,7 +481,7 @@ aether artifacts <run_id> --download
 ./scripts/smoke_test.sh http://localhost:8000
 
 # Test the production VPS
-./scripts/smoke_test.sh http://139.59.87.218
+./scripts/smoke_test.sh https://<your-server>
 ```
 
 ---

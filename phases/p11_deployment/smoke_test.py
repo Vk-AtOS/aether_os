@@ -45,7 +45,8 @@ def _read_domain_ir(project_dir: Path) -> Optional[Dict]:
     return None
 
 
-def _read_credentials(project_dir: Path) -> tuple[str, str]:
+def _read_credentials(project_dir: Path) -> Optional[tuple[str, str]]:
+    """Preview credentials written by the run-app step; None when absent (no shared default)."""
     for cred_path in [
         project_dir / "p11_deployment" / "preview_credentials.json",
         project_dir / "preview_credentials.json",
@@ -53,10 +54,11 @@ def _read_credentials(project_dir: Path) -> tuple[str, str]:
         if cred_path.exists():
             try:
                 c = json.loads(cred_path.read_text())
-                return c.get("email", "demo@example.com"), c.get("password", "")
+                if c.get("email") and c.get("password"):
+                    return c["email"], c["password"]
             except Exception as exc:
                 logger.debug("smoke_test: failed to read credentials from %s (non-fatal): %s", cred_path, exc)
-    return "demo@example.com", ""  # no known password: login fails instead of guessing a shared one
+    return None
 
 
 def _sample_payload(entity_name: str, fields: List[Dict]) -> Dict[str, Any]:
@@ -126,10 +128,11 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
             warnings.append(f"GET /health unreachable: {exc}")
 
         # ── 2. Auth ───────────────────────────────────────────────────────────
-        email, password = _read_credentials(project_dir)
+        creds = _read_credentials(project_dir)
         token: Optional[str] = None
 
-        for login_path in ["/api/auth/login", "/auth/login", "/api/login", "/api/token"]:
+        for login_path in (["/api/auth/login", "/auth/login", "/api/login", "/api/token"] if creds else []):
+            email, password = creds
             try:
                 async with session.post(
                     f"{base_url}{login_path}",
@@ -146,7 +149,7 @@ async def run_smoke(base_url: str, project_dir: Path, timeout_per_op: float = 10
                 continue
 
         if not token:
-            warnings.append("Auth failed — CRUD tests will run unauthenticated")
+            warnings.append("Auth failed or no preview credentials — CRUD tests will run unauthenticated")
 
         headers = {"Authorization": f"Bearer {token}"} if token else {}
 

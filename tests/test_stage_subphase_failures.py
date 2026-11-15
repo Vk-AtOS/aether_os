@@ -50,8 +50,9 @@ def test_gate_denial_always_propagates(monkeypatch, mod):
 
 
 def test_s01_parallel_gate_denial_stops_run(monkeypatch):
-    monkeypatch.setattr(s01.importlib, "import_module", _fake_import(PipelineBlockedError("Gate 1 denied")))
+    # String-target setattr first: pytest 9 resolves it via importlib.import_module, which the next line fakes.
     monkeypatch.setattr("aether_os.core.projects.get_project_manager", lambda: _PM())
+    monkeypatch.setattr(s01.importlib, "import_module", _fake_import(PipelineBlockedError("Gate 1 denied")))
     pi = SimpleNamespace(project_id="p", run_id="r", input_data={})
     with pytest.raises(PipelineBlockedError):
         asyncio.run(_sup(s01).run_task(pi, []))

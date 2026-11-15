@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -153,8 +154,8 @@ async def _check_login(
     client: httpx.AsyncClient,
     base_url: str,
     run_id: str,
-    email: str = "admin@example.com",
-    password: str = "Admin1234!",
+    email: str,
+    password: str,
 ) -> bool:
     """POST to the generated app's /auth/login and check for an access_token."""
     urls = [
@@ -297,7 +298,9 @@ async def evaluate_single(
         result.health_passed = await _check_health(client, base_url, run_id)
 
         # 5. Login check — try to get an app token
-        result.login_passed = await _check_login(client, base_url, run_id)
+        app_email, app_password = os.environ.get("EVAL_APP_EMAIL", ""), os.environ.get("EVAL_APP_PASSWORD", "")
+        result.login_passed = bool(app_email and app_password) and await _check_login(
+            client, base_url, run_id, app_email, app_password)
         app_token = ""
         if result.login_passed:
             # Re-run to capture the token for CRUD
@@ -308,7 +311,7 @@ async def evaluate_single(
                 ]:
                     r = await client.post(
                         url,
-                        json={"email": "admin@example.com", "password": "Admin1234!"},
+                        json={"email": app_email, "password": app_password},
                         timeout=10.0,
                     )
                     if r.status_code == 200:
@@ -417,7 +420,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--base-url", default="http://localhost:8000", help="AetherOS base URL")
     p.add_argument("--email", default="demo@aetheros.ai", help="Platform admin email")
-    p.add_argument("--password", default="demo1234", help="Platform admin password")
+    p.add_argument("--password", default=os.environ.get("AETHER_ADMIN_PASS", ""),
+                   help="Platform admin password (default: $AETHER_ADMIN_PASS; required)")
     p.add_argument("--concurrency", type=int, default=3, help="Max parallel builds")
     p.add_argument("--golden-idx", type=int, default=None, help="Run only this prompt index (0-based)")
     p.add_argument("--output", default="", help="Write JSON report to this path")
@@ -428,6 +432,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if not args.password:
+        print("error: set --password or $AETHER_ADMIN_PASS", file=sys.stderr)
+        return 2
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s  %(levelname)-7s  %(message)s",
