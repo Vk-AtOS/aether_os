@@ -250,7 +250,7 @@ def run_repair(
                 success=False,
                 confidence=0.0,
                 patch_diff="",
-                explanation=f"No matching patch found and SLM failed to generate one.",
+                explanation="No matching patch found and SLM failed to generate one.",
                 escalated=True,
                 detected_language=detected_lang,
                 fingerprint=fp,

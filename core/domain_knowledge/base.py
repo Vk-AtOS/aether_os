@@ -242,7 +242,7 @@ class DomainKnowledgePack:
             fnames = ", ".join(f.name for f in e.fields)
             lines.append(f"  {e.name} ({e.table}): {fnames}")
             if e.audit_trail:
-                lines.append(f"    → audit trail required on all mutations")
+                lines.append("    → audit trail required on all mutations")
         return "\n".join(lines)
 
     def workflow_summary(self) -> str:

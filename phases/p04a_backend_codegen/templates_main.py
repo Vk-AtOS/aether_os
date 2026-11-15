@@ -357,7 +357,7 @@ def _build_main_py(project_name: str, routers_have_all_routers: bool) -> str:
 
 def _generate_makefile(project_name: str) -> str:
     slug = safe_project_name(project_name).lower().replace(" ", "-")
-    return f"""\
+    return """\
 .PHONY: dev test lint migrate seed install clean
 
 install:
@@ -385,7 +385,7 @@ docker:
 \tdocker-compose up --build
 
 clean:
-\tfind . -type d -name __pycache__ -exec rm -rf {{}} + 2>/dev/null || true
+\tfind . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 \tfind . -name "*.pyc" -delete
 \trm -f test_*.db
 """

@@ -1239,7 +1239,7 @@ declare module '@tanstack/react-router' {{
 
 def _generate_admin_layout(entities: List[dict], project_name: str) -> str:
     """Generate AdminLayout.tsx — dark sidebar for the owner/operator portal."""
-    nav_items: List[str] = [f"  {{ to: '/admin' as const, label: 'Dashboard', icon: 'LayoutDashboard' }},"]
+    nav_items: List[str] = ["  { to: '/admin' as const, label: 'Dashboard', icon: 'LayoutDashboard' },"]
     for ent in entities:
         table = ent["table"]
         label = to_label(table)
@@ -1309,7 +1309,7 @@ def _generate_customer_layout(entities: List[dict], project_name: str) -> str:
                      "class", "schedule", "trainer", "workout", "session", "plan",
                      "member", "booking", "reservation", "room", "team", "player",
                      "match", "fixture", "table", "dish")
-    nav_items: List[str] = [f"  {{ to: '/' as const, label: 'Home' }},"]
+    nav_items: List[str] = ["  { to: '/' as const, label: 'Home' },"]
     for ent in entities:
         table = ent["table"]
         if any(k in table.lower() for k in _customer_kws):
@@ -2247,23 +2247,23 @@ import '@testing-library/jest-dom'
 
 
 def _generate_login_test(project_name: str) -> str:
-    return f"""\
-import {{ render, screen }} from '@testing-library/react'
-import {{ describe, it, expect }} from 'vitest'
-import {{ LoginPage }} from '../pages/LoginPage'
+    return """\
+import { render, screen } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { LoginPage } from '../pages/LoginPage'
 
-describe('LoginPage', () => {{
-  it('renders login form', () => {{
+describe('LoginPage', () => {
+  it('renders login form', () => {
     render(<LoginPage />)
-    expect(screen.getByRole('button', {{ name: /sign in|log in|login/i }})).toBeInTheDocument()
-  }})
+    expect(screen.getByRole('button', { name: /sign in|log in|login/i })).toBeInTheDocument()
+  })
 
-  it('shows email and password fields', () => {{
+  it('shows email and password fields', () => {
     render(<LoginPage />)
     expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument()
-  }})
-}})
+  })
+})
 """
 
 
@@ -3473,7 +3473,7 @@ def _generate_entity_page(
     field_defs_str = "\n".join(field_defs)
 
     fk_config_str = "\n".join(fk_config_entries)
-    fk_config_prop = f"\n        fkConfig={{FK_CONFIG}}" if fk_config_entries else ""
+    fk_config_prop = "\n        fkConfig={FK_CONFIG}" if fk_config_entries else ""
     fk_config_const = (
         f"\nconst FK_CONFIG: Record<string, string> = {{\n{fk_config_str}\n}}\n"
         if fk_config_entries else ""

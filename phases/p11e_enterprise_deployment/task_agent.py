@@ -93,21 +93,21 @@ variable "container_image" {{
 }}
 """)
 
-    (aws_tf_dir / "outputs.tf").write_text(f"""\
-output "alb_dns_name" {{
+    (aws_tf_dir / "outputs.tf").write_text("""\
+output "alb_dns_name" {
   description = "Application Load Balancer DNS"
   value       = aws_lb.main.dns_name
-}}
+}
 
-output "rds_endpoint" {{
+output "rds_endpoint" {
   description = "RDS PostgreSQL endpoint"
   value       = aws_db_instance.main.endpoint
-}}
+}
 
-output "elasticache_endpoint" {{
+output "elasticache_endpoint" {
   description = "ElastiCache Redis endpoint"
   value       = aws_elasticache_cluster.main.cache_nodes[0].address
-}}
+}
 """)
 
     # main.tf — try LLM, fall back to template

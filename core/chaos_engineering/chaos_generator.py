@@ -368,7 +368,7 @@ def generate_chaos_test_plan(slug: str, entities: List[dict], namespace: str) ->
         "- LitmusChaos docs: https://docs.litmuschaos.io/",
         "- Chaos experiment hub: https://hub.litmuschaos.io/",
         f"- RBAC manifest: `rbac.yaml` (namespace: `{namespace}`)",
-        f"- Automated schedule: `chaos-schedule.yaml`",
+        "- Automated schedule: `chaos-schedule.yaml`",
     ]
 
     return "\n".join(lines) + "\n"

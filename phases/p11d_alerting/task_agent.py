@@ -185,7 +185,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
             If not resolved in 15 minutes, escalate to on-call engineer.
         """),
-        "HighLatency.md": textwrap.dedent(f"""\
+        "HighLatency.md": textwrap.dedent("""\
             # Runbook: High P95 Latency
 
             **Alert:** P95 response time > 2 seconds for 3 minutes
@@ -405,7 +405,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (alerting_dir / ".env.alerting.example").write_text(env_template)
 
     # ── Integration guide ─────────────────────────────────────────────────────
-    integration_md = textwrap.dedent(f"""\
+    integration_md = textwrap.dedent("""\
         # Alerting Integration Guide
 
         ## Files Generated

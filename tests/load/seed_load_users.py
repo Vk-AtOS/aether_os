@@ -92,7 +92,7 @@ async def seed():
 
         await session.commit()
         print(f"Seeded {seeded} users ({COUNT} load test + admin) into PostgreSQL")
-        print(f"Existing users were skipped.")
+        print("Existing users were skipped.")
 
 
 if __name__ == "__main__":

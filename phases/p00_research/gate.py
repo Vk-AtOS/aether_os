@@ -29,7 +29,7 @@ def validate(result: TaskResult) -> GateOutcome:
             f"\nWe researched [{domain}] and found these patterns:\n\n"
             f"Top products analyzed:\n"
             + "\n".join([f"• {s}" for s in sites[:3]])
-            + f"\n\nDesign approach for your app:\n"
+            + "\n\nDesign approach for your app:\n"
             + f"• Layout: {brief.get('layout_patterns', {}).get('navigation', 'default')}\n"
             + f"• Color scheme: {brief.get('color_scheme', {}).get('primary', 'indigo-600')}\n"
             + f"• Customer features: {', '.join(brief.get('must_have_features', [])[:5])}\n"

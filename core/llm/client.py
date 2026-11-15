@@ -385,7 +385,7 @@ class LLMClient:
             if attempt < 3:
                 await asyncio.sleep(attempt * 2)
 
-        raise LLMCallError(f"LLM call_json failed to return valid JSON after 3 attempts")
+        raise LLMCallError("LLM call_json failed to return valid JSON after 3 attempts")
 
     async def call_vision(
         self,

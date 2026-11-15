@@ -46,9 +46,9 @@ class PipelineService:
 
         rl = get_rate_limiter()
         if not await rl.check_concurrent_runs(org_id):
-            raise ValueError(f"Organisation has reached the concurrent run limit.")
+            raise ValueError("Organisation has reached the concurrent run limit.")
         if not await rl.check_hourly_starts(org_id):
-            raise ValueError(f"Organisation has exceeded the hourly run limit.")
+            raise ValueError("Organisation has exceeded the hourly run limit.")
 
         # Plan sanity check. The full decision (role, quotas, trial allowance) is made
         # by the caller through gateway.policy_guard.admit_run_start before this runs.
