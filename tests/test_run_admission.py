@@ -233,8 +233,9 @@ def test_agents_route_takes_role_from_the_token_not_the_body(gw):
     viewer = gw.user_with_role("viewer", owner.org_id)
     resp = gw.client.post("/agents/policy_agent/run", headers=viewer.auth,
                           json={"metadata": {"role": "owner", "org_id": "someone_else"}})
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == "blocked"
+    # The route asks the policy engine (agent.run) before dispatching any agent; the body's claims are ignored.
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"]["error"] == "role_insufficient"
     denial = gw.sql("SELECT log_metadata FROM audit_log WHERE org_id = ? AND action = 'policy.denied'",
                     (owner.org_id,))
     assert json.loads(denial[-1][0])["role"] == "viewer"
