@@ -10,7 +10,7 @@ import logging
 import os
 import asyncio
 from typing import Any, Dict
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_engine as _ge
 from aether_os.core.db import get_session_factory as _gsf
@@ -241,7 +241,9 @@ async def system_health(
 async def workloop_status(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Detailed workloop monitor status — failure patterns, findings, auto-fixes applied."""
+    """Detailed workloop monitor status: failure patterns, findings, auto-fixes (platform-wide, operator only)."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     try:
         return get_workloop_monitor().get_status()
     except Exception as exc:

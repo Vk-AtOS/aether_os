@@ -199,7 +199,9 @@ async def pricing():
 
 @router.get("/system/feature-flags")
 async def list_feature_flags(user: Dict[str, Any] = Depends(get_current_user)):
-    """Return current platform feature flag states (admin use)."""
+    """Return current platform feature flag states (platform operator only: they are global)."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     from aether_os.core.feature_flags import flags
     return {"flags": flags.all_flags(), "source": "growthbook+env+defaults"}
 

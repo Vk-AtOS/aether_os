@@ -345,6 +345,7 @@ async def cleanup_stuck_council_review(
     async with sf() as session:
         result = await session.execute(
             _upd(_Run)
+            .where(_Run.org_id == user["org_id"])  # an org admin touches their own org's runs only
             .where(_Run.status == "council_review")
             .where(_Run.started_at < cutoff)
             .values(status="completed")
