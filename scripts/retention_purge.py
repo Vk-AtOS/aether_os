@@ -5,7 +5,7 @@
 
 Windows (days) come from the environment; the defaults are an engineering choice, the legal retention period is the
 owner's decision (KAN-204): AETHER_RETENTION_TRACE_DAYS=30 (llm_traces: full prompts and responses),
-AETHER_RETENTION_EVENT_DAYS=180 (pipeline_events, events), AETHER_RETENTION_SNAPSHOT_DAYS=90 (snapshots: file contents).
+AETHER_RETENTION_EVENT_DAYS=180 (pipeline_events, events), AETHER_RETENTION_SNAPSHOT_DAYS=90 (snapshots: file contents), AETHER_RETENTION_ARTIFACT_DAYS=90 (files under ARTIFACT_DIR).
 0 disables a window. Rows go in batches so that no long lock is held.
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ from sqlalchemy import create_engine, text
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from aether_os.core.db import _build_db_url  # noqa: E402
+from aether_os.core.retention import prune_artifact_files  # noqa: E402
 
 logger = logging.getLogger("retention_purge")
 BATCH = 5000
@@ -61,6 +62,11 @@ def purge(engine, now: datetime | None = None, dry_run: bool = False) -> dict:
             time.sleep(0.05)
         deleted[table] = total
         logger.info("retention: %s %s rows older than %d days", table, "would delete" if dry_run else "deleted", days)
+    art_days = int(os.environ.get("AETHER_RETENTION_ARTIFACT_DAYS", 90))
+    if art_days > 0:
+        files, _ = prune_artifact_files(Path(os.environ.get("ARTIFACT_DIR", "artifacts")), art_days, dry_run, now.timestamp())
+        deleted["artifact_files"] = len(files)
+        logger.info("retention: %d artifact files older than %d days%s", len(files), art_days, " (dry run)" if dry_run else " deleted")
     return deleted
 
 
