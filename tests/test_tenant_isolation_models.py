@@ -11,9 +11,7 @@ import re
 import time
 import uuid
 
-import pytest
 from sqlalchemy import JSON, Boolean, Float, Integer, String, Text, DateTime, insert
-from sqlalchemy.orm import class_mapper
 
 import aether_os.core.models  # noqa: F401  (registers the tables)
 import aether_os.core.guardian.models  # noqa: F401

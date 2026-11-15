@@ -261,7 +261,7 @@ async def _reduce_stripe_billing(org_id: str, target_plan: str) -> None:
                 logger.info("Cancelled Stripe subscription %s for org %s", sub.id, org_id)
     except Exception as exc:
         logger.error("Stripe plan reduction to %s failed for org %s: %s", target_plan, org_id, exc)
-        raise HTTPException(status_code=502, detail="Could not change the subscription with the payment provider; nothing was changed. Try again.")
+        raise HTTPException(status_code=502, detail="Could not change the subscription with the payment provider; nothing was changed. Try again.") from exc
 
 
 async def _reduce_plan(user: Dict[str, Any], target_plan: str) -> Dict[str, Any]:
@@ -279,7 +279,7 @@ async def _reduce_plan(user: Dict[str, Any], target_plan: str) -> Dict[str, Any]
             await session.commit()
     except Exception as exc:
         logger.error("plan reduction DB update failed for org %s: %s", org_id, exc)
-        raise HTTPException(status_code=503, detail="Could not update the plan; try again.")
+        raise HTTPException(status_code=503, detail="Could not update the plan; try again.") from exc
     await get_ledger().async_log_audit_event(
         org_id=org_id, user_id=user.get("user_id", "-"), action="billing.plan_reduced",
         resource_type="organisation", resource_id=org_id, metadata={"plan": target_plan})

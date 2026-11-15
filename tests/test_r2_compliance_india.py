@@ -1,5 +1,4 @@
 """KAN-131: an India fintech build is not denied by default; APAC is not India."""
-import pytest
 
 from aether_os.core.policy.compliance import ComplianceContext, ComplianceEngine
 

@@ -2,7 +2,6 @@
 import time
 import uuid
 
-import pytest
 import yaml
 
 from aether_os.orchestrator.stage_gate import council_view

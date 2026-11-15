@@ -1,6 +1,5 @@
 """KAN-99 item 1: High/Critical security findings and Z3 FAIL block delivery (fail closed)."""
 import asyncio
-from pathlib import Path
 from types import SimpleNamespace
 
 from aether_os.phases.base import TaskResult

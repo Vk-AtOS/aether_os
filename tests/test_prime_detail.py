@@ -6,7 +6,6 @@ from decimal import Decimal
 
 import pytest
 
-from aether_os.gateway.routers import prime_inbox_router as inbox_api
 from aether_os.core import db
 from aether_os.prime import approvals
 from aether_os.prime.approvals import RequestError

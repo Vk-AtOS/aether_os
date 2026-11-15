@@ -31,7 +31,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
-from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import User as _User
 from aether_os.gateway.auth import get_password_hash
 from aether_os.gateway.auth_refresh import revoke_user_sessions
