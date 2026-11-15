@@ -158,7 +158,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         # ... etc
     else:
         # LLM-guided fallback if no screenshots could be analyzed
-        logger.info(f"p00: No vision analysis results, falling back to LLM-guided design")
+        logger.info("p00: No vision analysis results, falling back to LLM-guided design")
         analysis_prompt = DESIGN_BRIEF_LLM_FALLBACK_PROMPT.format(
             domain=domain,
             competitor_sites=", ".join(sites),

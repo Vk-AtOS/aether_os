@@ -147,7 +147,7 @@ def demo(
         for w in warnings:
             console.print(f"[yellow]⚠ {w}[/yellow]")
 
-    console.print(f"\n[bold]Running demo pipeline[/bold]")
+    console.print("\n[bold]Running demo pipeline[/bold]")
     console.print(f"Requirement: [cyan]{requirement}[/cyan]\n")
 
     async def _run() -> None:

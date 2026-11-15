@@ -372,7 +372,7 @@ echo "Restore complete."
     os.chmod(project_dir / "restore.sh", 0o755)
 
     # 4. update.sh
-    update_sh = f"""#!/bin/bash
+    update_sh = """#!/bin/bash
 set -e
 git pull
 docker-compose build

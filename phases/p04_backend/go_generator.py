@@ -352,7 +352,7 @@ func main() {{
 
 def generate_go_dockerfile(project_name: str) -> str:
     slug = project_name.lower().replace(" ", "-")
-    return f"""# Multi-stage Go build — final image is ~10MB scratch image
+    return """# Multi-stage Go build — final image is ~10MB scratch image
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./

@@ -491,14 +491,14 @@ def _wire_prometheus_monitoring(code_dir: Path, output_dir: Path, safe_name: str
 
         # Generate docker-compose.yml with prometheus service if monitoring dep present
         if has_instrumentator or has_prometheus_client:
-            dc_yml = f"""version: '3.8'
+            dc_yml = """version: '3.8'
 services:
   app:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=${{DATABASE_URL:-sqlite:///./data/app.db}}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/app.db}
     depends_on: []
 
   prometheus:

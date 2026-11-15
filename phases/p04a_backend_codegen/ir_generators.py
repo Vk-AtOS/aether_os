@@ -355,11 +355,11 @@ def _pydantic_validators(entity_name: str, rules: list) -> list:
         vname = "check_" + _re.sub(r"\W", "_", str(rule.name))
         validators += [
             f"    @field_validator('{field_name}', mode='before', check_fields=False)",
-            f"    @classmethod",
+            "    @classmethod",
             f"    def {vname}(cls, v):",
             f"        if v is not None and not (v {py_op} {val}):",
             f"            raise ValueError({msg!r})",
-            f"        return v",
+            "        return v",
             "",
         ]
     return validators

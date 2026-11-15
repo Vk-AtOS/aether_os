@@ -45,7 +45,7 @@ def generate_hpa(
 
     extra_metric = ""
     if performance_tier == "real_time":
-        extra_metric = f"""\
+        extra_metric = """\
     - type: Pods
       pods:
         metric:

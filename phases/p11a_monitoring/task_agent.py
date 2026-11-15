@@ -205,7 +205,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
 
     # ── Docker Compose (monitoring stack) ─────────────────────────────────────
-    dc_yml = textwrap.dedent(f"""\
+    dc_yml = textwrap.dedent("""\
         version: '3.8'
 
         services:
@@ -226,7 +226,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
           grafana:
             image: grafana/grafana:latest
             environment:
-              - GF_SECURITY_ADMIN_PASSWORD=${{GRAFANA_PASSWORD:-admin}}
+              - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
               - GF_USERS_ALLOW_SIGN_UP=false
             volumes:
               - grafana_data:/var/lib/grafana
@@ -312,7 +312,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (monitoring_dir / "app_instrumentation.py").write_text(app_instrumentation)
 
     # ── Integration guide ─────────────────────────────────────────────────────
-    guide = textwrap.dedent(f"""\
+    guide = textwrap.dedent("""\
         # Monitoring Setup
 
         ## Quick Start
