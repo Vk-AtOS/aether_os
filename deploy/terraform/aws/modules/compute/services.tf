@@ -31,6 +31,7 @@ locals {
         SQS_QUEUE_URL                = var.queue_url
         SQS_DLQ_URL                  = var.dlq_url
         AWS_REGION                   = var.region
+        AWS_DEFAULT_REGION           = var.region
         S3_BUCKET                    = var.artifacts_bucket
         PIPELINE_MAX_CONCURRENT      = "2"
         VELARIS_API_URL              = "http://velaris-api.${var.name}.internal:8730"

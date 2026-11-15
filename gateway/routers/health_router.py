@@ -1,6 +1,8 @@
 """
 AetherOS — Health & Landing Router
 GET /health          — health check (app-level)
+GET /healthz         — liveness (no dependencies)
+GET /readyz          — readiness (Postgres, Redis; names degraded components)
 GET /api/health      — health check (api prefix)
 GET /                — root landing page (public/index.html or redirect)
 GET /favicon.ico     — favicon
@@ -14,7 +16,7 @@ import time
 from typing import Any, Dict
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -37,6 +39,23 @@ async def health() -> Dict[str, Any]:
         "service": "AetherOS API",
         "version": "1.0.0",
     }
+
+
+@router.get("/healthz")
+async def healthz() -> Dict[str, str]:
+    """Liveness: the process is up and its event loop answers. Touches no dependency, so a Postgres or Redis outage
+    never makes an orchestrator kill a container that is only waiting for them."""
+    return {"status": "ok"}
+
+
+@router.get("/readyz")
+async def readyz():
+    """Readiness: 200 when this instance can serve traffic, 503 when it cannot (load balancers stop routing to it).
+    Names the degraded components but nothing else; details are admin-only at /system/components."""
+    from aether_os.core.resilience.health import snapshot
+    snap = await snapshot()
+    body = {"ready": snap["ready"], "degraded": snap["degraded"]}
+    return JSONResponse(body, status_code=200 if snap["ready"] else 503)
 
 
 @router.get("/health/zero-trust")
