@@ -311,7 +311,11 @@ def test_storefront_and_dashboard_show_no_invented_content(tmp_path, monkeypatch
                         "Free shipping", "30-day return", "Trusted by thousands", "(price * 1.2)"):
                 assert bad not in text, (f, bad)
             if "TREND_DATA" in text:
-                assert "Sample chart data" in text and "> Live" not in text, f
+                # real data: counted from the loaded records, no hard-coded series, no "sample"/"Live" label
+                assert "activityByDay" in text and "created_at" in text, f
+                assert "sample" not in text.lower() and "> Live" not in text and "value: 42" not in text, f
+                names = re.findall(r"const \{ data: (\w+) \}", text)
+                assert len(names) == len(set(names)), (f, names)   # ecommerce/fintech declared one const twice
         assert not tsc_syntax_errors(root)
 
 
