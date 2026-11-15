@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
 from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402,F401  (_get_cors_origins re-exported)
 from aether_os.gateway.lifespan import create_lifespan  # noqa: E402
+from aether_os.core.telemetry.trace_context import TraceIdMiddleware, current_trace_id  # noqa: E402
 
 _init_sentry()
 
@@ -133,6 +134,8 @@ def create_app() -> FastAPI:
     )
     # GZip registered after CORS so it wraps the outer response (Starlette reverse order)
     app.add_middleware(GZipMiddleware, minimum_size=500)
+    # Outermost: every log line, Velaris call and ledger entry of a request carries its trace id (KAN-50).
+    app.add_middleware(TraceIdMiddleware)
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
         from aether_os.core.prometheus_patch import apply as _apply_prom_patch
@@ -177,7 +180,7 @@ def create_app() -> FastAPI:
                             action=f"{method} {path}",
                             resource_type=path_parts[1] if len(path_parts) > 1 else "api",
                             resource_id=path_parts[2] if len(path_parts) > 2 else "-",
-                            metadata={},
+                            metadata={"trace_id": current_trace_id()},
                             ip_address=get_client_ip(request),
                         ))
             except Exception as exc:

@@ -81,3 +81,22 @@ def test_middleware_accepts_a_sane_id_replaces_a_hostile_one_and_echoes_it():
     bad = c.get("/x", headers={"X-Trace-Id": "x\ninjected"})
     assert bad.json()["trace_id"] != "x\ninjected" and len(bad.headers["x-trace-id"]) == 32
     assert current_trace_id() is None                    # not leaked past the request
+
+
+def test_the_gateway_answers_with_a_trace_id_and_velaris_calls_carry_it(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from aether_os.core.telemetry.trace_context import bind_trace_id, reset_trace_id
+    from aether_os.core.velaris.client import Identity, sign_request
+    from tests.gateway_env import gateway_env
+
+    with gateway_env(tmp_path) as gw:
+        r = gw.client.get("/healthz", headers={"X-Trace-Id": "browser-trace-0001"})
+        assert r.headers["x-trace-id"] == "browser-trace-0001"
+    tok = bind_trace_id("browser-trace-0001")
+    try:
+        h = sign_request(b"s" * 32, Ed25519PrivateKey.generate(), Identity("u", "o", "admin"), "GET", "/agents", b"")
+    finally:
+        reset_trace_id(tok)
+    assert h["X-Trace-Id"] == "browser-trace-0001"
+    assert "X-Trace-Id" not in sign_request(b"s" * 32, Ed25519PrivateKey.generate(), Identity("u", "o", "admin"), "GET", "/", b"")

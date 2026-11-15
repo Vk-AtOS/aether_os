@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from aether_os.core.resilience import BulkheadFull, CircuitOpen, get_breaker, get_bulkhead
+from aether_os.core.telemetry.trace_context import TRACE_HEADER, current_trace_id
 from aether_os.core.velaris.roles import velaris_roles
 
 logger = logging.getLogger(__name__)
@@ -104,8 +105,12 @@ def sign_request(secret: bytes, key: Ed25519PrivateKey, who: Identity, method: s
     ts = str(int(time.time() if now is None else now))
     identity = make_assertion(key, who, nonce, now=now)
     mac = hmac.new(secret, canonical(method, path, ts, nonce, body, identity), hashlib.sha256).hexdigest()
-    return {"X-Velaris-Timestamp": ts, "X-Velaris-Nonce": nonce, "X-Velaris-Signature": mac,
-            "X-Velaris-Identity": identity}
+    headers = {"X-Velaris-Timestamp": ts, "X-Velaris-Nonce": nonce, "X-Velaris-Signature": mac,
+               "X-Velaris-Identity": identity}
+    trace_id = current_trace_id()
+    if trace_id:                 # correlation only: not covered by the signature, Velaris validates its shape (KAN-50)
+        headers[TRACE_HEADER] = trace_id
+    return headers
 
 
 def generate_identity_key(path: str) -> None:
