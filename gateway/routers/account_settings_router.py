@@ -8,7 +8,6 @@ Routes
   POST /account/settings
   GET  /account/settings
   DELETE /org
-  POST /org/restore
 
 Split from account_router.py to keep that file under 400 lines.
 """
@@ -93,7 +92,9 @@ async def get_org_settings(
 async def delete_organisation(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, str]:
-    """Soft-delete the current organisation and deactivate all its users (owner only)."""
+    """Delete the current organisation (owner only). This cannot be undone: users are anonymised, passwords
+    and sign-ins destroyed and ledger personal data erased, and a deleted organisation refuses every token
+    (gateway/dependencies.py), so there is no way to call a restore. The dashboard asks for the org name first."""
     if user.get("role") != "owner":
         raise HTTPException(status_code=403, detail="Only org owners can delete the organisation")
     org_id = user["org_id"]
@@ -159,29 +160,3 @@ async def get_org_usage_endpoint(
     except Exception as exc:
         logger.warning("get_org_usage_endpoint: DB query failed for org=%s: %s", org_id, exc)
         return {"api_calls": 0, "storage_gb": 0, "runs_this_month": 0, "cost_usd": 0.0}
-
-
-@router.post("/org/restore")
-async def restore_organisation(
-    user: Dict[str, Any] = _current_user(),
-) -> Dict[str, str]:
-    """Restore a soft-deleted organisation (owner only)."""
-    if user.get("role") != "owner":
-        raise HTTPException(status_code=403, detail="Only org owners can restore the organisation")
-
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-
-    org_id = user["org_id"]
-    sf = get_session_factory()
-    async with sf() as session:
-        org = await session.get(Organisation, org_id)
-        if not org or not org.is_deleted:
-            return {"message": "Organisation is not deleted"}
-
-        org.is_deleted = False
-        org.deleted_at = None
-
-        await session.commit()
-
-    return {"message": "Organisation restored. Note: Users may need manual email restoration."}
