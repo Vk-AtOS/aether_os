@@ -63,6 +63,7 @@ _audit_tasks: set = set()  # strong refs to in-flight audit writes
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
 from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402,F401  (_get_cors_origins re-exported)
+from aether_os.core.db import DEPENDENCY_DOWN  # noqa: E402
 from aether_os.gateway.lifespan import create_lifespan  # noqa: E402
 from aether_os.core.telemetry.trace_context import TraceIdMiddleware, current_trace_id  # noqa: E402
 
@@ -209,6 +210,18 @@ def create_app() -> FastAPI:
     @app.exception_handler(ScimError)
     async def scim_error_handler(_req: _Request, exc: ScimError):
         return _JSONResponse(status_code=exc.status, content=exc.body, media_type="application/scim+json")
+
+    async def dependency_down_handler(_req: _Request, exc: Exception):
+        # Postgres/pool unreachable: 503 + Retry-After (retried by clients and load balancers, counted as
+        # "dependency down" by the alerts), logged once without the stack, nothing about the cause sent out.
+        logger.error("Database unreachable on %s %s: %s", _req.method, _req.url.path, type(exc).__name__)
+        return _JSONResponse(
+            status_code=503, headers={"Retry-After": "5"},
+            content={"detail": "The service is temporarily unavailable. Please retry shortly."},
+        )
+
+    for _down in DEPENDENCY_DOWN:   # Starlette resolves a handler by exception class: one registration per class
+        app.add_exception_handler(_down, dependency_down_handler)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_req: _Request, exc: Exception):
