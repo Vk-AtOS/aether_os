@@ -29,7 +29,7 @@ const OnboardingBanner = () => {
     return () => { live = false; };
   }, []);
 
-  if (!state || state.dismissed || state.complete) return null;
+  if (!Array.isArray(state?.steps) || state.dismissed || state.complete) return null;
   const done = state.steps.filter((s) => s.done).length;
 
   const dismiss = async () => {

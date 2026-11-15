@@ -18,7 +18,7 @@ const ApiKeys = () => {
 
   // Promise chain, no state set before the request: this runs from an effect.
   const load = useCallback(() => api.listOrgApiKeys()
-    .then((res) => { setKeys(res.data ?? []); setError(null); })
+    .then((res) => { setKeys(Array.isArray(res.data) ? res.data : []); setError(null); })
     .catch((e) => setError(apiError(e) || 'Failed to load API keys.'))
     .finally(() => setLoading(false)), []);
   useEffect(() => { load(); }, [load]);

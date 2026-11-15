@@ -215,7 +215,7 @@ export default function PluginManager() {
     (async () => {
       try {
         const res = await api.client.get("/v2/plugins/skills");
-        setSkills(res.data);
+        setSkills(Array.isArray(res.data) ? res.data : []); // anything but a list would crash the filter below
       } catch (e) {
         setError(apiError(e) || "Failed to load skills");
       } finally {

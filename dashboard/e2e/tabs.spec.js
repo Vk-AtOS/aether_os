@@ -10,6 +10,8 @@ for (const route of ROUTES) {
     await signIn(page, 'owner');
     await stubApi(page);
     await page.goto(route === '/' ? '' : route.slice(1));
+    // Mount-time check only: the stub answers {} to everything, which many screens (rightly) do not expect from a list
+    // endpoint, so waiting for every request would test the stub. Realistic shapes are covered by the component tests.
     await expect(page.locator('body')).not.toContainText(/Something went wrong|Application error/i);
     await expect(page.locator('#root')).not.toBeEmpty();
     expect(errors).toEqual([]);
