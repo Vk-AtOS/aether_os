@@ -34,6 +34,7 @@ from aether_os.prime.repository import (
     DelegationRepository, _aware_utc, _naive_utc, authority, person_in_org,
 )
 from aether_os.prime.service import PrimeService
+from aether_os.prime.inapp import notify_in_app
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,10 @@ class ApprovalService:
             await session.commit()
         if auto:
             await self._execute(row.id)
+        else:   # a person must decide: tell the approvers in the app (the owner and the deputy), not only on the next visit
+            await notify_in_app(org_id, [row.on_behalf_of, row.deputy], "approval_needed",
+                                "A request is waiting for your decision",
+                                f"A request to {row.action_type} was submitted and needs a decision. Open the Prime inbox.")
         out["request"] = await self._view(await self._load(row.id), None, ())
         return out
 

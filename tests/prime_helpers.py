@@ -15,7 +15,7 @@ from aether_os.core.audit import chain
 from aether_os.core.audit.chain import AuditChainEntry
 from aether_os.core.audit.subjects import AuditOrgPepper
 from aether_os.core.audit.checkpoints import AuditCheckpoint
-from aether_os.core.models import Organisation, Run, User, Webhook
+from aether_os.core.models import Notification, NotificationPref, Organisation, Run, User, Webhook
 from aether_os.prime import Action, AutonomyLevel, Delegation, DelegationRepository, Limits
 from aether_os.prime import authz, executors
 from aether_os.prime.approvals import ApprovalService
@@ -49,7 +49,8 @@ async def svc(tmp_path, monkeypatch):
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: db.Base.metadata.create_all(c, tables=[
             t.__table__ for t in (AuditChainEntry, AuditCheckpoint, PrimeDelegation, PrimeRequest,
-                                  PrimeOrgLimits, Organisation, User, Run, Webhook, AuditOrgPepper, PrimeCorrection)]))
+                                  PrimeOrgLimits, Organisation, User, Run, Webhook, AuditOrgPepper, PrimeCorrection,
+                                  Notification, NotificationPref)]))
     async with db.get_session_factory()() as s:
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (ORG, OTHER_ORG)])
         await s.flush()
