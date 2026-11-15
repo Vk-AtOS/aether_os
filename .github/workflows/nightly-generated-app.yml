@@ -1,0 +1,39 @@
+name: Nightly generated app
+
+# KAN-180: a generated app must build. Generates one product with the deterministic generators (no model key),
+# runs its backend and does a real `npm install && npm run build` of its frontend. Red = the output is broken.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generated-output:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ENVIRONMENT: test
+      AETHER_NPM_BUILD_TEST: "1"
+      AETHER_FIELD_KEY: ${{ secrets.AETHER_FIELD_KEY || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        run: |
+          pip install -r requirements.lock pytest pytest-timeout
+          npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/ts" typescript
+          echo "TSC_BIN=$RUNNER_TEMP/ts/node_modules/.bin/tsc" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/pkg" && ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pkg/aether_os"
+          echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
+      - name: Generated backend, frontend imports, tsc and real npm build
+        working-directory: ${{ runner.temp }}/pkg/aether_os
+        run: pytest tests/test_r3_e2e_generated_output.py tests/test_p05_generated_frontend.py tests/test_p04a_generated_backend.py --timeout=1200 -q
