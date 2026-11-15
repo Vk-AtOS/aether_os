@@ -129,3 +129,7 @@ token.txt
 auth_res.json
 *.db.bak
 .local/
+
+# Playwright output
+dashboard/test-results/
+dashboard/playwright-report/

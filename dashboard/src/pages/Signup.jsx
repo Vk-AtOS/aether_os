@@ -98,23 +98,23 @@ const Signup = () => {
 
         <form onSubmit={handleSubmit} className="bg-panel border border-border rounded-2xl p-8 space-y-5 shadow-xl">
           <Field label="Work email" required>
-            <input type="email" value={form.email} onChange={set('email')} required
+            <input aria-label="Work email" type="email" value={form.email} onChange={set('email')} required
               placeholder="you@company.com" autoComplete="email"
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-bright placeholder-muted text-sm focus:outline-none focus:border-accent transition-colors" />
           </Field>
 
           <Field label="Organisation name" hint="Your company or team name — can be changed later">
-            <input type="text" value={form.org_name} onChange={set('org_name')}
+            <input aria-label="Organisation name" type="text" value={form.org_name} onChange={set('org_name')}
               placeholder="Acme Corp"
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-bright placeholder-muted text-sm focus:outline-none focus:border-accent transition-colors" />
           </Field>
 
           <Field label="Password" required hint="Minimum 10 characters">
             <div className="relative">
-              <input type={showPw ? 'text' : 'password'} value={form.password} onChange={set('password')} required
+              <input aria-label="Password" type={showPw ? 'text' : 'password'} value={form.password} onChange={set('password')} required
                 placeholder="Choose a strong password" autoComplete="new-password"
                 className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 pr-10 text-bright placeholder-muted text-sm focus:outline-none focus:border-accent transition-colors" />
-              <button type="button" onClick={() => setShowPw(v => !v)}
+              <button type="button" aria-label={showPw ? 'Hide password' : 'Show password'} onClick={() => setShowPw(v => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-bright">
                 {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -129,7 +129,7 @@ const Signup = () => {
           </Field>
 
           <Field label="Confirm password" required>
-            <input type="password" value={form.confirm} onChange={set('confirm')} required
+            <input aria-label="Confirm password" type="password" value={form.confirm} onChange={set('confirm')} required
               placeholder="Repeat your password" autoComplete="new-password"
               className={`w-full bg-surface border rounded-lg px-4 py-2.5 text-bright placeholder-muted text-sm focus:outline-none transition-colors ${
                 form.confirm && form.confirm !== form.password ? 'border-danger' : 'border-border focus:border-accent'

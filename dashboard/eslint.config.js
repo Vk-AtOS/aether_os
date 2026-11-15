@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'playwright-report', 'test-results']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -27,5 +27,10 @@ export default defineConfig([
       // names are ignored. The same applies to destructured props such as { icon: Icon }.
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
     },
+  },
+  {
+    // Node-side files: Playwright config and specs, not bundled for the browser.
+    files: ['playwright.config.js', 'e2e/**/*.js'],
+    languageOptions: { globals: { ...globals.node } },
   },
 ])
