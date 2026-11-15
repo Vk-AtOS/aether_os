@@ -13,6 +13,11 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+try:   # one definition shared with the empty-database bootstrap (core/schema_ddl.py)
+    from aether_os.core import schema_ddl
+except ModuleNotFoundError:   # alembic run from the repository root without PYTHONPATH (alembic.ini prepends ".")
+    from core import schema_ddl
+
 revision: str = 'add_audit_chain_prime_delegations'
 down_revision: Union[str, None] = 'revision_pgvector_artifact_embedding'
 branch_labels: Union[str, Sequence[str], None] = None
@@ -30,19 +35,7 @@ def upgrade() -> None:
         sa.Column('prev_hash', sa.String(64), nullable=False, unique=True),
         sa.Column('entry_hash', sa.String(64), nullable=False, unique=True),
     )
-    if op.get_bind().dialect.name == 'postgresql':
-        op.execute("""
-            CREATE FUNCTION audit_chain_append_only() RETURNS trigger AS $$
-            BEGIN
-                RAISE EXCEPTION 'audit_chain is append-only';
-            END;
-            $$ LANGUAGE plpgsql
-        """)
-        op.execute("""
-            CREATE TRIGGER audit_chain_no_update_delete
-            BEFORE UPDATE OR DELETE ON audit_chain
-            FOR EACH ROW EXECUTE FUNCTION audit_chain_append_only()
-        """)
+    schema_ddl.apply(op.get_bind(), only=("audit_chain_no_update_delete",))   # PostgreSQL only
 
     op.create_table(
         'prime_delegations',
