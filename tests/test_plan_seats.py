@@ -2,7 +2,6 @@
 import asyncio
 
 from aether_os.core.policy.rules import Facts, evaluate
-from aether_os.gateway.policy_guard import enforce_seat
 
 
 def test_rule_denies_the_user_after_the_last_seat_and_enterprise_is_uncapped():

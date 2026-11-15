@@ -242,7 +242,7 @@ async def oauth_state_set(state: str, provider: str) -> None:
         await r.set(f"oauthstate:{state}", provider, ex=_OAUTH_STATE_TTL_SECONDS)
     except Exception as exc:
         logger.warning("OAuth state could not be stored (Redis unavailable): %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 async def oauth_state_pop(state: str, provider: str) -> bool:
@@ -255,5 +255,5 @@ async def oauth_state_pop(state: str, provider: str) -> bool:
             value, _ = await pipe.execute()
     except Exception as exc:
         logger.warning("OAuth state could not be checked (Redis unavailable): %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
     return value == provider

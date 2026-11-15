@@ -5,7 +5,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aether_os.phases.p13_app_memory import task_agent

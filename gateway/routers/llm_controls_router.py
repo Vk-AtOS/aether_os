@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 from aether_os.core.db import get_session_factory
 from aether_os.core.llm import controls
@@ -69,7 +69,7 @@ async def global_kill(body: KillBody, user: Dict[str, Any] = Depends(get_current
         await controls.set_global_kill(body.on)
     except Exception as exc:
         logger.warning("Global LLM kill switch could not be changed: %s", exc)
-        raise HTTPException(status_code=503, detail="Shared store unavailable; kill switch NOT changed")
+        raise HTTPException(status_code=503, detail="Shared store unavailable; kill switch NOT changed") from exc
     await _ledger(user, "llm.kill_switch.global", user.get("org_id", "platform"), {"on": body.on})
     return {"global_kill_switch": body.on}
 

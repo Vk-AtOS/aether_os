@@ -147,10 +147,10 @@ def login(
             r.raise_for_status()
         except requests.HTTPError as e:
             console.print(f"[red]MFA failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         except Exception as e:
             console.print(f"[red]Connection error:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         data = r.json()
     _save_cfg({"url": url, "token": data["access_token"], "email": email})
     console.print(Panel(f"[bold green]Logged in[/bold green] as [cyan]{email}[/cyan]\nGateway: {url}", title="AetherOS", border_style="green"))

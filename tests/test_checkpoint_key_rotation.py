@@ -1,7 +1,6 @@
 """KAN-101: checkpoints signed by a rotated/lost key still verify from its retired public key."""
 import os
 
-from cryptography.hazmat.primitives import serialization
 
 from aether_os.core.audit import checkpoints
 from aether_os.tests.ledger_helpers import anchor_env  # noqa: F401

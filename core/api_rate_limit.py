@@ -62,7 +62,7 @@ async def enforce_api_rate(user_id: Optional[str], org_id: Optional[str]) -> Non
     except Exception as exc:
         logger.warning("API rate limiter unavailable, refusing request: %s", exc)
         raise HTTPException(status_code=503, detail="Rate limiter unavailable, retry shortly",
-                            headers={"Retry-After": "5"})
+                            headers={"Retry-After": "5"}) from exc
     for scope, count in counts.items():
         if count > lim[scope]:
             raise HTTPException(status_code=429, detail=f"Rate limit exceeded ({scope})",
