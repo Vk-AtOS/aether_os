@@ -6,7 +6,7 @@ import {
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
   Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2, BrainCircuit, Briefcase,
-  Mail, UserSquare, KeyRound,
+  Mail, UserSquare, KeyRound, Inbox,
 } from 'lucide-react';
 import { HR_TABS } from './hr/tabs';
 import ProviderBadge from './ProviderBadge';
@@ -60,6 +60,7 @@ const Sidebar = () => {
     { name: 'Projects',      path: '/projects',    icon: List },
     { name: 'Workspaces',    path: '/workspaces',  icon: Building2 },
     { name: 'Search',        path: '/search',      icon: Search },
+    { name: 'Decisions',     path: '/decisions',   icon: Inbox },
     { name: 'Deployments',   path: '/deployments', icon: Rocket },
     { name: 'Marketplace',   path: '/marketplace', icon: Store },
     { name: 'Settings',      path: '/settings',    icon: Settings },

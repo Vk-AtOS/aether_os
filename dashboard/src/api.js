@@ -159,6 +159,7 @@ export const api = {
   approveAction: (ticketId, decision, reason) =>
     client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
   listDecisions: (runId, status) => client.get(`/factory/runs/${runId}/decisions`, { params: status ? { status } : {} }),
+  listOrgDecisions: (params) => client.get('/factory/decisions', { params }),
   approveDecision: (runId, decisionId, approved, reason) =>
     client.post(`/factory/runs/${runId}/decisions/${decisionId}/decide`, { approved, reason }),
 
