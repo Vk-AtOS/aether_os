@@ -79,7 +79,7 @@ def test_redis_is_retried_after_an_outage_at_first_use(monkeypatch):
     import aether_os.core.rate_limiter as rl
     monkeypatch.setattr(rl, "_redis_available", False)
     monkeypatch.setattr(rl, "_async_redis_client", None)
-    monkeypatch.setattr(rl, "_redis_checked_at", rl.time.monotonic() - 10)  # last failure was 10 s ago
+    monkeypatch.setattr(rl, "_redis_retry_at", rl.time.monotonic() - 1)  # the failed connect is due for a retry
     with patch("redis.asyncio.Redis.from_url", return_value=AsyncMock()) as made:
         assert _run(rl._get_async_redis()) is not None
     assert made.called

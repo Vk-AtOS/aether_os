@@ -78,8 +78,11 @@ def get_client_ip(request: "Request") -> str:
 
 _async_redis_client = None
 _redis_available: Optional[bool] = None  # None = not yet tested
-_redis_checked_at: float = 0.0
-_REDIS_RETRY_SECONDS = 5.0  # an outage at one moment must not switch shared limits off for the process's life
+# _redis_retry_at None: Redis was switched off explicitly (_redis_available = False, set by a test or a
+# single-process dev setup). A number: a connect FAILED and is retried after that monotonic time, so an
+# outage at one moment cannot switch shared limiting off for the life of the process.
+_redis_retry_at: Optional[float] = None
+_REDIS_RETRY_SECONDS = 5.0
 
 
 def redis_required() -> bool:
@@ -90,11 +93,12 @@ def redis_required() -> bool:
 
 async def _get_async_redis():
     """Lazy-init async Redis connection. Returns None if unavailable."""
-    global _async_redis_client, _redis_available, _redis_checked_at
+    global _async_redis_client, _redis_available, _redis_retry_at
     if _redis_available is not None:
-        if _redis_available or time.monotonic() - _redis_checked_at < _REDIS_RETRY_SECONDS:
-            return _async_redis_client if _redis_available else None
-    _redis_checked_at = time.monotonic()
+        if _redis_available:
+            return _async_redis_client
+        if _redis_retry_at is None or time.monotonic() < _redis_retry_at:
+            return None
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     try:
         import redis.asyncio as aioredis  # optional dependency — gracefully falls back to in-memory if not installed
@@ -102,10 +106,10 @@ async def _get_async_redis():
             redis_url, decode_responses=True, socket_connect_timeout=2
         )
         await _async_redis_client.ping()
-        _redis_available = True
+        _redis_available, _redis_retry_at = True, None
         logger.info("Rate limiter: async Redis connected at %s", redis_url.split("@")[-1])
     except Exception as exc:
-        _redis_available = False
+        _redis_available, _redis_retry_at = False, time.monotonic() + _REDIS_RETRY_SECONDS
         logger.warning(
             "Rate limiter: Redis unavailable (%s). "
             "Using in-memory fallback — NOT safe for multi-worker deployments. "

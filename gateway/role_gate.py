@@ -36,7 +36,7 @@ POLICY_GATED = (
     "/factory/start", "/mcp/start_pipeline", "/settings/test-provider", "/marketplace/install/",
     "/factory/runs/{run_id}/rerun", "/factory/runs/{run_id}/branch", "/factory/runs/{run_id}/restart",
     "/factory/runs/{run_id}/clarifying-answers", "/factory/runs/{run_id}/portal-tokens",
-    "/billing/", "/v2/plugins/",
+    "/billing/", "/v2/plugins/", "/agents/",
 )
 
 # Organisation-wide state: outbound webhooks and publishing to the marketplace.
