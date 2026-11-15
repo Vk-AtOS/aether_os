@@ -8,7 +8,9 @@ so DNS cannot be changed between the check and the connection.
 from __future__ import annotations
 
 import os
+import ipaddress
 import re
+import shlex
 import urllib.parse
 from dataclasses import dataclass
 from typing import List
@@ -16,6 +18,7 @@ from typing import List
 from aether_os.core.security.safe_http import UnsafeURL, resolve_public
 
 _SCP = re.compile(r"^(?:(?P<user>[A-Za-z0-9._-]{1,64})@)?(?P<host>[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]+\]):(?P<path>[^:\s][^\s]*)$")
+_HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")      # ASCII only: no spaces, quotes, ;, $, backticks, '-' first
 _USER = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
@@ -48,15 +51,26 @@ def parse_ssh_remote(url: str) -> tuple:
         user = parts.username
         if (user is not None and not _USER.match(user)) or parts.password is not None:
             raise UnsafeURL("invalid user in the remote")
-        host = (parts.hostname or "").rstrip(".").lower()
+        host = (parts.hostname or "").lower()   # no rstrip: a trailing dot is refused below
     else:
         m = _SCP.match(url)
         if not m or url.startswith(("/", ".", "~")):
             raise UnsafeURL("not a git ssh remote")
-        host, port = m.group("host").strip("[]").rstrip(".").lower(), 22
+        host, port = m.group("host").strip("[]").lower(), 22
     if not host:
         raise UnsafeURL("the remote has no host")
+    _strict_host(host)
     return host, port
+
+
+def _strict_host(host: str) -> None:
+    """Both URL forms end here: the host is a plain DNS name or an IP literal, nothing else (it reaches a command line)."""
+    if _HOST.fullmatch(host) and host.isascii():
+        return
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        raise UnsafeURL("the remote host is not a valid host name") from None
 
 
 def check_ssh_remote(url: str) -> SshRemote:
@@ -71,9 +85,16 @@ def check_ssh_remote(url: str) -> SshRemote:
 
 def ssh_command(key_file: str, remote: SshRemote) -> str:
     """GIT_SSH_COMMAND that connects to the CHECKED address, trusts no user config and no proxy."""
-    return " ".join([
-        "ssh", "-F", "/dev/null", "-i", key_file, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+    # GIT_SSH_COMMAND goes through a shell: every element is quoted, the address is an ipaddress-validated literal
+    # and the host/port were validated above, so nothing here can add a shell word or an ssh option.
+    address = str(ipaddress.ip_address(remote.address.split("%", 1)[0]))
+    _strict_host(remote.host)
+    key = str(key_file)
+    if not key.startswith("/") or "\x00" in key:
+        raise UnsafeURL("invalid key path")
+    return " ".join(shlex.quote(a) for a in [
+        "ssh", "-F", "/dev/null", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
         "-o", "ProxyCommand=none", "-o", "ProxyJump=none", "-o", "ConnectTimeout=15",
-        "-o", f"HostName={remote.address}", "-o", f"HostKeyAlias={remote.host}",
+        "-o", f"HostName={address}", "-o", f"HostKeyAlias={remote.host}",
     ])
