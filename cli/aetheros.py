@@ -141,6 +141,19 @@ def login(
             console.print(f"[red]Connection error:[/red] {e}")
             raise typer.Exit(1)
     data = r.json()
+    if data.get("mfa_required"):
+        # MFA account: /auth/login returns only a short-lived challenge, no access_token.
+        code = typer.prompt("Authenticator code")
+        try:
+            r = requests.post(f"{url}/auth/mfa/confirm", json={"mfa_token": data["mfa_token"], "code": code}, timeout=15)
+            r.raise_for_status()
+        except requests.HTTPError as e:
+            console.print(f"[red]MFA failed:[/red] {e.response.text}")
+            raise typer.Exit(1)
+        except Exception as e:
+            console.print(f"[red]Connection error:[/red] {e}")
+            raise typer.Exit(1)
+        data = r.json()
     _save_cfg({"url": url, "token": data["access_token"], "email": email})
     console.print(Panel(f"[bold green]Logged in[/bold green] as [cyan]{email}[/cyan]\nGateway: {url}", title="AetherOS", border_style="green"))
 
