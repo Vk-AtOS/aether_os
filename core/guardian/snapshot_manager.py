@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -34,6 +35,12 @@ def _sha256_path(path: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _libpq_url(db_url: str) -> str:
+    """DATABASE_URL as pg_dump/pg_restore read it: SQLAlchemy's "postgresql+asyncpg://" driver
+    suffix is not valid libpq syntax, so every snapshot and restore failed on the production URL."""
+    return re.sub(r"^(postgres(?:ql)?)\+\w+://", r"\1://", db_url)
 
 
 def _detect_db_backend() -> str:
@@ -61,7 +68,7 @@ def _sqlite_db_path() -> Optional[Path]:
 
 async def _pg_dump(dest: Path) -> bool:
     """Run pg_dump and write to dest. Returns True on success."""
-    db_url = os.environ.get("DATABASE_URL", "")
+    db_url = _libpq_url(os.environ.get("DATABASE_URL", ""))
     loop = asyncio.get_running_loop()
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -292,7 +299,7 @@ class SnapshotManager:
         return success
 
     async def _pg_restore(self, src: Path) -> bool:
-        db_url = os.environ.get("DATABASE_URL", "")
+        db_url = _libpq_url(os.environ.get("DATABASE_URL", ""))
         try:
             proc = await asyncio.create_subprocess_exec(
                 "pg_restore", "--no-password", "--clean", "--if-exists",
