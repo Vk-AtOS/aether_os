@@ -126,7 +126,6 @@ async def run_audit():
 
         # ── 4. Projects list ─────────────────────────────────────────────────
         print("\n=== Projects ===")
-        base_url = page.url.split("/dashboard")[0] + "/dashboard"
         if await goto("/dashboard/projects"):
             if await text_present("Project", 5000):
                 log("Projects page loads", "PASS")

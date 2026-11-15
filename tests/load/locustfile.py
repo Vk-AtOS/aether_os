@@ -175,7 +175,7 @@ class ActiveUser(HttpUser):
     @task(1)
     def refresh_token(self):
         """Simulate token refresh via /auth/refresh endpoint."""
-        refresh = localStorage_refresh = getattr(self, "_refresh_token", None)
+        refresh = getattr(self, "_refresh_token", None)
         if not refresh:
             return
         with self.client.post(

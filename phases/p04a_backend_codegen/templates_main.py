@@ -356,7 +356,6 @@ def _build_main_py(project_name: str, routers_have_all_routers: bool) -> str:
 
 
 def _generate_makefile(project_name: str) -> str:
-    slug = safe_project_name(project_name).lower().replace(" ", "-")
     return """\
 .PHONY: dev test lint migrate seed install clean
 

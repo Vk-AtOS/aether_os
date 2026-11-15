@@ -424,7 +424,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Gate 3: Admin Requirements Approval ──
     # Delegated to domain_assembler.run_gate3_approval to reduce task_agent lines.
-    admin_features = await run_gate3_approval(
+    await run_gate3_approval(
         domain_ir=_domain_ir,
         data=data,
         is_autonomous=is_autonomous,

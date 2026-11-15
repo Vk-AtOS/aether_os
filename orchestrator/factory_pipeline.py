@@ -605,10 +605,6 @@ class FactoryPipeline:
                 _phase_dir = project_dir / phase_name
                 if _phase_dir.exists():
                     # Patterns to exclude
-                    exclude_patterns = [
-                        "**/node_modules/**", "**/dist/**", "**/.git/**", 
-                        "**/__pycache__/**", "**/*.pyc",
-                    ]
 
                     for _f in _phase_dir.rglob("*"):
                         if _f.is_file():

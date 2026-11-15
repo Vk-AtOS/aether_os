@@ -46,7 +46,6 @@ def gen_sam_template(
     for ent in entities[:8]:
         name = ent.get("name", ent.get("table", "item"))
         title = name.capitalize()
-        fn_slug = name.lower().replace("_", "").replace("-", "")
         entity_functions += textwrap.dedent(f"""\
 
           {title}Function:

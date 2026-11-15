@@ -307,7 +307,6 @@ def _build_dependency_edges(
     Currently supports:
     - Python imports between top-level components.
     """
-    name_to_component = {c.name: c for c in components}
     # Allow mapping from top-level package name (e.g. 'aetherone') to component.
     # We use the directory name as the package name assumption.
     pkg_to_component: Dict[str, str] = {}

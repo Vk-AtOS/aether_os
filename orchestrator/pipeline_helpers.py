@@ -365,7 +365,6 @@ async def phase_docs(self: Any, ctx: Any, sm: Any) -> None:
     ))
 async def phase_observability(self: Any, ctx: Any, sm: Any) -> None:
     t0 = time.time()
-    code = ctx.generated_code or ""
     prompt = (
         f"Generate an observability configuration for this project.\n\n"
         f"Project: {ctx.project_name}\n"

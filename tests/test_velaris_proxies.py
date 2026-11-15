@@ -44,7 +44,7 @@ class FakeVelaris:
         claims = json.loads(base64.urlsafe_b64decode(req.headers["x-velaris-identity"].split(".")[0] + "=="))
         self.seen.append({"method": req.method, "raw": req.url.raw_path.decode(), "claims": claims,
                           "body": req.content, "headers": dict(req.headers)})
-        p, m = req.url.path, req.method
+        p = req.url.path
         if p == "/chat/events/stream":
             if "queue_id=bad" in req.url.query.decode():
                 return httpx.Response(410, json={"error": {"code": "bad_queue", "message": "register again"}})

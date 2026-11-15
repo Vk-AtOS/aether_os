@@ -243,7 +243,7 @@ async def google_callback(
         return _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
-    except Exception as exc:
+    except Exception:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("Google OAuth callback failed")
         return _redirect_with_error("Google sign-in failed. Please try again.")
@@ -329,7 +329,7 @@ async def github_callback(
         return _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
-    except Exception as exc:
+    except Exception:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("GitHub OAuth callback failed")
         return _redirect_with_error("GitHub sign-in failed. Please try again.")

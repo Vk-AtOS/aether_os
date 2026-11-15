@@ -16,7 +16,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
     project_name = data.get("project_name", "app")
-    domain = data.get("domain", "general")
 
     # ── Alertmanager config ───────────────────────────────────────────────────
     alertmanager_yml = textwrap.dedent("""\

@@ -473,7 +473,6 @@ def _build_onboarding_guide(
 
     # 5) Understand: frameworks
     if frameworks:
-        names = [f.name for f in frameworks]
         checklist.append(
             OnboardingChecklistItem(
                 category="UNDERSTAND",

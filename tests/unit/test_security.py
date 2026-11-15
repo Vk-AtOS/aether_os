@@ -237,7 +237,6 @@ class TestReloadKeys:
     def test_reload_changes_cached_keys(self):
         import aether_os.gateway.auth as auth_mod
         _ = auth_mod._get_signing_key()  # warm cache
-        old_key = auth_mod._signing_key
         auth_mod.reload_keys()
         # After reload with same env, key should be same type/value
         assert auth_mod._signing_key is not None
