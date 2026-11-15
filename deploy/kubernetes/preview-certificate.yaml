@@ -1,0 +1,33 @@
+# Wildcard certificate for the preview origin (KAN-75). Needs cert-manager and a DNS-01 solver for the zone.
+# Edit preview.example.com, the zone and the solver; the solver credentials live in the cluster (IRSA / workload
+# identity or a Secret created out of band), never in this file. cert-manager renews 30 days before expiry.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: aetheros-letsencrypt-dns01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@example.com
+    privateKeySecretRef:
+      name: aetheros-letsencrypt-account
+    solvers:
+      - dns01:
+          route53:
+            region: ap-south-1      # Azure: use `azureDNS` with a workload identity instead
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: aetheros-preview-wildcard
+  namespace: aetheros
+spec:
+  secretName: aetheros-preview-tls
+  duration: 2160h        # 90 days
+  renewBefore: 720h      # renew with 30 days left
+  issuerRef:
+    name: aetheros-letsencrypt-dns01
+    kind: ClusterIssuer
+  dnsNames:
+    - preview.example.com
+    - "*.preview.example.com"
