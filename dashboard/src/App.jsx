@@ -56,6 +56,7 @@ const Mail              = React.lazy(() => import('./pages/Mail'));
 const Control           = React.lazy(() => import('./pages/Control'));
 const Hr                = React.lazy(() => import('./pages/Hr'));
 const DecisionsInbox    = React.lazy(() => import('./pages/DecisionsInbox'));
+const OperatorConsole   = React.lazy(() => import('./pages/OperatorConsole'));
 const ApiKeys           = React.lazy(() => import('./pages/ApiKeys'));
 
 
@@ -70,6 +71,13 @@ const AdminRoute = ({ children }) => {
   const { isAdmin } = useRole();
   if (!token) return <Navigate to="/login" replace />;
   if (!isAdmin) return <Navigate to="/" replace />;
+  return children;
+};
+
+const OperatorRoute = ({ children }) => {
+  const { isSuperadmin } = useRole();
+  if (!api.getToken()) return <Navigate to="/login" replace />;
+  if (!isSuperadmin) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -135,6 +143,7 @@ function App() {
         <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
+        <Route path="operator" element={<OperatorRoute><ErrorBoundary><OperatorConsole /></ErrorBoundary></OperatorRoute>} />
         <Route path="decisions" element={<ErrorBoundary><DecisionsInbox /></ErrorBoundary>} />
         <Route path="settings/api-keys" element={<AdminRoute><ErrorBoundary><ApiKeys /></ErrorBoundary></AdminRoute>} />
         <Route path="webhooks" element={<Navigate to="/settings/webhooks" replace />} />

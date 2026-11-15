@@ -138,6 +138,17 @@ export const api = {
   setNotificationPref: (body) => client.put('/notifications/preferences', body),
   setOrgNotificationPref: (body) => client.put('/notifications/preferences/org', body),
 
+  // Platform operator (superadmin) read-only views
+  operator: {
+    featureFlags: () => client.get('/system/feature-flags'),
+    platformHealth: () => client.get('/admin/platform-health'),
+    errorSummary: () => client.get('/admin/error-registry/summary'),
+    workloop: () => client.get('/system/workloop'),
+    qualityMetrics: () => client.get('/admin/platform/quality-metrics'),
+    runCosts: () => client.get('/admin/platform/run-costs'),
+    phaseLatency: () => client.get('/admin/platform/phase-latency'),
+  },
+
   // SCIM
   getScimConfig: () => client.get('/settings/scim'),
   rotateScimToken: () => client.post('/settings/scim/rotate'),
