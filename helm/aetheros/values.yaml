@@ -215,6 +215,8 @@ extraVolumeMounts: []
 config:
   # -- Runtime environment name.
   ENVIRONMENT: production
+  # -- Council FAIL verdicts block delivery (review-only mode is for development).
+  COUNCIL_STRICT_MODE: "true"
   # -- Whether to require Redis (SSE / task queue). Keep true in production.
   REQUIRE_REDIS: "true"
 
