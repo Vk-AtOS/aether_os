@@ -3,8 +3,7 @@ import socket
 
 import pytest
 
-from aether_os.core.security import git_remote
-from aether_os.core.security.git_remote import check_ssh_remote, parse_ssh_remote, ssh_command
+from aether_os.core.security.git_remote import check_ssh_remote, ssh_command
 from aether_os.core.security.safe_http import UnsafeURL
 
 BAD = [
@@ -56,3 +55,33 @@ def test_endpoint_refuses_before_any_process_and_hides_stderr(gw, monkeypatch):
         r = gw.client.post("/factory/fetch-repo", headers=org.auth, json={"type": "ssh", "url": u, "ssh_key": "k"})
         assert r.status_code == 422 and "127.0.0.1" not in r.text and "169.254" not in r.text
     assert not called
+
+
+HOSTILE = ["a b", "a;id", "a$(id)", "a`id`", "-oProxyCommand=x", "a'b", 'a"b', "a|b", "a&b", "a\\b", "ex\u0430mple.com",
+           "exa\u202empl.com", "a" * 300 + ".com", "a..", ".a", "a_b", "a\nb", "a\tb", "a{b}", "a*b"]
+
+
+@pytest.mark.parametrize("host", HOSTILE)
+def test_hostile_hosts_never_reach_the_command_line(host, monkeypatch):
+    import asyncio
+    import subprocess
+    spawned = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", lambda *a, **k: spawned.append(a))
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("140.82.112.3", 22))])
+    for url in (f"ssh://git@{host}/r.git", f"git@{host}:org/r.git", f"{host}:org/r.git"):
+        with pytest.raises(UnsafeURL):
+            check_ssh_remote(url)
+    assert not spawned
+
+
+def test_ssh_command_is_fully_quoted_and_rejects_a_forged_remote():
+    import shlex
+    from aether_os.core.security.git_remote import SshRemote
+    good = ssh_command("/tmp/k y/id", SshRemote("github.com", 22, "140.82.112.3"))
+    assert shlex.split(good)[:3] == ["ssh", "-F", "/dev/null"] and "/tmp/k y/id" in shlex.split(good)
+    for bad in (SshRemote("a;id", 22, "1.2.3.4"), SshRemote("github.com", 22, "1.2.3.4;id"), SshRemote("-oX=1", 22, "1.2.3.4")):
+        with pytest.raises((UnsafeURL, ValueError)):
+            ssh_command("/k", bad)
+    with pytest.raises(UnsafeURL):
+        ssh_command("relative; id", SshRemote("github.com", 22, "1.2.3.4"))
