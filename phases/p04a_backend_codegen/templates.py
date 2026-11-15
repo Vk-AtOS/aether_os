@@ -41,8 +41,14 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-# PostgreSQL is first-class default; SQLite is local-dev fallback only.
-_RAW_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/appdb")
+# No default: a built-in URL with a well-known password would let the app start against whatever
+# database answers on localhost. The generated .env sets SQLite for local development.
+_RAW_URL = os.environ.get("DATABASE_URL", "").strip()
+if not _RAW_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Set it in the environment or in .env "
+        "(local development: sqlite+aiosqlite:///./app.db)."
+    )
 
 # Normalise the driver suffix so the correct async driver is always used.
 if _RAW_URL.startswith("sqlite"):
@@ -99,75 +105,6 @@ async def get_db():
             raise
 '''
 
-# Default .env content for generated apps — PostgreSQL first-class, SQLite as local-dev fallback.
-# Exported so task_agent.py and helpers.py can import a single canonical template.
-_ENV_TEMPLATE = """\
-# Database — PostgreSQL is the production default.
-# For local development without PostgreSQL, set to: sqlite+aiosqlite:///./app.db
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/appdb
-# For local SQLite fallback (development only): DATABASE_URL=sqlite:///./app.db
-# JWT uses RS256. The signing key is created (mode 0600) at RSA_PRIVATE_KEY_PATH on first run.
-# With several replicas, give every replica the SAME key: a shared volume at RSA_PRIVATE_KEY_PATH, or the PEM
-# text in RSA_PRIVATE_KEY (secret manager). Otherwise tokens signed by one replica fail on the others.
-# RSA_PRIVATE_KEY_PATH=/keys/private_key.pem
-# Set ALLOW_SIGNUP=false for invite-only apps (default true: sign-up gives the lowest role, password >= 12 chars).
-# ALLOW_SIGNUP=true
-# INVITE_SECRET is used only for org invite tokens (HS256, short-lived).
-INVITE_SECRET={secret_key}
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-ENVIRONMENT=development
-DEBUG=false
-# First-run admin password. Leave empty to have a random one written to admin_initial_password.txt.
-ADMIN_PASSWORD=
-# Connection pool tuning — defaults to cpu_count*2 (min 4). Increase for high traffic.
-# DB_POOL_SIZE=20
-# DB_MAX_OVERFLOW=40
-"""
-
-# Docker-compose template — adds a postgres:15-alpine service alongside the app.
-_DOCKER_COMPOSE_TEMPLATE = """\
-version: '3.9'
-services:
-  db:
-    image: postgres:15-alpine
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: appdb
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  app:
-    build: .
-    restart: always
-    ports:
-      - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/appdb
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
-      RSA_PRIVATE_KEY_PATH: /keys/private_key.pem
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      ENVIRONMENT: production
-    volumes:
-      - keys:/keys       # the JWT signing key, shared by every replica of the app
-    depends_on:
-      db:
-        condition: service_healthy
-
-volumes:
-  pgdata:
-  keys:
-"""
-
 _CONFIG_PY = '''\
 """Application settings loaded from environment variables."""
 from __future__ import annotations
@@ -178,7 +115,7 @@ from functools import lru_cache
 class Settings:
     app_name: str = os.environ.get("APP_NAME", "API")
     environment: str = os.environ.get("ENVIRONMENT", "development")
-    database_url: str = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")
+    database_url: str = os.environ.get("DATABASE_URL", "")   # required: database.py refuses to start without it
     secret_key: str = os.environ.get("SECRET_KEY", "")
     # CORS_ORIGINS must be set explicitly — no wildcard default (security hardening)
     cors_origins: list[str] = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]

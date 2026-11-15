@@ -340,7 +340,9 @@ async def health():
     _example_key = _sec.token_hex(32)
     (project_dir / ".env.example").write_text(
         "DATABASE_URL=postgresql://localhost/db\n"
-        f"SECRET_KEY={_example_key}\n")
+        f"SECRET_KEY={_example_key}\n"
+        "# Required by docker-compose.yml (it refuses to start without it). Choose your own value.\n"
+        "POSTGRES_PASSWORD=\n")
 
     # Separate dev and prod env files
     _dev_key = _sec.token_hex(32)
@@ -389,7 +391,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://appuser:apppass@db:5432/{project_name.lower()}
+      DATABASE_URL: postgresql+asyncpg://appuser:${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}@db:5432/{project_name.lower()}
       SECRET_KEY: ${{SECRET_KEY}}
       CORS_ORIGINS: http://localhost:3000
     depends_on:
@@ -401,7 +403,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: apppass
+      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
       POSTGRES_DB: {project_name.lower()}
     volumes:
       - pgdata:/var/lib/postgresql/data
