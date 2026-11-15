@@ -349,7 +349,7 @@ secrets:
   AETHER_PREVIEW_SECRET: ""
   # -- Velaris (optional integration).
   VELARIS_API_SECRET: ""
-  VELARIS_IDENTITY_PRIVATE_KEY: ""
+  VELARIS_IDENTITY_PRIVATE_KEY_PEM: ""
 
   # -- SCIM 2.0 IdP provisioning bearer token (Okta / Azure AD).
   SCIM_BEARER_TOKEN: ""

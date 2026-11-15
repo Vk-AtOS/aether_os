@@ -114,11 +114,11 @@ spec:
                   name: aetheros-secrets
                   key: VELARIS_API_SECRET
                   optional: true
-            - name: VELARIS_IDENTITY_PRIVATE_KEY
+            - name: VELARIS_IDENTITY_PRIVATE_KEY_PEM
               valueFrom:
                 secretKeyRef:
                   name: aetheros-secrets
-                  key: VELARIS_IDENTITY_PRIVATE_KEY
+                  key: VELARIS_IDENTITY_PRIVATE_KEY_PEM
                   optional: true
           resources:
             requests:

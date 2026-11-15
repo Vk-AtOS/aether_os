@@ -102,6 +102,17 @@ else
     echo "⚠ Health check returned: $HEALTH"
 fi
 
+# 8b. Velaris: one correctly signed request from this host to Velaris must be accepted (HMAC + Ed25519 end to end).
+#     Skipped when Velaris is not configured here. VELARIS_SMOKE_ORG is the AetherOS organisation id Velaris serves
+#     (its VELARIS_ORG). A failure stops the deploy: the dashboard's Velaris pages would not work.
+if [[ -n "${VELARIS_API_URL:-}" ]]; then
+    echo "→ Velaris signed smoke test..."
+    : "${VELARIS_SMOKE_ORG:?VELARIS_SMOKE_ORG must be set in .env when VELARIS_API_URL is set}"
+    cd "$(dirname "$INSTALL_DIR")"   # the directory that contains the aether_os package
+    "$VENV/python" "$INSTALL_DIR/scripts/velaris_smoke.py" --org "$VELARIS_SMOKE_ORG" || { echo "❌ Velaris smoke test failed"; exit 1; }
+    cd "$INSTALL_DIR"
+fi
+
 # 9. Refresh Guardian file-integrity baseline in Redis so new file hashes are
 #    recorded as trusted. Without this, Guardian flags every deploy as file_tamper.
 echo "→ Running post-deploy Guardian baseline refresh..."
