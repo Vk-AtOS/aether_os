@@ -105,3 +105,14 @@ def test_billing_webhook_table_is_on_the_apps_own_base(tmp_path, monkeypatch):
     _load(tmp_path, "billing_webhook_base", generate_stripe_webhook_handler("demo"))
     assert "billing_accounts" in mods["database"].Base.metadata.tables
     assert "billing_accounts" not in mods["src.database"].Base.metadata.tables
+
+
+def test_p04a_has_no_bare_phases_imports():
+    # "from phases.x" only works when the repo root happens to be on sys.path, and then loads every
+    # module twice (as phases.x and aether_os.phases.x), splitting module state.
+    import ast
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1] / "phases" / "p04a_backend_codegen"
+    bad = [f"{f.name}:{n.lineno}" for f in root.glob("*.py") for n in ast.walk(ast.parse(f.read_text()))
+           if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "phases"]
+    assert not bad, bad

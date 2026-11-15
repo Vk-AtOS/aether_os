@@ -167,7 +167,7 @@ def register_audit_listeners(base) -> None:
 
 
 # Re-exported from helpers_permissions.py (split for file-size limit compliance)
-from phases.p04a_backend_codegen.helpers_permissions import _generate_permissions_service  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.helpers_permissions import _generate_permissions_service  # noqa: F401
 
 
 # ── Smoke test ─────────────────────────────────────────────────────────────────
@@ -503,7 +503,7 @@ def _fallback_auth_flow_code() -> str:
 
 
 # ── SSE realtime router generator (re-exported from helpers_sse.py for size limit) ───
-from phases.p04a_backend_codegen.helpers_sse import _generate_sse_router  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.helpers_sse import _generate_sse_router  # noqa: F401
 
 
 # ── FK-aware seed entity ordering ─────────────────────────────────────────────
