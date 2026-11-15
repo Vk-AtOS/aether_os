@@ -116,8 +116,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # package-lock.json is git-ignored, so `npm ci` cannot run (also in deploy.sh/setup_vps.sh).
-      - run: npm install --no-audit --no-fund
+      # package-lock.json is tracked: install exactly what was reviewed, as deploy.sh and the Dockerfile do.
+      - run: npm ci --no-audit --no-fund
       - name: Lint
         run: npm run lint --if-present
       - name: Unit tests
