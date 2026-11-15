@@ -227,14 +227,14 @@ jobs:
 
       - name: Smoke test generated app
         run: |
-          docker run -d --name app_test -p 8080:8080 \\
+          docker run -d --name app_test -p 8000:8000 \\
             -e SECRET_KEY=ci-test-key-$(date +%s) \\
             -e DATABASE_URL=postgresql+asyncpg://testuser:testpass@localhost:5432/testdb \\
             --network host \\
             ${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}
           echo "Waiting for app to start..."
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
               echo "App healthy after ${{i}}s"
               exit 0
             fi
