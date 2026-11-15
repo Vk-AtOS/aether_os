@@ -16,7 +16,6 @@ from typing import Any, Dict, Optional
 from .helpers import (
     is_real_app,
     find_main_py,
-    generate_fallback_app,
     find_free_port,
     write_dockerfile,
     write_docker_compose,
@@ -31,6 +30,31 @@ from .helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _cleanup_containers(container_name: str) -> None:
+    """Remove this run's old container and any crash-looping aetheros-app containers."""
+    subprocess.run(["docker", "stop", container_name], capture_output=True, timeout=60)
+    subprocess.run(["docker", "rm", container_name], capture_output=True, timeout=60)
+    try:
+        ps = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=aetheros-app-", "--format", "{{.Names}}\t{{.Status}}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        for line in ps.stdout.splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) != 2 or "Restarting" not in parts[1] or parts[0] == container_name:
+                continue
+            inspect = subprocess.run(["docker", "inspect", "--format", "{{.RestartCount}}", parts[0]],
+                                     capture_output=True, text=True, timeout=30)
+            try:
+                if int(inspect.stdout.strip()) > 10:
+                    subprocess.run(["docker", "rm", "-f", parts[0]], capture_output=True, timeout=60)
+                    logger.info("[p11] removed crash-looping container %s", parts[0])
+            except ValueError as cleanup_exc:
+                logger.warning("[p11] container cleanup failed for %s: %s", parts[0], cleanup_exc)
+    except (OSError, subprocess.SubprocessError) as ps_exc:
+        logger.warning("[p11] container list check failed (non-fatal): %s", ps_exc)
 
 
 class TaskAgent:
@@ -103,30 +127,11 @@ class TaskAgent:
 
         main_py = find_main_py(project_dir, canonical_src_dir=_canonical_src)
         if not main_py:
-            # Generate fallback app directly from requirement
-            raw_input = getattr(phase_input, "raw_input", "") or (
-                getattr(phase_input, "input_data", {}) or {}
-            ).get("raw_input", "")
-            if raw_input:
-                main_py = generate_fallback_app(project_dir, raw_input)
-            if not main_py:
-                return {
-                    "success": False,
-                    "error": "No main.py found to deploy",
-                    "skipped": True,
-                }
-
-        # If the found main.py is a stub, generate the real app beside it
-        if not is_real_app(main_py):
-            raw_input = getattr(phase_input, "raw_input", "") or (
-                getattr(phase_input, "input_data", {}) or {}
-            ).get("raw_input", "")
-            if raw_input:
-                fallback_py = generate_fallback_app(
-                    main_py.parent, raw_input, dest=main_py
-                )
-                if fallback_py:
-                    main_py = fallback_py
+            return {
+                "success": False,
+                "error": "No main.py found to deploy",
+                "skipped": True,
+            }
 
         app_dir = main_py.parent
         write_dockerfile(app_dir, main_py)
@@ -153,41 +158,8 @@ class TaskAgent:
         image_name = f"aetheros-{run_id[:8]}"
         container_name = f"aetheros-app-{run_id[:8]}"
 
-        # Problem 52: remove any existing container with the same name (stop+rm, ignore errors)
-        subprocess.run(
-            ["docker", "stop", container_name],
-            capture_output=True,
-        )
-        subprocess.run(
-            ["docker", "rm", container_name],
-            capture_output=True,
-        )
-
-        # Problem 52: clean up crash-looping old containers (restart count > 10)
-        try:
-            _ps_result = subprocess.run(
-                ["docker", "ps", "-a", "--filter", "name=aetheros-app-",
-                 "--format", "{{.Names}}\t{{.Status}}"],
-                capture_output=True, text=True,
-            )
-            for _line in _ps_result.stdout.splitlines():
-                _parts = _line.split("\t", 1)
-                if len(_parts) == 2:
-                    _cname, _status = _parts
-                    if "Restarting" in _status and _cname != container_name:
-                        _inspect = subprocess.run(
-                            ["docker", "inspect", "--format",
-                             "{{.RestartCount}}", _cname],
-                            capture_output=True, text=True,
-                        )
-                        try:
-                            if int(_inspect.stdout.strip()) > 10:
-                                subprocess.run(["docker", "rm", "-f", _cname], capture_output=True)
-                                logger.info("[p11] removed crash-looping container %s", _cname)
-                        except (ValueError, Exception) as cleanup_exc:
-                            logger.warning("[p11] container cleanup failed for %s: %s", _cname, cleanup_exc)
-        except Exception as ps_exc:
-            logger.warning("[p11] container list check failed (non-fatal): %s", ps_exc)
+        # Blocking docker CLI calls: run them off the event loop.
+        await asyncio.to_thread(_cleanup_containers, container_name)
 
         await ensure_network()
 
@@ -205,7 +177,8 @@ class TaskAgent:
         if not ready:
             _container_logs = ""
             try:
-                _logs_result = subprocess.run(
+                _logs_result = await asyncio.to_thread(
+                    subprocess.run,
                     ["docker", "logs", "--tail", "50", container_name],
                     capture_output=True, text=True, timeout=10,
                 )
