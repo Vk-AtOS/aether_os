@@ -31,3 +31,16 @@ def test_mfa_user_gets_pending_token_not_session(gw):
     assert "token" not in q and q["mfa_required"] == ["1"]
     from aether_os.gateway.auth import decode_access_token
     assert decode_access_token(q["mfa_token"][0])["mfa_pending"] is True
+
+
+def test_oauth_state_survives_a_different_worker(gw, monkeypatch):
+    """The state is issued by one worker and spent by another: it must live in Redis, not in a module dict."""
+    import urllib.parse
+    import redis
+    from aether_os.core.pipeline_state import REDIS_URL
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "cid")
+    r = gw.client.get("/auth/oauth/google", follow_redirects=False)
+    state = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)["state"][0]
+    assert not hasattr(auth_oauth, "_pending_states")
+    assert redis.Redis.from_url(REDIS_URL, decode_responses=True).get(f"oauthstate:{state}") == "google"

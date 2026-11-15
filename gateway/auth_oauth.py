@@ -26,45 +26,19 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from aether_os.gateway.auth_refresh import oauth_state_pop, oauth_state_set
+
 logger = logging.getLogger(__name__)
 oauth_router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
-# ── CSRF state store (module-level, short-lived) ──────────────────────────────
-# Maps state_token → (provider, issued_at_timestamp)
-# Cleaned up on each new login initiation.
-# SEC NOTE: This in-process dict is NOT shared across multiple uvicorn workers.
-# In a multi-worker deployment, OAuth CSRF state validation may fail if the
-# callback lands on a different worker than the login request. To fix in
-# production: migrate _pending_states to Redis using the same pattern as
-# gateway/auth_refresh.py (sse_token_set / sse_token_pop).
-_STATE_TTL_SECONDS = 600  # 10 minutes
-_pending_states: dict = {}  # state_token → {"provider": str, "ts": float}
+# ── CSRF state ────────────────────────────────────────────────────────────────
+# Stored in Redis (gateway/auth_refresh.py): the callback can land on any worker.
 
-
-def _new_state(provider: str) -> str:
-    """Generate a cryptographically random CSRF state token and record it."""
-    import time  # deferred: was added incrementally; safe to move to module level if needed
+async def _new_state(provider: str) -> str:
     state = secrets.token_urlsafe(32)
-    # Prune expired entries on each generation (keeps dict bounded)
-    now = time.time()
-    expired = [k for k, v in _pending_states.items() if now - v["ts"] > _STATE_TTL_SECONDS]
-    for k in expired:
-        _pending_states.pop(k, None)
-    _pending_states[state] = {"provider": provider, "ts": now}
+    await oauth_state_set(state, provider)
     return state
 
-
-def _consume_state(state: str, provider: str) -> bool:
-    """Validate and consume a CSRF state token. Returns True if valid."""
-    import time  # deferred: was added incrementally; safe to move to module level if needed
-    entry = _pending_states.pop(state, None)
-    if entry is None:
-        return False
-    if time.time() - entry["ts"] > _STATE_TTL_SECONDS:
-        return False
-    if entry["provider"] != provider:
-        return False
-    return True
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -178,7 +152,7 @@ async def google_login() -> RedirectResponse:
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured")
 
-    state = _new_state("google")
+    state = await _new_state("google")
     callback_url = f"{_base_url()}/api/auth/oauth/google/callback"
     params = {
         "client_id": client_id,
@@ -200,7 +174,7 @@ async def google_callback(
 ) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "Google sign-in was cancelled")
-    if not state or not _consume_state(state, "google"):
+    if not state or not await oauth_state_pop(state, "google"):
         logger.warning("Google OAuth callback: invalid or missing CSRF state")
         return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
@@ -257,7 +231,7 @@ async def github_login() -> RedirectResponse:
     if not client_id:
         raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
 
-    state = _new_state("github")
+    state = await _new_state("github")
     callback_url = f"{_base_url()}/api/auth/oauth/github/callback"
     params = {
         "client_id": client_id,
@@ -276,7 +250,7 @@ async def github_callback(
 ) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "GitHub sign-in was cancelled")
-    if not state or not _consume_state(state, "github"):
+    if not state or not await oauth_state_pop(state, "github"):
         logger.warning("GitHub OAuth callback: invalid or missing CSRF state")
         return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
