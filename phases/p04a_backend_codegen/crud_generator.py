@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ast
 import re
 from typing import Dict, List, Tuple
 
@@ -137,33 +138,28 @@ Return VALID JSON only (no markdown):
     raise ValueError("Could not parse models/schemas from LLM response")
 
 
+_SQL_SHAPE_RE = re.compile(r"\b(SELECT|UPDATE|DELETE|INSERT)\b.*\b(FROM|SET|INTO|WHERE|VALUES)\b", re.IGNORECASE | re.DOTALL)
+
+
 def _check_and_fix_sql_injection(code: str) -> str:
-    """Post-processing: detect and neutralise f-string raw SQL patterns in generated crud.py.
+    """Reject generated crud.py that builds SQL with an f-string (a SQL injection vector).
 
-    LLMs occasionally emit raw SQL f-strings (SQL injection vectors).
-    This pass replaces any f-string SQL with a warning comment + safe ORM placeholder.
-    Pattern: f"SELECT ...", f'UPDATE ...', f"DELETE ...", f"INSERT ..."
+    Found with the AST: an f-string with interpolated values whose literal text has the shape of a
+    statement. The old regex rewrote the matched text to 'None  # TODO', which both corrupted
+    unrelated code between two quotes and shipped a TODO; the caller already treats a ValueError as
+    'this LLM output is unusable' and falls back to the template generator.
     """
-    _SQL_FSTRING_RE = re.compile(
-        r'f["\'].*?(SELECT|UPDATE|DELETE|INSERT).*?["\']',
-        re.IGNORECASE | re.DOTALL,
-    )
-    if not _SQL_FSTRING_RE.search(code):
-        return code
-
-    def _replace_sql(m: re.Match) -> str:
-        original = m.group(0)
-        logger.warning(
-            "p04a sql_injection_check: replaced raw SQL f-string with ORM placeholder: %.100s",
-            original,
-        )
-        return (
-            '# [AetherOS] Raw SQL f-string removed (SQL injection risk). '
-            'Use SQLAlchemy ORM select() instead.\n'
-            '        None  # TODO: replace with ORM query'
-        )
-
-    return _SQL_FSTRING_RE.sub(_replace_sql, code)
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code  # not our concern here: later syntax validation rejects it
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr) and any(isinstance(v, ast.FormattedValue) for v in node.values):
+            literal = "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            if _SQL_SHAPE_RE.search(literal):
+                logger.warning("p04a sql_injection_check: raw SQL f-string at line %s: %.100s", node.lineno, literal)
+                raise ValueError(f"LLM CRUD code builds SQL with an f-string (line {node.lineno})")
+    return code
 
 
 def _scrub_password_fields_from_response(code: str) -> str:
