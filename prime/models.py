@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aether_os.core.db import Base
@@ -75,3 +75,7 @@ class PrimeRequest(Base):
     exec_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # Edits (KAN-22): 0 = as submitted. Each edit bumps it and changes request_hash; edited_by
+    # lists everyone who changed the request, none of whom may decide it.
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    edited_by: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
