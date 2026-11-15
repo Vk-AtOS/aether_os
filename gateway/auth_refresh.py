@@ -228,3 +228,32 @@ async def sse_token_pop(token: str) -> Optional[Dict[str, Any]]:
         logger.warning("SSE token could not be checked (Redis unavailable): %s", exc)
         raise _UNAVAILABLE
     return json.loads(value) if value else None
+
+
+# ── OAuth CSRF state ─────────────────────────────────────────────────────────
+# Single-use, 10 minutes. Redis only for the same reason as the SSE tokens: the callback
+# lands on any worker, and an in-process dict makes it fail on 3 of 4.
+_OAUTH_STATE_TTL_SECONDS = 600
+
+
+async def oauth_state_set(state: str, provider: str) -> None:
+    try:
+        r = await _redis()
+        await r.set(f"oauthstate:{state}", provider, ex=_OAUTH_STATE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("OAuth state could not be stored (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE
+
+
+async def oauth_state_pop(state: str, provider: str) -> bool:
+    """True once for a state issued for `provider` (atomic GET+DELETE), False otherwise."""
+    try:
+        r = await _redis()
+        async with r.pipeline(transaction=True) as pipe:
+            await pipe.get(f"oauthstate:{state}")
+            await pipe.delete(f"oauthstate:{state}")
+            value, _ = await pipe.execute()
+    except Exception as exc:
+        logger.warning("OAuth state could not be checked (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE
+    return value == provider

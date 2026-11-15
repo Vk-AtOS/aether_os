@@ -103,3 +103,22 @@ def test_account_deletion_ends_every_session_or_does_nothing(gw, monkeypatch):
     assert gw.client.get("/account/preferences", headers=user.auth).status_code == 401
     assert gw.client.get("/account/preferences", headers=other_session.auth).status_code == 401
     assert gw.client.post("/auth/refresh", json={"refresh_token": other_session.refresh}).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_is_redis_backed_single_use_and_provider_bound(monkeypatch):
+    monkeypatch.setattr(refresh, "_redis", _dead)
+    for call in (refresh.oauth_state_set("s", "google"), refresh.oauth_state_pop("s", "google")):
+        with pytest.raises(HTTPException) as exc:
+            await call
+        assert exc.value.status_code == 503
+    monkeypatch.undo()
+
+    _fresh_clients(monkeypatch)
+    state = uuid.uuid4().hex
+    await refresh.oauth_state_set(state, "google")
+    assert await refresh.oauth_state_pop(state, "github") is False   # wrong provider; and it is spent
+    assert await refresh.oauth_state_pop(state, "google") is False
+    await refresh.oauth_state_set(state, "google")
+    assert await refresh.oauth_state_pop(state, "google") is True
+    assert await refresh.oauth_state_pop(state, "google") is False
