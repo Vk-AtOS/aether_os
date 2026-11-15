@@ -206,6 +206,12 @@ def create_app() -> FastAPI:
             content={"detail": _json_safe(exc.errors()), "body": str(exc.body)[:200]},
         )
 
+    from aether_os.gateway.scim_patch import ScimError
+
+    @app.exception_handler(ScimError)
+    async def scim_error_handler(_req: _Request, exc: ScimError):
+        return _JSONResponse(status_code=exc.status, content=exc.body, media_type="application/scim+json")
+
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_req: _Request, exc: Exception):
         logger.exception("Unhandled exception on %s %s", _req.method, _req.url.path)
@@ -272,6 +278,7 @@ def create_app() -> FastAPI:
         ("intelligence",  "aether_os.gateway.routers.intelligence_router",  "router",       {},                        False),
         ("compliance",    "aether_os.gateway.routers.compliance_router",    "router",       {},                        False),
         ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),
+        ("scim_groups",   "aether_os.gateway.routers.scim_groups_router",   "router",       {},                        False),
         ("agents",        "aether_os.gateway.routers.agents_router",        "router",       {},                        False),
         ("guardian",      "aether_os.gateway.routers.guardian_router",      "router",       {},                        False),
         ("guardian_snapshots", "aether_os.gateway.routers.guardian_snapshots_router", "router", {},                    False),

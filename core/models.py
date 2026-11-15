@@ -27,6 +27,9 @@ class Organisation(Base):
     data_region: Mapped[str] = mapped_column(String(20), default="global")
     scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated — use scim_token_hash
     scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
+    # sha256 of the SCIM token (a 256-bit random value, so a plain digest is enough): lets a request find its org
+    # with one indexed lookup instead of bcrypt-checking every org that has a token.
+    scim_token_lookup: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # Unix time the paid period ends (core.billing.payments). NULL = no period on record
     # (trial/free, or a plan not bought through a one-off payment).
@@ -543,3 +546,5 @@ class QuestionnaireSession(Base):
     answers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+from . import scim_models  # noqa: E402,F401  registers scim_groups / scim_group_members with Base
