@@ -21,6 +21,7 @@ from sqlalchemy import update
 from aether_os.core.audit import chain as audit_chain
 from aether_os.core.db import get_session_factory
 from aether_os.core.security.redact import redact_secrets
+from aether_os.prime import corrections
 from aether_os.prime.approvals import ApprovalService, RequestError, _now, compute_hash
 from aether_os.prime.authz import ACTION_TYPES, CURRENCY, Action, dead_reason, money_reason
 from aether_os.prime.edit_schema import EDITABLE_PARAMS, coerce
@@ -112,6 +113,11 @@ async def edit_request(svc: ApprovalService, request_id: str, uid: str, identiti
         await session.commit()
     if not won:
         raise RequestError(409, "someone decided or edited this request first; reload it")
+    await corrections.record(
+        org_id=org_id, request_id=row.id, revision=revised.revision, action_type=row.action_type,
+        params_before=row.params or {}, before=changes["before"], after=changes["after"], reason=reason,
+        requested_by=row.requested_by, on_behalf_of=row.on_behalf_of, corrected_by=uid,
+        approver_role=who["role"])
     out = await svc._view(await svc._load(row.id), uid, ids)
     out["approvals_reset"] = True
     return out

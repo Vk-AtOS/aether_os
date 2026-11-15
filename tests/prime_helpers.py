@@ -19,7 +19,7 @@ from aether_os.core.models import Organisation, Run, User, Webhook
 from aether_os.prime import Action, AutonomyLevel, Delegation, DelegationRepository, Limits
 from aether_os.prime import authz, executors
 from aether_os.prime.approvals import ApprovalService
-from aether_os.prime.models import PrimeDelegation, PrimeOrgLimits, PrimeRequest
+from aether_os.prime.models import PrimeCorrection, PrimeDelegation, PrimeOrgLimits, PrimeRequest
 
 ORG, OTHER_ORG = "org_a", "org_b"
 # Roles as stored (Prime reads them from the users table, not from the token):
@@ -49,7 +49,7 @@ async def svc(tmp_path, monkeypatch):
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: db.Base.metadata.create_all(c, tables=[
             t.__table__ for t in (AuditChainEntry, AuditCheckpoint, PrimeDelegation, PrimeRequest,
-                                  PrimeOrgLimits, Organisation, User, Run, Webhook, AuditOrgPepper)]))
+                                  PrimeOrgLimits, Organisation, User, Run, Webhook, AuditOrgPepper, PrimeCorrection)]))
     async with db.get_session_factory()() as s:
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (ORG, OTHER_ORG)])
         await s.flush()
