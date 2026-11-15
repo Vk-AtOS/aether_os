@@ -23,7 +23,8 @@ JAILBREAK_PATTERNS = [
 
 INJECTION_PATTERNS = [
     r'\$\(.*\)',        # shell command substitution
-    r'`[^`]+`',        # backtick execution
+    # Backtick *execution* only: requirements legitimately quote identifiers ("a `status` field").
+    r'`\s*(rm|wget|curl|bash|sh|zsh|python3?|nc|ncat|cat|chmod|chown|sudo|eval|env|printenv)\b[^`]*`',
     r';\s*(rm|wget|curl|bash|sh|python|nc)\s',
     r'<script[^>]*>',  # XSS
     r'javascript:',
