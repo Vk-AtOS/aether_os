@@ -36,6 +36,9 @@ asyncio_mode = "strict"
 pythonpath = [".."]
 testpaths = ["tests"]
 addopts = "--ignore=tests/test_bedrock_integration.py"
+markers = [
+    "docker: needs a running Docker daemon and the aether-sandbox image (skipped otherwise); run with -m docker",
+]
 filterwarnings = [
     # asyncio selector transport / redis connection left open by TestClient teardown
     "ignore::ResourceWarning",
