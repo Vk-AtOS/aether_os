@@ -57,3 +57,47 @@ def test_graph_is_admin_only(app):
 def test_memory_id_is_stable_across_processes(app):
     src = (app[1] / "memory" / "memory_service.py").read_text()
     assert "hash(content)" not in src and "hashlib.sha256" in src
+
+
+def test_postgres_backend_stores_text_only_and_reports_a_failed_write(tmp_path, monkeypatch):
+    # The "pgvector" backend never wrote an embedding (column stayed NULL, search was ILIKE) yet needed
+    # CREATE EXTENSION vector; and a failed INSERT came back as a normal-looking entry: the memory was lost.
+    import types
+    sql, state = [], {"fail": False}
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, q, p=None):
+            if state["fail"] and q.startswith("INSERT"):
+                raise RuntimeError("db down")
+            sql.append(q)
+        def fetchone(self): return (7,)
+        def fetchall(self): return []
+
+    class Conn:
+        def cursor(self): return Cur()
+        def commit(self): pass
+        def rollback(self): state["rolled_back"] = True
+
+    fake = types.ModuleType("psycopg2")
+    fake.connect = lambda url: Conn()
+    monkeypatch.setitem(sys.modules, "psycopg2", fake)
+    monkeypatch.setitem(sys.modules, "chromadb", None)
+    monkeypatch.setenv("PGVECTOR_ENABLED", "true")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x/y")
+    out = tmp_path / "out"
+    asyncio.run(task_agent.run(SimpleNamespace(input_data={}), [], out))
+    monkeypatch.syspath_prepend(str(out))
+    mod = importlib.import_module("memory.memory_service")
+    try:
+        assert mod._backend_type == "postgres"
+        assert not any("vector" in q.lower() for q in sql)
+        assert mod.add_memory("u1", "hello")["id"] == 7
+        state["fail"] = True
+        with pytest.raises(RuntimeError, match="could not be stored"):
+            mod.add_memory("u1", "lost?")
+        assert state["rolled_back"]
+    finally:
+        for m in [m for m in sys.modules if m.split(".")[0] == "memory"]:
+            del sys.modules[m]
