@@ -107,3 +107,13 @@ def test_admin_cannot_take_over_an_owner(gw):
     assert gw.client.post(f"/admin/users/{owner.user_id}/deactivate", headers=h).status_code == 403
     assert gw.client.post(f"/admin/users/{owner.user_id}/deactivate", headers=owner.auth).status_code != 403
 
+
+
+def test_member_cannot_edit_a_marketplace_profile(gw):
+    owner = gw.register("mktedit")
+    gw.sql("INSERT INTO marketplace_profiles (id, org_id, name, base_domain, profile_yaml, is_published, "
+           "usage_count, price_usd, created_at) VALUES ('p-edit', ?, 'n', 'd', 'y', 1, 0, 0, '2026-01-01 00:00:00')", (owner.org_id,))
+    member = gw.user_with_role("member", owner.org_id)
+    r = gw.client.put("/marketplace/profiles/p-edit", headers=member.auth, json={"description": "inject"})
+    assert r.status_code == 403
+    assert gw.client.put("/marketplace/profiles/p-edit", headers=owner.auth, json={"description": "ok"}).status_code == 200
