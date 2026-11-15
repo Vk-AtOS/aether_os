@@ -65,7 +65,8 @@ def test_migration_adds_backfills_and_indexes_and_chains_after_the_merge():
             assert f"ix_{t}_org_id" in idx
 
 
-def test_retention_purges_only_rows_older_than_the_window(monkeypatch):
+def test_retention_purges_only_rows_older_than_the_window(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / "no-artifacts"))
     spec = importlib.util.spec_from_file_location("retention_purge", ROOT / "scripts" / "retention_purge.py")
     rp = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rp)
@@ -81,10 +82,35 @@ def test_retention_purges_only_rows_older_than_the_window(monkeypatch):
             c.execute(text(f"INSERT INTO {t} VALUES ('old', :o), ('new', :n)"), {"o": old.replace(tzinfo=None), "n": new.replace(tzinfo=None)})
         for t, col in (("events", "timestamp"), ("snapshots", "created_at")):
             c.execute(text(f"INSERT INTO {t} VALUES ('old', :o), ('new', :n)"), {"o": old.timestamp(), "n": new.timestamp()})
-    assert rp.purge(engine, now=now, dry_run=True) == {"llm_traces": 1, "pipeline_events": 1, "events": 1, "snapshots": 1}
-    assert rp.purge(engine, now=now) == {"llm_traces": 1, "pipeline_events": 1, "events": 1, "snapshots": 1}
+    assert rp.purge(engine, now=now, dry_run=True) == {"llm_traces": 1, "pipeline_events": 1, "events": 1, "snapshots": 1, "artifact_files": 0}
+    assert rp.purge(engine, now=now) == {"llm_traces": 1, "pipeline_events": 1, "events": 1, "snapshots": 1, "artifact_files": 0}
     with engine.connect() as c:
         for t in ("llm_traces", "pipeline_events", "events", "snapshots"):
             assert [r[0] for r in c.execute(text(f"SELECT id FROM {t}"))] == ["new"]
     monkeypatch.setenv("AETHER_RETENTION_TRACE_DAYS", "0")
     assert "llm_traces" not in rp.purge(engine, now=now)
+
+
+def test_artifact_retention_removes_old_files_keeps_new_and_never_follows_links(tmp_path):
+    import os
+
+    from aether_os.core.retention import prune_artifact_files
+    root = tmp_path / "art"
+    (root / "run1").mkdir(parents=True)
+    old, new = root / "run1" / "old.zip", root / "run1" / "new.zip"
+    old.write_bytes(b"x" * 10)
+    new.write_bytes(b"y")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep me")
+    (root / "run1" / "link").symlink_to(outside)
+    stamp = time.time() - 100 * 86400
+    os.utime(old, (stamp, stamp))
+    os.utime(outside, (stamp, stamp))                  # a link to an old file elsewhere must be left alone
+    files, size = prune_artifact_files(root, 90, dry_run=True)
+    assert files == ["run1/old.zip"] and size == 10 and old.exists()
+    prune_artifact_files(root, 90)
+    assert not old.exists() and new.exists() and outside.exists()
+    assert prune_artifact_files(tmp_path / "missing", 90) == ([], 0)
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        prune_artifact_files(root, 0)

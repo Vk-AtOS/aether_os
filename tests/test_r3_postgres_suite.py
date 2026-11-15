@@ -100,7 +100,8 @@ def test_migration_adds_backfills_and_is_idempotent_on_postgres(engine):
         assert conn.execute(text("SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'ix_events_org_id'")).scalar() == 1
 
 
-def test_retention_purge_deletes_in_batches_on_postgres(engine):
+def test_retention_purge_deletes_in_batches_on_postgres(engine, monkeypatch, tmp_path):
+    monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / "no-artifacts"))
     spec = importlib.util.spec_from_file_location("rp", ROOT / "scripts" / "retention_purge.py")
     rp = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rp)
