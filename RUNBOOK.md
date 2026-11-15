@@ -505,3 +505,24 @@ Internet
 | PostgreSQL nodes | 2 (1 primary + 1 replica) | 3 (Patroni) |
 | Redis nodes | 3 (Sentinel quorum) | 6 (Cluster) |
 | nginx load balancers | 2 (active-active) | 2 + Keepalived VIP |
+
+## 11. Velaris public app (careers, scheduling, interview participant, e-sign) - KAN-128
+
+Own process, own host name, never on the dashboard host. Files: `deploy/nginx_velaris_public.conf`,
+`deploy/velaris_public_proxy.conf`, `deploy/velaris-public.service`, compose service `velaris_public`
+(profile `velaris`, loopback 8731 only), `scripts/velaris_public_smoke.sh`.
+
+Owner steps (needs DNS + a certificate, nothing here does that for you):
+1. DNS A/AAAA for the public host (for example `careers.<your-domain>`), then `certbot certonly --nginx -d <host>`.
+2. Put the Velaris environment in `/etc/velaris/public.env` (mode 0600): `VELARIS_DATA`, `VELARIS_PUBLIC_CORS_ORIGINS`
+   (the careers site origins), plus the Velaris secrets. The unit sets `VELARIS_PUBLIC_TRUST_PROXY=1` (exactly one proxy).
+3. `bash deploy/velaris_public_setup.sh <host>` (installs site + unit, runs `nginx -t`, reloads).
+4. `bash scripts/velaris_public_smoke.sh https://<host>`: the four prefixes reach the app, `/agents`, `/flows`, `/chat`,
+   `/mail`, `/control`, `/hr`, `/metrics`, `/docs` and `/` answer 404.
+
+What the proxy guarantees: path allowlist `/careers/ /schedule/ /interview/ /sign/`; Cookie, Authorization, X-Api-Key,
+X-Org-Id and X-Velaris-* dropped; `X-Forwarded-For` replaced by the connection address (so per-IP limits see the real
+client); 256 KiB body cap; per-IP rate and connection limits; `Referrer-Policy: no-referrer`; the access log keeps only
+the first path segment (`/sign/***`) and never the query or Referer, so a link token is never logged. The nginx error log
+is set to `crit`; a critical error line can still name the request, so do not ship that file to a third party.
+Rollback: `systemctl disable --now velaris-public && rm /etc/nginx/sites-enabled/velaris-public && systemctl reload nginx`.
