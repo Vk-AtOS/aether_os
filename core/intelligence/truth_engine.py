@@ -1,7 +1,7 @@
 """Truth Engine — validates that implementation matches requirements."""
 from __future__ import annotations
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from aether_os.core.run_app import safe_fs
 
@@ -56,7 +56,6 @@ class TruthEngine:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import Run
-            from sqlalchemy import select
             async with get_session_factory()() as sess:
                 run = await sess.get(Run, run_id)
                 if not run:

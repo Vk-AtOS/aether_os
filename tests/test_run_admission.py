@@ -13,7 +13,6 @@ import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from aether_os.agents.base import AgentContext
 from aether_os.agents.implementations import PolicyAgent

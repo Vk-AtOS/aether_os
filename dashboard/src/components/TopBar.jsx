@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 import { useSettings } from '../contexts/useSettings';
+import { readinessStatus } from '../readiness';
 
 const PROVIDER_COLORS = {
   anthropic:   { text: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
@@ -100,6 +101,7 @@ const OrgSwitcher = () => {
 const TopBar = ({ activeRunCount = 0 }) => {
   const [health, setHealth] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
+  const [readiness, setReadiness] = useState(null);
   const [costs, setCosts] = useState({ today_usd: 0, tokens_today: '—' });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
@@ -124,13 +126,19 @@ const TopBar = ({ activeRunCount = 0 }) => {
         setSystemStatus(null);
       }
     };
+    // /readyz answers 503 with the same body when the API is not ready: read it from the error too
+    const fetchReadiness = async () => {
+      try { setReadiness((await api.client.get('/readyz')).data); } catch (err) {
+        setReadiness(err.response?.data || null);
+      }
+    };
     const fetchCosts = async () => {
       try { setCosts((await api.getCosts()).data); } catch (err) {
         setFetchError(err.message || 'Cost fetch failed');
       }
     };
-    fetchHealth(); fetchSystemStatus(); fetchCosts();
-    const iv = setInterval(() => { fetchHealth(); fetchSystemStatus(); fetchCosts(); }, 30_000);
+    fetchHealth(); fetchSystemStatus(); fetchCosts(); fetchReadiness();
+    const iv = setInterval(() => { fetchHealth(); fetchSystemStatus(); fetchCosts(); fetchReadiness(); }, 30_000);
     return () => clearInterval(iv);
   }, []);
 
@@ -155,6 +163,8 @@ const TopBar = ({ activeRunCount = 0 }) => {
   };
 
   const derivedStatus = (() => {
+    const degraded = readinessStatus(readiness);   // a named degraded component wins over a generic 'nominal'
+    if (degraded) return degraded;
     if (systemStatus) {
       const s = (systemStatus.status || '').toLowerCase();
       if (s === 'nominal' || s === 'ok' || s === 'healthy') return { label: systemStatus.message || systemStatus.status || 'Nominal', level: 'nominal' };

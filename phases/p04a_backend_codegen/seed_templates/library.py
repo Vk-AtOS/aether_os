@@ -3,8 +3,7 @@ Seed template for library domain.
 """
 import random
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
-from models import User, Book, Member, Checkout, Reservation
+from models import Book, Member, Checkout, Reservation
 
 async def seed_library(db_session):
     # 1. Books (Minimum 200)

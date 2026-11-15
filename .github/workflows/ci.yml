@@ -69,9 +69,8 @@ jobs:
           echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
 
       - name: Lint with ruff (blocking)
-        # Syntax errors, undefined names, invalid comparisons: real bugs, zero tolerance.
-        # Style rules (E,F,W) have ~1400 findings today; ratchet them down separately.
-        run: ruff check . --select E9,F63,F7,F82
+        # Pyflakes (F), syntax errors (E9) and B904 (raise ... from) are clean (KAN-59): zero tolerance.
+        run: ruff check . --select F,E9,B904
 
       - name: Static security analysis (bandit, high severity)
         run: bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'

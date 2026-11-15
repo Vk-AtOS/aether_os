@@ -10,7 +10,6 @@ import re
 import shutil
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +371,7 @@ echo "Restore complete."
     os.chmod(project_dir / "restore.sh", 0o755)
 
     # 4. update.sh
-    update_sh = f"""#!/bin/bash
+    update_sh = """#!/bin/bash
 set -e
 git pull
 docker-compose build

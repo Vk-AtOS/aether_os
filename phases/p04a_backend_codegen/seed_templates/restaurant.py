@@ -1,8 +1,7 @@
 """
 Seed template for Restaurant domain.
 """
-from sqlalchemy import select, func
-from models import Restaurant, MenuItem, Order, OrderItem, User
+from models import Restaurant, MenuItem, Order, User
 
 async def seed_restaurant(db_session):
     # 1. Users (Staff)

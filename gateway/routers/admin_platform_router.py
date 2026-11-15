@@ -29,16 +29,14 @@ from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.db_utils import update_run_status
 from aether_os.core.guardian.threat_detector import get_threat_detector
-from aether_os.core.guardian.threat_detector import get_threat_detector, _CRITICAL_FILES
+from aether_os.core.guardian.threat_detector import _CRITICAL_FILES
 from aether_os.core.models import AuditLog, User as UserModel
 from aether_os.core.models import Run
 from aether_os.core.models import Run as _Run
 from aether_os.core.pipeline_state import get_redis
 from aether_os.core.pipeline_state import set_control
-from pathlib import Path
 from sqlalchemy import select
-from sqlalchemy import select, and_
-from sqlalchemy import select, func as sqlfunc
+from sqlalchemy import func as sqlfunc
 import shutil
 import subprocess as _sp
 import sys as _sys
@@ -98,7 +96,7 @@ async def prune_artifacts(
     try:
         ttl_days = int(req.get("ttl_days", 30))
     except (TypeError, ValueError):
-        raise HTTPException(status_code=422, detail="ttl_days must be a whole number of days")
+        raise HTTPException(status_code=422, detail="ttl_days must be a whole number of days") from None
     # 0 or a negative value moves the cutoff to now or the future: every file would go.
     if ttl_days < 1:
         raise HTTPException(status_code=422, detail="ttl_days must be at least 1")
@@ -159,7 +157,7 @@ async def export_audit_logs(
                 dt_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             ).timestamp()
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}")
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}") from exc
     org_id = user["org_id"]
     async with sf() as session:
         stmt = select(AuditLog, UserModel.email).outerjoin(
@@ -293,4 +291,4 @@ async def save_platform_file(
         return {"ok": True, "file": target.name, "baseline_updated": True}
     except Exception as exc:
         logger.error("Failed to save platform fix to %s: %s", target.name, exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

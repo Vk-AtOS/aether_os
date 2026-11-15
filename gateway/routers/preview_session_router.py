@@ -35,7 +35,7 @@ async def create_preview_session(
     try:
         origin = preview_token.run_origin(run_id)  # each run has an origin of its own
     except ValueError:
-        raise HTTPException(status_code=422, detail="This run id cannot be previewed")
+        raise HTTPException(status_code=422, detail="This run id cannot be previewed") from None
     token = preview_token.issue(run_id, user["org_id"], user_id, preview_token.ENTER,
                                 preview_token.ENTER_TTL_S)
     return {

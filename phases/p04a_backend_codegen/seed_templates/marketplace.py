@@ -2,8 +2,7 @@
 Seed template for marketplace domain.
 """
 import random
-from sqlalchemy import select, func
-from models import User, Seller, Product, Buyer, Order, Review
+from models import Seller, Product, Buyer, Order, Review
 
 async def seed_marketplace(db_session):
     # 1. Sellers (Minimum 30)

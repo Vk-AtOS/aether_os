@@ -8,12 +8,10 @@ The SSRF checks, pinning and gateway routes run for real.
 from __future__ import annotations
 
 import socket
-from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
-from aether_os.core.security import safe_http
 from aether_os.core.security.safe_http import UnsafeURL, check_url_shape, resolve_public, safe_request
 from aether_os.core.webhooks.delivery import _assert_safe_url, _delivery
 

@@ -107,7 +107,7 @@ async def _do_import(connection_string: str) -> Dict[str, Any]:
 
 def _sync_inspect(connection_string: str) -> Dict[str, Any]:
     """Synchronous SQLAlchemy inspector — runs in thread pool."""
-    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy import create_engine, inspect
 
     # Use a short connect_timeout where the driver supports it
     connect_args: dict = {}

@@ -13,7 +13,7 @@ Flow:
 from __future__ import annotations
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
@@ -41,7 +41,7 @@ async def _claim_totp_code(user_id: str, code: str) -> bool:
         return bool(await r.set(f"mfa_used:{user_id}:{code}", "1", nx=True, ex=90))
     except Exception as exc:
         logger.warning("MFA replay check failed (Redis unavailable) — denying: %s", exc)
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable — please retry")
+        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable — please retry") from exc
 # ── MFA rate limiting ─────────────────────────────────────────────────────────
 async def _check_mfa_attempts(ip: str, max_attempts: int = 5, window: int = 300) -> bool:
     """Return True if the IP is within rate limit. False = locked out."""

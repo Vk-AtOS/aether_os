@@ -90,7 +90,6 @@ def _build_report(
     """
     Assemble the formal_verification_report.json payload from InvariantResult objects.
     """
-    from aether_os.phases.p06b_formal_verification.z3_encoder import InvariantResult
 
     verified: List[Dict] = []
     failed: List[Dict] = []

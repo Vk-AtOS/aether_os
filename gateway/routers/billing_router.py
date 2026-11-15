@@ -23,7 +23,6 @@ import hmac as _hmac, hashlib as _hashlib
 import hmac as _hmac_wh, hashlib as _hashlib_wh
 import razorpay
 import stripe as _stripe  # type: ignore[import]
-import uuid as _uuid_rz
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["billing"])
 RAZORPAY_PLANS: Dict[str, Dict] = {
@@ -152,7 +151,7 @@ async def verify_payment(req: Dict[str, Any], user: Dict[str, Any] = _current_us
         raise
     except Exception as exc:
         logger.warning("verify_payment: Razorpay order fetch failed for %s: %s", order_id, exc)
-        raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway")
+        raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway") from exc
     if confirmed is None or confirmed[0] != user["org_id"]:
         logger.warning("verify_payment: order %s does not match org=%s", order_id, user["org_id"])
         raise HTTPException(status_code=400, detail="Order does not match this organisation or plan")
@@ -242,7 +241,7 @@ async def cancel_subscription(user: Dict[str, Any] = _current_user()):
                 logger.info("Cancelled Stripe subscription %s for org %s", sub.id, org_id)
         except Exception as _stripe_err:
             logger.error("Stripe subscription cancel failed for org %s: %s", org_id, _stripe_err)
-            raise HTTPException(status_code=502, detail="Could not cancel the subscription with the payment provider; nothing was changed. Try again.")
+            raise HTTPException(status_code=502, detail="Could not cancel the subscription with the payment provider; nothing was changed. Try again.") from _stripe_err
     try:
         async with get_session_factory()() as session:
             await session.execute(
@@ -253,7 +252,7 @@ async def cancel_subscription(user: Dict[str, Any] = _current_user()):
             await session.commit()
     except Exception as _e:
         logger.error("cancel_subscription DB update failed for org %s: %s", org_id, _e)
-        raise HTTPException(status_code=503, detail="Could not update the plan; try again.")
+        raise HTTPException(status_code=503, detail="Could not update the plan; try again.") from _e
     return {"success": True, "plan": "free", "message": "Subscription cancelled. Plan downgraded to free."}
 # Lowest to highest. Raising the plan only ever happens through a verified payment.
 _PLAN_ORDER = ["free", "trial", "starter", "pro", "enterprise"]
@@ -285,7 +284,7 @@ async def downgrade_subscription(req: Dict[str, Any], user: Dict[str, Any] = _cu
             await session.commit()
     except Exception as _e:
         logger.error("downgrade_subscription DB update failed: %s", _e)
-        raise HTTPException(status_code=503, detail="Could not update the plan; try again.")
+        raise HTTPException(status_code=503, detail="Could not update the plan; try again.") from _e
     return {"success": True, "plan": target_plan, "message": f"Plan downgraded to {target_plan}."}
 @router.post("/billing/webhook")
 async def razorpay_webhook(request: Request):
@@ -312,7 +311,7 @@ async def razorpay_webhook(request: Request):
         except Exception as exc:
             # 5xx makes Razorpay deliver the event again later.
             logger.warning("Webhook: could not confirm order %s: %s", order_id, exc)
-            raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway")
+            raise HTTPException(status_code=502, detail="Could not confirm order with payment gateway") from exc
         if confirmed is None:
             logger.warning("Webhook: order %s is not a paid order for a known plan — not applied", order_id)
         elif await apply_paid_order("razorpay", order_id, payment_id, confirmed[0], confirmed[1], amount=confirmed[2]):

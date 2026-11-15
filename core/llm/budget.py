@@ -14,12 +14,12 @@ Plan token budgets (per month):
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
 from typing import Dict, Optional, Tuple
 
 from aether_os.core.llm.plans import PLAN_LIMITS
+from aether_os.core.telemetry.metrics import BUDGET_ALERTS, observe_cost
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ async def _alert_80(org_id: str, month: str, pct: float, plan: str) -> None:
     if (org_id, month) in _alerted:
         return
     _alerted.add((org_id, month))
+    BUDGET_ALERTS.inc()
     logger.warning("LLM budget ALERT: org %s used %.0f%% of its %s monthly allowance", org_id, pct * 100, plan)
     try:
         from aether_os.core.db import get_session_factory
@@ -166,6 +167,7 @@ class TokenBudgetManager:
             input_tokens  * _COST_PER_INPUT_TOKEN.get(model, _COST_PER_INPUT_TOKEN["default"]) +
             output_tokens * _COST_PER_OUTPUT_TOKEN.get(model, _COST_PER_OUTPUT_TOKEN["default"])
         )
+        observe_cost(model, input_tokens, output_tokens, cost)
         try:
             from aether_os.core.db import get_session_factory
             sf = get_session_factory()

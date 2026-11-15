@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p03_scaffolding.validation import safe_project_name, validate_clone_url

@@ -247,7 +247,6 @@ class ArtifactStore:
 
     def _s3_download_text(self, run_id: str, file_path: str) -> Optional[str]:
         try:
-            import boto3
             s3 = self._s3_client()
             obj = s3.get_object(Bucket=_S3_BUCKET, Key=self._s3_key(run_id, file_path))
             return obj["Body"].read().decode("utf-8", errors="replace")
@@ -264,7 +263,6 @@ class ArtifactStore:
 
     def _upload_run_sync(self, run_id: str, project_dir: Path) -> int:
         try:
-            import boto3
             s3 = self._s3_client()
             count = 0
             for f in safe_fs.walk_files(project_dir, skip_dirs=_SKIP_DIRS):

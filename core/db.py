@@ -9,7 +9,6 @@ Key improvements over original:
 - Indexes on org_id, email, status added via create_all + explicit DDL
 """
 from __future__ import annotations
-import asyncio
 import logging
 import os
 from pathlib import Path
@@ -218,7 +217,6 @@ async def init_db() -> None:
     - status: dashboard listing filters by status
     - run_metadata.run_id: priority lookups are per-run
     """
-    from . import models  # Ensure all models are registered with Base
     from .billing import payments  # noqa: F401  registers billing_payments for callers that never load the gateway
     engine = get_engine()
     if engine.dialect.name == "postgresql" and os.environ.get("AETHER_DB_CREATE_ALL", "").lower() not in ("1", "true"):

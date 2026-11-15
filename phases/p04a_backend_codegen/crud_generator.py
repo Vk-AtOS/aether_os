@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import DEFAULT_ROLE_MODEL
 from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
@@ -200,8 +200,6 @@ async def _llm_crud_routers(
     mem_hint: str = "", multi_tenancy: bool = False,
 ) -> str:
     """One LLM call → routers/crud.py with all entity CRUD routers."""
-    entity_names = [e.get("name", e.get("table", "")) for e in entities]
-    entity_list = ", ".join(entity_names)
 
     # Build a compact entity→fields map so the LLM can produce correct column references
     entity_fields_summary = ""
@@ -449,7 +447,7 @@ def _fallback_crud_routers(
             if multi_tenancy else ""
         )
         mt_create_kwarg = (
-            f", org_id=current_user.get('org_id')"
+            ", org_id=current_user.get('org_id')"
             if multi_tenancy else ""
         )
 
@@ -490,59 +488,59 @@ def _fallback_crud_routers(
             "",
             f"@{var}.get('/', response_model=dict)",
             f"async def list_{table}(",
-            f"    page: int = Query(1, ge=1),",
-            f"    page_size: int = Query(20, ge=1, le=200),",
-            f"    db: AsyncSession = Depends(get_db),",
+            "    page: int = Query(1, ge=1),",
+            "    page_size: int = Query(20, ge=1, le=200),",
+            "    db: AsyncSession = Depends(get_db),",
             f"    current_user: dict = Depends({read_dep}),",
-            f"):",
+            "):",
             f"    _ck = {list_cache_key}",
-            f"    _cached = await _cache_get(_ck)",
-            f"    if _cached is not None:",
-            f"        return _cached",
-            f"    offset = (page - 1) * page_size",
+            "    _cached = await _cache_get(_ck)",
+            "    if _cached is not None:",
+            "        return _cached",
+            "    offset = (page - 1) * page_size",
             f"    total_q = await db.execute(select(func.count()).select_from(models.{name}){mt_list_filter})",
-            f"    total = total_q.scalar_one()",
+            "    total = total_q.scalar_one()",
             f"    result = await db.execute(select(models.{name}){mt_list_filter}.offset(offset).limit(page_size))",
-            f"    items = result.scalars().all()",
+            "    items = result.scalars().all()",
             f"    _resp = {{'items': [{ser_dict} for i in items], 'total': total, 'page': page, 'page_size': page_size}}",
-            f"    await _cache_set(_ck, _resp)",
-            f"    return _resp",
+            "    await _cache_set(_ck, _resp)",
+            "    return _resp",
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({read_dep})):",
             f"    _ck = {item_cache_key}",
-            f"    _cached = await _cache_get(_ck)",
-            f"    if _cached is not None:",
-            f"        return _cached",
+            "    _cached = await _cache_get(_ck)",
+            "    if _cached is not None:",
+            "        return _cached",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if obj is None:",
+            "    obj = result.scalar_one_or_none()",
+            "    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    _resp = {ser_dict_obj}",
-            f"    await _cache_set(_ck, _resp)",
-            f"    return _resp",
+            "    await _cache_set(_ck, _resp)",
+            "    return _resp",
             "",
             f"@{var}.post('/', status_code=status.HTTP_201_CREATED, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends({create_dep})):",
             f"    obj = models.{name}(**data.model_dump(exclude_unset=True){mt_create_kwarg})",
-            f"    db.add(obj)",
-            f"    await db.flush()",
+            "    db.add(obj)",
+            "    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'CREATE', '{name}', str(getattr(obj, 'id', '')))",
-            f"    await db.refresh(obj)",
+            "    await db.refresh(obj)",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
             f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends({update_dep})):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if obj is None:",
+            "    obj = result.scalar_one_or_none()",
+            "    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
-            f"    for k, v in data.model_dump(exclude_unset=True).items():",
-            f"        setattr(obj, k, v)",
-            f"    await db.flush()",
+            "    for k, v in data.model_dump(exclude_unset=True).items():",
+            "        setattr(obj, k, v)",
+            "    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'UPDATE', '{name}', str(item_id))",
-            f"    await db.refresh(obj)",
+            "    await db.refresh(obj)",
             f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
@@ -554,11 +552,11 @@ def _fallback_crud_routers(
             f"@{var}.delete('/{{item_id}}', status_code=status.HTTP_204_NO_CONTENT)",
             f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({delete_dep})):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if obj is None:",
+            "    obj = result.scalar_one_or_none()",
+            "    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    await _log_action(db, str(current_user.get('id', '')), 'DELETE', '{name}', str(item_id))",
-            f"    await db.delete(obj)",
+            "    await db.delete(obj)",
             f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             "",

@@ -3,7 +3,7 @@ P04b Business Logic Layer — Logic Generators.
 Real functional scaffolds for Email, Payments, and Storage.
 """
 import json
-from typing import Dict, List
+from typing import Dict
 
 def _step_name(step) -> str:
     if isinstance(step, dict):
@@ -12,7 +12,6 @@ def _step_name(step) -> str:
 
 def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
     """Generate a Python StateMachine class for a workflow with role checks."""
-    trigger = workflow.get("trigger", "updated")
     raw_steps = workflow.get("steps", [])
     steps = [_step_name(s) for s in raw_steps]
 
@@ -28,9 +27,9 @@ def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
         f"    VALID_TRANSITIONS = {json.dumps(transitions, indent=8)}",
         "",
         "    @staticmethod",
-        f"    def transition(obj, new_status: str, actor_role: str = 'user') -> bool:",
+        "    def transition(obj, new_status: str, actor_role: str = 'user') -> bool:",
         f"        if new_status not in {entity_name}StateMachine.VALID_TRANSITIONS.get(obj.status, []):",
-        f"            raise ValueError(f'Invalid transition: {{obj.status}} -> {{new_status}}')",
+        "            raise ValueError(f'Invalid transition: {obj.status} -> {new_status}')",
         "",
         "        # Role-based restriction: only staff/admin can move beyond 'placed'",
         "        if obj.status != 'placed' and actor_role not in ['admin', 'staff']:",

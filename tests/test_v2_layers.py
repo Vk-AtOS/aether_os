@@ -7,18 +7,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
-import pytest
 
 # ── Layer 1: Stack Profiles ───────────────────────────────────────────────────
 
 class TestStackProfiles:
     def test_stack_profiles_registry_exists(self):
-        from aether_os.core.stack_profiles import STACK_PROFILES, StackProfile
+        from aether_os.core.stack_profiles import STACK_PROFILES
         assert len(STACK_PROFILES) >= 7
 
     def test_all_required_profiles_present(self):
@@ -565,7 +563,6 @@ class TestStackSelector:
         """If LLM is unavailable, classify_build should return the web_saas fallback."""
         from unittest.mock import patch
         from aether_os.phases.p00_research.stack_selector import classify_build
-        from aether_os.core.stack_profiles import DEFAULT_PROFILE
 
         async def run():
             # get_llm_client is imported inside classify_build; patch it at the source module

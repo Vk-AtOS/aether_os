@@ -3,8 +3,7 @@ Seed template for events domain.
 """
 import random
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
-from models import User, Event, Attendee, Ticket, Venue
+from models import Event, Attendee, Ticket, Venue
 
 async def seed_events(db_session):
     # 1. Venues (Minimum 5)

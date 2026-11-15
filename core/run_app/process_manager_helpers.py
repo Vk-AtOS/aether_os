@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import pathlib
 import re
-import secrets
 import textwrap
 from typing import Optional, Tuple
 
@@ -297,7 +295,7 @@ def _spa_catchall(path: str = ""):
             if frontend_dist and frontend_dist.is_dir()
             else ""
         )
-        preview_content = textwrap.dedent(f"""\
+        preview_content = textwrap.dedent("""\
             \"\"\"AetherOS run-preview entrypoint — VPS only, not distributed.\"\"\"
             import os
             import pathlib
@@ -309,7 +307,7 @@ def _spa_catchall(path: str = ""):
             _PREVIEW_DB = _PROJECT_DIR / "preview.db"
             _DIST = _PROJECT_DIR / "p05_frontend" / "frontend" / "dist"
 
-            os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{{_PREVIEW_DB}}")
+            os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PREVIEW_DB}")
             os.environ.setdefault("SECRET_KEY", os.environ.get("PREVIEW_JWT_SECRET") or secrets.token_urlsafe(32))
 
             from main import app  # noqa: E402
@@ -319,7 +317,7 @@ def _spa_catchall(path: str = ""):
                 from fastapi.responses import FileResponse
                 from fastapi import HTTPException
 
-                @app.get("/{{path:path}}", include_in_schema=False)
+                @app.get("/{path:path}", include_in_schema=False)
                 def _spa(path: str = ""):
                     if path.startswith("api/"):
                         raise HTTPException(status_code=404, detail="Not found")

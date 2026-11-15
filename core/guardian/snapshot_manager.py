@@ -15,7 +15,6 @@ import hashlib
 import logging
 import os
 import shutil
-import subprocess
 import time
 import uuid
 from datetime import datetime, timezone
@@ -62,7 +61,6 @@ def _sqlite_db_path() -> Optional[Path]:
 async def _pg_dump(dest: Path) -> bool:
     """Run pg_dump and write to dest. Returns True on success."""
     db_url = os.environ.get("DATABASE_URL", "")
-    loop = asyncio.get_running_loop()
     try:
         proc = await asyncio.create_subprocess_exec(
             "pg_dump", "--no-password", "--format=custom", f"--file={dest}", db_url,

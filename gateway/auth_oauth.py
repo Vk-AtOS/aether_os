@@ -23,7 +23,7 @@ import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
 
 from aether_os.gateway.auth_refresh import oauth_state_pop, oauth_state_set
@@ -217,7 +217,7 @@ async def google_callback(
         return _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
-    except Exception as exc:
+    except Exception:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("Google OAuth callback failed")
         return _redirect_with_error("Google sign-in failed. Please try again.")
@@ -303,7 +303,7 @@ async def github_callback(
         return _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
-    except Exception as exc:
+    except Exception:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("GitHub OAuth callback failed")
         return _redirect_with_error("GitHub sign-in failed. Please try again.")

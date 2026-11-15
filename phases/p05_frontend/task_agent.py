@@ -7,7 +7,6 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -25,11 +24,6 @@ from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
 from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
 from aether_os.phases.utils import memory_hint
 from aether_os.phases.p05_frontend.safe_text import safe_display_name
-from aether_os.phases.p05_frontend.prompts import (
-    DOMAIN_FALLBACK_WIDGETS,
-    DOMAIN_COMPONENT_DESC,
-    DOMAIN_COLOR_HINTS,
-)
 from aether_os.phases.p05_frontend.scaffold import (
     detect_domain,
     read_architecture,
@@ -44,7 +38,6 @@ from aether_os.phases.p05_frontend.npm_runner import (
     pkg_hash,
     node_modules_fresh,
     stamp_node_modules,
-    _NPM_SHARED_CACHE,
     run_npm_build,
 )
 from aether_os.phases.p05_frontend.code_writer import (
@@ -68,7 +61,6 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_admin_layout,
     generate_customer_layout,
     generate_customer_home,
-    generate_layout,
     generate_data_table,
     generate_crud_modal,
     generate_toaster,
@@ -80,7 +72,6 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_not_found_page,
     generate_frontend_readme,
     generate_login_page,
-    generate_dashboard,
     generate_storefront_home,
     generate_entity_page,
     generate_product_grid_page,
@@ -95,7 +86,7 @@ from aether_os.phases.p05_frontend.preview import (
 )
 from aether_os.phases.p05_frontend.helpers import (
     _write_with_guard,
-    _generate_file,
+    _generate_file,  # noqa: F401  re-exported: tests patch it on this module
     _generate_domain_component,
     _derive_admin_features,
     _generate_customer_portal,
@@ -433,7 +424,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Gate 3: Admin Requirements Approval ──
     # Delegated to domain_assembler.run_gate3_approval to reduce task_agent lines.
-    admin_features = await run_gate3_approval(
+    await run_gate3_approval(
         domain_ir=_domain_ir,
         data=data,
         is_autonomous=is_autonomous,

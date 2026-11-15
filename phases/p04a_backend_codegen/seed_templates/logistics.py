@@ -3,8 +3,7 @@ Seed template for logistics domain.
 """
 import random
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
-from models import User, Shipment, Driver, Route, DeliveryStop
+from models import Shipment, Driver, Route, DeliveryStop
 
 async def seed_logistics(db_session):
     # 1. Drivers (Minimum 10)

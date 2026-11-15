@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (git-ignored). Images by digest. No credentials belong here.
+app_domain      = "app.example.com"
+app_zone_id     = "Z0000000000000"
+preview_domain  = "preview.example.com"
+preview_zone_id = "Z0000000000001"
+api_image       = "000000000000.dkr.ecr.ap-south-1.amazonaws.com/aetheros-api@sha256:REPLACE"
+velaris_image   = "000000000000.dkr.ecr.ap-south-1.amazonaws.com/velaris@sha256:REPLACE"
+sandbox_image   = "000000000000.dkr.ecr.ap-south-1.amazonaws.com/aether-sandbox@sha256:REPLACE"
+velaris_org     = "REPLACE-with-the-AetherOS-org-id"

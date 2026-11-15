@@ -31,7 +31,7 @@ import os
 import shutil
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +452,6 @@ def materialize_snapshot(
         for f in files:
             if f == "snapshot.json":
                 continue
-            rel_path = os.path.join(rel_root, f) if rel_root else f
             src = os.path.join(root, f)
             dst = os.path.join(dest_abs, rel_root, f) if rel_root else os.path.join(dest_abs, f)
             os.makedirs(os.path.dirname(dst), exist_ok=True)

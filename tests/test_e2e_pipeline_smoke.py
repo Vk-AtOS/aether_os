@@ -13,9 +13,7 @@ calls are intercepted.
 from __future__ import annotations
 
 import ast
-import asyncio
 import sys
-import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -285,7 +283,6 @@ def test_fast_snapshot_non_serializable_fallback():
     default=str prevents json.dumps from raising).
     """
     from aether_os.orchestrator.parallel_runner import _fast_snapshot
-    import copy as _copy
 
     # Verify that truly un-json-able values (those that raise even with default=str
     # if we patch it) trigger the deepcopy path.  We do this by directly exercising

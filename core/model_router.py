@@ -29,12 +29,14 @@ from aether_os.core.model_router_providers import (
     _is_provider_configured,
     _classify_error,
     _mark_provider_dead,
+    _is_server_side_failure,
+    _note_provider_result,
     _is_provider_dead,
     PLATFORM_SCOPE,
     _apply_org_chain_overrides,
-    _DEAD_PROVIDERS,
-    _DEAD_MODELS,
-    FALLBACK_CHAIN,
+    _DEAD_PROVIDERS,  # noqa: F401  re-exported: tests and ops tooling read/patch them here
+    _DEAD_MODELS,  # noqa: F401
+    FALLBACK_CHAIN,  # noqa: F401
 )
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id
@@ -285,6 +287,7 @@ class ModelRouter:
             error_class = "fallback"  # default if no attempt completes
 
             _active_prompt = prompt  # augmented with self-critique on placeholder retry
+            _server_failed = False   # the last failed attempt of this provider was server-side (KAN-49 breaker)
             for attempt in range(spec.retry_count):
                 try:
                     async with trace_call(
@@ -441,6 +444,7 @@ class ModelRouter:
                         continue
                     # ── AHM: record success ───────────────────────────────────
                     _ahm_record(spec.provider, None)
+                    _note_provider_result(spec.provider, _scope, False)
                     # ─────────────────────────────────────────────────────────
                     return result, spec.provider
 
@@ -451,6 +455,7 @@ class ModelRouter:
                     error_class = "fallback"   # timeout → skip to next tier
                     # ── AHM: record timeout as a failure ─────────────────────
                     _ahm_record(spec.provider, f"timeout {spec.timeout_seconds}s")
+                    _server_failed = True
                     break
 
                 except Exception as exc:
@@ -463,6 +468,7 @@ class ModelRouter:
                         _mark_provider_dead(spec.provider, exc, model=spec.model, scope=_scope)
                     # ── AHM: record exception as a failure ────────────────────
                     _ahm_record(spec.provider, str(exc)[:120])
+                    _server_failed = _is_server_side_failure(exc)
                     # For OpenRouter free-tier, a rate-limit on one model won't
                     # clear in 1-2 seconds — skip immediately to the next model.
                     if spec.provider == "openrouter" and error_class == "retry":
@@ -475,6 +481,8 @@ class ModelRouter:
                 if attempt < spec.retry_count - 1:
                     backoff = 1.5 ** attempt   # 1 s, 1.5 s
                     await asyncio.sleep(backoff)
+            if _server_failed:
+                _note_provider_result(spec.provider, _scope, True)
 
         raise LLMUnavailable(
             "All models in the fallback chain exhausted. "

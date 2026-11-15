@@ -127,3 +127,10 @@ token.txt
 auth_res.json
 *.db.bak
 .local/
+
+# terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log

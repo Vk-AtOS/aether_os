@@ -15,7 +15,7 @@ import logging
 import secrets
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from aether_os.core.domain_ir import DomainIR
 from aether_os.core.domain_knowledge.loader import load_pack

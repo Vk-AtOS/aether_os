@@ -29,7 +29,7 @@ class OllamaClient:
         combined = f"{system_prompt}\n\n{user_prompt}"
         try:
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # Inside async context: run in thread pool
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:

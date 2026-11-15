@@ -13,9 +13,7 @@ Routes
 """
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -158,7 +156,7 @@ async def run_costs(
 
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import LLMCallRecord
-    from sqlalchemy import select, func as sqlfunc
+    from sqlalchemy import select
 
     org_id = user["org_id"]
     sf = get_session_factory()

@@ -9,7 +9,6 @@ import re
 import time
 import uuid
 
-import pytest
 
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run

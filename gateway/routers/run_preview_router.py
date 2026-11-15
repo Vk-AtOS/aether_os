@@ -25,7 +25,7 @@ from aether_os.core.run_app import safe_fs
 from aether_os.core.llm.client import LLMClient
 from aether_os.core.models import LLMTrace
 from aether_os.core.models import Run
-from aether_os.core.models import RunSpec, Run
+from aether_os.core.models import RunSpec
 from aether_os.core.services import learning_service
 from pathlib import Path
 from sqlalchemy import select

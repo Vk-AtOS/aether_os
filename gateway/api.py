@@ -21,21 +21,17 @@ _pkg_root = str(_pathlib.Path(__file__).resolve().parent.parent.parent)
 if _pkg_root not in _sys.path:
     _sys.path.insert(0, _pkg_root)
 
+import asyncio
 import logging
 import os
 import pathlib
-import time
-import asyncio
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
+from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 # Pydantic models and middleware classes live in api_helpers.py to keep this
 # file under 600 lines. They are re-imported here for backwards compatibility
 # with any code that imports them from gateway.api directly.
@@ -66,8 +62,9 @@ logger = logging.getLogger(__name__)
 _audit_tasks: set = set()  # strong refs to in-flight audit writes
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
-from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe, _seed_golden_examples_if_empty  # noqa: E402
+from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402,F401  (_get_cors_origins re-exported)
 from aether_os.gateway.lifespan import create_lifespan  # noqa: E402
+from aether_os.core.telemetry.trace_context import TraceIdMiddleware, current_trace_id  # noqa: E402
 
 _init_sentry()
 
@@ -76,7 +73,6 @@ _background_tasks: set = set()
 
 # Auth dependency — defined in gateway/dependencies.py to avoid circular imports.
 # Re-exported here for any code that imports it from api directly.
-from aether_os.gateway.dependencies import security_scheme, get_current_user  # noqa: E402
 
 
 # NOTE: _get_cors_origins, Pydantic models, and middleware classes all live in
@@ -86,7 +82,7 @@ from aether_os.gateway.dependencies import security_scheme, get_current_user  # 
 # ── Generated-app process state — delegated to core.app_state (Redis-backed) ──
 # These module-level names are kept for backwards compatibility with any code that
 # still imports them directly; they delegate to the canonical storage in core.app_state.
-from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports, _CURRENT_RUN_MEMORY as _APP_CURRENT_RUN  # noqa: E402
+from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports  # noqa: E402
 
 _APP_PROCS: Dict[str, Any] = _get_all_procs()   # same dict object as core.app_state._PROCS
 _APP_PORTS: Dict[str, int] = _get_all_ports()   # same dict object as core.app_state._APP_PORTS
@@ -140,6 +136,8 @@ def create_app() -> FastAPI:
     )
     # GZip registered after CORS so it wraps the outer response (Starlette reverse order)
     app.add_middleware(GZipMiddleware, minimum_size=500)
+    # Outermost: every log line, Velaris call and ledger entry of a request carries its trace id (KAN-50).
+    app.add_middleware(TraceIdMiddleware)
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
         from aether_os.core.prometheus_patch import apply as _apply_prom_patch
@@ -181,7 +179,7 @@ def create_app() -> FastAPI:
                     action=f"{method} {path}",
                     resource_type=path_parts[1] if len(path_parts) > 1 else "api",
                     resource_id=path_parts[2] if len(path_parts) > 2 else "-",
-                    metadata={"status": response.status_code},
+                    metadata={"status": response.status_code, "trace_id": current_trace_id()},
                     ip_address=get_client_ip(request),
                 ))
                 _audit_tasks.add(task)
@@ -275,6 +273,7 @@ def create_app() -> FastAPI:
         ("billing_stripe","aether_os.gateway.routers.billing_stripe_router","router",       {},                        False),
         ("system",        "aether_os.gateway.routers.system_router",        "router",       {},                        False),
         ("system_info",   "aether_os.gateway.routers.system_info_router",   "router",       {},                        False),
+        ("ops_status",    "aether_os.gateway.routers.ops_status_router",    "router",       {},                        False),
         ("intelligence",  "aether_os.gateway.routers.intelligence_router",  "router",       {},                        False),
         ("compliance",    "aether_os.gateway.routers.compliance_router",    "router",       {},                        False),
         ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),

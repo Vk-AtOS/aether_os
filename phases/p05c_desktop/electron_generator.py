@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,6 @@ def _label(name: str) -> str:
 
 
 def generate_main_js(project_name: str, api_port: int = 8000) -> str:
-    slug = project_name.lower().replace(" ", "-")
     return f"""\
 const {{ app, BrowserWindow, ipcMain }} = require('electron');
 const path = require('path');

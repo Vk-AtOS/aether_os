@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import time
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -32,7 +30,6 @@ class AutoRecovery:
         from aether_os.core.db import get_session_factory
         from aether_os.core.models import Run
         from sqlalchemy import select
-        from datetime import datetime
 
         # Check for running runs
         max_retries = 5
@@ -192,7 +189,6 @@ class AutoRecovery:
         try:
             from aether_os.core.guardian.models import GuardianEvent
             from aether_os.core.db import get_session_factory
-            from datetime import datetime
             sf = get_session_factory()
             async with sf() as sess:
                 sess.add(GuardianEvent(

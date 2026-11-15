@@ -1,0 +1,46 @@
+{{- if .Values.migrate.enabled }}
+# Schema job (KAN-47). Runs after the ConfigMap and Secret exist, on install and on every upgrade. An empty database is
+# created from the models and stamped; an existing one gets `alembic upgrade head` (scripts/db_migrate.py). The API pods
+# refuse to start on a database that is not at head, so they restart until this finishes; that is the expected order.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "aetheros.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aetheros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "aetheros.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "aetheros.serviceAccountName" . }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ include "aetheros.imageTag" . }}"
+          workingDir: /srv/aether_os
+          command: ["python", "scripts/db_migrate.py"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "aetheros.configMapName" . }}
+            - secretRef:
+                name: {{ include "aetheros.secretName" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

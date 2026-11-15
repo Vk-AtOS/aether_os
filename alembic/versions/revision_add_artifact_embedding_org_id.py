@@ -10,7 +10,6 @@ query performance and documents the column's purpose (DB-002).
 """
 from typing import Sequence, Union
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = 'revision_add_artifact_embedding_org_id'
 down_revision: Union[str, None] = 'revision_add_quality_score_runs'

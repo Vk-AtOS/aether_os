@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import pathlib
 import time
 from typing import Any, Dict, Optional
 
@@ -201,7 +200,7 @@ async def get_run_quality(
         score = await score_project_async(project_dir)
     except Exception as exc:
         logger.warning("quality score failed for run %s: %s", run_id, exc)
-        raise HTTPException(status_code=500, detail=f"Quality scoring failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Quality scoring failed: {exc}") from exc
 
     return {"run_id": run_id, "quality": asdict(score)}
 

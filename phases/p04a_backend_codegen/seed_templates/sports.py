@@ -2,8 +2,7 @@
 Seed template for sports domain.
 """
 import random
-from sqlalchemy import select, func
-from models import User, Team, Player, Match, Result
+from models import Team, Player, Match, Result
 
 async def seed_sports(db_session):
     # 1. Teams (Minimum 8)

@@ -120,10 +120,10 @@ async def generate_skill(
             "file_count": len(result.get("files", {})),
         }
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Skill generate failed [%s]: %s", req.skill_id, exc)
-        raise HTTPException(status_code=500, detail=f"Skill generation error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Skill generation error: {exc}") from exc
 
 
 @router.get("/skills")
@@ -142,7 +142,7 @@ async def _public_instance(instance_url: str) -> None:
     try:
         await assert_public_urls({"instance_url": instance_url})
     except ConnectorError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ── Salesforce connector endpoints ────────────────────────────────────────────
@@ -169,14 +169,14 @@ async def list_salesforce_objects(
 ) -> List[str]:
     """List all available SObjects in the Salesforce org."""
     await _public_instance(instance_url)
-    from aether_os.core.connectors.salesforce_connector import SalesforceConnector, ConnectorError as SF_ConnectorError
+    from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
         {"instance_url": instance_url, "access_token": access_token}
     )
     try:
         return await connector.list_objects(instance_url, access_token)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/connectors/salesforce/objects/{object_name}/describe")
@@ -195,7 +195,7 @@ async def describe_salesforce_object(
     try:
         return await connector.describe_object(object_name, instance_url, access_token)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/connectors/salesforce/query")
@@ -212,7 +212,7 @@ async def query_salesforce(
     try:
         return await connector.query(req.soql, req.instance_url, req.access_token)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ── LDAP / Active Directory connector endpoints ───────────────────────────────
@@ -255,7 +255,7 @@ async def list_ldap_users(
             max_results=req.max_results,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/connectors/ldap/authenticate")
@@ -281,4 +281,4 @@ async def authenticate_ldap_user(
         )
         return {"authenticated": ok, "username": req.username}
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

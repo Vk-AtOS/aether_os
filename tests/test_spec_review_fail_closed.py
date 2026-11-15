@@ -17,7 +17,7 @@ import json
 import time
 import uuid
 from functools import partial
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 

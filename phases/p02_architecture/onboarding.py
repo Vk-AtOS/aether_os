@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +473,6 @@ def _build_onboarding_guide(
 
     # 5) Understand: frameworks
     if frameworks:
-        names = [f.name for f in frameworks]
         checklist.append(
             OnboardingChecklistItem(
                 category="UNDERSTAND",

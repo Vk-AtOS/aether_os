@@ -30,7 +30,7 @@ from aether_os.core.intelligence.truth_engine import get_truth_engine
 from aether_os.core.models import GlobalPattern
 from sqlalchemy import select
 from sqlalchemy import text as _qt
-from sqlalchemy import text as _text, select as _sel, func as _func
+from sqlalchemy import text as _text, select as _sel
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["intelligence"])
 def _current_user():
