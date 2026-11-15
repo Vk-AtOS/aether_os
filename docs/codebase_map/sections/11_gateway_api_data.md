@@ -271,7 +271,6 @@ Unless marked, every route is mounted at the root. `/api/*` paths are rewritten 
 | GET | /admin/platform-health | admin_platform_router.py:48 | A | Redis, active runs (platform-wide), disk |
 | POST | /admin/kill-all | admin_platform_router.py:71 | O | cancel the org's running runs |
 | POST | /admin/prune-artifacts | admin_platform_router.py:84 | A | **deletes `ARTIFACT_DIR` files for all tenants** |
-| GET | /admin/audit-logs/export | admin_platform_router.py:121 | A | duplicate audit CSV |
 | POST | /admin/system/deploy | admin_platform_router.py:197 | S | git stash and pull, pip install, `systemctl restart aetheros` |
 | POST | /admin/platform/save-file | admin_platform_router.py:255 | S | overwrite a Guardian-monitored platform file |
 | GET | /admin/platform/quality-metrics | admin_quality_router.py:42 | A | success rate, confidence |
