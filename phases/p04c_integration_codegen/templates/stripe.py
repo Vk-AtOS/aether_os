@@ -109,6 +109,9 @@ class StripeClient:
     async def handle_webhook(self, payload: bytes, sig_header: str) -> Dict:
         """Verify and parse a Stripe webhook payload."""
         webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+        if not webhook_secret:
+            # An empty secret still "verifies": anyone can sign a forged event with the empty key.
+            raise StripeError("STRIPE_WEBHOOK_SECRET is not set: refusing to process webhook events")
         try:
             event = await self._run(
                 self._stripe.Webhook.construct_event,
