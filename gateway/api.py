@@ -63,6 +63,7 @@ except Exception as exc:
     logging.warning("Failed to load structured logging config, using basicConfig fallback: %s", exc)
 
 logger = logging.getLogger(__name__)
+_audit_tasks: set = set()  # strong refs to in-flight audit writes
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
 from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe, _seed_golden_examples_if_empty  # noqa: E402
@@ -161,31 +162,30 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def audit_log_middleware(request: Request, call_next):
         response = await call_next(request)
-        # Only log mutating requests to API paths (not health, docs, static, SSE)
+        # Only log mutating requests to API paths (not health, docs, static, SSE).
+        # Identity comes from get_current_user (request.state), so API-key callers are
+        # audited too and the org/user are the authenticated ones, never "unknown".
         method = request.method
         path = request.url.path
-        if (method in ("POST", "PUT", "PATCH", "DELETE")
+        who = getattr(request.state, "audit_identity", None)
+        if (who and method in ("POST", "PUT", "PATCH", "DELETE")
                 and not any(path.startswith(p) for p in ("/docs", "/redoc", "/openapi", "/health", "/metrics"))
                 and not path.endswith("/stream")):
             try:
-                # Extract user from Authorization header (best-effort — don't block request)
-                auth = request.headers.get("Authorization", "")
-                if auth.startswith("Bearer "):
-                    from aether_os.gateway.auth import decode_bearer_token
-                    claims = decode_bearer_token(auth[7:])
-                    if claims:
-                        from aether_os.core.audit.ledger import get_ledger
-                        import asyncio
-                        path_parts = path.split("/")
-                        asyncio.create_task(get_ledger().async_log_audit_event(
-                            org_id=claims.get("org_id", "unknown"),
-                            user_id=str(claims.get("user_id", "unknown")),
-                            action=f"{method} {path}",
-                            resource_type=path_parts[1] if len(path_parts) > 1 else "api",
-                            resource_id=path_parts[2] if len(path_parts) > 2 else "-",
-                            metadata={},
-                            ip_address=get_client_ip(request),
-                        ))
+                from aether_os.core.audit.ledger import get_ledger
+                path_parts = path.split("/")
+                # Keep a reference: the loop holds tasks weakly and may drop a pending audit write.
+                task = asyncio.create_task(get_ledger().async_log_audit_event(
+                    org_id=who["org_id"],
+                    user_id=who["user_id"],
+                    action=f"{method} {path}",
+                    resource_type=path_parts[1] if len(path_parts) > 1 else "api",
+                    resource_id=path_parts[2] if len(path_parts) > 2 else "-",
+                    metadata={"status": response.status_code},
+                    ip_address=get_client_ip(request),
+                ))
+                _audit_tasks.add(task)
+                task.add_done_callback(_audit_tasks.discard)
             except Exception as exc:
                 # ARCH-H2: WARNING so failures are visible in production (DEBUG is off by default).
                 # Audit log failures are a SOC-2/GDPR liability — "no events" must not be
