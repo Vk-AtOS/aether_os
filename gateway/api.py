@@ -262,6 +262,7 @@ def create_app() -> FastAPI:
         ("billing_stripe","aether_os.gateway.routers.billing_stripe_router","router",       {},                        False),
         ("system",        "aether_os.gateway.routers.system_router",        "router",       {},                        False),
         ("system_info",   "aether_os.gateway.routers.system_info_router",   "router",       {},                        False),
+        ("ops_status",    "aether_os.gateway.routers.ops_status_router",    "router",       {},                        False),
         ("intelligence",  "aether_os.gateway.routers.intelligence_router",  "router",       {},                        False),
         ("compliance",    "aether_os.gateway.routers.compliance_router",    "router",       {},                        False),
         ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),
