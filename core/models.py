@@ -78,6 +78,7 @@ class APIKey(Base):
     org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    scopes: Mapped[str] = mapped_column(String(100), nullable=False, default="read,write", server_default="read,write")  # comma list of read|write
     last_used_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

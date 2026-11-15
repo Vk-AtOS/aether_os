@@ -65,6 +65,11 @@ def _exact(template: str, rules: tuple) -> bool:
 
 def check_role(request: Request, user: Dict[str, Any]) -> None:
     """Raise 403 if `user`'s role may not make this (mutating) request."""
+    if user.get("role") == "api":
+        # An API key carries scopes: "read" for GET/HEAD/OPTIONS, "write" for everything else. No scopes = no access.
+        need = "read" if request.method in _SAFE else "write"
+        if need not in (user.get("scopes") or ()):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"API key lacks the '{need}' scope")
     if request.method in _SAFE:
         return
     route = request.scope.get("route")

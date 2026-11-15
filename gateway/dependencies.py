@@ -135,6 +135,7 @@ async def get_current_user(
                     "org_slug": org.slug,
                     "plan": await expire_if_due(session, org),
                     "role": "api",
+                    "scopes": [x for x in (api_key.scopes or "").split(",") if x],
                 }
                 check_role(request, claims)
                 await enforce_api_rate(f"api_key:{api_key.id}", org.id)
