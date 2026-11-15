@@ -138,7 +138,7 @@ def _extract_routes(source: str) -> List[RouteInfo]:
     )
     auth_patterns = [
         r'Depends\s*\(\s*get_current_user',
-        r'Depends\s*\(\s*require_role',
+        r'Depends\s*\(\s*require_\w+',   # require_role, require_admin, ...
         r'Depends\s*\(\s*verify_token',      # AetherOS generated code
         r'Depends\s*\(\s*authenticate',
         r'Depends\s*\(\s*jwt_required',
@@ -168,10 +168,17 @@ def _extract_routes(source: str) -> List[RouteInfo]:
         r'audit_trail',
     ]
 
-    for i, line in enumerate(lines):
+    route_lines = [i for i, line in enumerate(lines) if route_pattern.search(line)]
+    # Auth declared once for the whole router (APIRouter(dependencies=[Depends(...)]) covers every route in it.
+    router_auth = re.search(
+        r'(?:APIRouter|include_router)\s*\([^)]*dependencies\s*=\s*\[[^\]]*Depends\s*\(\s*'
+        r'(?:get_current_user|require_\w+|verify_token|authenticate|jwt_required|get_user)',
+        source, re.S,
+    ) is not None
+
+    for n, i in enumerate(route_lines):
+        line = lines[i]
         m = route_pattern.search(line)
-        if not m:
-            continue
 
         method = m.group(1).upper()
         path = m.group(2)
@@ -184,15 +191,21 @@ def _extract_routes(source: str) -> List[RouteInfo]:
                 func_name = fm.group(1) or fm.group(2)
                 break
 
-        # Collect function body (next 50 lines) for pattern matching
-        body_end = min(i + 50, len(lines))
-        body = "\n".join(lines[i:body_end])
+        # This route's own text: its decorators and function, up to the NEXT route (at most 50 lines).
+        # A fixed 50-line window let an unauthenticated route inherit a neighbour's Depends(get_current_user).
+        body_end = min(i + 50, route_lines[n + 1] if n + 1 < len(route_lines) else len(lines))
+        while body_end > i + 1 and lines[body_end - 1].lstrip().startswith("@"):
+            body_end -= 1  # decorators above the next route belong to it
+        start = i
+        while start > 0 and lines[start - 1].lstrip().startswith("@") and not route_pattern.search(lines[start - 1]):
+            start -= 1  # e.g. @limiter.limit placed above the route decorator
+        body = "\n".join(lines[start:body_end])
 
         routes.append(RouteInfo(
             method=method,
             path=path,
             function_name=func_name,
-            has_auth=any(re.search(p, body, re.IGNORECASE) for p in auth_patterns),
+            has_auth=router_auth or any(re.search(p, body, re.IGNORECASE) for p in auth_patterns),
             has_rate_limit=any(re.search(p, body, re.IGNORECASE) for p in rate_limit_patterns),
             has_input_validation=(
                 method in ("POST", "PUT", "PATCH")
