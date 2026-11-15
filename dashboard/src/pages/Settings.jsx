@@ -364,7 +364,7 @@ const Settings = () => {
       if (auditFromDate) params.set('from_date', auditFromDate);
       if (auditToDate) params.set('to_date', auditToDate);
       if (auditActionFilter.trim()) params.set('action', auditActionFilter.trim());
-      const url = `/api/admin/audit-logs/export?${params.toString()}`;
+      const url = `/api/admin/audit/export.csv?${params.toString()}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); }
       const blob = await res.blob();

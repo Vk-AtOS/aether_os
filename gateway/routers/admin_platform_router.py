@@ -8,29 +8,22 @@ Routes
   GET  /admin/platform-health
   POST /admin/kill-all
   POST /admin/prune-artifacts
-  GET  /admin/audit-logs/export
   POST /admin/system/deploy
   POST /admin/platform/save-file
 """
 from __future__ import annotations
-import csv
-import io
 import logging
 import os
 import pathlib
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from typing import Any, Dict
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from aether_os.core.audit import subjects
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.db_utils import update_run_status
 from aether_os.core.guardian.threat_detector import get_threat_detector
 from aether_os.core.guardian.threat_detector import _CRITICAL_FILES
-from aether_os.core.models import AuditLog, User as UserModel
 from aether_os.core.models import Run
 from aether_os.core.models import Run as _Run
 from aether_os.core.pipeline_state import get_redis
@@ -131,85 +124,6 @@ async def prune_artifacts(
         "deleted_mb": round(deleted_bytes / 1_048_576, 2),
         "files": deleted_files[:50],
     }
-@router.get("/admin/audit-logs/export")
-async def export_audit_logs(
-    from_date: Optional[str] = Query(None, description="Start date ISO-8601 (YYYY-MM-DD)"),
-    to_date: Optional[str] = Query(None, description="End date ISO-8601 (YYYY-MM-DD)"),
-    user_id: Optional[str] = Query(None, description="Filter by user ID"),
-    action: Optional[str] = Query(None, description="Filter by action string (partial match)"),
-    user: Dict[str, Any] = _current_user(),
-):
-    """Export audit logs as a CSV file. Admin/owner only."""
-    if user.get("role") not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    sf = get_session_factory()
-    # Parse date bounds into Unix timestamps (AuditLog.created_at is a Float epoch)
-    ts_from: Optional[float] = None
-    ts_to: Optional[float] = None
-    try:
-        if from_date:
-            ts_from = datetime.strptime(from_date, "%Y-%m-%d").replace(
-                tzinfo=timezone.utc
-            ).timestamp()
-        if to_date:
-            # Include the full "to" day by advancing to start of next day
-            dt_to = datetime.strptime(to_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            ts_to = (
-                dt_to.replace(hour=23, minute=59, second=59, microsecond=999999)
-            ).timestamp()
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}") from exc
-    org_id = user["org_id"]
-    async with sf() as session:
-        stmt = select(AuditLog, UserModel.email).outerjoin(
-            UserModel, UserModel.id == AuditLog.user_id
-        ).where(AuditLog.org_id == org_id)
-        if ts_from is not None:
-            stmt = stmt.where(AuditLog.created_at >= ts_from)
-        if ts_to is not None:
-            stmt = stmt.where(AuditLog.created_at <= ts_to)
-        if user_id:
-            stmt = stmt.where(AuditLog.user_id == user_id)
-        if action:
-            stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
-        stmt = stmt.order_by(AuditLog.created_at.asc())
-        rows = (await session.execute(stmt)).all()
-    # Stored values are pseudonymous references; show them as the ledger would (resolved,
-    # or "[erased]"), never raw ids or hmacs.
-    shown = await subjects.display_columns(org_id, [r[0] for r in rows])
-    def _generate_csv():
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow([
-            "timestamp", "user_email", "user_id", "action",
-            "resource_type", "resource_id", "ip_address", "org_id",
-        ])
-        buf.seek(0)
-        yield buf.read()
-        for (log, email), (ip_text, meta_text) in zip(rows, shown):
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            ts_str = datetime.fromtimestamp(log.created_at, tz=timezone.utc).isoformat() if log.created_at else ""
-            writer.writerow([
-                ts_str,
-                email or "",
-                log.user_id,
-                log.action,
-                log.resource_type,
-                log.resource_id,
-                ip_text,
-                log.org_id,
-            ])
-            buf.seek(0)
-            yield buf.read()
-    # Build a descriptive filename
-    date_part = f"{from_date or 'all'}_{to_date or 'now'}"
-    filename = f"audit-logs_{date_part}.csv"
-    return StreamingResponse(
-        _generate_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 @router.post("/admin/system/deploy")
 async def system_deploy(user: Dict[str, Any] = _current_user()):
     """Pull latest code from git and restart the service.
