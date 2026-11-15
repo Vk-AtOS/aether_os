@@ -112,8 +112,9 @@ const Login = () => {
                 <p className="text-muted text-sm">Enter the 6-digit code from your authenticator app.</p>
               </div>
               <div>
-                <label className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Authenticator Code</label>
+                <label htmlFor="mfa-code" className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Authenticator Code</label>
                 <input
+                  id="mfa-code"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]{6}"
@@ -149,8 +150,9 @@ const Login = () => {
           <>
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Email</label>
+              <label htmlFor="login-email" className="block text-xs font-bold text-muted uppercase tracking-wider mb-2">Email</label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -160,10 +162,11 @@ const Login = () => {
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold text-muted uppercase tracking-wider">Password</label>
+                <label htmlFor="login-password" className="block text-xs font-bold text-muted uppercase tracking-wider">Password</label>
                 <Link to="/forgot-password" className="text-xs text-accent hover:underline">Forgot password?</Link>
               </div>
               <input
+                id="login-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
