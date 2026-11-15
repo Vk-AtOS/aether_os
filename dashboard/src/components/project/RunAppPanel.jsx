@@ -55,8 +55,9 @@ const RunAppPanel = ({ runId, onToast, onRunningChange }) => {
       await api.stopRunApp(runId);
       setRunning(false);
       setAppOutput(prev => [...prev, '[AetherOS] App stopped.']);
-    } catch {
-      setRunning(false);
+    } catch (e) {
+      // A failed stop is not a stopped app: leave it marked running and say so.
+      onToast('Failed to stop app: ' + (apiError(e) || e.message));
     }
   };
 
