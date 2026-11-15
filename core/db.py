@@ -188,6 +188,24 @@ async def _require_migrated(engine: AsyncEngine) -> None:
         raise SchemaNotMigrated(f"database at {sorted(rows)}, code expects {sorted(heads)}; run `alembic upgrade head`")
 
 
+# Created only by Alembic migrations (op.execute), never by create_all: without them the audit ledger
+# can be UPDATEd/DELETEd. A database reached by create_all (AETHER_DB_CREATE_ALL=1) or a stamped
+# bootstrap would silently lack them, so PostgreSQL startup refuses to run without them.
+LEDGER_TRIGGERS = ("audit_chain_no_update_delete", "audit_chain_legacy_frozen", "audit_checkpoints_no_update_delete")
+
+
+async def require_ledger_triggers(engine: AsyncEngine) -> None:
+    async with engine.connect() as conn:
+        have = set((await conn.execute(text(
+            "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname = ANY(:n)"),
+            {"n": list(LEDGER_TRIGGERS)})).scalars())
+    missing = [t for t in LEDGER_TRIGGERS if t not in have]
+    if missing:
+        raise SchemaNotMigrated(
+            f"audit ledger triggers missing {missing}: the schema was not built by `alembic upgrade head`; "
+            "create_all/stamp leaves the ledger editable. Rebuild the database with Alembic.")
+
+
 async def init_db() -> None:
     """
     SQLite (dev/tests): create all tables and indexes. PostgreSQL: Alembic owns the schema, so
@@ -205,10 +223,14 @@ async def init_db() -> None:
     engine = get_engine()
     if engine.dialect.name == "postgresql" and os.environ.get("AETHER_DB_CREATE_ALL", "").lower() not in ("1", "true"):
         await _require_migrated(engine)
+        await require_ledger_triggers(engine)
         logger.info("PostgreSQL schema is at the Alembic head")
         return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    if engine.dialect.name == "postgresql":
+        await require_ledger_triggers(engine)  # forced create_all must not leave an editable ledger
+    async with engine.begin() as conn:
 
         # Add indexes that aren't defined on the ORM models themselves.
         # IF NOT EXISTS is safe to run repeatedly on every startup.
