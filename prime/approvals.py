@@ -24,7 +24,7 @@ from aether_os.core.security.redact import redact_secrets
 from aether_os.prime.authz import (
     ACTION_TYPES, AUTHORITY, EXECUTOR_AUTHORITY, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
 )
-from aether_os.prime import detail
+from aether_os.prime import corrections, detail
 from aether_os.prime.executors import (
     DEFAULT_EXECUTOR, ExecutionContext, ExecutionFailed, get_executor,
 )
@@ -283,6 +283,13 @@ class ApprovalService:
         row = await self._load(row.id)
         if not won and not (row.status == wanted and row.decided_by == uid):
             raise RequestError(409, "someone else decided this request first")
+        if won and not approve and reason.strip():
+            role = (await person_in_org(org_id, uid) or (None,))[0]
+            await corrections.record(
+                org_id=org_id, request_id=row.id, revision=None, action_type=row.action_type,
+                params_before=row.params or {}, before={"amount": row.amount, "params": row.params or {}},
+                after={"rejected": True}, reason=reason, requested_by=row.requested_by,
+                on_behalf_of=row.on_behalf_of, corrected_by=uid, approver_role=role)
         if approve:
             await self._execute(row.id)  # claims the row, so a duplicate call runs nothing
         return await self._view(await self._load(row.id), uid, ids)

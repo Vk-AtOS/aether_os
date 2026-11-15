@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, text
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aether_os.core.db import Base
@@ -86,3 +86,33 @@ class PrimeRequest(Base):
     # expiry notice goes out at most once however many workers run the sweep.
     reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     expiry_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class PrimeCorrection(Base):
+    """What a person changed or refused before approving (KAN-24): the agent's proposal, the
+    correction and why. Personal data is pseudonymised before it is stored; every row belongs
+    to one organisation and is never read across organisations."""
+    __tablename__ = "prime_corrections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    agent: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    # request id + revision (or "reject"): the same edit or rejection is stored once.
+    ref: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    input_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed: Mapped[str] = mapped_column(Text, nullable=False)
+    corrected: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    approver_role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # People it concerns, for erasure (erase_person): the person acted for, the requester, the corrector.
+    on_behalf_of: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    corrected_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    good_example: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("0"))
+    used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    changed_outcome_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0,
+                                                       server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
+
+    __table_args__ = (Index("ix_prime_corrections_lookup", "org_id", "agent", "action_type"),)

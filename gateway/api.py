@@ -278,6 +278,7 @@ def create_app() -> FastAPI:
         ("preview_session", "aether_os.gateway.routers.preview_session_router", "router",   {},                        True),
         ("prime",         "aether_os.gateway.routers.prime_router",         "router",       {},                        False),
         ("prime_inbox",   "aether_os.gateway.routers.prime_inbox_router",   "router",       {},                        False),
+        ("prime_corrections", "aether_os.gateway.routers.prime_corrections_router", "router", {},               False),
         ("prime_ledger",  "aether_os.gateway.routers.prime_ledger_router",  "router",       {},                        False),
         ("prime_service", "aether_os.gateway.routers.prime_service_router", "router",      {},                        False),
         ("ledger_anchor", "aether_os.gateway.routers.ledger_anchor_router", "router",       {},                        False),
