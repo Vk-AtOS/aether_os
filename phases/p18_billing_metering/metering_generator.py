@@ -23,8 +23,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from aether_os.phases.p18_billing_metering.stripe_webhook_generator import generate_stripe_webhook_handler
-
 logger = logging.getLogger(__name__)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -183,6 +181,98 @@ def generate_metering_event_schema(
         },
     }
     return json.dumps(schema, indent=2)
+
+
+# ── Stripe webhook handler ────────────────────────────────────────────────────
+
+
+def generate_stripe_webhook_handler(slug: str) -> str:
+    """
+    FastAPI Stripe webhook endpoint.
+    Handles invoice.payment_succeeded, invoice.payment_failed,
+    and customer.subscription.deleted lifecycle events.
+    """
+    return f'''\
+"""
+Stripe webhook handler for {slug}.
+
+Verifies the Stripe-Signature header before processing any event.
+Mount this router in your FastAPI app: app.include_router(billing_router)
+
+Environment variables required:
+  STRIPE_WEBHOOK_SECRET  — whsec_... signing secret from Stripe Dashboard
+"""
+from __future__ import annotations
+
+import logging
+import os
+
+import stripe
+from fastapi import APIRouter, Header, HTTPException, Request, status
+
+logger = logging.getLogger(__name__)
+
+billing_router = APIRouter(prefix="/billing", tags=["billing"])
+router = billing_router  # the s10 auto-wire imports the name "router"
+
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+
+async def _get_tenant_by_customer(customer_id: str) -> str | None:
+    """Look up tenant_id from the Stripe customer_id.
+
+    Replace with your real DB query; this stub returns the customer_id as-is.
+    """
+    return customer_id
+
+
+@billing_router.post("/stripe/webhook", status_code=status.HTTP_200_OK)
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str = Header(alias="Stripe-Signature"),
+) -> dict:
+    """Receive and process Stripe webhook events for {slug}."""
+    payload = await request.body()
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, stripe_signature, STRIPE_WEBHOOK_SECRET
+        )
+    except stripe.error.SignatureVerificationError as exc:
+        logger.warning("stripe_webhook: invalid signature: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature") from exc
+    except Exception as exc:
+        logger.warning("stripe_webhook: payload parse error: %s", exc)
+        raise HTTPException(status_code=400, detail="Malformed payload") from exc
+
+    event_type = event.get("type", "")
+    data_obj = event.get("data", {{}}).get("object", {{}})
+
+    if event_type == "invoice.payment_succeeded":
+        customer_id = data_obj.get("customer")
+        tenant_id = await _get_tenant_by_customer(customer_id)
+        logger.info("stripe_webhook: payment succeeded tenant=%s", tenant_id)
+        # TODO: update tenant subscription status to "active" in your DB
+
+    elif event_type == "invoice.payment_failed":
+        customer_id = data_obj.get("customer")
+        tenant_id = await _get_tenant_by_customer(customer_id)
+        attempt = data_obj.get("attempt_count", 1)
+        logger.warning(
+            "stripe_webhook: payment failed tenant=%s attempt=%s", tenant_id, attempt
+        )
+        # TODO: enter grace period (e.g. 7 days) then restrict access
+
+    elif event_type == "customer.subscription.deleted":
+        customer_id = data_obj.get("customer")
+        tenant_id = await _get_tenant_by_customer(customer_id)
+        logger.info("stripe_webhook: subscription cancelled tenant=%s", tenant_id)
+        # TODO: suspend tenant — revoke API keys, disable login
+
+    else:
+        logger.debug("stripe_webhook: unhandled event type=%s", event_type)
+
+    return {{"received": True, "type": event_type}}
+'''
 
 
 # ── Metering middleware ───────────────────────────────────────────────────────
