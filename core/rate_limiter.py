@@ -135,6 +135,7 @@ class _MemoryStore:
         self.hourly_starts: dict = defaultdict(list)
         self.login_attempts: dict = defaultdict(list)
         self.registrations: dict = defaultdict(list)
+        self.windows: dict = defaultdict(list)
 
 
 _mem = _MemoryStore()
@@ -208,6 +209,20 @@ class RateLimiter:
                 await _redis_incr_window(r, f"factory_start_min:{org_id}", 60)
             except Exception as e:
                 logger.warning("Rate limiter Redis error: %s", e)
+
+    async def allow(self, key: str, limit: int, window_seconds: int) -> bool:
+        """Count one hit on `key` and say whether it is within `limit` per window. Redis (shared by every
+        worker) when available; the in-process fallback is correct for a single worker only."""
+        r = await _get_async_redis()
+        if r:
+            try:
+                return await _redis_incr_window(r, f"rl:{key}", window_seconds) <= limit
+            except Exception as e:
+                logger.warning("Rate limiter Redis error: %s", e)
+        now = time.time()
+        hits = _mem.windows[key] = [t for t in _mem.windows[key] if now - t < window_seconds]
+        hits.append(now)
+        return len(hits) <= limit
 
     # ── hourly starts guard ───────────────────────────────────────────────────
 
