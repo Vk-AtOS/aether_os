@@ -91,8 +91,9 @@ per-org API keys, ledger chains per organisation. The infrastructure adds:
 * Ledger: the hash-chained audit ledger lives in Postgres; the **signed checkpoints** are copied to a bucket in a different
   account/subscription with object lock, so tampering with Postgres cannot also rewrite its own proof (KAN-51).
 * Velaris data volume: snapshot schedule + the backup script in `velaris_knackforge/deploy/backup`.
-* Redis is a cache plus security counters; it is rebuilt, not restored. Loss of Redis must not re-enable revoked tokens: revocations
-  are also persisted in Postgres (see the runbook "Redis").
+* Redis holds the access-token revocation list and security counters. While it is unreachable every authenticated request is
+  refused (503, fail closed), so run it with a replica and automatic failover; if its data is lost, revoked tokens are valid again
+  until they expire, so rotate the signing key (see the runbook "Redis").
 * Restore drill: `scripts/restore_drill.sh` (KAN-51), targets RTO 60 minutes for one organisation, RPO 15 minutes.
 
 ## 7. Cost estimate (INR per month, small production)
