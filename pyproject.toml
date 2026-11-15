@@ -42,3 +42,7 @@ filterwarnings = [
     # coroutine-never-awaited from async test harness GC
     "ignore:coroutine .* was never awaited:RuntimeWarning",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Templates copied verbatim into generated apps: their imports belong to the generated code.
+"phases/p04a_backend_codegen/seed_templates/__init__.py" = ["F401"]

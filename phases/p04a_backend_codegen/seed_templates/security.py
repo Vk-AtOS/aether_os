@@ -2,8 +2,7 @@
 Seed template for security domain.
 """
 import random
-from sqlalchemy import select, func
-from models import User, Site, Camera, Alert, Operator
+from models import Site, Camera, Alert, Operator
 
 async def seed_security(db_session):
     # 1. Sites (Minimum 5)

@@ -15,10 +15,6 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.phases.p05_frontend.prompts import (
     DOMAIN_STAT_LABELS,
-    THEME_CSS,
-    SPEED_MS,
-    TRANSITION_CSS,
-    SKELETON_CSS,
 )
 from aether_os.phases.p05_frontend.scaffold import (
     EXCLUDED_COLS,
@@ -26,7 +22,6 @@ from aether_os.phases.p05_frontend.scaffold import (
     to_type_name,
     to_label,
     to_singular,
-    slug,
     col_to_ts_type,
     col_to_field_def_type,
     col_to_field_options,
@@ -1425,7 +1420,6 @@ def _generate_customer_home(
         "library":     ("Explore Our Collection", "Browse thousands of books. Reserve online, pick up in-store."),
         "healthcare":  ("Your Health, Your Way", "Book appointments and manage your health records online."),
         "education":   ("Learn Something New", "Explore courses from expert instructors at your own pace."),
-        "hospitality": ("Book Your Stay", "Discover beautiful rooms and seamless experiences."),
         "events":      ("Find Your Next Event", "Concerts, workshops, and experiences near you."),
         "food":        ("Order Fresh, Eat Well", "Restaurant-quality meals delivered to your door."),
         "saas":        ("Start Building Today", "Powerful tools to grow your business faster."),

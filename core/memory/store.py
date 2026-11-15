@@ -20,8 +20,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

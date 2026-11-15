@@ -11,7 +11,6 @@ import pathlib
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["spa"])

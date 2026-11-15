@@ -9,7 +9,7 @@ Contains generators for:
 """
 from __future__ import annotations
 
-from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField
+from aether_os.core.domain_ir import AetherType, DomainIR, IREntity
 from aether_os.phases.p04a_backend_codegen.ir_seed_generator import (  # noqa: F401  (re-exported for callers)
     _seed_value,
     _sort_entities_by_deps,

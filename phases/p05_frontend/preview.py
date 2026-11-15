@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable

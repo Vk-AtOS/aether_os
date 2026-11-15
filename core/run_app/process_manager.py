@@ -166,7 +166,6 @@ class RunAppManager:
         node_bin = runner.tool("node")
         npm_bin = runner.tool("npm")
         if node_bin and npm_bin and frontend_dir and frontend_dir.is_dir():
-            import re as _re_cfg
             for _cfg_name in ("vite.config.ts", "vite.config.js"):
                 _cfg_path = frontend_dir / _cfg_name
                 if _cfg_path.exists():

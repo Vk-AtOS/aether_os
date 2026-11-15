@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 

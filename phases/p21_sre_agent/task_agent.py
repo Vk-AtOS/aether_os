@@ -12,11 +12,10 @@ The generated SRE agent is a Kubernetes CronJob that:
 """
 from __future__ import annotations
 
-import json
 import logging
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p21_sre_agent.k8s_api_src import K8S_API_SRC

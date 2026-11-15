@@ -14,7 +14,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import aether_os.core.model_router as router_mod
 import aether_os.core.model_router_providers as providers_mod
 from aether_os.core import api_key_store
 from aether_os.core.council import council, council_reviewer

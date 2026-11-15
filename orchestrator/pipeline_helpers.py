@@ -8,11 +8,10 @@ They are bound to Pipeline as methods via import in pipeline.py.
 """
 from __future__ import annotations
 import asyncio
-import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from aether_os.core.approval.workflow import decide_for_risk
 from aether_os.core.config.loader import get_config
 from aether_os.core.memory.fingerprinter import fingerprint

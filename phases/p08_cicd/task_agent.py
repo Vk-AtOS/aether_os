@@ -3,13 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
-from aether_os.core.llm.client import get_llm_client
 
 logger = logging.getLogger(__name__)
 

@@ -29,16 +29,14 @@ from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_session_factory
 from aether_os.core.db_utils import update_run_status
 from aether_os.core.guardian.threat_detector import get_threat_detector
-from aether_os.core.guardian.threat_detector import get_threat_detector, _CRITICAL_FILES
+from aether_os.core.guardian.threat_detector import _CRITICAL_FILES
 from aether_os.core.models import AuditLog, User as UserModel
 from aether_os.core.models import Run
 from aether_os.core.models import Run as _Run
 from aether_os.core.pipeline_state import get_redis
 from aether_os.core.pipeline_state import set_control
-from pathlib import Path
 from sqlalchemy import select
-from sqlalchemy import select, and_
-from sqlalchemy import select, func as sqlfunc
+from sqlalchemy import func as sqlfunc
 import shutil
 import subprocess as _sp
 import sys as _sys

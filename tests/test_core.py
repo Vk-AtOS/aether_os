@@ -3,9 +3,7 @@ AetherOS — Core Module Tests
 Tests: errors, config, db, memory store
 """
 from __future__ import annotations
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -271,7 +269,7 @@ def test_memory_store_stats(tmp_path):
 # ── Policy Engine ─────────────────────────────────────────────────────────────
 
 def test_policy_default():
-    from aether_os.core.policy.engine import default_policy, evaluate_operation
+    from aether_os.core.policy.engine import default_policy
     policy = default_policy()
     assert policy.strict_mode is True
     assert policy.org_profile == "DEFAULT"

@@ -6,7 +6,6 @@ Usage:
     python3 tests/monitor_live_build.py
 """
 import asyncio
-import json
 import time
 from datetime import datetime
 

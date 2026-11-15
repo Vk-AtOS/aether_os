@@ -21,7 +21,7 @@ import logging
 import os
 import signal
 import subprocess
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
@@ -212,7 +212,6 @@ async def preview_run_html(
     user: Dict[str, Any] = Depends(require_run_user),
 ):
     """Serve the generated index.html for a run."""
-    import pathlib
     from aether_os.core.audit.ledger import get_ledger as _get_ledger
     from aether_os.core.projects import get_project_manager as _get_pm
 

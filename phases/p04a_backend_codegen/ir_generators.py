@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import re as _re
 
-from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField, SA_TYPE_MAP
+from aether_os.core.domain_ir import AetherType, DomainIR, IRField, SA_TYPE_MAP
 
 # Re-export crud/seed/stats generators so callers can import from here unchanged.
-from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import (
+from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import (  # noqa: F401
     generate_crud_py,
     generate_seed_py,
     generate_stats_router,
@@ -85,7 +85,6 @@ def _sa_column(field: IRField, domain: str = "") -> str:
         _is_healthcare,
         _MONEY_FIELDS,
         _PHI_FIELDS,
-        _needs_audit_annotation,
     )
 
     atype = field.type

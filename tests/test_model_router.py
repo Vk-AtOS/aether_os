@@ -5,10 +5,9 @@ All tests are self-contained and work offline (no real LLM calls, no network).
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -170,7 +169,7 @@ def test_gemini_configured_with_real_key(monkeypatch):
 
 
 def test_ollama_always_configured():
-    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN, ModelSpec
+    from aether_os.core.model_router import _is_provider_configured, FALLBACK_CHAIN
     # Find ollama spec by provider name (index changes when PRIMARY_LLM is set)
     ollama_spec = next(s for s in FALLBACK_CHAIN if s.provider == "ollama")
     assert _is_provider_configured(ollama_spec) is True
@@ -216,7 +215,7 @@ async def test_router_skips_anthropic_falls_back_to_gemini(monkeypatch):
          patch("aether_os.core.llm.client._call_gemini",
                new_callable=AsyncMock) as mock_gem:
         mock_gem.return_value = "hello from gemini"
-        from aether_os.core.model_router import ModelRouter, _fallback_count_today
+        from aether_os.core.model_router import ModelRouter
         router = ModelRouter()
         result, provider = await router.call("say hi")
         assert result == "hello from gemini"

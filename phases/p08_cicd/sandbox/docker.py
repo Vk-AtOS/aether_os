@@ -2,9 +2,8 @@ from __future__ import annotations
 import os
 import logging
 import tempfile
-import subprocess
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 

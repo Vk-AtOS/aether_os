@@ -59,7 +59,6 @@ async def main() -> None:
     sf = get_session_factory()
     async with sf() as session:
         # Find all runs that have at least one phase completion
-        from sqlalchemy import text as _text
         run_ids_with_phases = (
             select(PhaseCompletion.run_id).distinct()
         )

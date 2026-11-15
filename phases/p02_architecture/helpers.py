@@ -5,7 +5,7 @@ builder, and tech stack fixer.
 """
 from __future__ import annotations
 import re
-from typing import Any, Dict, List
+from typing import Dict, List
 
 # ── Schema and defaults ───────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from .prompts import (
     build_prompt_bundle,

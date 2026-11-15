@@ -32,9 +32,9 @@ from aether_os.core.model_router_providers import (
     _is_provider_dead,
     PLATFORM_SCOPE,
     _apply_org_chain_overrides,
-    _DEAD_PROVIDERS,
-    _DEAD_MODELS,
-    FALLBACK_CHAIN,
+    _DEAD_PROVIDERS,  # noqa: F401  re-exported: tests and ops tooling read/patch them here
+    _DEAD_MODELS,  # noqa: F401
+    FALLBACK_CHAIN,  # noqa: F401
 )
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id

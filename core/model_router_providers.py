@@ -25,7 +25,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
 

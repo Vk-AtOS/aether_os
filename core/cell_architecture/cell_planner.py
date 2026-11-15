@@ -16,8 +16,6 @@ Output layout (under output_dir/cell-architecture/):
 from __future__ import annotations
 
 import logging
-import os
-import socket
 from pathlib import Path
 from typing import List
 

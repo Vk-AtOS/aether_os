@@ -95,7 +95,6 @@ def test_login_pages_print_no_credentials_and_one_token_key_is_used(tmp_path, mo
 
 def test_model_written_pages_are_told_to_use_the_api_client_and_the_shared_token(monkeypatch):
     import asyncio
-    from types import SimpleNamespace
     from aether_os.phases.p05_frontend import llm_page_writer
     prompts = []
 

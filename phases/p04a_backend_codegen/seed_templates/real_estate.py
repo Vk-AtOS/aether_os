@@ -1,8 +1,7 @@
 """
 Seed template for real_estate domain.
 """
-from sqlalchemy import select, func
-from models import User, Property, Tenant, Lease, MaintenanceRequest
+from models import Property, Tenant, Lease
 
 async def seed_real_estate(db_session):
     # 1. Properties
