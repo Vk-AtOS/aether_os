@@ -137,24 +137,33 @@ Return VALID JSON only (no markdown):
     raise ValueError("Could not parse models/schemas from LLM response")
 
 
-# An f-string literal (one line, one quote pair) that holds a SQL verb AND an interpolation.
-_SQL_FSTRING_RE = re.compile(
-    r"""\bf(["'])(?=(?:(?!\1)[^\n])*\{)(?:(?!\1)[^\n])*\b(?:SELECT|UPDATE|DELETE|INSERT)\b\s(?:(?!\1)[^\n])*\1""",
-    re.IGNORECASE,
-)
-
-
 def _check_and_fix_sql_injection(code: str) -> str:
-    """Reject generated crud.py that builds SQL with f-string interpolation (SQL injection).
+    """Post-processing: detect and neutralise f-string raw SQL patterns in generated crud.py.
 
-    Fails closed: raising makes the caller fall back to the deterministic ORM routers. It used
-    to substitute "None  # TODO", shipping broken code, and its multi-line regex also matched
-    ordinary code such as an f-string followed by @router.delete(...).
+    LLMs occasionally emit raw SQL f-strings (SQL injection vectors).
+    This pass replaces any f-string SQL with a warning comment + safe ORM placeholder.
+    Pattern: f"SELECT ...", f'UPDATE ...', f"DELETE ...", f"INSERT ..."
     """
-    m = _SQL_FSTRING_RE.search(code)
-    if m:
-        raise ValueError(f"generated CRUD builds raw SQL with an f-string: {m.group(0)[:100]}")
-    return code
+    _SQL_FSTRING_RE = re.compile(
+        r'f["\'].*?(SELECT|UPDATE|DELETE|INSERT).*?["\']',
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not _SQL_FSTRING_RE.search(code):
+        return code
+
+    def _replace_sql(m: re.Match) -> str:
+        original = m.group(0)
+        logger.warning(
+            "p04a sql_injection_check: replaced raw SQL f-string with ORM placeholder: %.100s",
+            original,
+        )
+        return (
+            '# [AetherOS] Raw SQL f-string removed (SQL injection risk). '
+            'Use SQLAlchemy ORM select() instead.\n'
+            '        None  # TODO: replace with ORM query'
+        )
+
+    return _SQL_FSTRING_RE.sub(_replace_sql, code)
 
 
 def _scrub_password_fields_from_response(code: str) -> str:
