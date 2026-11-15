@@ -128,6 +128,11 @@ export const api = {
   // The caller is identified from the JWT, not from the URL.
   deleteOrg: () => client.delete('/org'),
 
+  // Organisation API keys (owner/admin). Not the LLM provider keys below.
+  listOrgApiKeys: () => client.get('/auth/api-keys'),
+  createOrgApiKey: (name) => client.post('/auth/api-keys', { name }),
+  revokeOrgApiKey: (id) => client.delete(`/auth/api-keys/${id}`),
+
   // SCIM
   getScimConfig: () => client.get('/settings/scim'),
   rotateScimToken: () => client.post('/settings/scim/rotate'),

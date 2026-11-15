@@ -6,7 +6,7 @@ import {
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
   Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2, BrainCircuit, Briefcase,
-  Mail, UserSquare,
+  Mail, UserSquare, KeyRound,
 } from 'lucide-react';
 import { HR_TABS } from './hr/tabs';
 import ProviderBadge from './ProviderBadge';
@@ -106,6 +106,7 @@ const Sidebar = () => {
     { name: 'Users',        path: '/admin/users',        icon: Users },
     { name: 'Audit Logs',   path: '/audit',              icon: ScrollText },
     { name: 'Billing',      path: '/admin/billing',      icon: CreditCard },
+    { name: 'API Keys',     path: '/settings/api-keys',  icon: KeyRound },
     { name: 'Intelligence', path: '/admin/intelligence', icon: Sparkles },
   ] : [];
 
