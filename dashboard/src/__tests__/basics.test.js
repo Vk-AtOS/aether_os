@@ -11,6 +11,7 @@ const { api } = await import('../api');
 const { decode } = await import('../hooks/useRole');
 const { appPath } = await import('../appUrl');
 const { nextDelay } = await import('../hooks/useRunStream');
+const { parseCallback } = await import('../oauthCallback');
 
 const jwt = (payload) => `h.${btoa(JSON.stringify(payload)).replace(/=/g, '')}.s`;
 
@@ -62,5 +63,17 @@ describe('urls and reconnect', () => {
   it('reconnect backoff doubles and is capped', () => {
     expect([0, 1, 2].map(nextDelay)).toEqual([1000, 2000, 4000]);
     expect(nextDelay(20)).toBe(30000);
+  });
+});
+
+describe('oauth callback', () => {
+  const q = (s) => new URLSearchParams(s);
+  it('routes an SSO MFA challenge to the code step instead of failing for lack of a token', () => {
+    expect(parseCallback(q('mfa_required=1&mfa_token=abc'))).toEqual({ kind: 'mfa', mfaToken: 'abc' });
+  });
+  it('accepts a session and rejects a bare callback', () => {
+    expect(parseCallback(q('token=t&refresh_token=r'))).toEqual({ kind: 'session', token: 't', refreshToken: 'r' });
+    expect(parseCallback(q('')).kind).toBe('error');
+    expect(parseCallback(q('error=bad%20thing')).message).toBe('bad thing');
   });
 });
