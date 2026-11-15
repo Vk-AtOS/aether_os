@@ -79,7 +79,7 @@ p20_multiregion
 
 ### Live Deployment
 
-- **URL:** `http://139.59.87.218` (DigitalOcean VPS, 2vCPU/2GB)
+- **URL:** `<server URL>` (DigitalOcean VPS, 2vCPU/2GB)
 - **Test suite:** 462 passing, 3 skipped, 0 failures
 
 ---

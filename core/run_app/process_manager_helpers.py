@@ -71,7 +71,7 @@ def api_explorer_html(project_label: str, run_id: str) -> str:
 const base='/app-preview';
 fetch('/api/factory/runs/{run_id}/preview-credentials',{{headers:{{'Authorization':'Bearer '+(localStorage.getItem('aether_token')||'')}}}})
   .then(r=>r.ok?r.json():null).then(d=>{{
-    if(d){{document.getElementById('email').textContent=d.email||'admin@example.com';document.getElementById('password').textContent=d.password||'Admin1234!';}}
+    if(d){{document.getElementById('email').textContent=d.email||'admin@example.com';document.getElementById('password').textContent=d.password||'';}}
   }}).catch(()=>{{}});
 
 fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
@@ -181,7 +181,7 @@ def patch_generated_project(
 
     Returns (preview_email, preview_password).
     """
-    _PREVIEW_PASSWORD = "Admin1234!"
+    _PREVIEW_PASSWORD = secrets.token_urlsafe(12)  # random per preview, never a shared default
     # FE-H3: None means email not found in seed.py — backend returns None so
     # frontend can show guidance instead of a hardcoded credential that won't work.
     _preview_email = None
@@ -473,7 +473,7 @@ def _spa_catchall(path: str = ""):
     }))
     with open(log_path, "a") as _lf:
         _lf.write(
-            f"[AetherOS] Preview credentials: {_preview_email} / {_PREVIEW_PASSWORD}\n"
+            f"[AetherOS] Preview credentials written to preview_credentials.json for {_preview_email}\n"
         )
 
     return _preview_email, _PREVIEW_PASSWORD

@@ -7,14 +7,15 @@ Usage:
 """
 import asyncio
 import json
+import os
 import time
 from datetime import datetime
 
 import httpx
 
-BASE = "http://139.59.87.218"
-EMAIL = "demo@aetheros.ai"
-PASSWORD = "demo1234"
+BASE = os.environ["AETHER_BASE_URL"]  # no default: never hardcode the server
+EMAIL = os.environ["AETHER_ADMIN_EMAIL"]
+PASSWORD = os.environ["AETHER_ADMIN_PASS"]
 
 BUILD_SPEC = "Build a minimal todo list REST API with FastAPI and SQLite. Include GET /todos, POST /todos, DELETE /todos/{id}."
 
