@@ -1,6 +1,7 @@
 /**
  * RunControlPanel — run summary card + pause/resume/cancel/rerun controls.
  */
+import { confirmAction } from '../confirmAction';
 import React from 'react';
 import { Pause, Play, X, Loader2 } from 'lucide-react';
 import RerunDropdown from '../RerunDropdown';
@@ -76,7 +77,7 @@ const RunControlPanel = ({
                 <span>Pause</span>
               </button>
               <button
-                onClick={onCancel}
+                onClick={async () => { if (await confirmAction('Cancel this run? Work in progress is stopped and a cancelled run cannot be resumed from here.', 'Cancel run')) onCancel(); }}
                 disabled={!!controlLoading}
                 className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-sm"
               >
@@ -96,7 +97,7 @@ const RunControlPanel = ({
                 <span>Resume</span>
               </button>
               <button
-                onClick={onCancel}
+                onClick={async () => { if (await confirmAction('Cancel this run? Work in progress is stopped and a cancelled run cannot be resumed from here.', 'Cancel run')) onCancel(); }}
                 disabled={!!controlLoading}
                 className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors disabled:opacity-50 text-sm"
               >
