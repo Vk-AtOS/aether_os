@@ -82,3 +82,26 @@ def test_generated_billing_webhook_answers_503_when_the_secret_is_unset(tmp_path
     app.include_router(mod.billing_router)
     body, sig = _forged()
     assert TestClient(app).post("/billing/stripe/webhook", content=body, headers={"Stripe-Signature": sig}).status_code == 503
+
+
+def test_billing_webhook_table_is_on_the_apps_own_base(tmp_path, monkeypatch):
+    # Launched as "uvicorn src.main:app" both "database" and "src.database" import; main.py creates the
+    # tables of database.Base, so the billing model must be registered there, not on a second copy.
+    pytest.importorskip("stripe")
+    from sqlalchemy.orm import declarative_base
+
+    from aether_os.phases.p18_billing_metering.metering_generator import generate_stripe_webhook_handler
+    mods = {}
+    for name in ("database", "src.database"):
+        m = types.ModuleType(name)
+        m.Base, m.AsyncSessionLocal = declarative_base(), None
+        mods[name] = m
+    auth = types.ModuleType("auth")
+    auth.get_current_user = lambda: {}
+    src = types.ModuleType("src")
+    src.database = mods["src.database"]
+    for name, m in {**mods, "auth": auth, "src": src, "src.auth": auth}.items():
+        monkeypatch.setitem(sys.modules, name, m)
+    _load(tmp_path, "billing_webhook_base", generate_stripe_webhook_handler("demo"))
+    assert "billing_accounts" in mods["database"].Base.metadata.tables
+    assert "billing_accounts" not in mods["src.database"].Base.metadata.tables
