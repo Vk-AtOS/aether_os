@@ -14,6 +14,7 @@ Authenticated endpoints (agency / internal use):
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -27,6 +28,7 @@ from aether_os.core.models import QuestionnaireSession, Run
 from aether_os.core.questionnaire.renderer import STAGE_LABELS, render_questionnaire_page
 from aether_os.core.questionnaire.stage_questions import get_stage_questions
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 from aether_os.gateway.routers.questionnaire_helpers import (
     _send_email_via_sendgrid,
     _signal_pipeline_resume,
@@ -77,8 +79,11 @@ def _is_expired(qs: QuestionnaireSession) -> bool:
 
 
 def _build_share_url(token: str, request: Request | None = None) -> str:
-    if request:
+    # Behind nginx request.base_url is the internal address, so the configured public origin comes first.
+    base = os.environ.get("APP_BASE_URL", "").rstrip("/")
+    if not base and request:
         base = str(request.base_url).rstrip("/")
+    if base:
         return f"{base}/api/questionnaire/{token}"
     return f"/api/questionnaire/{token}"
 
@@ -197,6 +202,15 @@ async def questionnaire_status(token: str):
 
 
 # ── Authenticated endpoints ───────────────────────────────────────────────────
+# Members and above only: the list carries the respondents' access links, and send/fill email people and
+# resume the run. A viewer reads the run, never the links.
+
+@router.get("/questionnaire-stages")
+async def questionnaire_stages(user: Dict[str, Any] = Depends(get_current_user)):
+    """The stages and their questions, so a client can build the fill-on-behalf form."""
+    await enforce("questionnaire.manage", user)
+    return [{"id": sid, "label": label, "questions": get_stage_questions(sid)} for sid, label in STAGE_LABELS.items()]
+
 
 @router.get("/runs/{run_id}/questionnaires")
 async def list_questionnaires(
@@ -204,6 +218,7 @@ async def list_questionnaires(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """List all questionnaire sessions for a run, newest first."""
+    await enforce("questionnaire.manage", user)
     sf = get_session_factory()
     async with sf() as db:
         await _verify_run_ownership(run_id, user, db)
@@ -244,6 +259,7 @@ async def send_questionnaire(
       agency_name:      str | None
       agency_logo_url:  str | None
     """
+    await enforce("questionnaire.manage", user)
     stage_id = body.get("stage_id", "")
     respondent_email = body.get("respondent_email", "")
     respondent_name = body.get("respondent_name", "")
@@ -252,8 +268,10 @@ async def send_questionnaire(
 
     if not stage_id:
         raise HTTPException(status_code=422, detail="stage_id is required")
-    if not respondent_email:
-        raise HTTPException(status_code=422, detail="respondent_email is required")
+    if stage_id not in STAGE_LABELS:
+        raise HTTPException(status_code=422, detail="unknown stage_id")
+    if not respondent_email or "@" not in respondent_email or len(respondent_email) > 320:
+        raise HTTPException(status_code=422, detail="respondent_email must be an email address")
 
     questions = get_stage_questions(stage_id)
     token = secrets.token_urlsafe(32)
@@ -315,10 +333,13 @@ async def fill_questionnaire(
       stage_id: str
       answers:  dict
     """
+    await enforce("questionnaire.manage", user)
     stage_id = body.get("stage_id", "")
     answers = body.get("answers") or {}
     if not stage_id:
         raise HTTPException(status_code=422, detail="stage_id is required")
+    if stage_id not in STAGE_LABELS:
+        raise HTTPException(status_code=422, detail="unknown stage_id")
 
     questions = get_stage_questions(stage_id)
     errors = validate_required_answers(questions, answers)

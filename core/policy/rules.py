@@ -51,6 +51,7 @@ ACTIONS: Dict[str, ActionRule] = {
     "run.restart": ActionRule("member", occupies_slot=True),
     "run.clarify": ActionRule("member"),
     "decision.decide": ActionRule("member"),
+    "questionnaire.manage": ActionRule("member"),
     "billing.change_plan": ActionRule("admin"),
     "api_key.manage": ActionRule("admin"),
     "portal.token.issue": ActionRule("admin"),
