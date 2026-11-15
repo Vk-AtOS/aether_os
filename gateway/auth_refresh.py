@@ -18,6 +18,7 @@ accepted (503), and nothing is reported as revoked.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -257,3 +258,37 @@ async def oauth_state_pop(state: str, provider: str) -> bool:
         logger.warning("OAuth state could not be checked (Redis unavailable): %s", exc)
         raise _UNAVAILABLE from exc
     return value == provider
+
+
+# ── OAuth sign-in codes ──────────────────────────────────────────────────────
+# The OAuth callback must not put a JWT (or an MFA challenge token) in a URL: URLs reach browser history, proxy and
+# access logs and Referer headers. It redirects with a random single-use code; the dashboard exchanges it once
+# (POST /auth/oauth/exchange). Stored hashed in Redis for 60 s so any worker can serve the exchange.
+_OAUTH_CODE_TTL_SECONDS = 60
+
+
+def _code_key(code: str) -> str:
+    return "oauthcode:" + hashlib.sha256(code.encode()).hexdigest()
+
+
+async def oauth_code_set(code: str, payload: dict) -> None:
+    try:
+        r = await _redis()
+        await r.set(_code_key(code), json.dumps(payload), ex=_OAUTH_CODE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("OAuth sign-in code could not be stored (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE from exc
+
+
+async def oauth_code_pop(code: str) -> Optional[dict]:
+    """The payload stored for `code`, once (atomic GET+DELETE); None for an unknown, spent or expired code."""
+    try:
+        r = await _redis()
+        async with r.pipeline(transaction=True) as pipe:
+            await pipe.get(_code_key(code))
+            await pipe.delete(_code_key(code))
+            value, _ = await pipe.execute()
+    except Exception as exc:
+        logger.warning("OAuth sign-in code could not be checked (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE from exc
+    return json.loads(value) if value else None

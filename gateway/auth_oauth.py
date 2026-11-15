@@ -3,7 +3,8 @@ AetherOS — OAuth2 Social Login (Google + GitHub)
 
 Routes:
   GET /auth/oauth/google           → redirect to Google authorization
-  GET /auth/oauth/google/callback  → exchange code, issue JWT, redirect frontend
+  GET /auth/oauth/google/callback  → exchange code, redirect frontend with a one-time code (never a token)
+  POST /auth/oauth/exchange        → the one-time code -> {kind: session|mfa, token | mfa_token}
   GET /auth/oauth/github           → redirect to GitHub authorization
   GET /auth/oauth/github/callback  → exchange code, issue JWT, redirect frontend
 
@@ -23,10 +24,10 @@ import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import RedirectResponse
 
-from aether_os.gateway.auth_refresh import oauth_state_pop, oauth_state_set
+from aether_os.gateway.auth_refresh import oauth_code_pop, oauth_code_set, oauth_state_pop, oauth_state_set
 
 logger = logging.getLogger(__name__)
 oauth_router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
@@ -58,23 +59,30 @@ def _frontend_url() -> str:
     return os.environ.get("FRONTEND_URL", _base_url()).rstrip("/")
 
 
-def _redirect_with_token(token: str) -> RedirectResponse:
-    return RedirectResponse(
-        url=f"{_frontend_url()}/auth/callback?token={urllib.parse.quote(token)}",
-        status_code=302,
-    )
+async def _redirect_with_code(payload: dict) -> RedirectResponse:
+    """The browser gets a one-time code, never a token (see oauth_code_set)."""
+    code = secrets.token_urlsafe(32)
+    await oauth_code_set(code, payload)
+    return RedirectResponse(url=f"{_frontend_url()}/auth/callback?code={urllib.parse.quote(code)}", status_code=302)
 
 
-def _signin_redirect(user, org) -> RedirectResponse:
-    """Token redirect, or a pending-MFA token when the account has MFA enabled."""
+async def _signin_redirect(user, org) -> RedirectResponse:
+    """Redirect with a code for a session, or for a pending-MFA challenge when the account has MFA enabled."""
     if getattr(user, "mfa_enabled", False):
         from aether_os.gateway.auth import create_access_token
         mfa_token = create_access_token({"mfa_pending": True, "user_id": user.id}, expires_hours=1)
-        return RedirectResponse(
-            url=f"{_frontend_url()}/auth/callback?mfa_required=1&mfa_token={urllib.parse.quote(mfa_token)}",
-            status_code=302,
-        )
-    return _redirect_with_token(_make_jwt(user, org))
+        return await _redirect_with_code({"kind": "mfa", "mfa_token": mfa_token})
+    return await _redirect_with_code({"kind": "session", "token": _make_jwt(user, org)})
+
+
+@oauth_router.post("/exchange")
+async def exchange_code(body: dict = Body(...)) -> dict:
+    """Trade the one-time code from the callback redirect for the session (or MFA challenge). Single use, 60 s."""
+    code = body.get("code")
+    payload = await oauth_code_pop(code) if isinstance(code, str) and 20 <= len(code) <= 100 else None
+    if payload is None:
+        raise HTTPException(status_code=400, detail="This sign-in link has expired or was already used. Sign in again.")
+    return payload
 
 
 def _redirect_with_error(message: str) -> RedirectResponse:
@@ -214,7 +222,7 @@ async def google_callback(
             return _redirect_with_error("Google account email is not verified")
 
         user, org = await _upsert_oauth_user(email=email)
-        return _signin_redirect(user, org)
+        return await _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
     except Exception:
@@ -300,7 +308,7 @@ async def github_callback(
             return _redirect_with_error("GitHub did not return a verified email address")
 
         user, org = await _upsert_oauth_user(email=email)
-        return _signin_redirect(user, org)
+        return await _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
     except Exception:
