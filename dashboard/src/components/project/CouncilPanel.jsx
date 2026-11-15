@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, Loader2, AlertTriangle, Star } from 'lucide-react';
 import { api } from '../../api';
 import { apiError } from '../../apiError';
@@ -7,6 +7,13 @@ const CouncilPanel = ({ runId }) => {
   const [councilReport, setCouncilReport] = useState(null);
   const [councilLoading, setCouncilLoading] = useState(false);
   const [councilError, setCouncilError] = useState(null);
+
+  // Show the review a previous run of this tab (or the pipeline) already stored; 404 means none yet.
+  useEffect(() => {
+    let live = true;
+    api.getCouncilReview(runId).then((res) => { if (live) setCouncilReport(res.data); }).catch(() => {});
+    return () => { live = false; };
+  }, [runId]);
 
   const runCouncil = async () => {
     setCouncilLoading(true);

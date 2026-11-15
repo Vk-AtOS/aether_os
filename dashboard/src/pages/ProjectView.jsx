@@ -13,6 +13,8 @@ import QualityPanel from '../components/project/QualityPanel';
 import FeedbackPanel from '../components/project/FeedbackPanel';
 import CouncilPanel from '../components/project/CouncilPanel';
 import DecisionsPanel from '../components/project/DecisionsPanel';
+import TestsPanel from '../components/project/TestsPanel';
+import SnapshotsPanel from '../components/project/SnapshotsPanel';
 import QuestionnairePanel from '../components/project/QuestionnairePanel';
 import EnvVarsPanel from '../components/project/EnvVarsPanel';
 import RunAppPanel from '../components/project/RunAppPanel';
@@ -388,6 +390,8 @@ const ProjectView = () => {
                   { id: 'trace', label: 'Trace', icon: ShieldCheck },
                   { id: 'council', label: 'Council', icon: Users },
                   { id: 'decisions', label: 'Decisions', icon: GitPullRequest },
+                  { id: 'tests', label: 'Tests', icon: ShieldCheck },
+                  { id: 'snapshots', label: 'Snapshots', icon: FileCode },
                   { id: 'questionnaires', label: 'Questionnaires', icon: ClipboardList },
                 ].map((tab) => (
                   <button key={tab.id} onClick={() => setActiveArtifactTab(tab.id)}
@@ -435,6 +439,8 @@ const ProjectView = () => {
             {activeArtifactTab === 'iframe' && <AppPreviewPanel appRunning={appRunning} run={run} iframeDevice={iframeDevice} setIframeDevice={setIframeDevice} iframeKey={iframeKey} setIframeKey={setIframeKey} />}
             {activeArtifactTab === 'env' && <EnvVarsPanel runId={run.run_id || run.id} onToast={showToast} />}
             {activeArtifactTab === 'council' && <CouncilPanel runId={run.run_id || run.id} />}
+            {activeArtifactTab === 'tests' && <TestsPanel runId={run.run_id || run.id} />}
+            {activeArtifactTab === 'snapshots' && <SnapshotsPanel runId={run.run_id || run.id} />}
             {activeArtifactTab === 'questionnaires' && <QuestionnairePanel runId={run.run_id || run.id} isViewer={isViewer} />}
             {activeArtifactTab === 'decisions' && <DecisionsPanel runId={run.run_id || run.id} />}
             {activeArtifactTab === 'run' && <RunAppPanel runId={run.run_id || run.id} onToast={showToast} onRunningChange={setAppRunning} />}

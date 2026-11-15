@@ -52,7 +52,10 @@ async def approve_decision(
     decision_id: str,
     user: Dict[str, Any] = Depends(require_run_user),
 ):
-    """Approve a pending decision gate (member or above; a viewer reads, never decides)."""
+    """Approve a pending decision gate (member or above; a viewer reads, never decides).
+
+    DEPRECATED: duplicate of POST .../decide with {"decision": "approve"}, which the dashboard uses.
+    """
     await enforce("decision.decide", user)
     from aether_os.core.decisions.decision_engine import get_decision_engine
     from aether_os.core.pipeline_state import publish_event as _pub_evt

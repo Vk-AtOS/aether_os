@@ -179,6 +179,12 @@ export const api = {
   approveDecision: (runId, decisionId, approved, reason) =>
     client.post(`/factory/runs/${runId}/decisions/${decisionId}/decide`, { approved, reason }),
 
+  // Run reports
+  getTestReport: (runId) => client.get(`/factory/runs/${runId}/test-report`),
+  listSnapshots: (runId) => client.get(`/factory/runs/${runId}/snapshots`),
+  getSnapshot: (runId, snapshotId) => client.get(`/factory/runs/${runId}/snapshots/${snapshotId}`),
+  getCouncilReview: (runId) => client.get(`/factory/runs/${runId}/council-review`),
+
   // Client questionnaires (agency side)
   listQuestionnaires: (runId) => client.get(`/runs/${runId}/questionnaires`),
   getQuestionnaireStages: () => client.get('/questionnaire-stages'),
