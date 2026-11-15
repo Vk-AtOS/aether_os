@@ -1,3 +1,5 @@
+> **HISTORICAL RECORD. Audit dated 2026-07-20. Superseded.** All numbers and findings below are as of that date, not today. Current state lives in Jira project KAN (owner register KAN-204) and in `SALE_READINESS.md` (measured numbers at commit `e5c23fd`, 15 Nov 2026). 
+
 # AetherOS Output-Quality Audit — 2026-07-20
 
 Goal: explain why builds complete but output quality is unsatisfactory, and what to change to beat Lovable/v0/Bolt-class competitors. All findings verified directly in source.
@@ -23,7 +25,7 @@ Goal: explain why builds complete but output quality is unsatisfactory, and what
 ### F2 — Default LLM is local Ollama; degradation is silent
 - `core/llm/client.py:87` — `PRIMARY_LLM` defaults to `"ollama"`; prompt style drops to `"minimal"` for local models.
 - Fallback chain: Anthropic → Gemini → Ollama. If keys are missing/rate-limited, codegen silently drops to a small local model with no run-level flag.
-- Models pinned to `claude-sonnet-4-6` / `claude-haiku-4-5` with 30s router timeout (Anthropic tier; Gemini 45s, Ollama 90s); business-logic generation now at `max_tokens=12000` (`p04b_business_logic/task_agent.py:244`; was 3000 when this audit was written).
+- Models pinned to `claude-sonnet-4-6` / `claude-haiku-4-5` with per-provider router timeouts defined in `core/model_router_providers.py` (`get_fallback_chain()`; at 15 Nov 2026: Anthropic 60 s, Bedrock 60 s by default, Gemini 45 s, Ollama 120 s by default; the "30s" figure originally written here was wrong); business-logic generation now at `max_tokens=12000` (`p04b_business_logic/task_agent.py:244`; was 3000 when this audit was written).
 
 ### F3 — Every LLM failure silently downgrades to canned code
 Pattern repeated across p04b, p05, p07b: `except → logger.warning → use fallback template`. The delivered app quietly degrades and nothing in the result tells anyone.
