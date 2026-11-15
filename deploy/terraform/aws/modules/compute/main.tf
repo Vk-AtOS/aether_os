@@ -9,11 +9,6 @@ terraform {
 
 data "aws_caller_identity" "me" {}
 
-locals {
-  secret_ref = { for k, arn in var.secret_arns : k => arn }
-  # the key files the apps expect as paths are written from secrets into /keys at start (read-only root, tmp volume)
-  write_keys = "umask 077; mkdir -p /keys; "
-}
 
 resource "aws_ecs_cluster" "this" {
   name = var.name
@@ -350,7 +345,8 @@ resource "aws_lb_target_group" "tg" {
     unhealthy_threshold = 3
     interval            = 15
     timeout             = 5
-    matcher             = "200"
+    # the Velaris public app has no health route; any HTTP answer (its 404 for unknown paths) proves it is serving
+    matcher = each.key == "velaris-public" ? "200-404" : "200"
   }
 }
 
