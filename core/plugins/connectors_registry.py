@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from aether_os.core.security.safe_http import safe_request
+
 from aether_os.core.plugins.connectors import (
     BaseConnector,
     ConnectorError,
@@ -166,12 +168,10 @@ class SupabaseConnector(BaseConnector):
 
     async def test(self) -> Dict[str, Any]:
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(f"{self._base()}/rest/v1/", headers=self._headers())
-                if r.status_code in (200, 400):  # 400 means connected but no table specified
-                    return {"ok": True, "message": "Supabase connected"}
-                return {"ok": False, "message": f"HTTP {r.status_code}"}
+            r = await safe_request("GET", f"{self._base()}/rest/v1/", timeout=10, headers=self._headers())
+            if r.status_code in (200, 400):  # 400 means connected but no table specified
+                return {"ok": True, "message": "Supabase connected"}
+            return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
             logger.warning("SupabaseConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
