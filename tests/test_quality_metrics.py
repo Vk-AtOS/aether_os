@@ -129,7 +129,6 @@ def test_extract_routes_counts_app_routes():
 def test_extract_routes_detects_auth():
     from aether_os.core.quality.metrics import _extract_routes
     routes = _extract_routes(_MAIN_WITH_AUTH)
-    route_map = {r.path: r for r in routes}
     # /items (both GET and POST) should have auth detected via Depends(get_current_user)
     items_routes = [r for r in routes if r.path == "/items"]
     assert all(r.has_auth for r in items_routes)

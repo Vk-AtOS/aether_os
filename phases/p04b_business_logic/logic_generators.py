@@ -12,7 +12,6 @@ def _step_name(step) -> str:
 
 def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
     """Generate a Python StateMachine class for a workflow with role checks."""
-    trigger = workflow.get("trigger", "updated")
     raw_steps = workflow.get("steps", [])
     steps = [_step_name(s) for s in raw_steps]
 

@@ -199,8 +199,6 @@ async def _llm_crud_routers(
     mem_hint: str = "", multi_tenancy: bool = False,
 ) -> str:
     """One LLM call → routers/crud.py with all entity CRUD routers."""
-    entity_names = [e.get("name", e.get("table", "")) for e in entities]
-    entity_list = ", ".join(entity_names)
 
     # Build a compact entity→fields map so the LLM can produce correct column references
     entity_fields_summary = ""

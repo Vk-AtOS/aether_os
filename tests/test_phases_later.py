@@ -137,7 +137,7 @@ def test_p06_security_report_written(tmp_path):
 
     with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_llm):
         out_dir = tmp_path / "security_out"
-        result = asyncio.run(
+        asyncio.run(
             task_agent.run(PhaseInput(), [], out_dir)
         )
 
@@ -278,7 +278,7 @@ async def test_p08_cicd_generates_ci_yml(tmp_path):
         input_data = {"project_name": "Todo REST API", "project_dir": str(tmp_path)}
 
     agent = CICDAgent()
-    result = await agent.run(PhaseInput())
+    await agent.run(PhaseInput())
 
     ci_file = tmp_path / "p08_cicd_deployment" / "cicd" / "ci.yml"
     assert ci_file.exists(), "ci.yml not written"

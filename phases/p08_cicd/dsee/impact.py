@@ -71,7 +71,6 @@ def simulate_impact(patch_diff: str, ast_index: dict[str, dict], call_graph: Cal
             if match:
                 old_start = int(match.group(1))
                 old_len = int(match.group(2)) if match.group(2) else 1
-                new_start = int(match.group(3))
                 new_len = int(match.group(4)) if match.group(4) else 1
                 
                 # The net shift introduced by this hunk affects lines after it

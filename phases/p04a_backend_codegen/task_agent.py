@@ -102,8 +102,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if seed_vocabulary:
         logger.info("[p04a] seed_vocabulary provided (%d keys) — domain-aware seed data enabled", len(seed_vocabulary))
 
-    from aether_os.phases.utils import memory_hint
-    mem = memory_hint(memory_ctx)
     # Load architecture doc
     arch_doc: dict = {}
     arch_path = data.get("architecture_path", "") or data.get("json_path", "")

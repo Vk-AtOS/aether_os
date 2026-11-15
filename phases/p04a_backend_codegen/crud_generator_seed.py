@@ -75,7 +75,6 @@ def _fallback_seed(
     safe_entities = entities[:8] if entities else []
     for ent in safe_entities:
         name = ent.get("name", "Item")
-        table = ent.get("table", name.lower() + "s")
         fields = ent.get("fields", []) or []
 
         # Identify unique fields so we can enforce uniqueness in seed rows

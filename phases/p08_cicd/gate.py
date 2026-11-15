@@ -32,7 +32,7 @@ class CICDGate:
         if (path / "scan_report.json").exists():
             try:
                 with open(path / "scan_report.json") as f:
-                    report = json.load(f)
+                    json.load(f)
                 return GateOutcome(passed=True, confidence=0.8, issues=[])
             except Exception as _e:
                 logger.warning("Failed to parse scan_report.json in p08 gate: %s", _e)

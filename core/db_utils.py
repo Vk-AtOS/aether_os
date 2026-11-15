@@ -283,7 +283,7 @@ def _emit_run_notification(run, status: str) -> None:
         except Exception as exc:
             logger.debug("Run status email notification failed (non-fatal): %s", exc)
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()  # raises RuntimeError outside an event loop (handled below)
         _t = asyncio.create_task(_create())
         _background_notify_tasks.add(_t)
         _t.add_done_callback(_background_notify_tasks.discard)

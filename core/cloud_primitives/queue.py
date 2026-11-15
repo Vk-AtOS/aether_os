@@ -106,10 +106,6 @@ streams:
 
 def generate_python_queue_client(entities: List[dict]) -> str:
     """Async Python NATS client: publish, subscribe, ack/nak per entity."""
-    entity_subjects = "\n        ".join(
-        f'"{e.get("table", "item")}": "{{}}.{e.get("table", "item")}.{{{{event_type}}}}"'
-        for e in entities
-    )
 
     return """\
 \"\"\"

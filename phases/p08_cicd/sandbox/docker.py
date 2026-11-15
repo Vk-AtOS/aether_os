@@ -199,7 +199,6 @@ def _apply_simple_patch(
     if not patch_diff or not patch_diff.strip():
         return original
     
-    lines = original.splitlines(keepends=True)
     result = []
     diff_lines = patch_diff.splitlines()
     
