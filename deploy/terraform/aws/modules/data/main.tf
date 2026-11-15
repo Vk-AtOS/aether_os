@@ -40,8 +40,21 @@ resource "random_password" "db" {
   special = false # goes into a URL
 }
 
+# The server refuses any connection that is not TLS. Clients (asyncpg, libpq) default to "prefer", so they
+# negotiate TLS without a URL change; a client forced to plaintext is rejected instead of silently accepted.
+resource "aws_db_parameter_group" "this" {
+  name   = "${var.name}-pg15"
+  family = "postgres15"
+
+  parameter {
+    name  = "rds.force_ssl"
+    value = "1"
+  }
+}
+
 resource "aws_db_instance" "this" {
   identifier                   = "${var.name}-pg"
+  parameter_group_name         = aws_db_parameter_group.this.name
   engine                       = "postgres"
   engine_version               = "15"
   instance_class               = var.db_instance_class
