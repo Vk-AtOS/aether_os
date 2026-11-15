@@ -122,7 +122,6 @@ export const api = {
   switchOrg: (orgId) => client.post('/auth/switch-org', { org_id: orgId }),
 
   // Org settings
-  getOrgSettings: () => client.get('/account/settings'),
   updateOrgSettings: (data) => client.post('/account/settings', data),
   // FE-C1: corrected URL — backend soft-deletes the current org (no path param).
   // The caller is identified from the JWT, not from the URL.
@@ -172,12 +171,20 @@ export const api = {
   getClarifyingAnswers: (runId) => client.get(`/factory/runs/${runId}/clarifying-answers`),
   submitClarifyingAnswers: (runId, answers, restart = false) => client.post(`/factory/runs/${runId}/clarifying-answers`, { answers, restart }),
   getPreviewCredentials: (runId) => client.get(`/factory/runs/${runId}/preview-credentials`),
-  approveAction: (ticketId, decision, reason) =>
-    client.post(`/pipeline/approve/${ticketId}`, { ticket_id: ticketId, decision, reason }),
   listDecisions: (runId, status) => client.get(`/factory/runs/${runId}/decisions`, { params: status ? { status } : {} }),
   listOrgDecisions: (params) => client.get('/factory/decisions', { params }),
   approveDecision: (runId, decisionId, approved, reason) =>
     client.post(`/factory/runs/${runId}/decisions/${decisionId}/decide`, { approved, reason }),
+
+  // Connector validate / browse (admin). Credentials go in the body, never the URL.
+  salesforceValidate: (body) => client.post('/v2/plugins/connectors/salesforce/validate', body),
+  salesforceObjects: (body) => client.post('/v2/plugins/connectors/salesforce/objects', body),
+  ldapValidate: (body) => client.post('/v2/plugins/connectors/ldap/validate', body),
+  ldapUsers: (body) => client.post('/v2/plugins/connectors/ldap/users', body),
+
+  // Onboarding (server-side progress)
+  getOnboarding: () => client.get('/onboarding'),
+  dismissOnboarding: () => client.post('/onboarding/dismiss'),
 
   // Run reports
   getTestReport: (runId) => client.get(`/factory/runs/${runId}/test-report`),
@@ -268,13 +275,8 @@ export const api = {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
 
-  // GitHub repo fetch
-  fetchGitHubRepo: (data) => client.post('/factory/fetch-github-repo', data),
-
   // Memory
-  searchMemory: (query, top_k = 5) => client.post('/memory/search', { query, top_k }),
   getPreferences: () => client.get('/settings/preferences'),
-  updatePreferences: (prefs) => client.put('/settings/preferences', prefs),
 
   // Quality & Compliance
   getRunQuality: (runId) => client.get(`/factory/runs/${runId}/quality`),

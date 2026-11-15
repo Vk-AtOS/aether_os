@@ -1,3 +1,4 @@
+import ConnectorExplore from '../components/ConnectorExplore';
 import { useState, useEffect, useCallback } from "react";
 import {
   CheckCircle, XCircle, Settings, Plus, Trash2, Loader2,
@@ -117,6 +118,8 @@ function ConnectorCard({ plugin, installed, onInstall, onUninstall, onTest }) {
             </span>
           ))}
         </div>
+
+        {isInstalled && <ConnectorExplore pluginId={plugin.id} />}
 
         {/* Test result */}
         {testResult && (

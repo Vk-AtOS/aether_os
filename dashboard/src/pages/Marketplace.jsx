@@ -47,7 +47,7 @@ const Marketplace = () => {
   useEffect(() => {
     fetchProfiles();
     // Fetch installed profiles to track state
-    api.client.get('/marketplace/installed').then(res => {
+    api.getInstalledProfiles().then(res => {
       const data = res.data;
       const ids = new Set((Array.isArray(data) ? data : (data?.items ?? [])).map(p => p.profile_id || p.id));
       setInstalledIds(ids);
@@ -80,7 +80,7 @@ const Marketplace = () => {
   const handleUninstall = async (profileId, profileName) => {
     if (!(await confirmAction(`Uninstall ${profileName}?`))) return;
     try {
-      await api.client.delete(`/marketplace/profiles/${profileId}`);
+      await api.uninstallMarketplaceProfile(profileId);
       setInstalledIds(prev => { const n = new Set(prev); n.delete(profileId); return n; });
       setInstallMessage({ text: `${profileName} uninstalled.`, type: 'success' });
     } catch (err) {
@@ -283,7 +283,7 @@ const Marketplace = () => {
                         setInstallingId(p.id);
                         setInstallMessage(null);
                         try {
-                          await api.client.post(`/marketplace/install/${p.id}`);
+                          await api.installMarketplaceProfile(p.id);
                           setInstalledIds(prev => new Set([...prev, p.id]));
                           setInstallMessage({ text: `${p.name} installed successfully.`, type: 'success' });
                         } catch (err) {

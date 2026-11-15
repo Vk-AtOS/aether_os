@@ -1,89 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, CheckCircle2, Circle, Key, Rocket, Settings } from 'lucide-react';
+import { X, CheckCircle2, Circle } from 'lucide-react';
+import { api } from '../api';
+import { apiError } from '../apiError';
+import { useRole } from '../hooks/useRole';
 
-const STORAGE_KEY = 'aether_onboarding_dismissed';
-
-const Step = ({ done, title, desc, action, actionLabel }) => (
-  <div className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${done ? 'border-success/30 bg-success/5' : 'border-border bg-surface/50'}`}>
-    <div className={`mt-0.5 ${done ? 'text-success' : 'text-muted'}`}>
-      {done ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+const Step = ({ done, title, optional, onGo }) => (
+  <div className={`flex items-center gap-4 p-3 rounded-lg border ${done ? 'border-success/30 bg-success/5' : 'border-border bg-surface/50'}`}>
+    <span className={done ? 'text-success' : 'text-muted'}>{done ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</span>
+    <div className={`flex-1 text-sm font-semibold ${done ? 'text-success line-through opacity-60' : 'text-bright'}`}>
+      {title}{optional && !done && <span className="ml-2 text-[10px] font-normal text-muted">optional</span>}
     </div>
-    <div className="flex-1 min-w-0">
-      <div className={`text-sm font-semibold ${done ? 'text-success line-through opacity-60' : 'text-bright'}`}>{title}</div>
-      {!done && <div className="text-xs text-muted mt-0.5">{desc}</div>}
-    </div>
-    {!done && action && (
-      <button
-        onClick={action}
-        className="shrink-0 text-[10px] font-bold text-accent border border-accent/40 hover:bg-accent/10 px-3 py-1.5 rounded transition-colors uppercase tracking-wider"
-      >
-        {actionLabel}
-      </button>
-    )}
+    {!done && <button onClick={onGo} className="shrink-0 text-[10px] font-bold text-accent border border-accent/40 hover:bg-accent/10 px-3 py-1.5 rounded uppercase tracking-wider">Go</button>}
   </div>
 );
 
-const OnboardingBanner = ({ hasRuns, hasApiKey }) => {
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1');
+// Progress comes from the server (GET /onboarding): steps are derived from what exists in the organisation, so the
+// same banner shows on every browser and for every admin, and hiding it hides it for the organisation.
+const OnboardingBanner = () => {
+  const { isAdmin } = useRole();
   const navigate = useNavigate();
+  const [state, setState] = useState(null);
+  const [error, setError] = useState(null);
 
-  const allDone = hasRuns && hasApiKey;
-
-  // Once both steps are done the banner stays gone, also on later visits.
   useEffect(() => {
-    if (allDone) localStorage.setItem(STORAGE_KEY, '1');
-  }, [allDone]);
+    let live = true;
+    api.getOnboarding().then((res) => live && setState(res.data)).catch(() => { /* optional banner: stay hidden */ });
+    return () => { live = false; };
+  }, []);
 
-  if (dismissed || allDone) return null;
+  if (!state || state.dismissed || state.complete) return null;
+  const done = state.steps.filter((s) => s.done).length;
 
-  const steps = [
-    {
-      done: hasApiKey,
-      icon: Key,
-      title: 'Add an LLM API key',
-      desc: 'Connect Anthropic, Gemini, or configure a local Ollama instance.',
-      action: () => navigate('/settings'),
-      actionLabel: 'Go to Settings',
-    },
-    {
-      done: hasRuns,
-      icon: Rocket,
-      title: 'Run your first pipeline',
-      desc: 'Describe your project and AetherOS will generate production-ready code.',
-      action: () => navigate('/new'),
-      actionLabel: 'Start Project',
-    },
-  ];
-
-  const done = steps.filter(s => s.done).length;
+  const dismiss = async () => {
+    try { await api.dismissOnboarding(); setState({ ...state, dismissed: true }); }
+    catch (e) { setError(apiError(e) || 'Could not hide this.'); }
+  };
 
   return (
     <div className="panel p-6 border-accent/20 bg-gradient-to-br from-accent/5 to-transparent">
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-base font-bold text-bright">Welcome to AetherOS Factory</h2>
-          <p className="text-xs text-muted mt-0.5">{done}/{steps.length} steps complete</p>
+          <p className="text-xs text-muted mt-0.5">{done}/{state.steps.length} steps complete</p>
         </div>
-        <button
-          onClick={() => { setDismissed(true); localStorage.setItem(STORAGE_KEY, '1'); }}
-          className="text-muted hover:text-bright transition-colors p-1"
-          aria-label="Dismiss onboarding"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {isAdmin && <button onClick={dismiss} className="text-muted hover:text-bright p-1" aria-label="Dismiss onboarding"><X className="w-4 h-4" /></button>}
       </div>
-
-      {/* Progress bar */}
+      {error && <p role="alert" className="text-xs text-danger mb-2">{error}</p>}
       <div className="w-full h-1.5 bg-border/50 rounded-full mb-4 overflow-hidden">
-        <div
-          className="h-full bg-accent transition-all duration-500 rounded-full"
-          style={{ width: `${(done / steps.length) * 100}%` }}
-        />
+        <div className="h-full bg-accent rounded-full" style={{ width: `${(done / state.steps.length) * 100}%` }} />
       </div>
-
       <div className="space-y-2">
-        {steps.map((step, i) => <Step key={i} {...step} />)}
+        {state.steps.map((s) => <Step key={s.id} done={s.done} title={s.title} optional={!s.required} onGo={() => navigate(s.link)} />)}
       </div>
     </div>
   );
