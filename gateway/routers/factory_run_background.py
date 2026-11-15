@@ -192,6 +192,7 @@ def run_compliance_precheck(
             uses_third_country_cloud=False,
             model_providers=[],
             repo_tags=[],
+            hosting_country=compliance_flags.get("hosting_country"),
         )
         _decision = ComplianceEngine().evaluate(_ctx)
         if _decision.denied:
