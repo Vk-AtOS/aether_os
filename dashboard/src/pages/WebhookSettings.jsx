@@ -90,7 +90,7 @@ const WebhookSettings = () => {
     setEditSaving(true);
     setEditError(null);
     try {
-      await api.client.put(`/webhooks/${editingId}`, editForm);
+      await api.updateWebhook(editingId, editForm);
       setEditingId(null);
       await fetchWebhooks();
     } catch (e) {
@@ -104,7 +104,7 @@ const WebhookSettings = () => {
     setTesting(p => ({ ...p, [id]: true }));
     setTestResults(p => ({ ...p, [id]: null }));
     try {
-      const res = await api.client.post(`/webhooks/${id}/test`);
+      const res = await api.testWebhook(id);
       setTestResults(p => ({ ...p, [id]: res.data }));
     } catch (e) {
       setTestResults(p => ({ ...p, [id]: { ok: false, message: apiError(e) || e.message } }));

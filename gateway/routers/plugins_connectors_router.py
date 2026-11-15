@@ -9,8 +9,8 @@ Routes
   POST /plugins/skills/generate
   GET  /plugins/skills
   POST /plugins/connectors/salesforce/validate
-  GET  /plugins/connectors/salesforce/objects
-  GET  /plugins/connectors/salesforce/objects/{object_name}/describe
+  POST /plugins/connectors/salesforce/objects
+  POST /plugins/connectors/salesforce/objects/{object_name}/describe
   POST /plugins/connectors/salesforce/query
   POST /plugins/connectors/ldap/validate
   POST /plugins/connectors/ldap/users
@@ -22,8 +22,9 @@ import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from aether_os.core.rate_limiter import get_rate_limiter
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.policy_guard import enforce
 
@@ -39,6 +40,11 @@ class SkillGenerateRequest(BaseModel):
 
 
 class SalesforceValidateRequest(BaseModel):
+    instance_url: str
+    access_token: str
+
+
+class SalesforceDescribeRequest(BaseModel):
     instance_url: str
     access_token: str
 
@@ -64,7 +70,7 @@ class LDAPListUsersRequest(BaseModel):
     base_dn: str
     port: int = 389
     use_ssl: bool = False
-    max_results: int = 500
+    max_results: int = Field(default=500, ge=1, le=1000)
 
 
 class LDAPAuthRequest(BaseModel):
@@ -161,13 +167,14 @@ async def validate_salesforce(
     return await connector.validate(req.instance_url, req.access_token)
 
 
-@router.get("/connectors/salesforce/objects")
+# POST, not GET: the access token must never be in a URL (access logs, proxies, history).
+@router.post("/connectors/salesforce/objects")
 async def list_salesforce_objects(
-    instance_url: str,
-    access_token: str,
+    req: SalesforceDescribeRequest,
     user: Dict[str, Any] = _admin(),
 ) -> List[str]:
     """List all available SObjects in the Salesforce org."""
+    instance_url, access_token = req.instance_url, req.access_token
     await _public_instance(instance_url)
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
@@ -179,14 +186,14 @@ async def list_salesforce_objects(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/connectors/salesforce/objects/{object_name}/describe")
+@router.post("/connectors/salesforce/objects/{object_name}/describe")
 async def describe_salesforce_object(
     object_name: str,
-    instance_url: str,
-    access_token: str,
+    req: SalesforceDescribeRequest,
     user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
     """Describe a Salesforce SObject — returns fields and metadata."""
+    instance_url, access_token = req.instance_url, req.access_token
     await _public_instance(instance_url)
     from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
@@ -263,7 +270,9 @@ async def authenticate_ldap_user(
     req: LDAPAuthRequest,
     user: Dict[str, Any] = _admin(),
 ) -> Dict[str, Any]:
-    """Authenticate a user against Active Directory / LDAP."""
+    """Authenticate a user against Active Directory / LDAP (a password oracle: 30 attempts per org per 10 minutes)."""
+    if not await get_rate_limiter().allow(f"ldap_auth:{user['org_id']}", 30, 600):
+        raise HTTPException(status_code=429, detail="Too many LDAP authentication attempts; try again later")
     from aether_os.core.connectors.ldap_connector import LDAPConnector
     connector = LDAPConnector({
         "server": req.server,

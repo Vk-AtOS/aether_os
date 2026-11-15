@@ -115,11 +115,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # package-lock.json is tracked: install exactly what was reviewed, as deploy.sh and the Dockerfile do.
+      # Same install as Dockerfile / deploy.sh / setup_vps.sh: needs the committed package-lock.json.
       - run: npm ci --no-audit --no-fund
       - name: Lint
-        run: npm run lint --if-present
+        run: npm run lint
       - name: Unit tests
-        run: npm test --if-present
+        run: npm test
+      - name: Audit (runtime dependencies, high and above)
+        run: npm audit --omit=dev --audit-level=high
       - name: Build
         run: npm run build

@@ -4,6 +4,7 @@ import { appPath } from '../appUrl';
 import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff, ShieldCheck, QrCode, Trash2, AlertTriangle } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
 import { apiError } from '../apiError';
+import NotificationPrefs from '../components/settings/NotificationPrefs';
 
 const Profile = () => {
   const [userData, setUserData] = useState(null);
@@ -189,6 +190,8 @@ const Profile = () => {
       </header>
 
       {/* Account info */}
+      <NotificationPrefs />
+
       <section className="panel overflow-hidden">
         <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
           <User className="w-4 h-4 mr-2 text-accent" />

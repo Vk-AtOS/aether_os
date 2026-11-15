@@ -16,6 +16,11 @@ export const primeApi = {
   ledgerVerify: () => c.get('/prime/ledger/verify'),
   anchorLatest: () => c.get('/prime/ledger/anchor/latest'),
   anchorExport: () => c.get('/prime/ledger/anchor/export', { responseType: 'blob' }),
+  anchorNow: () => c.post('/prime/ledger/anchor'),
+  anchorVerify: (body) => c.post('/prime/ledger/anchor/verify', body),
+  anchorCheckFile: () => c.post('/prime/ledger/anchor/check-file'),
+  backfill: (dryRun) => c.post('/prime/ledger/backfill', null, { params: { dry_run: dryRun } }),
+  retryErasures: () => c.post('/prime/ledger/erasure/retry'),
   eraseSubject: (subject) => c.post('/prime/ledger/subjects/erase', { subject }),
 };
 

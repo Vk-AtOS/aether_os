@@ -46,8 +46,9 @@ def _current_user():
     return Depends(get_current_user)
 @router.get("/admin/platform-health")
 async def platform_health(user: Dict[str, Any] = _current_user()):
-    if user.get("role") not in ["owner", "admin"]:
-        raise HTTPException(status_code=403)
+    # Host-wide numbers (every org's running builds, the server's disk): platform operator only.
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     sf = get_session_factory()
     async with sf() as session:
         active = (await session.execute(select(sqlfunc.count()).select_from(Run).where(Run.status == "running"))).scalar_one()

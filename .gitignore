@@ -95,7 +95,9 @@ Thumbs.db
 
 # Node (Aether-one had node_modules committed — prevent this)
 node_modules/
-# dashboard/package-lock.json is TRACKED: deploy.sh, setup_vps.sh, the Dockerfile and CI run `npm ci`, which needs it.
+package-lock.json
+# The dashboard lockfile is required: Dockerfile, deploy.sh and setup_vps.sh run `npm ci`, and CI too.
+!dashboard/package-lock.json
 yarn.lock
 bun.lockb
 
@@ -134,3 +136,7 @@ auth_res.json
 *.tfstate.*
 terraform.tfvars
 crash.log
+
+# Playwright output
+dashboard/test-results/
+dashboard/playwright-report/

@@ -76,7 +76,7 @@ const AdminUsers = () => {
 
   const handleReactivate = async (userId) => {
     try {
-      await api.client.post(`/admin/users/${userId}/reactivate`);
+      await api.reactivateUser(userId);
       setItems(prev => prev.map(u => u.id === userId ? { ...u, is_active: true } : u));
     } catch (err) {
       setError(apiError(err) || 'Failed to reactivate user.');
@@ -86,7 +86,7 @@ const AdminUsers = () => {
   const handleResetPassword = async (userId) => {
     if (!(await confirmAction('Generate a temporary password for this user?'))) return;
     try {
-      const res = await api.client.post(`/admin/users/${userId}/reset-password`);
+      const res = await api.resetUserPassword(userId);
       const { temp_password } = res.data;
       navigator.clipboard?.writeText(temp_password).catch(() => {});
       setCredentials({ label: 'Temporary password (copied to clipboard)', password: temp_password });

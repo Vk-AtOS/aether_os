@@ -20,7 +20,7 @@ const Scorecards = ({ app }) => {
                   <p className="text-sm font-bold text-bright">{c.competency} <span className="text-muted font-normal">mean {c.mean} from {c.n_raters} rater(s)</span></p>
                   <p className="font-mono text-muted">{c.working}</p>
                   {c.discuss && <Notice tone="warn">Disagreement: {c.discuss}</Notice>}
-                  {c.ratings.map((r, i) => <p key={i} className="text-bright"><b>{r.interviewer}</b>: {r.score}, {r.evidence}</p>)}
+                  {(c.ratings || []).map((r, i) => <p key={i} className="text-bright"><b>{r.interviewer}</b>: {r.score}, {r.evidence}</p>)}
                 </div>
               ))}
               <p className="text-[11px] text-muted">{d.note}</p>
@@ -40,6 +40,7 @@ const Agreement = ({ req }) => {
 const Kits = () => {
   const [req, setReq] = useState('');
   const [app, setApp] = useState('');
+  const [viewApp, setViewApp] = useState('');  // its own state: typing in the view box must not rewrite the scorecard form's id
   const [shown, setShown] = useState('');
   const kit = useHr('INTERVIEW_KIT', 'get_kit', { requisition_id: req });
   const act = useAct();
@@ -69,7 +70,7 @@ const Kits = () => {
         <div className="flex gap-2"><button className={btn('ghost')} onClick={() => setRatings([...ratings, { competency: '', score: 3, evidence: '' }])}>Add competency</button><button className={btn()} disabled={!app || act.busy} onClick={submit}>Submit scorecard</button></div>
       </Card>
       <Card title="Scorecards of an application">
-        <div className="flex gap-2"><input className={`${inputClass} max-w-sm`} placeholder="Application id" aria-label="Application id to view" value={app} onChange={(e) => setApp(e.target.value)} /><button className={btn()} disabled={!app} onClick={() => setShown(app)}>View</button></div>
+        <div className="flex gap-2"><input className={`${inputClass} max-w-sm`} placeholder="Application id" aria-label="Application id to view" value={viewApp} onChange={(e) => setViewApp(e.target.value)} /><button className={btn()} disabled={!viewApp} onClick={() => setShown(viewApp)}>View</button></div>
         {shown && <Scorecards key={shown} app={shown} />}
       </Card>
       {req && <Card title="Interviewer agreement"><Agreement key={req} req={req} /></Card>}

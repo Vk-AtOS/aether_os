@@ -303,9 +303,9 @@ def _require_registry():
 async def list_error_registry(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return all entries from the error registry. Admin/owner only."""
-    if user.get("role") not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Return all entries from the error registry. Platform operator (superadmin) only: the registry is platform-wide, not per organisation."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     _require_registry()
     try:
         registry = get_registry()
@@ -320,9 +320,9 @@ async def list_error_registry(
 async def error_registry_summary(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return per-category counts, last-seen dates, and fix status. Admin/owner only."""
-    if user.get("role") not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Return per-category counts, last-seen dates, and fix status. Platform operator (superadmin) only: the registry is platform-wide, not per organisation."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     _require_registry()
     try:
         registry = get_registry()
