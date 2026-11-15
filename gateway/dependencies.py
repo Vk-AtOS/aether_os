@@ -22,6 +22,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
 from aether_os.core.billing.payments import expire_if_due
 from aether_os.gateway.auth_refresh import assert_access_token_live
+from aether_os.gateway.role_gate import check_role
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -100,6 +101,7 @@ async def get_current_user(
                 payload["role"] = db_user.role
                 payload["org_id"] = db_user.org_id
                 request.state.audit_identity = {"org_id": db_user.org_id, "user_id": str(user_id)}
+                check_role(request, payload)
 
         return payload
 
@@ -124,13 +126,15 @@ async def get_current_user(
                 api_key.last_used_at = time.time()
                 await session.commit()
                 request.state.audit_identity = {"org_id": org.id, "user_id": f"api_key:{api_key.id}"}
-                return {
+                claims = {
                     "sub": "api_key",
                     "org_id": org.id,
                     "org_slug": org.slug,
                     "plan": await expire_if_due(session, org),
                     "role": "api",
                 }
+                check_role(request, claims)
+                return claims
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
