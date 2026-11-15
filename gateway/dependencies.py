@@ -21,6 +21,7 @@ from sqlalchemy import select
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
 from aether_os.core.billing.payments import expire_if_due
+from aether_os.core.api_rate_limit import enforce_api_rate
 from aether_os.gateway.auth_refresh import assert_access_token_live
 from aether_os.gateway.role_gate import check_role
 
@@ -102,6 +103,7 @@ async def get_current_user(
                 payload["org_id"] = db_user.org_id
                 request.state.audit_identity = {"org_id": db_user.org_id, "user_id": str(user_id)}
                 check_role(request, payload)
+                await enforce_api_rate(str(user_id), db_user.org_id)
 
         return payload
 
@@ -134,6 +136,7 @@ async def get_current_user(
                     "role": "api",
                 }
                 check_role(request, claims)
+                await enforce_api_rate(f"api_key:{api_key.id}", org.id)
                 return claims
 
     raise HTTPException(

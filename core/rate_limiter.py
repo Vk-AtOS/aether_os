@@ -11,6 +11,7 @@ import ipaddress
 import logging
 import os
 import time
+import uuid
 from collections import defaultdict
 from typing import Optional, TYPE_CHECKING
 
@@ -77,13 +78,23 @@ def get_client_ip(request: "Request") -> str:
 
 _async_redis_client = None
 _redis_available: Optional[bool] = None  # None = not yet tested
+_redis_checked_at: float = 0.0
+_REDIS_RETRY_SECONDS = 5.0  # an outage at one moment must not switch shared limits off for the process's life
+
+
+def redis_required() -> bool:
+    """Production has several workers: per-process counters are not a limit, so security
+    limits deny instead of falling back to memory when Redis cannot be reached."""
+    return os.environ.get("ENVIRONMENT", "development") == "production"
 
 
 async def _get_async_redis():
     """Lazy-init async Redis connection. Returns None if unavailable."""
-    global _async_redis_client, _redis_available
+    global _async_redis_client, _redis_available, _redis_checked_at
     if _redis_available is not None:
-        return _async_redis_client if _redis_available else None
+        if _redis_available or time.monotonic() - _redis_checked_at < _REDIS_RETRY_SECONDS:
+            return _async_redis_client if _redis_available else None
+    _redis_checked_at = time.monotonic()
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     try:
         import redis.asyncio as aioredis  # optional dependency — gracefully falls back to in-memory if not installed
@@ -112,7 +123,7 @@ async def _redis_incr_window(r, key: str, window_seconds: int) -> int:
     cutoff = now_ms - (window_seconds * 1000)
     async with r.pipeline() as pipe:
         await pipe.zremrangebyscore(key, 0, cutoff)
-        await pipe.zadd(key, {str(now_ms): now_ms})
+        await pipe.zadd(key, {f"{now_ms}-{uuid.uuid4().hex[:8]}": now_ms})  # unique member: same-ms hits must each count
         await pipe.zcard(key)
         await pipe.expire(key, window_seconds + 5)
         results = await pipe.execute()
@@ -252,6 +263,8 @@ class RateLimiter:
             return True
         effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
+        if r is None and redis_required():
+            return False  # fail closed: a per-worker counter is no brute-force limit
         if r:
             try:
                 return await _redis_get_count(r, f"login:{effective_ip}", 900) < self.max_login_attempts
@@ -295,6 +308,8 @@ class RateLimiter:
             return True
         effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
+        if r is None and redis_required():
+            return False
         if r:
             try:
                 return await _redis_get_count(r, f"reg:{effective_ip}", 3600) < self.max_registrations
@@ -332,6 +347,8 @@ class RateLimiter:
         max_attempts = int(os.environ.get("MAX_PASSWORD_RESET_PER_IP", 5))
         window = 900  # 15 minutes
         r = await _get_async_redis()
+        if r is None and redis_required():
+            return False
         if r:
             try:
                 return await _redis_get_count(r, f"pwreset:{effective_ip}", window) < max_attempts
