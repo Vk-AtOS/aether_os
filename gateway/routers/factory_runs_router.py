@@ -16,7 +16,8 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.run_app import safe_fs
+from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.gateway.routers.factory_run_background import (
     enrich_phases_from_disk,
     load_phase_events,
@@ -57,20 +58,44 @@ def _current_user():
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+def _phase_test_summary(run_id: str) -> Optional[Dict[str, Any]]:
+    """The unit-test phase's own summary.json (passed/failed/errors), read without following links.
+
+    Nothing ever wrote runs.self_test_report, so the route answered 404 for every run although p07a
+    records its pytest result on disk; this is the report the customer is meant to see.
+    """
+    project_dir = pathlib.Path.home() / ".aether_os" / "projects" / run_id
+    for rel in sorted(safe_fs.walk_files(project_dir, "p07a_unit_testing")):
+        if rel.name == "summary.json":
+            text = safe_fs.read_text_or_none(project_dir, rel)
+            try:
+                data = json.loads(text) if text else None
+            except ValueError as exc:
+                logger.warning("test-report: unreadable %s for run %s: %s", rel, run_id, exc)
+                return None
+            if isinstance(data, dict):
+                return {"source": "p07a_unit_testing", "tests_written": data.get("tests_written", 0),
+                        "passed": data.get("passed", 0), "failed": data.get("failed", 0),
+                        "errors": data.get("errors", []), "exec_validation": data.get("exec_validation")}
+    return None
+
+
 @router.get("/factory/runs/{run_id}/test-report")
 async def get_test_report(
     run_id: str,
-    user: Dict[str, Any] = _current_user(),
+    user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
-    """Get the self-test report for a run."""
+    """The self-test report for a run: the stored one, else the unit-test phase's summary."""
 
     async with get_session_factory()() as session:
         report_str = await svc_get_test_report(session, run_id, user["org_id"])
 
-    if not report_str:
+    if report_str:
+        return json.loads(report_str)
+    summary = _phase_test_summary(run_id)
+    if summary is None:
         raise HTTPException(status_code=404, detail="Report not found")
-
-    return json.loads(report_str)
+    return summary
 
 @router.get("/factory/runs")
 async def list_factory_runs(
