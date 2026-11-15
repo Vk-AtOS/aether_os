@@ -19,6 +19,7 @@ import logging
 from typing import Any, Dict, List
 
 from aether_os.core.plugins.connectors import BaseConnector, ConnectorError
+from aether_os.core.security.safe_http import UnsafeURL, resolve_public
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,14 @@ class LDAPConnector(BaseConnector):
             raise ConnectorError("LDAP connector requires 'server' in config")
         port = int(self.config.get("port", 636 if self.config.get("use_ssl") else 389))
         use_ssl = bool(self.config.get("use_ssl", False))
+        if not 0 < port < 65536 or any(c in str(server) for c in "/@ \t"):
+            raise ConnectorError("LDAP server must be a host name and port a valid port")
+        # The server is typed in by the org: it must not be an address on the platform's own network (SSRF).
+        # ponytail: checked, then ldap3 resolves again, so a rebinding DNS record can still race this; pinning needs ldap3 to accept an address.
+        try:
+            resolve_public(f"https://{server}:{port}")
+        except UnsafeURL as exc:
+            raise ConnectorError(f"LDAP server rejected: {exc}") from exc
         return {"server": server, "port": port, "use_ssl": use_ssl}
 
     def _make_connection(self, bind_dn: str | None = None, bind_password: str | None = None):

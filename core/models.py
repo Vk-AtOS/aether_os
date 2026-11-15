@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, false, func
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, Index, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
@@ -187,6 +187,9 @@ class Decision(Base):
     timeout_seconds: Mapped[int] = mapped_column(default=300)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # The org-wide pending-decisions inbox filters by org and status, newest first.
+    __table_args__ = (Index("ix_decisions_org_status_created", "org_id", "status", "created_at"),)
 
 class Webhook(Base):
     __tablename__ = "webhooks"
@@ -450,6 +453,20 @@ class Notification(Base):
     link: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class NotificationPref(Base):
+    """Which notification events reach whom, per channel. user_id '' is the organisation default; a user's
+    row overrides it. No row = the built-in default (everything on), so existing behaviour is unchanged."""
+    __tablename__ = "notification_prefs"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "event_type", name="uq_notification_prefs"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    in_app: Mapped[bool] = mapped_column(Boolean, default=True)
+    email: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class CodebaseProfile(Base):

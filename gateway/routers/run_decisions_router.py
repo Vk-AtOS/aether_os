@@ -103,7 +103,7 @@ async def kill_run(
     run_id: str,
     user: Dict[str, Any] = Depends(require_run_user),
 ) -> Dict[str, Any]:
-    """Force-cancel a run (owner/admin only)."""
+    """Force-cancel a run (owner/admin only). The dashboard uses /cancel; this is the API-only hard stop."""
     if user.get("role") not in ("owner", "admin"):
         raise HTTPException(status_code=403)
     from aether_os.core.pipeline_state import set_control

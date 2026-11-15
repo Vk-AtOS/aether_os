@@ -10,6 +10,7 @@ import {
 } from '../components/intelligence/IntelligenceTools';
 import { normPct } from '../components/intelligence/normPct';
 import { apiError } from '../apiError';
+import { useRuns } from '../contexts/useRuns';
 
 const ANALYSIS_TIMEOUT_MS = 20000;
 
@@ -20,6 +21,7 @@ const withTimeout = (promise, ms) =>
   ]);
 
 const IntelligenceHub = () => {
+  const { latestRunId } = useRuns();
   const [insights, setInsights]         = useState(null);
   const [benchmark, setBenchmark]       = useState(null);
   const [archReview, setArchReview]     = useState(null);
@@ -51,12 +53,17 @@ const IntelligenceHub = () => {
     setAnalysisRun(true);
     setLastRefresh(new Date());
 
-    setL('arch', true);
-    setE('arch', null);
-    withTimeout(api.client.post('/intelligence/arch-governor/review', { run_id: 'global' }), ANALYSIS_TIMEOUT_MS)
-      .then(r => setArchReview(r.data))
-      .catch(e => setE('arch', e.message || apiError(e) || 'Failed'))
-      .finally(() => setL('arch', false));
+    // The architecture review reviews one run; the id 'global' never existed (404). Use the newest run.
+    if (latestRunId) {
+      setL('arch', true);
+      setE('arch', null);
+      withTimeout(api.client.post('/intelligence/arch-governor/review', { run_id: latestRunId }), ANALYSIS_TIMEOUT_MS)
+        .then(r => setArchReview(r.data))
+        .catch(e => setE('arch', e.message || apiError(e) || 'Failed'))
+        .finally(() => setL('arch', false));
+    } else {
+      setE('arch', 'The architecture review works on a run. Start a project first.');
+    }
 
     setL('tradeoff', true);
     setE('tradeoff', null);
@@ -71,7 +78,7 @@ const IntelligenceHub = () => {
       .then(r => setTruth(r.data))
       .catch(e => setE('truth', e.message || apiError(e) || 'Failed'))
       .finally(() => setL('truth', false));
-  }, []);
+  }, [latestRunId]);
 
   const load = useCallback(() => {
     setLoading(p => ({ ...p, insights: true, benchmark: true }));

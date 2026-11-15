@@ -17,11 +17,13 @@ import logging
 import uuid
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func, select
+from pydantic import BaseModel, Field
 from aether_os.core.rate_limiter import get_client_ip
 from aether_os.gateway.auth_refresh import issue_token_pair
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -33,8 +35,12 @@ def _current_user():
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
+MAX_ACTIVE_KEYS = 50   # per organisation: the table is scanned per request by org
+LIST_LIMIT = 100       # hard page maximum
+
+
 class ApiKeyCreateRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -45,7 +51,8 @@ async def create_api_key(
     request: Request,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Create a new API key for the current organisation."""
+    """Create a new API key for the current organisation (owner/admin; a key cannot mint keys)."""
+    await enforce("api_key.manage", user)
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import APIKey
     from aether_os.gateway.auth import generate_api_key, hash_api_key
@@ -56,6 +63,11 @@ async def create_api_key(
 
     session_factory = get_session_factory()
     async with session_factory() as session:
+        active = (await session.execute(
+            select(func.count()).select_from(APIKey).where(APIKey.org_id == org_id, APIKey.is_active == True)  # noqa: E712
+        )).scalar() or 0
+        if active >= MAX_ACTIVE_KEYS:
+            raise HTTPException(status_code=409, detail=f"At most {MAX_ACTIVE_KEYS} active API keys; revoke one first")
         api_key = APIKey(
             id=str(uuid.uuid4()),
             org_id=org_id,
@@ -80,6 +92,7 @@ async def create_api_key(
         ))
 
     return {
+        "id": api_key.id,
         "api_key": raw_key,
         "name": req.name,
         "message": "Store this key safely. It will not be shown again.",
@@ -87,16 +100,18 @@ async def create_api_key(
 
 
 @router.get("/api-keys")
-async def list_api_keys(user: Dict[str, Any] = _current_user()) -> list:
-    """List all active API keys for the current organisation."""
+async def list_api_keys(limit: int = Query(LIST_LIMIT, ge=1, le=LIST_LIMIT), offset: int = Query(0, ge=0),
+                        user: Dict[str, Any] = _current_user()) -> list:
+    """Active API keys of the current organisation, newest first (never the secret)."""
+    await enforce("api_key.manage", user)
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import APIKey
-    from sqlalchemy import select
 
     session_factory = get_session_factory()
     async with session_factory() as session:
         rows = (await session.execute(
-            select(APIKey).where(APIKey.org_id == user["org_id"], APIKey.is_active == True)
+            select(APIKey).where(APIKey.org_id == user["org_id"], APIKey.is_active == True)  # noqa: E712
+            .order_by(APIKey.created_at.desc()).limit(limit).offset(offset)
         )).scalars().all()
     return [
         {"id": k.id, "name": k.name, "created_at": str(k.created_at), "last_used_at": k.last_used_at}
@@ -107,6 +122,7 @@ async def list_api_keys(user: Dict[str, Any] = _current_user()) -> list:
 @router.delete("/api-keys/{key_id}")
 async def revoke_api_key(key_id: str, request: Request, user: Dict[str, Any] = _current_user()) -> Dict[str, str]:
     """Revoke an API key by ID."""
+    await enforce("api_key.manage", user)
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import APIKey
 

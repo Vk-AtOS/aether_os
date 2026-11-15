@@ -375,6 +375,12 @@ export const COUNTRIES = [
   { code:'ZA', label:'South Africa',   region:'AFRICA',flag:'🇿🇦' },
   // China (special — PIPL)
   { code:'CN', label:'China',          region:'CHINA', flag:'🇨🇳' },
+  // Embargoed jurisdictions: selectable so the "pipeline will be blocked" warning can show (the server refuses them)
+  { code:'CU', label:'Cuba',           region:'global', flag:'🇨🇺' },
+  { code:'IR', label:'Iran',           region:'global', flag:'🇮🇷' },
+  { code:'KP', label:'North Korea',    region:'global', flag:'🇰🇵' },
+  { code:'RU', label:'Russia',         region:'global', flag:'🇷🇺' },
+  { code:'SY', label:'Syria',          region:'global', flag:'🇸🇾' },
 ];
 
 export const REGION_COMPLIANCE = {
@@ -390,7 +396,8 @@ export const REGION_COMPLIANCE = {
   global: ['General best practices apply'],
 };
 
-export const EMBARGOED = new Set(['CU','IR','KP','SY','RU','BY']);
+// Must equal ComplianceEngine.EMBARGOED_COUNTRIES (core/policy/compliance.py); tests/test_dashboard_embargo_list.py checks it.
+export const EMBARGOED = new Set(['CU','IR','KP','RU','SY']);
 
 export const DEFAULT_SPEC = {
   frontend: { framework: 'React + Vite', styling: 'Tailwind + shadcn/ui', state_management: 'Zustand', form_library: 'React Hook Form + Zod', data_fetching: 'TanStack Query' },

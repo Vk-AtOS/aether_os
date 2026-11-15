@@ -10,7 +10,10 @@ const DOCS = [
 
 const Legal = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [active, setActive] = useState(searchParams.get('doc') || 'tos');
+  const [active, setActive] = useState(() => {
+    const d = searchParams.get('doc');
+    return DOCS.some(x => x.key === d) ? d : 'tos'; // an unknown ?doc= would never finish loading
+  });
   const [content, setContent] = useState('');
   const [meta, setMeta] = useState({});
   const [loading, setLoading] = useState(true);

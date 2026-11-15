@@ -427,7 +427,14 @@ const Settings = () => {
       await api.deleteOrg();
       setTimeout(() => { api.clearToken(); window.location.href = appPath('/login'); }, 2000);
       setDeleteOrgStatus('done');
-    } catch {
+    } catch (e) {
+      // 503 "Organisation deleted, but ..." means the organisation IS gone (only the ledger erasure is pending),
+      // so the session is dead: sign out instead of reporting a plain failure.
+      if (e?.response?.status === 503 && /Organisation deleted/.test(apiError(e))) {
+        api.clearToken();
+        window.location.href = appPath('/login');
+        return;
+      }
       setDeleteOrgStatus('error');
       setTimeout(() => setDeleteOrgStatus(null), 3000);
     }

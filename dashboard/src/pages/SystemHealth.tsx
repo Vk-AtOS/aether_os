@@ -88,7 +88,7 @@ const SystemHealth = () => {
     try {
       const [hRes, mRes, slaRes, obsRes] = await Promise.allSettled([
         api.getHealth(),
-        api.client.get('/system/metrics').catch(() => api.client.get('/health/metrics')),
+        api.client.get('/system/metrics'),
         api.client.get('/health/sla'),
         api.client.get('/health/observability'),
       ]);

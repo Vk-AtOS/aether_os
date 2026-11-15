@@ -17,6 +17,7 @@ from .models import PhaseCompletion
 from .models import PhaseConfig
 from .models import Run
 from .models import RunMetadata
+from . import notification_prefs
 from .notifications.email import get_email_notifier
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import selectinload
@@ -267,7 +268,7 @@ def _emit_run_notification(run, status: str) -> None:
                 sess.add(notif)
                 await sess.commit()
                 # Get user email for email notification
-                if run.user_id:
+                if run.user_id and await notification_prefs.allows(run.org_id, run.user_id, f"run_{status}", "email"):
                     db_user = await sess.get(User, run.user_id)
                     if db_user and db_user.email and not db_user.email.endswith("@deleted.invalid"):
                         notifier = get_email_notifier()

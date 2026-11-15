@@ -77,6 +77,11 @@ export const useChat = () => {
         } catch (e) {
           if (!alive) return;
           if (e?.response?.status === 410 || vCode(e) === 'bad_queue') { qid = null; continue; }
+          // 401/403 will not fix themselves: stop polling instead of retrying every 3 s forever.
+          if (e?.response?.status === 401 || e?.response?.status === 403) {
+            setState((s) => ({ ...s, status: 'down', error: vError(e) }));
+            return;
+          }
           setState((s) => ({ ...s, status: isDown(e) ? 'down' : 'retry', error: vError(e) }));
           await sleep(3000);
         }
