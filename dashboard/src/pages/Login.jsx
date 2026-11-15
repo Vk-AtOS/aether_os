@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { Link } from 'react-router-dom';
 import { Shield, Loader2 } from 'lucide-react';
@@ -27,7 +27,8 @@ const Login = () => {
   const [searchParams] = useSearchParams();
   const [error, setError] = useState(() => decodeURIComponent(searchParams.get('error') || ''));
   const [samlAvailable, setSamlAvailable] = useState(false);
-  const [mfaToken, setMfaToken] = useState(null);
+  const location = useLocation();
+  const [mfaToken, setMfaToken] = useState(location.state?.mfaToken || null);
   const [mfaCode, setMfaCode] = useState('');
   const [ssoOrgInput, setSsoOrgInput] = useState('');
   const [showSsoOrgInput, setShowSsoOrgInput] = useState(false);

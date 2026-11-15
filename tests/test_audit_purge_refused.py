@@ -5,7 +5,6 @@ import time
 
 import pytest
 
-from aether_os.gateway.auth import create_access_token
 from aether_os.tests.gateway_env import gateway_env
 
 
@@ -44,10 +43,14 @@ def test_purge_is_refused_deletes_nothing_and_is_audited(env):
 
 
 def test_purge_by_non_admin_is_403_and_still_audited(env):
-    data = {k: v for k, v in env.claims.items() if k not in ("exp", "iat", "jti")}
-    member = {"Authorization": f"Bearer {create_access_token({**data, 'role': 'member'})}"}
-    before = len(_audit_rows(env, "audit.purge_refused"))
-    resp = env.client.delete("/audit/logs/purge", headers=member)
+    # The role is read from the user's row, so demote the real user (a forged claim decides nothing).
+    uid = env.claims["user_id"]
+    env.sql("UPDATE users SET role = 'member' WHERE id = ?", (uid,))
+    try:
+        before = len(_audit_rows(env, "audit.purge_refused"))
+        resp = env.client.delete("/audit/logs/purge", headers=env.auth)
+    finally:
+        env.sql("UPDATE users SET role = 'owner' WHERE id = ?", (uid,))
     assert resp.status_code == 403
     assert len(_audit_rows(env, "audit.purge_refused")) == before + 1
 

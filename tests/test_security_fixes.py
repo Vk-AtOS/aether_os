@@ -27,6 +27,7 @@ warnings.filterwarnings("ignore", category=ResourceWarning)
 
 _ENV = {
     "AETHER_SECRET_KEY": "test-secret-key-12345678901234567890",
+    "MAX_REGISTRATIONS_PER_IP": "1000",
     "RAZORPAY_KEY_ID": "rzp_test_id",
     "RAZORPAY_KEY_SECRET": "rzp_test_secret",
 }
@@ -126,10 +127,17 @@ def env(tmp_path_factory):
     db_mod._session_factory = None
 
 
-def _token_with(claims, **overrides):
-    from aether_os.gateway.auth import create_access_token
-    data = {k: v for k, v in claims.items() if k not in ("exp", "iat", "jti")}
-    return {"Authorization": f"Bearer {create_access_token({**data, **overrides})}"}
+def _as_role(env, base, role):
+    """Auth headers of a real user of base's org whose ROW has `role`. The role is read from the
+    database on every request (a forged or stale token claim no longer decides anything)."""
+    email = f"{role}_{uuid.uuid4().hex[:8]}@test.com"
+    resp = env.client.post("/auth/register", json={
+        "email": email, "password": "TestPass@123!", "org_name": "tmp", "terms_accepted": True, "dpa_accepted": True})
+    assert resp.status_code == 200, resp.text
+    env.sql("UPDATE users SET role = ?, org_id = ?, email_verified = 1 WHERE email = ?", (role, base.org_id, email))
+    login = env.client.post("/auth/login", json={"email": email, "password": "TestPass@123!"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 # ── 2. Refresh tokens are not access tokens ───────────────────────────────────
@@ -278,7 +286,7 @@ def test_saml_rejects_deactivated_user(env):
 def test_sso_settings_require_admin(env):
     body = {"idp_entity_id": "https://idp.example/e", "idp_sso_url": "https://idp.example/sso",
             "idp_cert": "MIIB"}
-    member = _token_with(env.b.claims, role="member")
+    member = _as_role(env, env.b, "member")
     assert env.client.put("/settings/sso", json=body, headers=member).status_code == 403
     assert env.client.delete("/settings/sso", headers=member).status_code == 403
     assert env.sql("SELECT count(*) FROM saml_configs WHERE org_id = ?", (env.b.org_id,))[0][0] == 0
@@ -301,7 +309,7 @@ def test_downgrade_cannot_raise_or_keep_plan(env, target):
 
 
 def test_plan_changes_require_owner_or_admin(env):
-    member = _token_with(env.b.claims, role="member")
+    member = _as_role(env, env.b, "member")
     assert env.client.post("/billing/downgrade", json={"target_plan": "free"},
                            headers=member).status_code == 403
     assert env.client.post("/billing/cancel", headers=member).status_code == 403
@@ -537,7 +545,7 @@ def test_feature_flags_can_only_be_set_by_platform_operator(env, monkeypatch):
     # An org owner is not the platform operator: the flag affects every organisation.
     assert env.client.post(url, json={"enabled": False}, headers=env.a.auth).status_code == 403
     assert key not in os.environ
-    operator = _token_with(env.a.claims, role="superadmin")
+    operator = _as_role(env, env.a, "superadmin")
     assert env.client.post("/system/feature-flags/not_a_flag", json={}, headers=operator).status_code == 404
     assert "FEATURE_NOT_A_FLAG" not in os.environ
     monkeypatch.setenv(key, "true")  # registered with monkeypatch, so teardown removes the endpoint's write

@@ -95,7 +95,7 @@ Thumbs.db
 
 # Node (Aether-one had node_modules committed — prevent this)
 node_modules/
-package-lock.json
+# dashboard/package-lock.json is TRACKED: deploy.sh, setup_vps.sh, the Dockerfile and CI run `npm ci`, which needs it.
 yarn.lock
 bun.lockb
 

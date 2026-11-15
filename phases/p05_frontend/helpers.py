@@ -129,7 +129,10 @@ async def _generate_domain_component(
     golden_hint = ""
     try:
         from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p05
-        _examples = await get_golden_examples(domain, limit=2)
+        # Tenant data: only this org's (and platform-owned) builds may reach the prompt.
+        _examples = await get_golden_examples(
+            domain, limit=2, org_id=(accumulated_context or {}).get("org_id") or None,
+        )
         golden_hint = format_golden_hint_p05(_examples)
     except Exception as exc:
         logger.debug("p05: golden retriever unavailable: %s", exc)

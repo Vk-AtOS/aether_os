@@ -3,7 +3,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, func
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
@@ -27,6 +27,9 @@ class Organisation(Base):
     data_region: Mapped[str] = mapped_column(String(20), default="global")
     scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated — use scim_token_hash
     scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
+    # sha256 of the SCIM token (a 256-bit random value, so a plain digest is enough): lets a request find its org
+    # with one indexed lookup instead of bcrypt-checking every org that has a token.
+    scim_token_lookup: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # Unix time the paid period ends (core.billing.payments). NULL = no period on record
     # (trial/free, or a plan not bought through a one-off payment).
@@ -34,6 +37,13 @@ class Organisation(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking
+    # LLM spend control (KAN-116): per-org USD cap overriding the plan default, and an org-level kill switch.
+    llm_monthly_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    llm_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Admin MFA policy (KAN-186): when on, owners/admins without MFA are locked to MFA enrolment
+    # once the grace period (unix time, NULL = none) has passed.
+    require_admin_mfa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    admin_mfa_grace_until: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
@@ -536,3 +546,5 @@ class QuestionnaireSession(Base):
     answers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+from . import scim_models  # noqa: E402,F401  registers scim_groups / scim_group_members with Base

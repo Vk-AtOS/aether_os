@@ -63,6 +63,7 @@ except Exception as exc:
     logging.warning("Failed to load structured logging config, using basicConfig fallback: %s", exc)
 
 logger = logging.getLogger(__name__)
+_audit_tasks: set = set()  # strong refs to in-flight audit writes
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
 from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe, _seed_golden_examples_if_empty  # noqa: E402
@@ -161,31 +162,30 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def audit_log_middleware(request: Request, call_next):
         response = await call_next(request)
-        # Only log mutating requests to API paths (not health, docs, static, SSE)
+        # Only log mutating requests to API paths (not health, docs, static, SSE).
+        # Identity comes from get_current_user (request.state), so API-key callers are
+        # audited too and the org/user are the authenticated ones, never "unknown".
         method = request.method
         path = request.url.path
-        if (method in ("POST", "PUT", "PATCH", "DELETE")
+        who = getattr(request.state, "audit_identity", None)
+        if (who and method in ("POST", "PUT", "PATCH", "DELETE")
                 and not any(path.startswith(p) for p in ("/docs", "/redoc", "/openapi", "/health", "/metrics"))
                 and not path.endswith("/stream")):
             try:
-                # Extract user from Authorization header (best-effort — don't block request)
-                auth = request.headers.get("Authorization", "")
-                if auth.startswith("Bearer "):
-                    from aether_os.gateway.auth import decode_bearer_token
-                    claims = decode_bearer_token(auth[7:])
-                    if claims:
-                        from aether_os.core.audit.ledger import get_ledger
-                        import asyncio
-                        path_parts = path.split("/")
-                        asyncio.create_task(get_ledger().async_log_audit_event(
-                            org_id=claims.get("org_id", "unknown"),
-                            user_id=str(claims.get("user_id", "unknown")),
-                            action=f"{method} {path}",
-                            resource_type=path_parts[1] if len(path_parts) > 1 else "api",
-                            resource_id=path_parts[2] if len(path_parts) > 2 else "-",
-                            metadata={},
-                            ip_address=get_client_ip(request),
-                        ))
+                from aether_os.core.audit.ledger import get_ledger
+                path_parts = path.split("/")
+                # Keep a reference: the loop holds tasks weakly and may drop a pending audit write.
+                task = asyncio.create_task(get_ledger().async_log_audit_event(
+                    org_id=who["org_id"],
+                    user_id=who["user_id"],
+                    action=f"{method} {path}",
+                    resource_type=path_parts[1] if len(path_parts) > 1 else "api",
+                    resource_id=path_parts[2] if len(path_parts) > 2 else "-",
+                    metadata={"status": response.status_code},
+                    ip_address=get_client_ip(request),
+                ))
+                _audit_tasks.add(task)
+                task.add_done_callback(_audit_tasks.discard)
             except Exception as exc:
                 # ARCH-H2: WARNING so failures are visible in production (DEBUG is off by default).
                 # Audit log failures are a SOC-2/GDPR liability — "no events" must not be
@@ -205,6 +205,12 @@ def create_app() -> FastAPI:
             status_code=422,
             content={"detail": _json_safe(exc.errors()), "body": str(exc.body)[:200]},
         )
+
+    from aether_os.gateway.scim_patch import ScimError
+
+    @app.exception_handler(ScimError)
+    async def scim_error_handler(_req: _Request, exc: ScimError):
+        return _JSONResponse(status_code=exc.status, content=exc.body, media_type="application/scim+json")
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_req: _Request, exc: Exception):
@@ -234,6 +240,7 @@ def create_app() -> FastAPI:
         ("admin",             "aether_os.gateway.routers.admin_router",             "router",       {},                        True),
         ("admin_platform",    "aether_os.gateway.routers.admin_platform_router",    "router",       {},                        True),
         ("admin_quality",     "aether_os.gateway.routers.admin_quality_router",     "router",       {},                        True),
+        ("llm_controls",      "aether_os.gateway.routers.llm_controls_router",      "router",       {},                        True),
         ("factory_runs",           "aether_os.gateway.routers.factory_runs_router",            "router", {}, True),
         ("run_fork",               "aether_os.gateway.routers.run_fork_router",                "router", {}, True),
         ("clarifying",             "aether_os.gateway.routers.clarifying_router",              "router", {}, True),
@@ -271,6 +278,7 @@ def create_app() -> FastAPI:
         ("intelligence",  "aether_os.gateway.routers.intelligence_router",  "router",       {},                        False),
         ("compliance",    "aether_os.gateway.routers.compliance_router",    "router",       {},                        False),
         ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),
+        ("scim_groups",   "aether_os.gateway.routers.scim_groups_router",   "router",       {},                        False),
         ("agents",        "aether_os.gateway.routers.agents_router",        "router",       {},                        False),
         ("guardian",      "aether_os.gateway.routers.guardian_router",      "router",       {},                        False),
         ("guardian_snapshots", "aether_os.gateway.routers.guardian_snapshots_router", "router", {},                    False),

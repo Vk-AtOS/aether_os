@@ -37,7 +37,7 @@ The current_user dict has an "org_id" key. Use it. Never return records from oth
 
 async def _llm_models_and_schemas(
     llm, project_name: str, domain: str, entities: list, raw_input: str, arch_doc: dict,
-    mem_hint: str = "", multi_tenancy: bool = False,
+    mem_hint: str = "", multi_tenancy: bool = False, org_id: str | None = None,
 ) -> Tuple[str, str]:
     """One LLM call → (models.py, schemas.py)."""
     entities_json = json.dumps(entities, indent=2)
@@ -46,7 +46,8 @@ async def _llm_models_and_schemas(
     golden_hint = ""
     try:
         from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p04
-        examples = await get_golden_examples(domain, limit=2)
+        # Tenant data: only this org's (and platform-owned) builds may reach the prompt.
+        examples = await get_golden_examples(domain, limit=2, org_id=org_id)
         golden_hint = format_golden_hint_p04(examples)
     except Exception as exc:
         logger.debug("p04a crud_generator: golden examples retrieval failed (non-fatal): %s", exc)

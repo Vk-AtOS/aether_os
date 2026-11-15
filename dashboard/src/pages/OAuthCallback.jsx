@@ -1,20 +1,24 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { parseCallback } from '../oauthCallback';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 const OAuthCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const token = searchParams.get('token');
-  const err = searchParams.get('error');
-  const error = err ? decodeURIComponent(err) : (!token ? 'No authentication token received.' : '');
+  const result = parseCallback(searchParams);
+  const error = result.kind === 'error' ? result.message : '';
 
   useEffect(() => {
-    if (error) return;
-    api.setToken(token, searchParams.get('refresh_token'));
-    navigate('/', { replace: true });
-  }, [error, token, searchParams, navigate]);
+    if (result.kind === 'mfa') {
+      // Hand the challenge to the login page's code step (route state keeps it out of history/URL).
+      navigate('/login', { replace: true, state: { mfaToken: result.mfaToken } });
+    } else if (result.kind === 'session') {
+      api.setToken(result.token, result.refreshToken);
+      navigate('/', { replace: true });
+    }
+  }, [result.kind, result.mfaToken, result.token, result.refreshToken, navigate]);
 
   if (error) {
     return (

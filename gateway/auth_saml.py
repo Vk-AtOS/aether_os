@@ -38,6 +38,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation, User
 from aether_os.gateway.auth import get_password_hash
 from aether_os.gateway.auth_refresh import issue_token_pair
+from aether_os.gateway.policy_guard import enforce_seat
 
 logger = logging.getLogger(__name__)
 saml_router = APIRouter(prefix="/auth/saml", tags=["saml"])
@@ -167,6 +168,7 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
             org = await session.get(Organisation, idp_org_id)
             if not org or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Organisation not found")
+            await enforce_seat(org.id, "saml")  # JIT provisioning must not exceed the plan's seats
             role = "member"
         else:
             slug = email.split("@")[0].lower().replace(".", "-") + "-" + secrets.token_hex(3)

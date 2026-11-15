@@ -6,6 +6,7 @@ import re
 import os
 import json
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -63,13 +64,34 @@ def _run_pip_audit(project_dir: str) -> list["Finding"]:
     return findings
 
 
+_PINNED = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9,._-]+\])?==[A-Za-z0-9.+!_-]+$")
+
+
+def _pinned_requirements(req_file: Path) -> str:
+    """Only plain `name==version` lines. The file belongs to a generated (untrusted) project:
+    VCS/URL/path requirements and ranges would make pip-audit build or resolve packages,
+    which runs arbitrary setup code on the host outside the sandbox."""
+    lines = []
+    for raw in req_file.read_text(errors="replace").splitlines():
+        line = raw.split("#", 1)[0].split(";", 1)[0].strip()
+        if _PINNED.match(line):
+            lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
 def _run_pip_audit_uncached(req_file: Path) -> list["Finding"]:
     findings: list[Finding] = []
     try:
-        res = subprocess.run(
-            ["pip-audit", "-r", str(req_file), "-f", "json", "--progress-spinner", "off"],
-            capture_output=True, text=True, timeout=120,
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pinned = Path(tmp) / "requirements.txt"
+            pinned.write_text(_pinned_requirements(req_file))
+            # --no-deps --disable-pip: look the pinned versions up in the vulnerability DB; never
+            # resolve or install anything.
+            res = subprocess.run(
+                ["pip-audit", "-r", str(pinned), "--no-deps", "--disable-pip", "-f", "json",
+                 "--progress-spinner", "off"],
+                capture_output=True, text=True, timeout=120,
+            )
         if res.stdout:
             data = json.loads(res.stdout)
             for dep in data.get("dependencies", []):

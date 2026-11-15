@@ -182,7 +182,10 @@ export const SCIMPanel = ({
             <div><span className="text-success">GET</span>    /api/scim/v2/Users/&#123;id&#125;</div>
             <div><span className="text-accent">POST</span>   /api/scim/v2/Users</div>
             <div><span className="text-yellow-400">PUT</span>    /api/scim/v2/Users/&#123;id&#125;</div>
+            <div><span className="text-yellow-400">PATCH</span>  /api/scim/v2/Users/&#123;id&#125; (active=false deactivates)</div>
             <div><span className="text-danger">DELETE</span> /api/scim/v2/Users/&#123;id&#125;</div>
+            <div><span className="text-success">GET</span>    /api/scim/v2/Groups, /ServiceProviderConfig, /ResourceTypes, /Schemas</div>
+            <div><span className="text-accent">POST</span>   /api/scim/v2/Groups; <span className="text-yellow-400">PUT</span> <span className="text-yellow-400">PATCH</span> <span className="text-danger">DELETE</span> /Groups/&#123;id&#125;</div>
           </div>
         </div>
       </div>

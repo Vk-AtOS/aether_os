@@ -7,8 +7,9 @@ import pytest_asyncio
 
 import aether_os.core.db as db
 from aether_os.core.errors import LLMUnavailable
-from aether_os.core.llm import budget
+from aether_os.core.llm import budget, controls
 from aether_os.core.model_router import ModelRouter
+from aether_os.core.models import Organisation
 
 pytestmark = pytest.mark.asyncio
 
@@ -17,10 +18,15 @@ pytestmark = pytest.mark.asyncio
 async def dbenv(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/b.db")
     monkeypatch.delenv("LLM_KILL_SWITCH", raising=False)
+    monkeypatch.setattr(controls, "_orgs", {})
     monkeypatch.setattr(db, "_engine", None)
     monkeypatch.setattr(db, "_session_factory", None)
     async with db.get_engine().begin() as conn:
         await conn.run_sync(db.Base.metadata.create_all)
+    async with db.get_session_factory()() as s:   # an org that does not exist is refused (fail closed)
+        for oid in ("org-x", "org-y", "org-z"):
+            s.add(Organisation(id=oid, name=oid, slug=oid, plan="starter"))
+        await s.commit()
     yield
     await db.get_engine().dispose()
 
