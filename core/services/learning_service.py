@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ async def upsert_pattern(
     value: Any,
     run_id: Optional[str],
     session: AsyncSession,
+    _retried: bool = False,
 ) -> None:
     """Upsert a learned pattern for a user. Confidence grows with repeated observation."""
     if pattern_type not in _VALID_PATTERN_TYPES:
@@ -121,7 +123,14 @@ async def upsert_pattern(
                 source_run_ids=json.dumps([run_id]) if run_id else "[]",
             )
         )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # A concurrent first observation inserted the same key (uq_learning_pattern_key): retry once as an update.
+        await session.rollback()
+        if _retried:
+            raise
+        await upsert_pattern(org_id, user_id, pattern_type, pattern_key, value, run_id, session, _retried=True)
 
 
 async def extract_patterns_from_run(
