@@ -50,3 +50,26 @@ async def test_council_timeout_is_visible_in_run_data_and_not_reported_as_passed
     assert "did not run" in run.message
     types = [e["type"] for e in events]
     assert "council_delivery_unavailable" in types and "council_delivery_passed" not in types
+
+
+async def test_unavailable_council_notifies_the_org_and_writes_the_ledger(run_id, monkeypatch):
+    # KAN-170: an unreviewed delivery must leave a ledger entry and an in-app notification, not just an event.
+    from aether_os.core.models import Notification
+
+    async def fake_publish(rid, ev): pass
+    monkeypatch.setattr(ac, "publish_event", fake_publish)
+    logged = []
+
+    class FakeLedger:
+        async def async_log_audit_event(self, **kw): logged.append(kw)
+    monkeypatch.setattr(ac, "get_ledger", lambda: FakeLedger())
+
+    class BrokenCouncil:
+        async def run(self, **kw): raise RuntimeError("model down")
+    monkeypatch.setattr(ac, "DeliveryCouncil", BrokenCouncil)
+    await ac.delivery_council_check(run_id, "Shop", "raw", "general", {}, "org_abc", {})
+
+    assert logged and logged[0]["action"] == "council_delivery_unavailable" and logged[0]["org_id"] == "org_abc"
+    async with db.get_session_factory()() as s:
+        notes = (await s.execute(select(Notification).where(Notification.org_id == "org_abc"))).scalars().all()
+    assert [n.type for n in notes] == ["council_unavailable"] and "Shop" in notes[0].title
