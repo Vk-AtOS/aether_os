@@ -96,9 +96,10 @@ services:
       # Field-level encryption key (generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
       AETHER_FIELD_KEY: ${AETHER_FIELD_KEY:-}
       # Optional Velaris integration (run the `velaris` profile or point at an external instance)
+      # With the `velaris` profile set VELARIS_API_URL=http://velaris:8730 (see .env.example). The key goes in as PEM text.
       VELARIS_API_URL: ${VELARIS_API_URL:-}
       VELARIS_API_SECRET: ${VELARIS_API_SECRET:-}
-      VELARIS_IDENTITY_PRIVATE_KEY: ${VELARIS_IDENTITY_PRIVATE_KEY:-}
+      VELARIS_IDENTITY_PRIVATE_KEY_PEM: ${VELARIS_IDENTITY_PRIVATE_KEY_PEM:-}
       # Error tracking
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Admin account created on first startup
@@ -130,8 +131,12 @@ services:
       # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
       - /home/aether/.aether_os:/home/aether/.aether_os
       - /var/run/docker.sock:/var/run/docker.sock
+    # SIGTERM -> uvicorn finishes in-flight requests; compose waits this long before SIGKILL.
+    init: true
+    stop_grace_period: 60s
+    # Liveness only (no dependencies): a Postgres blip must not make the orchestrator restart a healthy API.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -164,18 +169,59 @@ services:
       retries: 3
 
   # ── Velaris (OPTIONAL: docker compose --profile velaris up) ──────────────────
-  velaris:
+  # One deployment serves one organisation (VELARIS_ORG = the AetherOS organisation id). The API (8730) is never published:
+  # only the api service above reaches it, over the compose network. The public app (8731) is published on loopback only,
+  # for nginx (velaris_knackforge/deploy/nginx). Build the image there: docker build -f deploy/Dockerfile -t velaris:local .
+  # Owner steps once (never automatic):
+  #   mkdir -p secrets && openssl genpkey -algorithm ED25519 -out secrets/velaris_identity.pem
+  #   openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_identity.pub.pem
+  #   put VELARIS_API_SECRET (openssl rand -hex 32) and the private key as VELARIS_IDENTITY_PRIVATE_KEY_PEM in .env
+  velaris: &velaris
     profiles: ["velaris"]
     image: ${VELARIS_IMAGE:?VELARIS_IMAGE is required for the velaris profile}
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    read_only: true                      # writable paths: the data volume and /tmp
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     expose:
       - "8730"
-    environment:
+    environment: &velaris_env
       VELARIS_DATA: /data
+      VELARIS_ORG: ${VELARIS_ORG:?VELARIS_ORG is required for the velaris profile (the AetherOS organisation id)}
+      VELARIS_API_HOST: 0.0.0.0
       VELARIS_API_SECRET: ${VELARIS_API_SECRET:?VELARIS_API_SECRET is required for the velaris profile}
-      VELARIS_IDENTITY_PUBLIC_KEY: ${VELARIS_IDENTITY_PUBLIC_KEY:-}
+      VELARIS_IDENTITY_PUBLIC_KEY: /run/identity/velaris_identity.pub.pem
     volumes:
       - velaris_data:/data
+      - ./secrets/velaris_identity.pub.pem:/run/identity/velaris_identity.pub.pem:ro
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "8730", "/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  velaris_public:
+    <<: *velaris
+    command: ["python", "-m", "velaris.api.public"]
+    expose: []
+    ports:
+      - "127.0.0.1:8731:8731"
+    environment:
+      VELARIS_DATA: /data
+      VELARIS_ORG: ${VELARIS_ORG:?VELARIS_ORG is required for the velaris profile (the AetherOS organisation id)}
+      VELARIS_PUBLIC_HOST: 0.0.0.0
+      VELARIS_PUBLIC_TRUST_PROXY: "1"
+    volumes:
+      - velaris_data:/data
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py", "8731"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   velaris_data:

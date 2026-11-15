@@ -7,7 +7,8 @@ Every request carries
      VELARIS_IDENTITY_PRIVATE_KEY (PEM path). Claims: iss aetheros, aud velaris, sub, org,
      roles, employee_id, iat, exp (ttl <= 300 s) and nonce (= the request's nonce).
 
-Environment: VELARIS_API_URL, VELARIS_API_SECRET, VELARIS_IDENTITY_PRIVATE_KEY.
+Environment: VELARIS_API_URL, VELARIS_API_SECRET, and the key as VELARIS_IDENTITY_PRIVATE_KEY (a path)
+or VELARIS_IDENTITY_PRIVATE_KEY_PEM (the PEM itself, for platforms that inject env, not files; the path wins).
 Velaris holds only the public key and VELARIS_ORG must equal the AetherOS org id.
 
 Owner setup (once, on the AetherOS side; never created automatically):
@@ -123,15 +124,23 @@ def generate_identity_key(path: str) -> None:
         f.write(pem)
 
 
-def _load_key(path: str) -> Ed25519PrivateKey:
+def _parse_key(pem: bytes) -> Ed25519PrivateKey:
     try:
-        key = serialization.load_pem_private_key(Path(path).read_bytes(), password=None)
-    except (OSError, ValueError, TypeError) as e:
+        key = serialization.load_pem_private_key(pem, password=None)
+    except (ValueError, TypeError) as e:
         logger.warning("velaris identity key unreadable: %s", type(e).__name__)
         raise VelarisUnavailable("the Velaris identity key could not be read") from None
     if not isinstance(key, Ed25519PrivateKey):
         raise VelarisUnavailable("the Velaris identity key is not an Ed25519 key")
     return key
+
+
+def _load_key(path: str) -> Ed25519PrivateKey:
+    try:
+        return _parse_key(Path(path).read_bytes())
+    except OSError as e:
+        logger.warning("velaris identity key unreadable: %s", type(e).__name__)
+        raise VelarisUnavailable("the Velaris identity key could not be read") from None
 
 
 class VelarisClient:
@@ -146,11 +155,13 @@ class VelarisClient:
         url = os.environ.get("VELARIS_API_URL", "").strip()
         secret = os.environ.get("VELARIS_API_SECRET", "").encode()
         key_path = os.environ.get("VELARIS_IDENTITY_PRIVATE_KEY", "").strip()
-        if not (url and secret and key_path):
+        key_pem = os.environ.get("VELARIS_IDENTITY_PRIVATE_KEY_PEM", "").strip()
+        if not (url and secret and (key_path or key_pem)):
             raise VelarisUnavailable("Velaris is not connected")
         if len(secret) < MIN_SECRET_BYTES:
             raise VelarisUnavailable("VELARIS_API_SECRET is shorter than 32 bytes")
-        return cls(url, secret, _load_key(key_path), timeout=timeout, transport=transport)
+        key = _load_key(key_path) if key_path else _parse_key(key_pem.encode())
+        return cls(url, secret, key, timeout=timeout, transport=transport)
 
     def _signed(self, who: Identity, method: str, path: str, query: str, body: bytes,
                 content_type: Optional[str]) -> Tuple[str, Dict[str, str]]:
