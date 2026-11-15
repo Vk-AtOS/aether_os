@@ -79,7 +79,7 @@ const Billing = () => {
     api.client.get('/billing/plans').catch(() => ({ data: null })),
     api.getBillingStatus().catch((e) => ({ data: null, error: apiError(e) || 'Plan period could not be loaded.' })),
     // Invoices may not exist for every payment method.
-    api.client.get('/billing/invoices').catch(() => ({ data: [] })),
+    api.getInvoices().catch(() => ({ data: [] })),
   ])
     .then(([usageRes, plansRes, statusRes, invoicesRes]) => {
       setUsage(usageRes.data);
