@@ -11,7 +11,7 @@ export const Masked = ({ value }) => {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : JSON.stringify(value);
   return (
     <span className="font-mono">
-      {show ? text : `${'•'.repeat(6)}${text.length > 4 ? text.slice(-2) : ''}`}
+      {show ? text : '•'.repeat(6)}
       <button type="button" className="ml-2 text-muted align-middle" aria-label={show ? 'Hide value' : 'Show value'} onClick={() => setShow(!show)}>
         {show ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
       </button>

@@ -124,20 +124,25 @@ export const RunOutput = ({ runId }) => {
   useEffect(() => {
     if (!runId) return;
     let cancelled = false;
+    let timer = null;
+    let failures = 0;
     const poll = async () => {
       try {
         const res = await api.getRun(runId);
-        if (!cancelled) {
-          setRun(res.data); setLoading(false);
-          if (!['completed','failed','cancelled','rejected'].includes(res.data?.status)) setTimeout(poll, 3000);
-        }
+        if (cancelled) return;
+        failures = 0;
+        setRun(res.data); setLoading(false);
+        if (!['completed','failed','cancelled','rejected'].includes(res.data?.status)) timer = setTimeout(poll, 3000);
       } catch (e) {
         console.warn('RunOutput poll failed:', e);
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setLoading(false);
+        // One failed poll (a blip) must not freeze the run view; give up after 5 in a row.
+        if (++failures < 5) timer = setTimeout(poll, 3000 * failures);
       }
     };
     poll();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [runId]);
 
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 text-accent animate-spin" /><span className="ml-3 text-muted">Loading run…</span></div>;
@@ -173,8 +178,8 @@ export const RunOutput = ({ runId }) => {
       )}
       {run.status === 'completed' && (
         <div className="flex flex-wrap gap-3">
-          {run.artifact_url && (
-            <a href={run.artifact_url} className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-semibold rounded-lg hover:bg-emerald-500/20 transition-colors">
+          {/^(https?:\/\/|\/api\/)/.test(run.artifact_url || '') && (
+            <a href={run.artifact_url} rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-semibold rounded-lg hover:bg-emerald-500/20 transition-colors">
               <ExternalLink className="w-4 h-4" /> Download Artifact
             </a>
           )}
