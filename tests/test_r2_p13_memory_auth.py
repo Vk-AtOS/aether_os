@@ -86,6 +86,7 @@ def test_postgres_backend_stores_text_only_and_reports_a_failed_write(tmp_path, 
     monkeypatch.setitem(sys.modules, "chromadb", None)
     monkeypatch.setenv("PGVECTOR_ENABLED", "true")
     monkeypatch.setenv("DATABASE_URL", "postgresql://x/y")
+    monkeypatch.chdir(tmp_path)          # the module's file/Chroma stores are relative to the working directory
     out = tmp_path / "out"
     asyncio.run(task_agent.run(SimpleNamespace(input_data={}), [], out))
     monkeypatch.syspath_prepend(str(out))
