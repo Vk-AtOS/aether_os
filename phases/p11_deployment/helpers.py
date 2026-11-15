@@ -8,16 +8,12 @@ live in writers.py.
 """
 from __future__ import annotations
 import asyncio
-import builtins
-import importlib.util
 import json
 import logging
 import os
 import random
 import socket
 import subprocess
-import sys
-import types
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -86,64 +82,6 @@ def find_main_py(project_dir: Path, canonical_src_dir: Optional[str] = None) -> 
     # Last resort: any main.py (including scaffolding stub)
     found_all = list(project_dir.rglob("main.py"))
     return found_all[0] if found_all else None
-
-
-def generate_fallback_app(
-    target_dir: Path,
-    raw_input: str,
-    dest: Optional[Path] = None,
-) -> Optional[Path]:
-    """
-    Generate a domain-specific app from raw_input when p04_backend timed out.
-    Writes to dest (or target_dir/main.py) and returns the path.
-    """
-    try:
-        # Import domain templates from p04a
-        ta_path = Path(__file__).parent.parent / "p04a_backend_codegen" / "task_agent.py"
-        if not ta_path.exists():
-            return None
-        # Load the module without triggering package __init__
-        real_import = builtins.__import__
-
-        def _stub_import(name, *args, **kwargs):
-            if "aether_os" in name:
-                m = sys.modules.get(name)
-                if m is None:
-                    m = types.ModuleType(name)
-                    sys.modules[name] = m
-                return m
-            return real_import(name, *args, **kwargs)
-
-        builtins.__import__ = _stub_import
-        try:
-            spec = importlib.util.spec_from_file_location("_p04a_ta", ta_path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-        finally:
-            builtins.__import__ = real_import
-
-        import ast
-        code = mod._generate_from_requirement(raw_input)
-        ast.parse(code)  # validate
-
-        if dest is None:
-            dest = target_dir / "main.py"
-        dest.write_text(code)
-
-        # Also write httpx to requirements.txt if missing
-        req = dest.parent / "requirements.txt"
-        if req.exists():
-            if "httpx" not in req.read_text():
-                req.write_text(req.read_text() + "\nhttpx>=0.27.0\n")
-        else:
-            req.write_text(
-                "fastapi>=0.111.0\nuvicorn[standard]>=0.29.0\n"
-                "pydantic>=2.0.0\nhttpx>=0.27.0\npython-dotenv\n"
-            )
-        return dest
-    except Exception as exc:
-        logger.warning("[p11] fallback app generation failed: %s", exc)
-        return None
 
 
 # ── Port allocation ───────────────────────────────────────────────────────────
