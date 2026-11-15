@@ -93,6 +93,8 @@ spec:
             status:
               type: object
               properties:
+                phase:
+                  type: string
                 observedGeneration:
                   type: integer
                   format: int64
@@ -128,170 +130,144 @@ spec:
 
 def generate_controller_go(entity: Dict[str, Any], slug: str) -> str:
     """
-    Go controller using operator-sdk / controller-runtime Reconciler pattern.
-    Sets Provisioning on create, Ready on success, Degraded on error.
+    Go controller (controller-runtime) for one entity kind.
+
+    Works on unstructured objects, so no typed API package (api/v1alpha1) has to exist or be
+    code-generated: the operator compiles from the generated files alone. Reconcile validates
+    the spec (required fields), then records status.phase, the Ready/Degraded conditions and
+    observedGeneration. A spec error is permanent: Degraded, no retry loop until the object changes.
     """
     kind = _pascal(entity.get("table", "Resource"))
-    group = f"{slug}.aetheros.io"
-    pkg_slug = slug.replace("-", "")
+    required = [str(f["name"]) for f in entity.get("fields", []) if f.get("required") and f.get("name")]
+    required_go = ", ".join('"%s"' % r.replace("\\", "").replace('"', "") for r in required)
+    return (
+        _CONTROLLER_GO.replace("__KIND__", kind)
+        .replace("__GROUP__", f"{slug}.aetheros.io")
+        .replace("__PLURAL__", kind.lower() + "s")
+        .replace("__REQUIRED__", required_go)
+    )
 
-    return f"""\
+
+_CONTROLLER_GO = """\
 package controllers
 
 import (
 \t"context"
 \t"fmt"
+\t"time"
 
-\tapiv1 "k8s.io/api/core/v1"
 \t"k8s.io/apimachinery/pkg/api/errors"
-\tmetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+\t"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 \t"k8s.io/apimachinery/pkg/runtime"
+\t"k8s.io/apimachinery/pkg/runtime/schema"
 \tctrl "sigs.k8s.io/controller-runtime"
 \t"sigs.k8s.io/controller-runtime/pkg/client"
 \t"sigs.k8s.io/controller-runtime/pkg/log"
-
-\t{pkg_slug}v1alpha1 "{slug}-operator/api/v1alpha1"
 )
 
-// {kind}Reconciler reconciles a {kind} object.
-type {kind}Reconciler struct {{
+// __KIND__GVK identifies the custom resource this controller reconciles.
+var __KIND__GVK = schema.GroupVersionKind{Group: "__GROUP__", Version: "v1alpha1", Kind: "__KIND__"}
+
+// required__KIND__Fields must be present in spec.
+var required__KIND__Fields = []string{__REQUIRED__}
+
+// __KIND__Reconciler reconciles a __KIND__ object.
+type __KIND__Reconciler struct {
 \tclient.Client
 \tScheme *runtime.Scheme
-}}
+}
 
-// +kubebuilder:rbac:groups={group},resources={kind.lower()}s,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups={group},resources={kind.lower()}s/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups={group},resources={kind.lower()}s/finalizers,verbs=update
+// +kubebuilder:rbac:groups=__GROUP__,resources=__PLURAL__,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=__GROUP__,resources=__PLURAL__/status,verbs=get;update;patch
 
-const {kind.lower()}Finalizer = "{slug}.aetheros.io/finalizer"
+func (r *__KIND__Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+\tlogger := log.FromContext(ctx)
 
-func (r *{kind}Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {{
-\tlog := log.FromContext(ctx)
+\tobj := &unstructured.Unstructured{}
+\tobj.SetGroupVersionKind(__KIND__GVK)
+\tif err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+\t\tif errors.IsNotFound(err) {
+\t\t\treturn ctrl.Result{}, nil
+\t\t}
+\t\treturn ctrl.Result{}, err
+\t}
+\tif !obj.GetDeletionTimestamp().IsZero() {
+\t\treturn ctrl.Result{}, nil // nothing outside the cluster to clean up, so no finalizer
+\t}
 
-\t// Fetch the {kind} resource
-\tvar resource {pkg_slug}v1alpha1.{kind}
-\tif err := r.Get(ctx, req.NamespacedName, &resource); err != nil {{
-\t\tif errors.IsNotFound(err) {{
-\t\t\treturn ctrl.Result{{}}, nil
-\t\t}}
-\t\tlog.Error(err, "Unable to fetch {kind}")
-\t\treturn ctrl.Result{{}}, err
-\t}}
+\tphase, reason, message, status := "Ready", "Reconciled", "Resource is ready", "True"
+\tif err := validate__KIND__(obj); err != nil {
+\t\tphase, reason, message, status = "Degraded", "InvalidSpec", err.Error(), "False"
+\t\tlogger.Info("__KIND__ spec is invalid", "name", req.Name, "reason", message)
+\t}
 
-\t// Handle deletion via finalizer
-\tif resource.DeletionTimestamp != nil {{
-\t\tif containsString(resource.Finalizers, {kind.lower()}Finalizer) {{
-\t\t\tif err := r.handleDeletion(ctx, &resource); err != nil {{
-\t\t\t\tlog.Error(err, "Deletion handler failed")
-\t\t\t\treturn ctrl.Result{{}}, err
-\t\t\t}}
-\t\t\tresource.Finalizers = removeString(resource.Finalizers, {kind.lower()}Finalizer)
-\t\t\tif err := r.Update(ctx, &resource); err != nil {{
-\t\t\t\treturn ctrl.Result{{}}, err
-\t\t\t}}
-\t\t}}
-\t\treturn ctrl.Result{{}}, nil
-\t}}
+\tif err := setStatus(obj, phase, reason, message, status); err != nil {
+\t\treturn ctrl.Result{}, err
+\t}
+\tif err := r.Status().Update(ctx, obj); err != nil {
+\t\tif errors.IsConflict(err) {
+\t\t\treturn ctrl.Result{RequeueAfter: time.Second}, nil
+\t\t}
+\t\treturn ctrl.Result{}, err
+\t}
+\tlogger.Info("__KIND__ reconciled", "name", req.Name, "phase", phase)
+\treturn ctrl.Result{}, nil
+}
 
-\t// Add finalizer if missing
-\tif !containsString(resource.Finalizers, {kind.lower()}Finalizer) {{
-\t\tresource.Finalizers = append(resource.Finalizers, {kind.lower()}Finalizer)
-\t\tif err := r.Update(ctx, &resource); err != nil {{
-\t\t\treturn ctrl.Result{{}}, err
-\t\t}}
-\t}}
-
-\t// Set Provisioning condition
-\tif err := r.setCondition(ctx, &resource, "Provisioning", metav1.ConditionTrue, "Reconciling", "Resource is being reconciled"); err != nil {{
-\t\tlog.Error(err, "Failed to set Provisioning condition")
-\t\treturn ctrl.Result{{}}, err
-\t}}
-
-\t// Core reconcile logic — extend here with domain-specific side effects
-\tif err := r.reconcileResource(ctx, &resource); err != nil {{
-\t\t_ = r.setCondition(ctx, &resource, "Degraded", metav1.ConditionTrue, "ReconcileError", fmt.Sprintf("Error: %v", err))
-\t\tlog.Error(err, "Reconcile resource failed")
-\t\treturn ctrl.Result{{RequeueAfter: 30000000000}}, err
-\t}}
-
-\t// Mark Ready
-\tif err := r.setCondition(ctx, &resource, "Ready", metav1.ConditionTrue, "Reconciled", "Resource is ready"); err != nil {{
-\t\treturn ctrl.Result{{}}, err
-\t}}
-\tresource.Status.ObservedGeneration = resource.Generation
-\tif err := r.Status().Update(ctx, &resource); err != nil {{
-\t\treturn ctrl.Result{{}}, err
-\t}}
-
-\tlog.Info("{kind} reconciled", "name", req.Name)
-\treturn ctrl.Result{{}}, nil
-}}
-
-func (r *{kind}Reconciler) reconcileResource(ctx context.Context, resource *{pkg_slug}v1alpha1.{kind}) error {{
-\t// TODO: implement domain-specific resource management
-\t_ = ctx
-\t_ = resource
+func validate__KIND__(obj *unstructured.Unstructured) error {
+\tfor _, field := range required__KIND__Fields {
+\t\tif _, found, _ := unstructured.NestedFieldNoCopy(obj.Object, "spec", field); !found {
+\t\t\treturn fmt.Errorf("spec.%s is required", field)
+\t\t}
+\t}
 \treturn nil
-}}
+}
 
-func (r *{kind}Reconciler) handleDeletion(ctx context.Context, resource *{pkg_slug}v1alpha1.{kind}) error {{
-\t// TODO: implement cleanup logic for external resources
-\t_ = ctx
-\t_ = resource
-\treturn nil
-}}
+func (r *__KIND__Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+\tu := &unstructured.Unstructured{}
+\tu.SetGroupVersionKind(__KIND__GVK)
+\treturn ctrl.NewControllerManagedBy(mgr).For(u).Complete(r)
+}
+"""
 
-func (r *{kind}Reconciler) setCondition(ctx context.Context, resource *{pkg_slug}v1alpha1.{kind}, condType string, status metav1.ConditionStatus, reason, message string) error {{
-\tnow := metav1.Now()
-\tcondition := apiv1.NodeCondition{{}}
-\t_ = condition
-\tfound := false
-\tfor i, c := range resource.Status.Conditions {{
-\t\tif c.Type == condType {{
-\t\t\tresource.Status.Conditions[i].Status = string(status)
-\t\t\tresource.Status.Conditions[i].LastTransitionTime = now.String()
-\t\t\tresource.Status.Conditions[i].Reason = reason
-\t\t\tresource.Status.Conditions[i].Message = message
-\t\t\tfound = true
-\t\t\tbreak
-\t\t}}
-\t}}
-\tif !found {{
-\t\tresource.Status.Conditions = append(resource.Status.Conditions, struct {{
-\t\t\tType               string
-\t\t\tStatus             string
-\t\t\tLastTransitionTime string
-\t\t\tReason             string
-\t\t\tMessage            string
-\t\t}}{{condType, string(status), now.String(), reason, message}})
-\t}}
-\treturn r.Status().Update(ctx, resource)
-}}
 
-func (r *{kind}Reconciler) SetupWithManager(mgr ctrl.Manager) error {{
-\treturn ctrl.NewControllerManagedBy(mgr).
-\t\tFor(&{pkg_slug}v1alpha1.{kind}{{}}).
-\t\tComplete(r)
-}}
+# One copy for the whole package: every controller calls it, so it cannot live in a per-kind file.
+STATUS_GO = """\
+package controllers
 
-func containsString(slice []string, s string) bool {{
-\tfor _, item := range slice {{
-\t\tif item == s {{
-\t\t\treturn true
-\t\t}}
-\t}}
-\treturn false
-}}
+import (
+\t"time"
 
-func removeString(slice []string, s string) []string {{
-\tvar result []string
-\tfor _, item := range slice {{
-\t\tif item != s {{
-\t\t\tresult = append(result, item)
-\t\t}}
-\t}}
-\treturn result
-}}
+\t"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+)
+
+// setStatus writes phase, observedGeneration and the Ready condition (status "True" or "False").
+func setStatus(obj *unstructured.Unstructured, phase, reason, message, status string) error {
+\tnow := time.Now().UTC().Format(time.RFC3339)
+\tcondition := map[string]interface{}{
+\t\t"type": "Ready", "status": status, "reason": reason, "message": message, "lastTransitionTime": now,
+\t}
+\told, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+\tconditions := []interface{}{}
+\tfor _, c := range old {
+\t\tm, ok := c.(map[string]interface{})
+\t\tif !ok || m["type"] == "Ready" {
+\t\t\tif ok && m["status"] == status {
+\t\t\t\tcondition["lastTransitionTime"] = m["lastTransitionTime"] // unchanged status keeps its time
+\t\t\t}
+\t\t\tcontinue
+\t\t}
+\t\tconditions = append(conditions, m)
+\t}
+\tconditions = append(conditions, condition)
+\tif err := unstructured.SetNestedSlice(obj.Object, conditions, "status", "conditions"); err != nil {
+\t\treturn err
+\t}
+\tif err := unstructured.SetNestedField(obj.Object, phase, "status", "phase"); err != nil {
+\t\treturn err
+\t}
+\treturn unstructured.SetNestedField(obj.Object, obj.GetGeneration(), "status", "observedGeneration")
+}
 """
 
 
@@ -376,7 +352,6 @@ subjects:
 
 def generate_main_go(slug: str, entities: List[Dict[str, Any]]) -> str:
     """Operator main.go: registers all controllers and starts the manager."""
-    pkg_slug = slug.replace("-", "")
     controller_setups: List[str] = []
     for ent in entities:
         kind = _pascal(ent.get("table", "resource"))
@@ -398,15 +373,14 @@ import (
 \t"flag"
 \t"os"
 
-\t_ "{slug}-operator/api/v1alpha1"
 \t"{slug}-operator/controllers"
-\t{pkg_slug}v1alpha1 "{slug}-operator/api/v1alpha1"
 \t"k8s.io/apimachinery/pkg/runtime"
 \tutilruntime "k8s.io/apimachinery/pkg/util/runtime"
 \tclientgoscheme "k8s.io/client-go/kubernetes/scheme"
 \tctrl "sigs.k8s.io/controller-runtime"
 \t"sigs.k8s.io/controller-runtime/pkg/healthz"
 \t"sigs.k8s.io/controller-runtime/pkg/log/zap"
+\tmetricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -416,7 +390,6 @@ var (
 
 func init() {{
 \tutilruntime.Must(clientgoscheme.AddToScheme(scheme))
-\tutilruntime.Must({pkg_slug}v1alpha1.AddToScheme(scheme))
 }}
 
 func main() {{
@@ -435,8 +408,7 @@ func main() {{
 
 \tmgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{{
 \t\tScheme:                 scheme,
-\t\tMetricsBindAddress:     metricsAddr,
-\t\tPort:                   9443,
+\t\tMetrics:                metricsserver.Options{{BindAddress: metricsAddr}},
 \t\tHealthProbeBindAddress: probeAddr,
 \t\tLeaderElection:         enableLeaderElection,
 \t\tLeaderElectionID:       "{slug}.aetheros.io",
@@ -549,6 +521,7 @@ def generate_operator_package(
 
     (operator_dir / "main.go").write_text(generate_main_go(slug, entities))
     (operator_dir / "go.mod").write_text(generate_go_mod_operator(slug))
+    (controllers_dir / "status.go").write_text(STATUS_GO)
     (operator_dir / "Dockerfile").write_text(generate_operator_dockerfile())
     (rbac_dir / "role.yaml").write_text(generate_rbac_yaml(slug, entities))
 
