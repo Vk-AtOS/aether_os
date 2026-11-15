@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import AsyncGenerator
 
-from sqlalchemy import event, text
+from sqlalchemy import event, exc as sa_exc, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
@@ -166,6 +166,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             logger.warning("db session error, rolling back: %s", e)
             await session.rollback()
             raise
+
+
+# "The database cannot be reached" (not "the query is wrong"): the API answers these with 503, see gateway/api.py.
+# DBAPIError is only included through its connection-level subclasses so that a bad query stays a 500.
+DEPENDENCY_DOWN = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError, ConnectionError)
 
 
 class SchemaNotMigrated(RuntimeError):
