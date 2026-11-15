@@ -1,135 +1,99 @@
-# AetherOS — Cost Model
+# AetherOS - Cost Model
 
-This document provides unit economics for operating AetherOS at various scales. All figures are estimates based on observed pipeline behavior as of May 2026; actual costs will vary with LLM pricing changes, workload characteristics, and infrastructure choices.
+Checked against the code at commit `e5c23fd`. This file lists only what can be read from the code: the price
+table, the spend cap and the plan defaults. No recorded run exists: `benchmarks/results/` holds only
+`.gitkeep`. So the cost, token count and duration of a pipeline run, infrastructure cost and margins are
+**not measured**. Earlier versions of this file gave per-run dollar ranges, "about 21 calls", run times, runs
+per hour and a 93-95% margin; none of those had a source and they are removed.
 
----
+## What the pipeline calls
 
-## LLM Costs Per Pipeline Run
+The pipeline has 12 stages, not 21 phases (`orchestrator/phase_sequence.py:90-103`). Each stage calls one or
+more phase agents, and phases call the model router an unknown number of times. Calls per run: not measured.
+(Some stage docstrings give "~5 calls" or "~3 calls"; these are the authors' estimates, not recordings.)
 
-A standard 21-phase pipeline makes approximately 21 LLM calls (one primary call per phase, with additional calls in self-healing and review phases). Average token consumption per call is roughly 2,000 tokens (input + output combined for short to medium complexity prompts).
+## Price table in code
 
-| Provider / Model | Cost per run (est.) | Notes |
-|-----------------|---------------------|-------|
-| OpenRouter — deepseek/deepseek-prover-v2:free | $0.00 | Free-tier model; variable availability and rate limits; suitable for development and demos |
-| Anthropic — claude-sonnet-4-6 | $0.02 – $0.08 | ~21 calls × avg 2K tokens × $0.003/1K input + $0.015/1K output; scales with prompt complexity |
-| Google — Gemini 2.5 Flash | $0.01 – $0.03 | Lowest cost among capable models; ~21 calls × avg 2K tokens at Gemini Flash pricing |
-| Ollama (self-hosted) | $0.00 (compute only) | Eliminates per-token cost; requires GPU server; latency higher than hosted APIs |
+Two tables exist and they differ.
 
-### Notes on Token Usage
+`core/llm/budget.py:61-80` (used to compute `estimated_cost_usd`, which the spend cap reads), USD per million tokens:
 
-- **Simple apps** (3-5 entities, single domain): ~1,000–1,500 tokens/call → lower end of range
-- **Complex apps** (10+ entities, multiple integrations, multi-domain compliance): ~3,000–5,000 tokens/call → higher end; cost may reach $0.15–0.25/run with Claude
-- **Self-healing phase (p07b)**: adds 1–3 extra LLM calls per failing test; budgets should account for ~10% overhead on average
-- The model router falls back through the tier hierarchy (Anthropic → Gemini → OpenRouter → Ollama) on API errors, which can affect cost if fallback models have different pricing
+| Model key | Input | Output |
+|-----------|-------|--------|
+| `claude-sonnet-4-6` | 3.00 | 15.00 |
+| `claude-haiku-4-5-20251001` | 0.25 | 1.25 |
+| `gemini-2.5-flash` | 0.15 | 0.60 |
+| `gemini-2.5-pro` | 1.25 | 5.00 |
+| any other model (`default`) | 3.00 | 15.00 |
 
----
+`core/llm/client.py:186-203` (used to compute `runs.cost` per call, USD per 1K tokens, shown here per million):
+Bedrock `amazon.nova-pro-v1:0` 0.80 / 3.20, `amazon.nova-lite-v1:0` 0.06 / 0.24,
+`anthropic.claude-3-5-sonnet-20241022-v2:0` 3.00 / 15.00, `anthropic.claude-3-haiku-20240307-v1:0` 0.25 / 1.25,
+`us.meta.llama3-3-70b-instruct-v1:0` 0.72 / 0.72, `claude-sonnet-4-6` 3.00 / 15.00,
+`claude-haiku-4-5-20251001` 0.25 / 1.25, `gemini-2.5-pro` 1.25 / 5.00, `gemini-2.0-flash` 0.15 / 0.60.
+A model not in this table (for example an OpenRouter model) is charged a flat 1.00 per million tokens
+(`client.py:255-256`). Output tokens are estimated as `len(response) // 4` (`client.py:241`), so recorded cost is
+an estimate. Whether these rates match the providers' current price lists: not verified.
 
-## Infrastructure Requirements
+Which model a run uses first depends on `PRIMARY_LLM`, default `bedrock` (`core/model_router_providers.py:100`).
+The default chain is Bedrock Nova Pro, then a Bedrock fallback model if it differs, then Anthropic and Gemini if
+configured, then OpenRouter models, then Ollama (`model_router_providers.py:131-150`). A configured Anthropic key
+is not the default first choice.
 
-### Minimum (Development / Low Volume)
+## Timeouts and retries (`core/model_router_providers.py`)
 
-| Component | Spec | Estimated monthly cost |
-|-----------|------|----------------------|
-| VPS (application server) | 2 vCPU, 4 GB RAM | $20 – $40 (DigitalOcean Droplet, Hetzner CX22) |
-| PostgreSQL | Included on VPS | $0 (co-located) |
-| Redis | Included on VPS | $0 (co-located) |
-| Storage (artifacts) | 20 GB SSD (included in most VPS plans) | $0 |
-| **Total** | | **$20 – $40/month** |
+- One attempt per model: `retry_count` is 1 for every entry (lines 120-136), so a transient error is not retried
+  on the same model unless the router's self-critique path applies (`core/model_router.py:431-442`).
+- Timeouts: Anthropic 60 s, Gemini 45 s, OpenRouter 60 s per model, Bedrock `BEDROCK_TIMEOUT` (default 60 s),
+  Ollama `OLLAMA_TIMEOUT` (default 120 s; 300 s in offline mode).
+- A timeout or a hard error (bad key, model not found) moves to the next model in the chain; rate-limit and
+  overload errors are classed as retry (`model_router_providers.py:157-180`). Between models the router waits
+  before the next call (`model_router.py:269-283`).
+- Models marked dead by a failure are skipped for a time (`_DEAD_MODELS`, `_dead_ttl()`).
+- Free OpenRouter models (`:free`) are removed from the chain unless `ALLOW_COMMUNITY_LLM` is set, and all
+  OpenRouter models are removed for prompts classed as sensitive (`model_router.py:203-210`). A `trial` plan is
+  further limited to free-tier models (`model_router.py:233-255`). Fallback to a model with a different price changes the
+  cost of a call.
 
-Suitable for: development, demos, fewer than 20 runs/month.
+## Spend cap per organisation
 
-Constraint: co-located Postgres and Redis compete for RAM with the application; pipeline runs are serialised in practice.
+Before each model call, `core/llm/guard.py:admit()` runs: global kill switch, organisation exists and is not
+disabled, plan known, then `check_budget` (`core/llm/budget.py:133-160`). It refuses the call when either the
+monthly token allowance or the monthly USD allowance would be passed, counting the worst-case cost of the call
+(`guard.py:36-39`). It sends a one-time in-app notification at 80%, and returns a hint to use Haiku from 85%. It
+blocks at 100%. An unknown plan, a missing organisation or a database error refuses the call. Calls with no
+organisation are not capped per organisation (platform plan, USD 500 default, listed below).
+A single organisation can have its own USD cap: `Organisation.llm_monthly_cap_usd` (`core/models.py:41`).
+Usage is stored in `token_budget_records`, one row per organisation and month.
 
-### Recommended (Production / Small Team)
+Plan defaults (`core/llm/plans.py:22-30`). The file says these defaults still need the owner's review.
 
-| Component | Spec | Estimated monthly cost |
-|-----------|------|----------------------|
-| VPS (application server) | 4 vCPU, 8 GB RAM | $40 – $80 (DigitalOcean General Purpose, Hetzner CX32) |
-| PostgreSQL | Managed (DigitalOcean Managed DB, Supabase free tier) | $10 – $25 |
-| Redis | Managed (Redis Cloud Essentials, 100 MB) | $0 – $7 |
-| Storage (artifacts) | Object storage or additional volume | $5 – $10 |
-| **Total** | | **$55 – $122/month** |
+| Plan | Tokens per month | USD per month |
+|------|------------------|---------------|
+| free | 500,000 | 2 |
+| trial | 500,000 | 5 |
+| starter | 5,000,000 | 50 |
+| growth | 25,000,000 | 250 |
+| pro | 25,000,000 | 250 |
+| enterprise | 999,999,999 | 2,000 |
+| platform (no organisation) | 999,999,999 | 500 |
 
-Suitable for: small agencies, teams of 5–20, up to 200 runs/month.
+The "about 5 / 50 / 250 runs per month" notes in the docstring of `core/llm/budget.py:9-12` have no recorded
+basis: runs per plan are not measured.
 
-### Scale (Multi-Tenant SaaS)
+## Concurrency
 
-| Component | Spec | Estimated monthly cost |
-|-----------|------|----------------------|
-| Application servers (3×) | 4 vCPU, 8 GB RAM each | $120 – $240 |
-| Load balancer | nginx / cloud LB | $10 – $20 |
-| PostgreSQL | Managed, 2 vCPU, 4 GB RAM | $50 – $100 |
-| Redis | Managed, 1 GB cluster | $15 – $30 |
-| Object storage | 500 GB artifacts | $10 – $15 |
-| CDN (dashboard static) | Cloudflare free tier | $0 |
-| **Total** | | **$205 – $405/month** |
+The code limits concurrent pipelines per process with a semaphore set by `PIPELINE_MAX_CONCURRENT` (default 2)
+(`orchestrator/factory_pipeline.py:148`), and per organisation by `MAX_CONCURRENT_RUNS_PER_ORG` (default 5) and
+`MAX_STARTS_PER_ORG_PER_HOUR` (default 20) (`core/rate_limiter.py:161-165`). A run times out after
+`PIPELINE_TIMEOUT_MINUTES` (default 30) (`factory_pipeline.py:144`). Throughput in runs per hour: not measured.
+Run duration: not measured.
 
-Suitable for: 500–2,000 runs/month, multiple concurrent pipeline workers.
+## Not measured
 
----
-
-## Per-Run Processing Time
-
-| Complexity | Estimated duration | Phases driving duration |
-|-----------|-------------------|------------------------|
-| Simple (< 5 entities) | 3 – 4 minutes | p04 backend, p07 testing |
-| Medium (5–10 entities) | 4 – 6 minutes | p04, p05 frontend, p07 |
-| Complex (10+ entities, multi-domain) | 6 – 10 minutes | p04, p05, p07b self-healing |
-
-Timing is dominated by LLM API latency. Self-hosted Ollama on a capable GPU (A10G or better) can reduce wall-clock time by 30–50% for code-generation phases.
-
----
-
-## Scalability
-
-The pipeline is horizontally scalable via the Redis MessageBus architecture:
-
-- Each pipeline run claims an independent Redis key namespace (`aether:bus:{run_id}:*`)
-- Multiple worker processes can each handle one active pipeline run concurrently
-- The `PipelineService` is stateless; workers coordinate only through Redis and the shared database
-- Adding a worker requires no configuration change: start an additional uvicorn process pointing at the same Redis and database
-
-**Practical throughput**:
-- 1 worker: ~6–12 runs/hour (depending on run complexity and LLM speed)
-- 3 workers: ~18–36 runs/hour
-- Rate limits from LLM providers (e.g., Anthropic's RPM limits) are the binding constraint at higher concurrency, not the application layer
-
----
-
-## Total Cost at Representative Volumes
-
-### 100 runs/month
-
-| Cost component | Low estimate | High estimate |
-|---------------|-------------|--------------|
-| Infrastructure (recommended tier) | $55 | $122 |
-| LLM — Claude Sonnet 4.6 (~21 calls × 2K tokens avg) | $2 | $8 |
-| LLM — Gemini 2.5 Flash (alternative) | $1 | $3 |
-| **Total (Claude)** | **$57** | **$130** |
-| **Total (Gemini)** | **$56** | **$125** |
-| **Total (free models only)** | **$55** | **$122** |
-
-### 1,000 runs/month
-
-| Cost component | Low estimate | High estimate |
-|---------------|-------------|--------------|
-| Infrastructure (scale tier, 3 workers) | $205 | $405 |
-| LLM — Claude Sonnet 4.6 | $20 | $80 |
-| LLM — Gemini 2.5 Flash (alternative) | $10 | $30 |
-| **Total (Claude)** | **$225** | **$485** |
-| **Total (Gemini)** | **$215** | **$435** |
-
-**Cost per run at 1,000 runs/month**: $0.22 – $0.49 (Claude), $0.22 – $0.44 (Gemini).
-
----
-
-## Revenue Model Considerations (for Acquirer Reference)
-
-At a $49/month individual plan permitting 50 runs/month, the gross margin at 1,000 active subscribers (50,000 runs/month) is approximately:
-
-- Revenue: $49,000/month
-- Infrastructure (scaled): ~$2,000/month (economies of scale)
-- LLM costs (Gemini, mixed complexity): ~$500 – $1,500/month
-- **Gross margin**: ~93 – 95%
-
-This is an illustrative model. Actual margins depend on plan mix, average run complexity, LLM pricing negotiations, and support costs.
+- Cost per run, tokens per run, LLM calls per run, per provider.
+- Run duration by app size.
+- Infrastructure sizing and monthly cost. Earlier tables of server, database and Redis prices had no source in
+  the repository (deployment files exist in `deploy/`, `helm/` and `docker-compose.yml`, but no measured load).
+- Gross margin, revenue per plan and price per plan. The code holds no price list for subscriptions that was
+  checked in this review.
