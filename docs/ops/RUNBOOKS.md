@@ -47,9 +47,9 @@ refuses to start on a schema that is not at head: run the migrate step, do not s
 * **Drill (monthly, and before every release that touches migrations):**
 
       python3.11 scripts/restore_drill.py --dump <latest .dump> --admin-url postgresql://<user>@<scratch host>/postgres \
-          --anchor-file <the separately kept ledger_anchors file> --note "monthly drill, <who>"
+          --anchor-file <the separately kept ledger_anchors file> --role <low-privilege role> --note "monthly drill, <who>"
 
-  It restores into a scratch database on a server that is **not production**, checks the Alembic head, the core tables, every
+  `DRILL_ROLE_PASSWORD` carries the role's password (never put it on the command line); the role must have no SUPERUSER/CREATEROLE/CREATEDB, it owns the scratch database and does the restore, and dumps with event triggers or untrusted-language functions are refused. An empty or missing anchor file is refused. It restores into a scratch database on a server that is **not production**, checks the Alembic head, the core tables, every
   audit chain, and the chains against the external checkpoints, then drops the scratch database. The record
   (`docs/ops/drills/restore-<UTC>.json`) holds seconds per step: that is the measured recovery time. Commit the record.
   `matches_external_anchors=false` ("tail truncated") means the backup is older than the newest checkpoint: use a newer backup
