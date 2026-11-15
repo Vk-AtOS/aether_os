@@ -96,6 +96,8 @@ Thumbs.db
 # Node (Aether-one had node_modules committed — prevent this)
 node_modules/
 package-lock.json
+# The dashboard lockfile is required: Dockerfile, deploy.sh and setup_vps.sh run `npm ci`, and CI too.
+!dashboard/package-lock.json
 yarn.lock
 bun.lockb
 
