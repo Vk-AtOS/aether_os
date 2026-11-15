@@ -12,6 +12,11 @@ from typing import Sequence, Union
 
 from alembic import op
 
+try:   # one definition shared with the empty-database bootstrap (core/schema_ddl.py)
+    from aether_os.core import schema_ddl
+except ModuleNotFoundError:   # alembic run from the repository root without PYTHONPATH (alembic.ini prepends ".")
+    from core import schema_ddl
+
 revision: str = 'add_decisions_org_status_index'
 down_revision: Union[str, None] = 'merge_a4_a7_heads'
 branch_labels: Union[str, Sequence[str], None] = None
@@ -19,7 +24,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE INDEX IF NOT EXISTS ix_decisions_org_status_created ON decisions(org_id, status, created_at)")
+    schema_ddl.apply(op.get_bind(), only=("ix_decisions_org_status_created",))
 
 
 def downgrade() -> None:

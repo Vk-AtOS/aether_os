@@ -22,6 +22,11 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+try:   # one definition shared with the empty-database bootstrap (core/schema_ddl.py)
+    from aether_os.core import schema_ddl
+except ModuleNotFoundError:   # alembic run from the repository root without PYTHONPATH (alembic.ini prepends ".")
+    from core import schema_ddl
+
 revision: str = 'per_org_ledger_chains'
 down_revision: Union[str, None] = 'add_portal_approval_chain'
 branch_labels: Union[str, Sequence[str], None] = None
@@ -39,26 +44,6 @@ _NEW_CHAIN_COLUMNS = """
     SELECT setval('audit_chain_seq_seq', COALESCE((SELECT max(seq) FROM audit_chain), 0) + 1, false);
     ALTER TABLE audit_chain ALTER COLUMN seq SET DEFAULT nextval('audit_chain_seq_seq');
 """
-
-_PG_TRIGGERS = """
-    CREATE OR REPLACE FUNCTION audit_chain_legacy_frozen() RETURNS trigger AS $$
-    BEGIN
-        RAISE EXCEPTION 'the legacy audit chain is frozen; new entries go to per-organisation chains';
-    END;
-    $$ LANGUAGE plpgsql;
-    DROP TRIGGER IF EXISTS audit_chain_legacy_frozen ON audit_chain;
-    CREATE TRIGGER audit_chain_legacy_frozen BEFORE INSERT ON audit_chain
-        FOR EACH ROW WHEN (NEW.chain_id = 'legacy') EXECUTE FUNCTION audit_chain_legacy_frozen();
-    CREATE OR REPLACE FUNCTION audit_checkpoints_append_only() RETURNS trigger AS $$
-    BEGIN
-        RAISE EXCEPTION 'audit_checkpoints is append-only';
-    END;
-    $$ LANGUAGE plpgsql;
-    DROP TRIGGER IF EXISTS audit_checkpoints_no_update_delete ON audit_checkpoints;
-    CREATE TRIGGER audit_checkpoints_no_update_delete BEFORE UPDATE OR DELETE ON audit_checkpoints
-        FOR EACH ROW EXECUTE FUNCTION audit_checkpoints_append_only();
-"""
-
 
 def _sqlite_rebuild_audit_chain() -> None:
     # SQLite cannot drop the unnamed UNIQUE(prev_hash); rebuild the table (no triggers there).
@@ -143,8 +128,7 @@ def upgrade() -> None:
             sa.Column('entry_hash', sa.String(64), nullable=False),
             sa.Column('imported_at', sa.Float(), nullable=False),
         )
-    if pg:
-        op.execute(_PG_TRIGGERS)
+    schema_ddl.apply(bind, only=("audit_chain_legacy_frozen", "audit_checkpoints_no_update_delete"))   # PostgreSQL only
 
 
 def downgrade() -> None:

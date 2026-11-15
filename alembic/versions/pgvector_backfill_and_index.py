@@ -13,6 +13,11 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
+try:   # one definition shared with the empty-database bootstrap (core/schema_ddl.py)
+    from aether_os.core import schema_ddl
+except ModuleNotFoundError:   # alembic run from the repository root without PYTHONPATH (alembic.ini prepends ".")
+    from core import schema_ddl
+
 revision: str = 'pgvector_backfill_and_index'
 down_revision: Union[str, None] = 'unique_keys_plugins_learning_feedback_golden'
 branch_labels: Union[str, Sequence[str], None] = None
@@ -39,10 +44,7 @@ def upgrade() -> None:
         "WHERE embedding_vector IS NULL AND embedding IS NOT NULL "
         "AND json_typeof(embedding::json) = 'array' AND json_array_length(embedding::json) = 1536"
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_artifact_embeddings_vector_cosine "
-        "ON artifact_embeddings USING hnsw (embedding_vector vector_cosine_ops)"
-    )
+    schema_ddl.ensure_pgvector(bind)   # the cosine index (extension and column are already there)
 
 
 def downgrade() -> None:

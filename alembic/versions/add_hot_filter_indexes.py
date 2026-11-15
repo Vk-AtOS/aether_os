@@ -14,24 +14,22 @@ from typing import Sequence, Union
 
 from alembic import op
 
+try:   # one definition shared with the empty-database bootstrap (core/schema_ddl.py)
+    from aether_os.core import schema_ddl
+except ModuleNotFoundError:   # alembic run from the repository root without PYTHONPATH (alembic.ini prepends ".")
+    from core import schema_ddl
+
 revision: str = 'add_hot_filter_indexes'
 down_revision: Union[str, None] = 'per_org_ledger_chains'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-INDEXES = {
-    "ix_runs_org_status": "runs(org_id, status)",
-    "ix_runs_org_started_at": "runs(org_id, started_at)",
-    "ix_notifications_org_user_unread": "notifications(org_id, user_id, is_read)",
-    "ix_artifact_embeddings_org_run": "artifact_embeddings(org_id, run_id)",
-    "ix_marketplace_profiles_org": "marketplace_profiles(org_id)",
-    "ix_marketplace_profiles_published": "marketplace_profiles(is_published, created_at)",
-}
+INDEXES = ("ix_runs_org_status", "ix_runs_org_started_at", "ix_notifications_org_user_unread",
+           "ix_artifact_embeddings_org_run", "ix_marketplace_profiles_org", "ix_marketplace_profiles_published")
 
 
 def upgrade() -> None:
-    for name, target in INDEXES.items():
-        op.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
+    schema_ddl.apply(op.get_bind(), only=INDEXES)
 
 
 def downgrade() -> None:

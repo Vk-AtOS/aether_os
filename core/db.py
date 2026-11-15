@@ -6,7 +6,7 @@ Key improvements over original:
 - WAL mode enabled for SQLite (critical: allows concurrent readers + 1 writer without locking)
 - Connection pool tuned for 80K users (PostgreSQL: pool_size=20, max_overflow=40)
 - All sync sqlite3.connect() calls replaced with async ORM throughout the codebase
-- Indexes on org_id, email, status added via create_all + explicit DDL
+- Indexes on org_id, email, status added via create_all + core/schema_ddl.py
 """
 from __future__ import annotations
 import logging
@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 from sqlalchemy.orm import DeclarativeBase
+
+from . import schema_ddl
 
 logger = logging.getLogger(__name__)
 
@@ -187,10 +189,9 @@ async def _require_migrated(engine: AsyncEngine) -> None:
         raise SchemaNotMigrated(f"database at {sorted(rows)}, code expects {sorted(heads)}; run `alembic upgrade head`")
 
 
-# Created only by Alembic migrations (op.execute), never by create_all: without them the audit ledger
-# can be UPDATEd/DELETEd. A database reached by create_all (AETHER_DB_CREATE_ALL=1) or a stamped
-# bootstrap would silently lack them, so PostgreSQL startup refuses to run without them.
-LEDGER_TRIGGERS = ("audit_chain_no_update_delete", "audit_chain_legacy_frozen", "audit_checkpoints_no_update_delete")
+# Raw-SQL objects (core/schema_ddl.py), never made by create_all alone: without them the audit ledger
+# can be UPDATEd/DELETEd, so PostgreSQL startup refuses to run when they are missing.
+LEDGER_TRIGGERS = tuple(schema_ddl.PG_TRIGGERS)
 
 
 async def require_ledger_triggers(engine: AsyncEngine) -> None:
@@ -201,8 +202,8 @@ async def require_ledger_triggers(engine: AsyncEngine) -> None:
     missing = [t for t in LEDGER_TRIGGERS if t not in have]
     if missing:
         raise SchemaNotMigrated(
-            f"audit ledger triggers missing {missing}: the schema was not built by `alembic upgrade head`; "
-            "create_all/stamp leaves the ledger editable. Rebuild the database with Alembic.")
+            f"audit ledger triggers missing {missing}: the ledger is editable. "
+            "Run `python scripts/db_migrate.py` (it re-applies core/schema_ddl.py).")
 
 
 async def init_db() -> None:
@@ -217,7 +218,7 @@ async def init_db() -> None:
     - status: dashboard listing filters by status
     - run_metadata.run_id: priority lookups are per-run
     """
-    from .billing import payments  # noqa: F401  registers billing_payments for callers that never load the gateway
+    schema_ddl.register_models()   # every table, also for callers that never load the gateway
     engine = get_engine()
     if engine.dialect.name == "postgresql" and os.environ.get("AETHER_DB_CREATE_ALL", "").lower() not in ("1", "true"):
         await _require_migrated(engine)
@@ -226,50 +227,10 @@ async def init_db() -> None:
         return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Indexes, ledger triggers and pgvector: the same definitions the Alembic revisions use.
+        await conn.run_sync(schema_ddl.apply)
     if engine.dialect.name == "postgresql":
         await require_ledger_triggers(engine)  # forced create_all must not leave an editable ledger
-    async with engine.begin() as conn:
-
-        # Add indexes that aren't defined on the ORM models themselves.
-        # IF NOT EXISTS is safe to run repeatedly on every startup.
-        index_ddl = [
-            # Core lookup indexes
-            "CREATE INDEX IF NOT EXISTS ix_runs_org_id           ON runs(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_runs_status           ON runs(status)",
-            "CREATE INDEX IF NOT EXISTS ix_runs_started_at       ON runs(started_at)",
-            "CREATE INDEX IF NOT EXISTS ix_users_email           ON users(email)",
-            "CREATE INDEX IF NOT EXISTS ix_users_org_id          ON users(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_api_keys_org_id       ON api_keys(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_api_keys_key_hash     ON api_keys(key_hash)",
-            "CREATE INDEX IF NOT EXISTS ix_phase_completions_run ON phase_completions(run_id, phase_name)",
-            # FK indexes on high-traffic join columns (prevent full table scans)
-            "CREATE INDEX IF NOT EXISTS ix_events_run_id         ON events(run_id)",
-            "CREATE INDEX IF NOT EXISTS ix_snapshots_run_id      ON snapshots(run_id)",
-            "CREATE INDEX IF NOT EXISTS ix_decisions_org_id      ON decisions(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_decisions_run_id      ON decisions(run_id)",
-            "CREATE INDEX IF NOT EXISTS ix_audit_log_org_id      ON audit_log(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_audit_log_created_at  ON audit_log(created_at)",
-            "CREATE INDEX IF NOT EXISTS ix_webhooks_org_id       ON webhooks(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_workspaces_org_id     ON workspaces(org_id)",
-            # Learning loop isolation — both filters required on every query
-            "CREATE INDEX IF NOT EXISTS ix_learning_patterns_user ON user_learning_patterns(org_id, user_id, pattern_type)",
-            "CREATE INDEX IF NOT EXISTS ix_learning_clarif_user   ON learning_clarifications_pending(org_id, user_id)",
-            # Run specs lookup by run
-            "CREATE INDEX IF NOT EXISTS ix_run_specs_run_id       ON run_specs(run_id)",
-            # Hot composite filters (same set as alembic add_hot_filter_indexes)
-            "CREATE INDEX IF NOT EXISTS ix_runs_org_status        ON runs(org_id, status)",
-            "CREATE INDEX IF NOT EXISTS ix_runs_org_started_at    ON runs(org_id, started_at)",
-            "CREATE INDEX IF NOT EXISTS ix_notifications_org_user_unread ON notifications(org_id, user_id, is_read)",
-            "CREATE INDEX IF NOT EXISTS ix_artifact_embeddings_org_run ON artifact_embeddings(org_id, run_id)",
-            "CREATE INDEX IF NOT EXISTS ix_marketplace_profiles_org ON marketplace_profiles(org_id)",
-            "CREATE INDEX IF NOT EXISTS ix_marketplace_profiles_published ON marketplace_profiles(is_published, created_at)",
-        ]
-        for ddl in index_ddl:
-            try:
-                await conn.execute(text(ddl))
-            except Exception as exc:
-                # Index may already exist or table name may differ — log and continue
-                logger.debug("Index DDL skipped: %s — %s", ddl[:60], exc)
 
     logger.info("Database tables and indexes initialised")
 
