@@ -399,3 +399,15 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     out["too_big"] = c.get("/api/customers?page_size=201", headers=h).status_code
 ''')
     assert r["ok"] == 200 and r["size"] == 200 and r["small"] == 2 and r["too_big"] == 422, r
+
+
+def test_raw_sql_fstring_in_llm_crud_is_rejected_without_corrupting_other_code():
+    # The old pass regex-replaced from the first f-quote to the next quote with 'None  # TODO', which could
+    # also swallow unrelated code; the AST check rejects only real SQL f-strings.
+    from aether_os.phases.p04a_backend_codegen.crud_generator import _check_and_fix_sql_injection as check
+    ok = 'def f(x):\n    msg = f"Item {x} was selected"\n    return session.execute(select(Item).where(Item.id == x))\n'
+    assert check(ok) == ok
+    bad = 'def f(x):\n    return session.execute(f"SELECT * FROM items WHERE id = {x}")\n'
+    with pytest.raises(ValueError, match="f-string"):
+        check(bad)
+    assert check("def broken(:\n") == "def broken(:\n"
