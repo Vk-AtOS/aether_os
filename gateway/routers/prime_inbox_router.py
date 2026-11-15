@@ -14,14 +14,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers.prime_router import _delegation_out, _repo, _uid
-from aether_os.prime import Action
+from aether_os.prime import Action, reminders
 from aether_os.prime.approvals import ApprovalService, RequestError, members
 from aether_os.prime.authz import CURRENCY, Amount, Currency
 from aether_os.prime.edits import edit_request
 from aether_os.prime.executors import DEFAULT_EXECUTOR
 from aether_os.prime.ledger_view import by_delegation
 
-router = APIRouter(prefix="/prime", tags=["prime"])
+router = APIRouter(prefix="/prime", tags=["prime"], lifespan=reminders.periodic_lifespan)
 
 _approvals = ApprovalService(_repo)
 _MAX_PARAMS_BYTES = 8_192
@@ -111,6 +111,13 @@ async def inbox(
     """Requests waiting for the caller, as owner or as the active deputy of a delegation."""
     uid, ids, org_id = _person(user)
     return await _approvals.inbox(uid, ids, org_id, state=state, limit=limit, offset=offset)
+
+
+@router.get("/inbox/count")
+async def inbox_count(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, int]:
+    """Badge numbers for the dashboard: what the caller may decide now, and what lapses within 24h."""
+    uid, ids, org_id = _person(user)
+    return await _approvals.counts(uid, ids, org_id)
 
 
 @router.get("/requests/{request_id}")

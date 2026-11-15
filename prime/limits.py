@@ -19,16 +19,22 @@ from aether_os.prime.authz import (
 from aether_os.prime.models import PrimeOrgLimits
 
 
+DEFAULT_REQUEST_TTL_HOURS = 72
+HARD_MAX_REQUEST_TTL_HOURS = 720   # 30 days: a pending approval is never open-ended
+
+
 @dataclass(frozen=True)
 class OrgLimits:
     payment_ceiling: Decimal
     max_delegation_days: int
+    request_ttl_hours: int = DEFAULT_REQUEST_TTL_HOURS   # how long an approval waits before it expires
 
 
 DEFAULT_LIMITS = OrgLimits(PAYMENT_CEILING, MAX_DELEGATION_DURATION.days)
 
 
-def validate(payment_ceiling: Decimal, max_delegation_days: int) -> OrgLimits:
+def validate(payment_ceiling: Decimal, max_delegation_days: int,
+             request_ttl_hours: int = DEFAULT_REQUEST_TTL_HOURS) -> OrgLimits:
     if not payment_ceiling.is_finite() or payment_ceiling <= 0:
         raise ValueError("payment ceiling must be a positive amount")
     if payment_ceiling > HARD_PAYMENT_CEILING:
@@ -36,7 +42,9 @@ def validate(payment_ceiling: Decimal, max_delegation_days: int) -> OrgLimits:
     if not 1 <= max_delegation_days <= HARD_MAX_DELEGATION_DURATION.days:
         raise ValueError("longest delegation must be between 1 and "
                          f"{HARD_MAX_DELEGATION_DURATION.days} days")
-    return OrgLimits(payment_ceiling, max_delegation_days)
+    if not 1 <= request_ttl_hours <= HARD_MAX_REQUEST_TTL_HOURS:
+        raise ValueError(f"approval lifetime must be between 1 and {HARD_MAX_REQUEST_TTL_HOURS} hours")
+    return OrgLimits(payment_ceiling, max_delegation_days, request_ttl_hours)
 
 
 async def get_limits(org_id: Optional[str]) -> OrgLimits:
@@ -48,22 +56,26 @@ async def get_limits(org_id: Optional[str]) -> OrgLimits:
         row = await session.get(PrimeOrgLimits, org_id)
     if row is None:
         return DEFAULT_LIMITS
-    return validate(Decimal(row.payment_ceiling), row.max_delegation_days)
+    return validate(Decimal(row.payment_ceiling), row.max_delegation_days,
+                    row.request_ttl_hours or DEFAULT_REQUEST_TTL_HOURS)
 
 
 async def set_limits(org_id: str, by: str, payment_ceiling: Decimal,
-                     max_delegation_days: int) -> OrgLimits:
-    new = validate(payment_ceiling, max_delegation_days)
+                     max_delegation_days: int, request_ttl_hours: Optional[int] = None) -> OrgLimits:
     old = await get_limits(org_id)
+    new = validate(payment_ceiling, max_delegation_days,
+                   old.request_ttl_hours if request_ttl_hours is None else request_ttl_hours)
     if new == old:
         return new
     # Ledger first: a limit must never change without a record of who changed it.
     await audit_chain.append(actor=by, action="prime.limits.change", payload={
         "org_id": org_id,
         "from": {"payment_ceiling": str(old.payment_ceiling),
-                 "max_delegation_days": old.max_delegation_days},
+                 "max_delegation_days": old.max_delegation_days,
+                 "request_ttl_hours": old.request_ttl_hours},
         "to": {"payment_ceiling": str(new.payment_ceiling),
-               "max_delegation_days": new.max_delegation_days},
+               "max_delegation_days": new.max_delegation_days,
+               "request_ttl_hours": new.request_ttl_hours},
     })
     async with get_session_factory()() as session:
         row = await session.get(PrimeOrgLimits, org_id)
@@ -72,6 +84,7 @@ async def set_limits(org_id: str, by: str, payment_ceiling: Decimal,
             session.add(row)
         row.payment_ceiling = str(new.payment_ceiling)
         row.max_delegation_days = new.max_delegation_days
+        row.request_ttl_hours = new.request_ttl_hours
         row.updated_by = by
         row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()

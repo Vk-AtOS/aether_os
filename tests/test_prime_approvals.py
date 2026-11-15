@@ -304,8 +304,8 @@ async def test_endpoints_over_http(svc):
         assert (await http.put("/prime/limits", json={"payment_ceiling": 1, "max_delegation_days": 1})).status_code == 403
 
         who["user"] = ADMIN
-        assert (await http.put("/prime/limits", json={"payment_ceiling": "750000", "max_delegation_days": 45})).json() == {
-            "payment_ceiling": "750000", "max_delegation_days": 45}
+        assert (await http.put("/prime/limits", json={"payment_ceiling": "750000", "max_delegation_days": 45, "request_ttl_hours": 72})).json() == {
+            "payment_ceiling": "750000", "max_delegation_days": 45, "request_ttl_hours": 72}
         assert (await http.put("/prime/limits", json={"payment_ceiling": "99999999", "max_delegation_days": 45})).status_code == 400
         page = (await http.get("/prime/ledger/entries", params={
             "event": "prime.approval", "since": (now - timedelta(hours=1)).isoformat(), "limit": 1})).json()

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text, text
+from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aether_os.core.db import Base
@@ -38,6 +38,8 @@ class PrimeOrgLimits(Base):
     org_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     payment_ceiling: Mapped[str] = mapped_column(String(32), nullable=False)
     max_delegation_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_ttl_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=72,
+                                                   server_default=text("72"))
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
@@ -49,6 +51,7 @@ class PrimeRequest(Base):
     exec_status: NULL | running | succeeded | failed | needs_attention
     """
     __tablename__ = "prime_requests"
+    __table_args__ = (Index("ix_prime_requests_status_expires", "status", "expires_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -79,3 +82,7 @@ class PrimeRequest(Base):
     # lists everyone who changed the request, none of whom may decide it.
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     edited_by: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Set once by whichever worker claims it (UPDATE ... WHERE NULL), so a reminder or an
+    # expiry notice goes out at most once however many workers run the sweep.
+    reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expiry_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
