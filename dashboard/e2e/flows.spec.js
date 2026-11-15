@@ -6,11 +6,11 @@ test('login form posts the credentials and lands on the dashboard', async ({ pag
     'POST /auth/login': { access_token: 'h.' + Buffer.from(JSON.stringify({ role: 'owner', user_id: 'u1', org_id: 'o' })).toString('base64url') + '.s', refresh_token: 'r' },
   });
   await page.goto('login');
-  await page.getByLabel(/email/i).fill('demo@aetheros.ai');
-  await page.locator('input[type="password"]').fill('demo1234');
+  await page.getByLabel(/email/i).fill('user@example.com');
+  await page.locator('input[type="password"]').fill('stub-password-not-real');
   await page.getByRole('button', { name: /sign in|log in/i }).click();
   await expect(page).not.toHaveURL(/login$/);
-  expect(calls.find((c) => c.key === 'POST /auth/login').body).toMatchObject({ email: 'demo@aetheros.ai' });
+  expect(calls.find((c) => c.key === 'POST /auth/login').body).toMatchObject({ email: 'user@example.com' });
 });
 
 test('API keys: create shows the secret once, revoke removes the row', async ({ page }) => {
