@@ -104,3 +104,20 @@ async def by_delegation(delegation_ids: Iterable[str], per_delegation: int = 50
         if bucket is not None and len(bucket) < per_delegation:
             bucket.append({k: e[k] for k in ("seq", "timestamp", "actor", "action", "payload")})
     return out
+
+
+async def by_request(org_id: str, request_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    """Prime ledger entries of one approval request, oldest first (the request's timeline).
+
+    Matches the request id in the payload text, then confirms org and id on the parsed
+    payload, so another organisation's entry can never be returned.
+    """
+    async with get_session_factory()() as session:
+        rows = (await session.execute(
+            select(AuditChainEntry).where(
+                AuditChainEntry.action.startswith("prime."),
+                AuditChainEntry.payload.contains(f'"request_id":"{request_id}"'))
+            .order_by(AuditChainEntry.seq.asc()).limit(limit * 2))).scalars().all()
+    out = [e for e in map(_entry, rows)
+           if e["payload"].get("request_id") == request_id and e["payload"].get("org_id") == org_id]
+    return out[:limit]
