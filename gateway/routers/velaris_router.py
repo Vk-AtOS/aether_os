@@ -18,9 +18,9 @@ from fastapi.responses import JSONResponse
 from aether_os.core.audit import chain as audit_chain
 from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavailable
 from aether_os.core.velaris.identity import identity_for_user
-from aether_os.core.velaris.roles import MAY_ACT
+from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.routers.velaris_hr_router import HR_ALLOW
+from aether_os.gateway.velaris_hr_table import HR_ALLOW, HR_DEDICATED
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/velaris", tags=["velaris"])
@@ -90,10 +90,13 @@ async def _ledger_after(who: Identity, action: str, outcome: str, detail: Dict[s
 def _served_elsewhere(agent: str, method: str) -> bool:
     """HR agents are served by /hr with a fixed method list that leaves out erasure and bulk export on
     purpose. This generic route must not reopen them, so an HR agent is reachable here only for the
-    methods /hr itself allows (KAN-199)."""
+    member-level methods /hr itself allows: the admin-only and typed-confirmation rows (export, erasure, payroll
+    runs...) are reachable only through /hr, where those checks are (KAN-199)."""
     # Agent names are upper case in Velaris; compare upper-cased so a case variant cannot slip past.
     allowed = HR_ALLOW.get(agent.upper())
-    return allowed is not None and method not in allowed
+    if allowed is None:
+        return False
+    return method not in allowed or (agent.upper(), method) in HR_DEDICATED
 
 
 def _checked_tools(tools: Any) -> list:
@@ -191,3 +194,41 @@ async def get_flow(run_id: str, user: Dict[str, Any] = Depends(get_current_user)
         raise HTTPException(status_code=400, detail="Invalid run id")
     who = await _identity(user, acting=False)
     return _reply(*await _forward(who, "flow.read", "GET", f"/flows/{run_id}", detail={"run_id": run_id}))
+
+
+@router.get("/flows/{run_id}/verify")
+async def verify_flow(run_id: str, user: Dict[str, Any] = Depends(get_current_user)) -> Any:
+    """Check the hash chain of one of the caller's runs: {ok} or the first broken index (KAN-134)."""
+    if not _RUN_ID.match(run_id):
+        raise HTTPException(status_code=400, detail="Invalid run id")
+    who = await _identity(user, acting=False)
+    return _reply(*await _forward(who, "flow.verify", "GET", f"/flows/{run_id}/verify", detail={"run_id": run_id}))
+
+
+@router.get("/trace/verify")
+async def verify_trace(user: Dict[str, Any] = Depends(get_current_user)) -> Any:
+    """The global trace chain (counts only). Owner/admin: it spans the organisation, not one person's runs."""
+    who = await _identity(user, acting=False)
+    if who.org_role not in ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="Only an organisation owner or admin can do this")
+    return _reply(*await _forward(who, "trace.verify", "GET", "/trace/verify"))
+
+
+@router.post("/flows/{run_id}/decide")
+async def decide_flow(run_id: str, body: Dict[str, Any] = Body(...),
+                      user: Dict[str, Any] = Depends(get_current_user)) -> Any:
+    """Decide a waiting run in LOCAL mode (no Prime gate); with Prime Velaris answers 409 decided_in_prime and that
+    is passed through. Only call_hash, approve and note are forwarded; the four-eyes rule is Velaris's."""
+    if not _RUN_ID.match(run_id):
+        raise HTTPException(status_code=400, detail="Invalid run id")
+    who = await _identity(user, acting=True)
+    if who.org_role not in ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="Only an organisation owner or admin can do this")
+    if not isinstance(body.get("call_hash"), str) or not isinstance(body.get("approve"), bool):
+        raise HTTPException(status_code=422, detail="call_hash (text) and approve (true or false) are required")
+    note = body.get("note")
+    if note is not None and not isinstance(note, str):
+        raise HTTPException(status_code=422, detail="note must be text")
+    sent = {"call_hash": body["call_hash"][:128], "approve": body["approve"], **({"note": note[:500]} if note else {})}
+    return _reply(*await _forward(who, "flow.decide", "POST", f"/flows/{run_id}/decide", body=sent,
+                                  detail={"run_id": run_id, "approve": body["approve"], "call_hash": sent["call_hash"]}))
