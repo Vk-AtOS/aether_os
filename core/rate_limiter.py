@@ -267,7 +267,7 @@ class RateLimiter:
             return True
         effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
-        if r is None and redis_required():
+        if r is None and redis_required() and strict_mode:
             return False  # fail closed: a per-worker counter is no brute-force limit
         if r:
             try:
@@ -312,7 +312,7 @@ class RateLimiter:
             return True
         effective_ip = self._normalize_ip(ip)
         r = await _get_async_redis()
-        if r is None and redis_required():
+        if r is None and redis_required() and strict_mode:
             return False
         if r:
             try:
