@@ -42,8 +42,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     project_name = data.get("project_name") or "Desktop App"
     api_port = 8000
 
+    backend_src = next((Path(v) for v in (data.get("backend_src_dir"), data.get("backend_output_path"))
+                        if v and Path(v).is_dir()), None)
+    if backend_src is None:
+        # The desktop app embeds the API: without a backend the package would not start.
+        return TaskResult(output_path=str(output_dir), confidence=0.0, metadata={}, success=False,
+                          issues=["no generated backend to bundle into the desktop app"])
+
     try:
-        desktop_dir = await generate_desktop_project(entities, project_name, output_dir, api_port)
+        desktop_dir = await generate_desktop_project(entities, project_name, output_dir, api_port, backend_src)
         logger.info("p05c_desktop: Electron app generated at %s", desktop_dir)
         return TaskResult(
             output_path=str(desktop_dir),
