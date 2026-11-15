@@ -55,6 +55,7 @@ const Chat              = React.lazy(() => import('./pages/Chat'));
 const Mail              = React.lazy(() => import('./pages/Mail'));
 const Control           = React.lazy(() => import('./pages/Control'));
 const Hr                = React.lazy(() => import('./pages/Hr'));
+const ApiKeys           = React.lazy(() => import('./pages/ApiKeys'));
 
 
 const ProtectedRoute = ({ children }) => {
@@ -133,6 +134,7 @@ function App() {
         <Route path="admin/intelligence" element={<AdminRoute><ErrorBoundary><GlobalPatternsTuning /></ErrorBoundary></AdminRoute>} />
         <Route path="profile" element={<ErrorBoundary><Profile /></ErrorBoundary>} />
         <Route path="settings/webhooks" element={<ErrorBoundary><WebhookSettings /></ErrorBoundary>} />
+        <Route path="settings/api-keys" element={<AdminRoute><ErrorBoundary><ApiKeys /></ErrorBoundary></AdminRoute>} />
         <Route path="webhooks" element={<Navigate to="/settings/webhooks" replace />} />
         <Route path="dashboard/tools/webhooks" element={<Navigate to="/settings/webhooks" replace />} />
         <Route path="frontend-builder" element={<ErrorBoundary><FrontendBuilder /></ErrorBoundary>} />
