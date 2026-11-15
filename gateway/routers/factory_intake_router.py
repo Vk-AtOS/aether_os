@@ -130,19 +130,8 @@ async def import_existing_schema(
     connection_string = req.get("connection_string", "")
     if not connection_string:
         raise HTTPException(400, "connection_string required")
-    # Basic safety: only allow known drivers, reject file paths outside /tmp
-    allowed = ("postgresql://", "mysql+pymysql://", "mysql://", "sqlite:///")
-    if not any(connection_string.startswith(p) for p in allowed):
-        raise HTTPException(400, "Unsupported connection string format")
-
-    # SEC-C2: guard SQLite paths here too (defense in depth)
-    if connection_string.lower().startswith("sqlite:///"):
-        from aether_os.core.schema_importer import _validate_sqlite_path
-        try:
-            _validate_sqlite_path(connection_string)
-        except ValueError as ve:
-            raise HTTPException(400, str(ve)) from ve
-
+    # import_schema validates the PARSED url (driver allow-list, sqlite path, public host); a bad string is
+    # answered there with {"error", "tables": []}, so the check lives in one place.
     from aether_os.core.schema_importer import import_schema
     result = await import_schema(connection_string)
     return result
