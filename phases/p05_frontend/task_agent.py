@@ -21,6 +21,7 @@ from aether_os.phases.p05_frontend.cloud_console_generator import (
     generate_cloud_console,
 )
 from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
+from aether_os.phases.p05_frontend.design_brief import apply_brand_to_tailwind
 from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
 from aether_os.phases.utils import memory_hint
 from aether_os.phases.p05_frontend.safe_text import safe_display_name
@@ -251,6 +252,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     font_pairing       = _dg("font_pairing", "") or ""
     border_radius      = _dg("border_radius", "") or ""
     density            = _dg("density", "") or ""
+    # No designer spec: the model designs the look from the product (design_brief.py). Without a model
+    # or a valid answer the token system for the domain stays in charge.
+    brief_source = "designer_spec" if primary_hex else "token_system"
+    if not primary_hex:
+        from aether_os.core.llm.client import get_llm_client
+        from aether_os.phases.p05_frontend.design_brief import get_design_brief
+        try:
+            _llm = get_llm_client() if os.environ.get("ENVIRONMENT") != "test" else None
+        except Exception as _llm_exc:
+            logger.warning("p05_frontend: no model for the design brief: %s", _llm_exc)
+            _llm = None
+        _brief = await get_design_brief(_llm, project_name, data.get("raw_input", ""), domain, data.get("entities") or [])
+        if _brief:
+            primary_hex, secondary_hex = _brief["primary_hex"], _brief["secondary_hex"]
+            background_hex, surface_hex = _brief["background_hex"], _brief["surface_hex"]
+            font_pairing, border_radius, density = _brief["font_pairing"], _brief["border_radius"], _brief["density"]
+            data["widget_description"] = _brief["widget_description"]      # read by _generate_domain_component
+            brief_source = "llm"
     if not ui_theme or ui_theme == "default":
         ui_theme = _DOMAIN_THEME_MAP.get((data.get("domain", "") or domain or "").lower(), "default")
 
@@ -305,7 +324,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         generate_eslint_config_fn=generate_eslint_config,
         generate_vite_config_fn=generate_vite_config,
         generate_tsconfig_fn=generate_tsconfig,
-        generate_tailwind_config_fn=generate_tailwind_config,
+        generate_tailwind_config_fn=(
+            (lambda theme: apply_brand_to_tailwind(generate_tailwind_config(theme), primary_hex)) if brief_source == "llm"
+            else generate_tailwind_config),
         generate_postcss_config_fn=generate_postcss_config,
         generate_index_html_fn=generate_index_html,
         generate_nginx_conf_fn=generate_nginx_conf,
@@ -464,6 +485,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "entities": [e["table"] for e in entities], "used_llm": domain_widget_generated,
         "files_generated": generated_files,
         "template_debt_pct": compute_template_debt(_llm_count, _template_count),
+        "design_brief_source": brief_source,
         "model_used": _model_used,
         "degraded": _degraded,
     }
