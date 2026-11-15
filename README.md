@@ -80,7 +80,7 @@ Each phase is an independent module. All inter-phase communication flows through
 | Phase | Name | What It Does |
 |---|---|---|
 | `p06_review_security` | Security Review | LLM Council review + Bandit + Semgrep static analysis; writes `compliance_manifest.json` |
-| `p06b_formal_verification` | Formal Verification | Z3 SMT-based invariant checking for JWT auth, RBAC role escalation, payment bounds, and PHI access; produces `verification_report.json` |
+| `p06b_formal_verification` | Static Invariant Check | Checks facts the AST scan extracts about JWT auth, RBAC role escalation, payment bounds and PHI access, with Z3 confirming each fact; a static check of the source, not a proof of runtime behaviour; produces `verification_report.json` |
 | `p07_testing` | Test Generation | Unit, integration, and E2E test generation |
 | `p07a_unit_testing` | Unit Tests | Pytest unit tests per service |
 | `p07b_self_healing` | Self-Healing | Automated fix loop: re-runs failing tests and patches code until the gate passes (up to 5 attempts) |
