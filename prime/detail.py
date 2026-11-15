@@ -6,10 +6,11 @@ holds a role that may see it; credentials are masked everywhere.
 """
 from __future__ import annotations
 
-import hashlib
+import logging
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.audit import subjects
 from aether_os.core.security.redact import redact_secrets
 from aether_os.prime.authz import (
     ACTION_TYPES, AUTHORITY, CURRENCY, EXECUTOR_AUTHORITY, EXTERNAL_EFFECT, HARD_PAYMENT_CEILING,
@@ -30,13 +31,18 @@ PERSONAL_KEYS: Dict[str, str] = {
 # Roles that may see those values in clear (the same roles that hold authority over the money
 # and leave actions in AUTHORITY).
 MAY_SEE_PERSONAL = OWNER_ADMIN
+logger = logging.getLogger(__name__)
 _SHOWN_LEDGER_KEYS = ("status", "reason", "answer", "idempotency_key", "execution")
 
 
-def pseudonym(org_id: str, value: Any) -> str:
-    """Stable, non-reversible label for a value: the same value reads the same inside one organisation."""
-    digest = hashlib.sha256(f"{org_id}\0{value}".encode()).hexdigest()[:8]
-    return f"person-{digest}"
+async def pseudonym(org_id: str, value: Any) -> str:
+    """Stable label for a value inside one organisation (keyed HMAC, core/audit/subjects.py).
+    If the key cannot be had nothing about the value is shown."""
+    try:
+        return await subjects.label(org_id, value)
+    except Exception as e:
+        logger.warning("prime: pseudonym key unavailable for %s: %s", org_id, type(e).__name__)
+        return subjects.WITHHELD
 
 
 def risk_class(action_type: str, executor: str, amount: Optional[Decimal]) -> str:
@@ -48,25 +54,25 @@ def risk_class(action_type: str, executor: str, amount: Optional[Decimal]) -> st
     return "standard"
 
 
-def data_touched(org_id: str, params: Dict[str, Any], can_see: bool) -> List[Dict[str, Any]]:
+async def data_touched(org_id: str, params: Dict[str, Any], can_see: bool) -> List[Dict[str, Any]]:
     """Which personal-data fields the request carries; values only when `can_see`."""
     out = []
     for key in sorted(params):
         kind = PERSONAL_KEYS.get(str(key).lower())
         if kind:
-            value = redact_secrets(params[key], limit=200) if can_see else pseudonym(org_id, params[key])
+            value = redact_secrets(params[key], limit=200) if can_see else await pseudonym(org_id, params[key])
             out.append({"field": key, "kind": kind, "value": value, "pseudonymised": not can_see})
     return out
 
 
-def mask_params(org_id: str, params: Dict[str, Any], pseudonymise: bool) -> Dict[str, Any]:
+async def mask_params(org_id: str, params: Dict[str, Any], pseudonymise: bool) -> Dict[str, Any]:
     """params as shown: credential-looking text masked for everyone, personal-data values
     replaced by their pseudonym for viewers who may not see them. Display only: the request
     hash is over the stored params."""
     out: Dict[str, Any] = {}
     for k, v in params.items():
         if pseudonymise and str(k).lower() in PERSONAL_KEYS:
-            out[k] = pseudonym(org_id, v)
+            out[k] = await pseudonym(org_id, v)
         else:
             out[k] = redact_secrets(v, limit=2000) if isinstance(v, str) else v
     return out
@@ -128,7 +134,7 @@ async def build(row: PrimeRequest, delegation: Optional[Delegation], viewer_role
         "risk_class": risk_class(row.action_type, row.executor, None),
         "policy": _policy(row, delegation),
         "money": await _money(row, delegation),
-        "data_touched": data_touched(row.org_id, row.params or {}, can_see),
+        "data_touched": await data_touched(row.org_id, row.params or {}, can_see),
         "eligible_roles": eligible_roles(row.action_type, row.executor),
         "ledger": _timeline(await by_request(row.org_id, row.id), can_see),
         "revision": getattr(row, "revision", 0) or 0,

@@ -318,3 +318,25 @@ async def test_endpoints_over_http(svc):
         assert one["link_ok"] and one["hash_ok"] and one["action"] == "prime.approval.decision"
         assert (await http.get("/prime/ledger/verify")).json()["ok"]
         assert "aetheros.run_gate" in (await http.get("/prime/meta")).json()["executors"]
+
+
+async def test_decision_cannot_land_on_a_request_changed_after_it_was_read(svc, counting, monkeypatch):
+    """Root cause (KAN-22 race): the decision UPDATE matched on status only, so a request whose
+    hash changed between the read and the write was still marked approved with the OLD hash."""
+    await grant()
+    req = (await svc.submit(act("invoice.approve", amount=Decimal("250"), currency="INR"), ORG,
+                            "counting"))["request"]
+    real = approvals.audit_chain.append
+
+    async def append(*a, **kw):
+        out = await real(*a, **kw)
+        if kw.get("action") == "prime.approval.decision":
+            await set_row(req["id"], request_hash="f" * 64)     # someone changed the request meanwhile
+        return out
+    monkeypatch.setattr(approvals.audit_chain, "append", append)
+    with pytest.raises(RequestError) as e:
+        await svc.decide(req["id"], BOB, BOB_IDS, ORG, req["request_hash"], approve=True)
+    assert e.value.status == 409
+    monkeypatch.setattr(approvals.audit_chain, "append", real)
+    row = await svc._load(req["id"])
+    assert row.status == "pending" and row.decided_by is None and counting.calls == []

@@ -62,3 +62,16 @@ async def test_no_secret_in_the_payload_and_other_orgs_see_nothing(svc, counting
     with pytest.raises(RequestError) as e:
         await svc.get(out["request"]["id"], BOB, BOB_IDS, OTHER_ORG)
     assert e.value.status == 404
+
+
+async def test_pseudonym_is_keyed_per_org_and_not_reproducible_without_the_key(svc, counting):
+    """Root cause (security review): an unkeyed sha256(org+value)[:8] let anyone confirm a known
+    email or name by brute force, and 8 hex digits collide."""
+    import hashlib
+    from aether_os.prime import detail
+    a = await detail.pseudonym(ORG, "priya@x.test")
+    assert a == await detail.pseudonym(ORG, "priya@x.test")                 # stable inside an org
+    assert a != await detail.pseudonym(OTHER_ORG, "priya@x.test")           # differs between orgs
+    assert len(a) >= len("person-") + 32
+    old = "person-" + hashlib.sha256(f"{ORG}\0priya@x.test".encode()).hexdigest()[:8]
+    assert a != old and not a.startswith(old)                               # the old public formula no longer matches
