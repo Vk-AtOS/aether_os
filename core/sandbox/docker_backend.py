@@ -168,10 +168,14 @@ class ContainerProcess:
         self.returncode: Optional[int] = None
 
     def poll(self) -> Optional[int]:
+        """None while running; else the container's exit code (-1 when it no longer exists)."""
         if self.returncode is None:
-            out = _docker("inspect", "-f", "{{.State.Running}}", self.container_id)
-            if out.returncode != 0 or out.stdout.strip() != "true":
+            out = _docker("inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", self.container_id)
+            parts = out.stdout.split()
+            if out.returncode != 0 or len(parts) != 2:
                 self.returncode = -1
+            elif parts[0] != "true":
+                self.returncode = int(parts[1]) if parts[1].lstrip("-").isdigit() else -1
         return self.returncode
 
     def terminate(self) -> None:
@@ -183,10 +187,12 @@ class ContainerProcess:
 
     def wait(self, timeout: Optional[float] = None) -> int:
         try:
-            _docker("wait", self.container_id, timeout=int(timeout or 3600))
+            out = _docker("wait", self.container_id, timeout=int(timeout or 3600))
         except subprocess.TimeoutExpired:
             raise subprocess.TimeoutExpired(["docker", "wait", self.container_id], timeout) from None
-        self.returncode = self.returncode if self.returncode is not None else 0
+        if self.returncode is None:   # `docker wait` prints the exit code; unreadable output counts as a failure
+            text = out.stdout.strip()
+            self.returncode = int(text) if out.returncode == 0 and text.lstrip("-").isdigit() else -1
         return self.returncode
 
 

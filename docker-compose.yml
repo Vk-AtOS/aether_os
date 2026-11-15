@@ -3,7 +3,7 @@ version: "3.9"
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
-    image: postgres:15-alpine
+    image: postgres:15-alpine@sha256:fc41cfa8a90c09e84dd723ee764be4b2f59ba6c98b1e5b3fca540adddf68a5ba
     restart: unless-stopped
     environment:
       POSTGRES_DB: aether_os
@@ -22,7 +22,7 @@ services:
 
   # ── Redis ───────────────────────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
     command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required - set a strong random password}
     volumes:

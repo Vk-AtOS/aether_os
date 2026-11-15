@@ -12,7 +12,7 @@ services:
   # ── PostgreSQL (staging) ────────────────────────────────────────────────────
   db_staging:
     container_name: aetheros_db_staging
-    image: postgres:15-alpine
+    image: postgres:15-alpine@sha256:fc41cfa8a90c09e84dd723ee764be4b2f59ba6c98b1e5b3fca540adddf68a5ba
     restart: unless-stopped
     env_file: .env.staging
     environment:
@@ -32,7 +32,7 @@ services:
   # ── Redis (staging) ─────────────────────────────────────────────────────────
   redis_staging:
     container_name: aetheros_redis_staging
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
     env_file: .env.staging
     command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required - set a strong random password}
@@ -105,7 +105,7 @@ services:
     volumes:
       - staging_aether_os_data:/home/aether/.aether_os
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
