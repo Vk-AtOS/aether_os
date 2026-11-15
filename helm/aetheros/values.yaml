@@ -108,6 +108,10 @@ resources:
     memory: 2Gi
 
 # ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+# -- Schema job run after install/upgrade (scripts/db_migrate.py). Keep it on unless migrations are run by other means.
+migrate:
+  enabled: true
+
 autoscaling:
   # -- Enable HPA.
   enabled: true

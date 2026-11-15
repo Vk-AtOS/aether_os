@@ -43,7 +43,8 @@ services:
       dockerfile: Dockerfile
     restart: "no"
     working_dir: /srv/aether_os
-    command: ["python", "-m", "alembic", "upgrade", "head"]
+    # empty database: create from the models and stamp; existing: alembic upgrade head (alembic cannot replay from empty)
+    command: ["python", "scripts/db_migrate.py"]
     environment:
       DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/aether_os
       # the encrypt_sensitive_columns migration refuses to run without it

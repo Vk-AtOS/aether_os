@@ -46,6 +46,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Schema migrations (staging): one-shot, runs before the API ──────────────
+  migrate_staging:
+    container_name: aetheros_migrate_staging
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    working_dir: /srv/aether_os
+    command: ["python", "scripts/db_migrate.py"]
+    environment:
+      DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db_staging:5432/aether_os_staging
+      AETHER_FIELD_KEY: ${AETHER_FIELD_KEY:?AETHER_FIELD_KEY is required for migrations}
+    depends_on:
+      db_staging:
+        condition: service_healthy
+
   # ── AetherOS API (staging) ──────────────────────────────────────────────────
   api_staging:
     container_name: aetheros_api_staging
@@ -98,6 +114,8 @@ services:
       AETHER_ADMIN_EMAIL: ${AETHER_ADMIN_EMAIL:-admin@example.com}
       AETHER_ADMIN_PASS: ${AETHER_ADMIN_PASS:?AETHER_ADMIN_PASS must be set in .env.staging}
     depends_on:
+      migrate_staging:
+        condition: service_completed_successfully
       db_staging:
         condition: service_healthy
       redis_staging:
