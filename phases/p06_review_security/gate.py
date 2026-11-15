@@ -3,7 +3,7 @@
 Blocks the pipeline if:
   - Output file is missing entirely (no review ran)
   - Security scan found CRITICAL severity issues
-  - Security scan found >= 5 HIGH severity issues
+  - Security scan found any HIGH severity issue (key `severity` or bandit's `issue_severity`)
 
 Passes with warnings for moderate/low findings.
 """
@@ -16,7 +16,7 @@ from aether_os.phases.base import GateOutcome, TaskResult
 logger = logging.getLogger(__name__)
 
 _CRITICAL_THRESHOLD = 1   # any critical → block
-_HIGH_THRESHOLD     = 5   # 5+ highs → block
+_HIGH_THRESHOLD     = 1   # any high → block (owner decision: High and above block delivery)
 
 
 def _count_severities(data: dict) -> dict[str, int]:
@@ -26,7 +26,7 @@ def _count_severities(data: dict) -> dict[str, int]:
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
-            sev = str(node.get("severity", "")).lower()
+            sev = str(node.get("severity") or node.get("issue_severity") or "").lower()
             if sev in counts:
                 counts[sev] += 1
             stack.extend(node.values())

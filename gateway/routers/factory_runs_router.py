@@ -40,6 +40,7 @@ from aether_os.core.db import get_session_factory as _gsf_pri
 from aether_os.core.db import get_session_factory as _gsf_ev
 from aether_os.core.db import get_session_factory as _gsf3
 from aether_os.core.audit.ledger import get_ledger
+from aether_os.orchestrator.stage_gate import council_view, summarize_stage_outcomes
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
@@ -140,6 +141,9 @@ async def get_factory_run(
     detail["events"] = events if events else detail.get("events", [])
 
     detail["phases"] = phases
+    # Run-level view of what did not complete cleanly (failed AND skipped stages) and the council verdict.
+    detail["stage_summary"] = summarize_stage_outcomes(phases)
+    detail.update(council_view(detail.get("council_delivery")))
     detail["current_phase"] = current_phase
     # Only derive project_name from command if DB field is empty
     if not detail.get("project_name"):

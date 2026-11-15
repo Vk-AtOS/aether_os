@@ -447,7 +447,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.warning("p05: copytree to canonical frontend failed: %s", _copy_exc)
 
     # 5. Write metadata
-    generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
+    # The real list of shipped files (it was a hard-coded 3-file list whatever was generated).
+    generated_files = sorted(
+        p.relative_to(project_dir).as_posix() for p in _canonical_frontend.rglob("*")
+        if p.is_file() and not {"node_modules", "dist", "build", ".git"} & set(p.parts)
+    ) if _canonical_frontend.exists() else []
     # template_debt_pct: fraction of pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
     # denominator: entity pages + dashboard + customer portal (all LLM-authored files)
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")

@@ -363,6 +363,8 @@ class InstalledPluginRecord(Base):
     installed_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_tested_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     test_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # ok | fail
+    __table_args__ = (UniqueConstraint("org_id", "plugin_id", name="uq_installed_plugin_org_plugin"),)
+
 
 
 class LlmConfig(Base):
@@ -404,6 +406,7 @@ class UserLearningPattern(Base):
     source_run_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of run IDs
     last_updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "pattern_type", "pattern_key", name="uq_learning_pattern_key"),)
 
 
 class LearningClarificationPending(Base):
@@ -475,6 +478,8 @@ class BuildFeedback(Base):
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # e.g. ["great-ui", "fast-api", "clean-models"]
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    # one rating per user per run (NULL user ids stay unconstrained: SQL NULLs are distinct)
+    __table_args__ = (UniqueConstraint("run_id", "user_id", name="uq_build_feedback_run_user"),)
 
 
 class GoldenBuild(Base):
@@ -495,6 +500,7 @@ class GoldenBuild(Base):
     domain_ir_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # entity names + fields summary
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    __table_args__ = (UniqueConstraint("run_id", name="uq_golden_build_run"),)
 
 
 class PipelineEvent(Base):

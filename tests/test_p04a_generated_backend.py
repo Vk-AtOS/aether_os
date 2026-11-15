@@ -345,3 +345,27 @@ def test_fallback_single_item_cache_is_per_tenant(tmp_path, monkeypatch):
     deletes = crud.count("_cache_delete(f\"Customer:{current_user.get('org_id', '')}:{item_id}\")")
     assert reads == 1 and deletes == 2, (reads, deletes)
     assert '_cache_delete(f"Customer:{item_id}")' not in crud
+
+
+def test_generated_crud_tests_pass_against_the_generated_backend(tmp_path, monkeypatch):
+    # KAN-187: p07a wrote 4 weak tests (get-by-id accepted 404). Run the tests it now writes (create/get/update/
+    # delete round trip, 404, 401, 422) against the app p04a generated, in its own interpreter.
+    import os
+    import subprocess
+    import sys
+
+    from aether_os.phases.p07a_unit_testing.task_agent import _generate_crud_tests
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    result, app = generate(tmp_path, domain="crm", monkeypatch=monkeypatch)
+    entities = [{"name": "Customer", "table": "customers", "fields": [{"name": "name", "type": "string"}]}]
+    tests = app / "tests"
+    tests.mkdir(exist_ok=True)
+    (tests / "test_crud.py").write_text(_generate_crud_tests(app / "src", "Demo", entities))
+    env = {**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{tmp_path}/t.db", "SECRET_KEY": "x" * 40,
+           "ENVIRONMENT": "test", "ALLOW_SIGNUP": "true", "PYTHONPATH": ""}
+    done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-W", "ignore",
+                           "-o", "asyncio_mode=strict", str(tests / "test_crud.py")],
+                          cwd=app, env=env, capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stdout[-1500:] + done.stderr[-500:]
+    assert "6 passed" in done.stdout or "7 passed" in done.stdout, done.stdout[-400:]

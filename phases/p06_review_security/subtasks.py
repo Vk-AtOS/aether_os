@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List
@@ -141,14 +142,10 @@ async def run_bandit_scan(
 
         bandit_findings: list = []
         if src_path:
-            _pip = await asyncio.create_subprocess_exec(
-                "pip", "install", "bandit", "-q",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(_pip.wait(), timeout=60)
+            # bandit is a pinned platform dependency (requirements.txt): installing "latest"
+            # from the network on the host at run time was a supply-chain hole.
             _proc = await asyncio.create_subprocess_exec(
-                "bandit", "-r", "-f", "json", "-ll", str(src_path),
+                sys.executable, "-m", "bandit", "-r", "-f", "json", "-ll", str(src_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

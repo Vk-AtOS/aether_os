@@ -96,22 +96,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _dk_exc:
             logger.warning("p04b: domain knowledge workflow injection failed: %s", _dk_exc)
 
+    # Business logic belongs in the running app's src dir (backend_src_dir), not in the phase
+    # output dir: state machines written there were never part of the delivered backend.
+    _canonical = phase_input.input_data.get("backend_src_dir", "")
+    src_dir = Path(_canonical) if _canonical and Path(_canonical).is_dir() else output_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("p04b: writing business logic files to %s", src_dir)
+
     # 2. Logic generation - Workflows
-    workflow_dir = output_dir / "workflows"
+    workflow_dir = src_dir / "workflows"
     workflow_dir.mkdir(exist_ok=True)
+    (workflow_dir / "__init__.py").touch()
 
     for wf in ir_data.get("workflows", []):
         entity = wf.get("entity", "Entity")
         sm_code = generate_workflow_sm(entity, wf)
         (workflow_dir / f"{entity.lower()}_sm.py").write_text(sm_code)
 
-    # 3. Logic generation - Integrations
-    # Root cause fix: write business logic files into the running app's src dir
-    # (backend_src_dir from accumulated_context), not into the phase output dir.
-    _canonical = phase_input.input_data.get("backend_src_dir", "")
-    src_dir = Path(_canonical) if _canonical and Path(_canonical).is_dir() else output_dir / "src"
-    src_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("p04b: writing business logic files to %s", src_dir)
+    # 3. Logic generation - Integrations (src_dir was resolved above)
 
     if flags.get("needs_email"):
         (src_dir / "email_service.py").write_text(generate_email_service())

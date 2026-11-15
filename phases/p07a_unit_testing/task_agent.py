@@ -64,8 +64,10 @@ def _find_src_dir(data: dict) -> Optional[Path]:
 def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: list) -> str:
     """Deterministic CRUD test generator — no LLM needed.
 
-    Generates 4 tests: health, list, create, get_by_id using the first entity's
-    table name and fields directly, so URLs are always correct.
+    Generates health, list, create, a create/get/update/delete round trip, 404 for an unknown id,
+    401 without a token and 422 for a malformed body, using the first entity's table name and fields
+    directly. Clients follow redirects: the backend serves /api/<table> and answers /api/<table>/ with 307
+    (these tests used the slash form without following, so list/create failed against a real backend).
     """
     src_abs = str(src_dir) if src_dir else ""
     src_path_line = (
@@ -127,18 +129,25 @@ def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: l
         "        await conn.run_sync(Base.metadata.create_all)\n"
         "    from httpx import AsyncClient\n"
         "    from httpx._transports.asgi import ASGITransport\n"
-        "    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as ac:\n"
+        "    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', follow_redirects=True) as ac:\n"
         "        yield ac\n"
         "\n"
         "\n"
         "@pytest_asyncio.fixture\n"
         "async def auth_client(client):\n"
         "    await client.post('/api/auth/register', json={'email': 'test@example.com', 'password': 'TestPass123!', 'name': 'Test User'})\n"
+        "    # The app's role model is deny-by-default and sign-up creates a plain user: promote the test account\n"
+        "    # to admin (admin may do everything) so the tests exercise the endpoints, not the role guard.\n"
+        "    from database import AsyncSessionLocal\n"
+        "    from sqlalchemy import text\n"
+        "    async with AsyncSessionLocal() as db:\n"
+        "        await db.execute(text(\"UPDATE users SET role = 'admin' WHERE email = 'test@example.com'\"))\n"
+        "        await db.commit()\n"
         "    r = await client.post('/api/auth/login', json={'email': 'test@example.com', 'password': 'TestPass123!'})\n"
         "    token = r.json().get('access_token', '')\n"
         "    from httpx import AsyncClient\n"
         "    from httpx._transports.asgi import ASGITransport\n"
-        "    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', headers={'Authorization': f'Bearer {token}'}) as ac:\n"
+        "    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', follow_redirects=True, headers={'Authorization': f'Bearer {token}'}) as ac:\n"
         "        yield ac\n"
         "\n"
         "\n"
@@ -150,20 +159,47 @@ def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: l
         "\n"
         "@pytest.mark.asyncio\n"
         f"async def test_list(auth_client):\n"
-        f"    response = await auth_client.get('/api/{table}/')\n"
+        f"    response = await auth_client.get('/api/{table}')\n"
         "    assert response.status_code == 200\n"
         "\n"
         "\n"
         "@pytest.mark.asyncio\n"
         f"async def test_create(auth_client):\n"
-        f"    response = await auth_client.post('/api/{table}/', json={payload})\n"
+        f"    response = await auth_client.post('/api/{table}', json={payload})\n"
         "    assert response.status_code in (200, 201), f'Create failed: {response.status_code} {response.text[:200]}'\n"
         "\n"
         "\n"
         "@pytest.mark.asyncio\n"
-        f"async def test_get_by_id(auth_client):\n"
-        f"    response = await auth_client.get('/api/{table}/1')\n"
-        "    assert response.status_code in (200, 404)\n"
+        f"async def test_create_get_update_delete_roundtrip(auth_client):\n"
+        f"    created = await auth_client.post('/api/{table}', json={payload})\n"
+        "    assert created.status_code in (200, 201), created.text[:200]\n"
+        "    new_id = created.json().get('id')\n"
+        "    assert new_id is not None\n"
+        f"    got = await auth_client.get(f'/api/{table}/{{new_id}}')\n"
+        "    assert got.status_code == 200\n"
+        f"    updated = await auth_client.put(f'/api/{table}/{{new_id}}', json={payload})\n"
+        "    assert updated.status_code == 200, updated.text[:200]\n"
+        f"    deleted = await auth_client.delete(f'/api/{table}/{{new_id}}')\n"
+        "    assert deleted.status_code in (200, 204), deleted.text[:200]\n"
+        f"    assert (await auth_client.get(f'/api/{table}/{{new_id}}')).status_code == 404\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        f"async def test_unknown_id_is_404(auth_client):\n"
+        f"    response = await auth_client.get('/api/{table}/999999999')\n"
+        "    assert response.status_code == 404\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        f"async def test_requires_authentication(client):\n"
+        f"    response = await client.get('/api/{table}')\n"
+        "    assert response.status_code in (401, 403)\n"
+        "\n"
+        "\n"
+        "@pytest.mark.asyncio\n"
+        f"async def test_rejects_an_invalid_body(auth_client):\n"
+        f"    response = await auth_client.post('/api/{table}', json=['not', 'an', 'object'])\n"
+        "    assert response.status_code == 422\n"
     )
 
 
@@ -181,8 +217,11 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
         from __future__ import annotations
         import pytest
         import pytest_asyncio
+        import logging
         import sys
         import os
+
+        logger = logging.getLogger(__name__)
 
         # Ensure src/ is importable using absolute path
         {src_path_line}

@@ -50,6 +50,7 @@ All backends expose the same interface:
   get_memories(user_id, category=None)   -> list[dict]
   search_memories(user_id, query, limit) -> list[dict]
 """
+import hashlib
 import json
 import logging
 import os
@@ -92,7 +93,7 @@ def _try_pgvector():
             cur.execute(
                 "CREATE TABLE IF NOT EXISTS memory_entries ("
                 "  id SERIAL PRIMARY KEY,"
-                "  user_id INTEGER NOT NULL,"
+                "  user_id VARCHAR(64) NOT NULL,"
                 "  content TEXT NOT NULL,"
                 "  category VARCHAR(100) DEFAULT \'general\',"
                 "  embedding vector(1536),"
@@ -125,8 +126,10 @@ logger.info("Memory backend: %s", _backend_type)
 
 # ── ChromaDB backend ───────────────────────────────────────────────────────
 
-def _chroma_add(user_id: int, content: str, category: str) -> dict:
-    _id = f"{user_id}_{abs(hash(content)) % 10**9}"
+def _chroma_add(user_id: str, content: str, category: str) -> dict:
+    # sha256, not hash(): the builtin is randomised per process, so the same memory got a new id
+    # (no dedup) after every restart.
+    _id = f"{user_id}_{hashlib.sha256(content.encode()).hexdigest()[:24]}"
     _chroma.upsert(
         ids=[_id],
         documents=[content],
@@ -135,7 +138,7 @@ def _chroma_add(user_id: int, content: str, category: str) -> dict:
     return {"user_id": user_id, "content": content, "category": category, "id": _id}
 
 
-def _chroma_get(user_id: int, category: Optional[str]) -> _List[dict]:
+def _chroma_get(user_id: str, category: Optional[str]) -> _List[dict]:
     _where = {"user_id": user_id}
     if category:
         _where["category"] = category
@@ -150,7 +153,7 @@ def _chroma_get(user_id: int, category: Optional[str]) -> _List[dict]:
         return []
 
 
-def _chroma_search(user_id: int, query: str, limit: int) -> _List[dict]:
+def _chroma_search(user_id: str, query: str, limit: int) -> _List[dict]:
     try:
         res = _chroma.query(
             query_texts=[query],
@@ -168,7 +171,7 @@ def _chroma_search(user_id: int, query: str, limit: int) -> _List[dict]:
 
 # ── pgvector backend ───────────────────────────────────────────────────────
 
-def _pg_add(user_id: int, content: str, category: str) -> dict:
+def _pg_add(user_id: str, content: str, category: str) -> dict:
     try:
         with _pg_conn.cursor() as cur:
             cur.execute(
@@ -184,7 +187,7 @@ def _pg_add(user_id: int, content: str, category: str) -> dict:
         return {"user_id": user_id, "content": content, "category": category}
 
 
-def _pg_get(user_id: int, category: Optional[str]) -> _List[dict]:
+def _pg_get(user_id: str, category: Optional[str]) -> _List[dict]:
     try:
         with _pg_conn.cursor() as cur:
             if category:
@@ -204,7 +207,7 @@ def _pg_get(user_id: int, category: Optional[str]) -> _List[dict]:
         return []
 
 
-def _pg_search(user_id: int, query: str, limit: int) -> _List[dict]:
+def _pg_search(user_id: str, query: str, limit: int) -> _List[dict]:
     try:
         with _pg_conn.cursor() as cur:
             cur.execute(
@@ -267,7 +270,7 @@ if _backend_type == "json":
 
 # ── Public interface ───────────────────────────────────────────────────────
 
-def add_memory(user_id: int, content: str, category: str = "general") -> dict:
+def add_memory(user_id: str, content: str, category: str = "general") -> dict:
     """Store a memory entry. Routes to the active backend."""
     if _backend_type == "chromadb":
         entry = _chroma_add(user_id, content, category)
@@ -282,7 +285,7 @@ def add_memory(user_id: int, content: str, category: str = "general") -> dict:
     return entry
 
 
-def get_memories(user_id: int, category: Optional[str] = None) -> _List[dict]:
+def get_memories(user_id: str, category: Optional[str] = None) -> _List[dict]:
     """Return all memories for a user, optionally filtered by category."""
     if _backend_type == "chromadb":
         return _chroma_get(user_id, category)
@@ -295,7 +298,7 @@ def get_memories(user_id: int, category: Optional[str] = None) -> _List[dict]:
     ]
 
 
-def search_memories(user_id: int, query: str, limit: int = 5) -> _List[dict]:
+def search_memories(user_id: str, query: str, limit: int = 5) -> _List[dict]:
     """Search memories by semantic similarity (ChromaDB) or substring (pgvector/JSON)."""
     if _backend_type == "chromadb":
         return _chroma_search(user_id, query, limit)
@@ -331,39 +334,58 @@ def get_graph() -> dict:
     )
 
     (mem_dir / "memory_router.py").write_text(
-        '''from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+        '''from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from typing import Optional
 from .memory_service import add_memory, get_memories, search_memories
+
+try:  # the generated backend's auth dependency (src/auth.py)
+    from src.auth import get_current_user
+except ImportError:
+    try:
+        from auth import get_current_user
+    except ImportError:
+        async def get_current_user():
+            # Fail closed: memories are personal data and must never be served unauthenticated.
+            raise HTTPException(status_code=503, detail="memory disabled: auth.get_current_user not found")
 
 router = APIRouter(prefix="/memory", tags=["Memory"])
 
 class MemoryCreate(BaseModel):
-    user_id: int
-    content: str
-    category: str = "general"
+    content: str = Field(min_length=1, max_length=10000)
+    category: str = Field(default="general", max_length=100)
 
+# The owner is always the signed-in user from the token, never an id sent by the client (IDOR).
 @router.post("/")
-def create_memory(body: MemoryCreate):
-    return add_memory(body.user_id, body.content, body.category)
+def create_memory(body: MemoryCreate, user: dict = Depends(get_current_user)):
+    return add_memory(str(user["id"]), body.content, body.category)
 
-@router.get("/{user_id}")
-def list_memories(user_id: int, category: Optional[str] = None):
-    return {"memories": get_memories(user_id, category)}
+@router.get("/")
+def list_memories(category: Optional[str] = None, user: dict = Depends(get_current_user)):
+    return {"memories": get_memories(str(user["id"]), category)}
 
-@router.get("/{user_id}/search")
-def search(user_id: int, q: str):
-    return {"results": search_memories(user_id, q)}
+@router.get("/search")
+def search(q: str, user: dict = Depends(get_current_user)):
+    return {"results": search_memories(str(user["id"]), q)}
 '''
     )
 
     (mem_dir / "memory_graph_router.py").write_text(
-        '''from fastapi import APIRouter
+        '''from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from .knowledge_graph import add_entity, add_relationship, get_graph
 
-router = APIRouter(prefix="/knowledge-graph", tags=["Knowledge Graph"])
+try:  # the graph is shared by all users, so only admins may read or change it
+    from src.auth import require_admin
+except ImportError:
+    try:
+        from auth import require_admin
+    except ImportError:
+        async def require_admin():
+            raise HTTPException(status_code=503, detail="knowledge graph disabled: auth.require_admin not found")
+
+router = APIRouter(prefix="/knowledge-graph", tags=["Knowledge Graph"], dependencies=[Depends(require_admin)])
 
 class EntityCreate(BaseModel):
     label: str
@@ -392,7 +414,7 @@ def get_full_graph():
     (migrations_dir / "add_memory.sql").write_text(
         "CREATE TABLE IF NOT EXISTS memory_entries (\n"
         "  id SERIAL PRIMARY KEY,\n"
-        "  user_id INTEGER NOT NULL,\n"
+        "  user_id VARCHAR(64) NOT NULL,\n"
         "  content TEXT NOT NULL,\n"
         "  category VARCHAR(100) DEFAULT 'general',\n"
         "  embedding JSONB,\n"

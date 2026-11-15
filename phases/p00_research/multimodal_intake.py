@@ -75,7 +75,8 @@ async def parse_diagram_image(image_base64: str, image_mime: str = "image/png") 
     Use Claude Vision to extract architecture requirements from a base64-encoded diagram image.
 
     Converts base64 to bytes and uses the LLMClient.call_vision() method.
-    Falls back to returning a generic description prompt if vision call fails.
+    Raises ValueError when the image cannot be read: a made-up "Build a system with the components in
+    the diagram" spec would have the pipeline build something the user never described.
     """
     vision_prompt = (
         "This is a software architecture diagram. Extract: "
@@ -87,26 +88,26 @@ async def parse_diagram_image(image_base64: str, image_mime: str = "image/png") 
     try:
         image_bytes = base64.b64decode(image_base64)
     except Exception as exc:
-        logger.warning("multimodal_intake: failed to decode diagram image base64: %s", exc)
-        return "Build a system with components visible in the provided architecture diagram."
+        raise ValueError(f"diagram image is not valid base64: {exc}") from exc
 
     try:
         from aether_os.core.llm.client import get_llm_client
         llm = get_llm_client()
         result = await llm.call_vision(vision_prompt, image_bytes, task_type="analysis")
-        return result.strip() if result else "Build a system with the components shown in the diagram."
     except Exception as exc:
-        logger.warning("multimodal_intake: diagram vision analysis failed: %s", exc)
-        return "Build a system with the components shown in the provided architecture diagram."
+        raise ValueError(f"diagram analysis failed: {exc}") from exc
+    if not result or not result.strip():
+        raise ValueError("diagram analysis returned nothing")
+    return result.strip()
 
 
 async def parse_audio_transcript(audio_base64: str, audio_format: str = "mp3") -> str:
     """
     Transcribe a base64-encoded audio memo and structure it as a requirements spec.
 
-    Primary: OpenAI Whisper API (requires OPENAI_API_KEY).
-    Fallback: LLM-based description of what a voice requirements memo should contain.
-    After transcription, a second LLM call structures the text into a spec.
+    Whisper (OpenAI, needs OPENAI_API_KEY: the audio leaves the platform, so it is opt-in per operator).
+    Without a transcript this raises ValueError and the caller falls back to the text input.
+    After transcription, an LLM call structures the text into a spec.
     """
     openai_key = os.environ.get("OPENAI_API_KEY", "")
     transcript: Optional[str] = None
@@ -141,25 +142,9 @@ async def parse_audio_transcript(audio_base64: str, audio_format: str = "mp3") -
         except Exception as exc:
             logger.warning("multimodal_intake: Whisper transcription failed: %s", exc)
 
-    # ── Fallback: LLM stub when Whisper is unavailable ──────────────────────────
     if not transcript:
-        logger.info("multimodal_intake: Whisper unavailable — using LLM fallback for audio")
-        try:
-            from aether_os.core.llm.client import get_llm_client
-            llm = get_llm_client()
-            stub_prompt = (
-                "A voice memo was provided as audio input for a software project. "
-                "Since audio transcription is unavailable, generate a placeholder requirements spec "
-                "that says: 'Audio requirements memo was provided but could not be transcribed. "
-                "Please provide requirements as text.' Return only that sentence."
-            )
-            transcript = await llm.call(stub_prompt, task_type="analysis", max_tokens=256)
-        except Exception as exc:
-            logger.warning("multimodal_intake: LLM audio fallback failed: %s", exc)
-            return (
-                "Audio requirements memo was provided but could not be transcribed. "
-                "Please provide requirements as text."
-            )
+        # No placeholder spec: the pipeline must not build from a sentence saying "could not be transcribed".
+        raise ValueError("audio memo could not be transcribed (needs OPENAI_API_KEY for Whisper); send the requirements as text")
 
     # ── Second pass: structure the transcript into a spec ────────────────────────
     try:
