@@ -12,6 +12,7 @@ from typing import Dict, Optional
 from aether_os.core.artifact_store import get_artifact_store
 from aether_os.core.run_app import safe_fs
 from aether_os.core.artifact_store import get_artifact_store as _gas_s3
+from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.council import DeliveryCouncil
 from aether_os.core.db import get_session_factory as _gsf
 from aether_os.core.db import get_session_factory as _gsf_cn
@@ -338,16 +339,19 @@ async def delivery_council_check(
             })
     except asyncio.TimeoutError:
         logger.warning("DeliveryCouncil timed out after 120s for run %s — recorded as unavailable", run_id)
-        await _record_council_unavailable(run_id, "council_timeout")
+        await _record_council_unavailable(run_id, "council_timeout", org_id, project_name)
     except Exception as _exc:
         logger.warning("DeliveryCouncil check failed: %s", _exc)
-        await _record_council_unavailable(run_id, "council_error")
-async def _record_council_unavailable(run_id: str, note: str) -> None:
+        await _record_council_unavailable(run_id, "council_error", org_id, project_name)
+async def _record_council_unavailable(
+    run_id: str, note: str, org_id: Optional[str] = None, project_name: Optional[str] = None,
+) -> None:
     """The delivery council did not produce a verdict (timeout/error).
 
     It is advisory, so the run keeps its status, but the missing verdict is never reported
     as a pass: it is stored on the run (council_delivery.status == "unavailable", visible in
-    the run data) and announced with its own event.
+    the run data), announced with its own event, written to the audit ledger and sent to the
+    org as an in-app notification: a delivery nobody independently reviewed must not go unnoticed.
     """
     verdict = {
         "status": "unavailable", "passed": None, "score": None, "advisory": True,
@@ -369,6 +373,26 @@ async def _record_council_unavailable(run_id: str, note: str) -> None:
         "status": "completed",
         "note": note,
     })
+    if not org_id:
+        return
+    try:
+        await get_ledger().async_log_audit_event(
+            org_id=org_id, user_id="system", action="council_delivery_unavailable",
+            resource_type="run", resource_id=run_id, metadata={"note": note},
+        )
+    except Exception as _led_exc:  # the ledger never raises, this guards the import/lookup only
+        logger.warning("[council] ledger entry for unavailable council failed (run %s): %s", run_id, _led_exc)
+    try:
+        async with _gsf_cn()() as _s_cn:
+            _s_cn.add(_Notif_cn(
+                org_id=org_id, type="council_unavailable",
+                title=f"Delivery review did not run for {project_name or 'run-' + run_id[:8]}",
+                message=f"The delivery council produced no verdict ({note}); the build was not independently reviewed.",
+                link=f"/dashboard/runs/{run_id}",
+            ))
+            await _s_cn.commit()
+    except Exception as _ne_cn:
+        logger.warning("[council] notification for unavailable council failed (run %s): %s", run_id, _ne_cn)
 async def store_run_memory(
     run_id: str,
     org_id: Optional[str],
