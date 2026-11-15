@@ -214,6 +214,34 @@ def _is_provider_dead(provider: str, model: str = "", scope: str = PLATFORM_SCOP
         bool(model) and _is_dead(_DEAD_MODELS, scope, f"{provider}/{model}"))
 
 
+# Breaker for a provider that is up but failing (5xx, overloaded, timeouts, connection errors). The permanent-failure
+# breaker below needs a bad key or account; this one needs N consecutive failed calls. Without it a provider that answers
+# 500 costs every call its retries and backoff. It opens the same _DEAD_PROVIDERS entry (so status views see it), for a
+# short time; the next call after it expires is the probe: one more failure reopens it, one success clears the count.
+_SERVER_SIDE_PATTERNS = ("500", "502", "503", "504", "overloaded", "server error", "internal error",
+                         "service unavailable", "connection", "timed out", "timeout")
+_SERVER_FAILURES: dict[tuple[str, str], int] = {}
+
+
+def _is_server_side_failure(exc: BaseException) -> bool:
+    return isinstance(exc, asyncio.TimeoutError) or any(p in str(exc).lower() for p in _SERVER_SIDE_PATTERNS)
+
+
+def _note_provider_result(provider: str, scope: str, server_failure: bool) -> None:
+    """Record one finished provider call: success (False) clears the count; a server-side failure may open the breaker."""
+    if not server_failure:
+        _SERVER_FAILURES.pop((scope, provider), None)
+        return
+    n = _SERVER_FAILURES.get((scope, provider), 0) + 1
+    _SERVER_FAILURES[(scope, provider)] = n
+    if n >= int(os.environ.get("ROUTER_BREAKER_FAILURES", "5")):
+        open_s = float(os.environ.get("ROUTER_BREAKER_OPEN_SECONDS", "30"))
+        if not _is_dead(_DEAD_PROVIDERS, scope, provider):
+            logger.warning("Router: circuit-breaker OPEN for %s (%s) after %d consecutive server-side failures, %.0fs",
+                           provider, f"org {scope[:8]}" if scope else "the platform key", n, open_s)
+        _DEAD_PROVIDERS[(scope, provider)] = time.monotonic() + open_s
+
+
 _PERMANENT_FAILURE_PATTERNS = (
     "invalid_payment_instrument", "invalidpaymentinstrument",
     "invalid_api_key", "invalid api key",
