@@ -243,6 +243,7 @@ def create_app() -> FastAPI:
         ("run_app",           "aether_os.gateway.routers.run_app_router",           "router",       {},                        True),
         ("run_decisions",     "aether_os.gateway.routers.run_decisions_router",     "router",       {},                        True),
         ("run_spec",          "aether_os.gateway.routers.run_spec_router",          "router",       {},                        True),
+        ("factory_decisions", "aether_os.gateway.routers.factory_decisions_router", "router",       {},                        True),
         ("run_deploy",        "aether_os.gateway.routers.run_deploy_router",        "router",       {},                        True),
         ("run_preview",       "aether_os.gateway.routers.run_preview_router",       "router",       {},                        True),
         ("factory_ops",       "aether_os.gateway.routers.factory_ops_router",       "router",       {},                        True),
