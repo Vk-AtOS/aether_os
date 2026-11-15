@@ -126,7 +126,11 @@ class HandoffStageSupervisor(PhaseBase):
             results["p15_handoff"] = handoff_result
 
         # ── Build ZIP archive of entire generated project output ───────────────
-        zip_path = self._build_project_zip(phase_input, output_dir, issues)
+        # The documentation, client portal and handoff package (Postman, runbook) are part of the delivery.
+        extras = {
+            "docs": docs_result, "client_portal": portal_result, "handoff": handoff_result,
+        }
+        zip_path = self._build_project_zip(phase_input, output_dir, issues, extras)
         if zip_path:
             phase_input.input_data["handoff_zip_path"] = str(zip_path)
 
@@ -226,9 +230,13 @@ class HandoffStageSupervisor(PhaseBase):
                 context["deployment_guide_path"] = str(runbook)
 
     def _build_project_zip(
-        self, phase_input: Any, output_dir: Path, issues: List[str]
+        self, phase_input: Any, output_dir: Path, issues: List[str],
+        extras: Dict[str, TaskResult | None] | None = None,
     ) -> Path | None:
-        """ZIP the entire backend + frontend output into a delivery archive."""
+        """ZIP the backend + frontend output plus the docs / portal / handoff results into a delivery archive.
+
+        extras maps an archive folder to the sub-phase result whose output folder goes under it.
+        """
         try:
             data = phase_input.input_data or {}
             zip_path = output_dir / "project_delivery.zip"
@@ -241,7 +249,13 @@ class HandoffStageSupervisor(PhaseBase):
                     if p.exists():
                         dirs_to_zip.append(p)
 
-            if not dirs_to_zip:
+            extra_dirs: Dict[str, Path] = {}
+            for folder, res in (extras or {}).items():
+                out = Path(res.output_path) if res is not None and res.output_path else None
+                if out is not None and out.exists():
+                    extra_dirs[folder] = out if out.is_dir() else out.parent
+
+            if not dirs_to_zip and not extra_dirs:
                 logger.info("s11: no backend/frontend paths found — skipping ZIP")
                 return None
 
@@ -255,6 +269,10 @@ class HandoffStageSupervisor(PhaseBase):
                                 continue
                             arcname = file_path.relative_to(base_dir.parent)
                             zf.write(file_path, arcname)
+                for folder, base_dir in extra_dirs.items():
+                    for file_path in base_dir.rglob("*"):
+                        if file_path.is_file() and file_path != zip_path and "__pycache__" not in file_path.parts:
+                            zf.write(file_path, Path(folder) / file_path.relative_to(base_dir))
 
             logger.info("s11: delivery ZIP written to %s", zip_path)
             return zip_path
