@@ -21,6 +21,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         '''import logging
 import os
 
+try:
+    import posthog as _ph
+except ImportError:  # optional: events are only logged without it
+    _ph = None
+
 logger = logging.getLogger(__name__)
 
 _POSTHOG_KEY = os.getenv("POSTHOG_API_KEY", "")
@@ -33,12 +38,12 @@ def _get_posthog():
     if _posthog is not None:
         return _posthog
     if _POSTHOG_KEY:
-        try:
+        if _ph is None:
+            logger.warning("posthog package not installed — events logged only")
+        else:
             _ph.api_key = _POSTHOG_KEY
             _ph.host = os.getenv("POSTHOG_HOST", "https://app.posthog.com")
             _posthog = _ph
-        except ImportError:
-            logger.warning("posthog package not installed — events logged only")
     return _posthog
 
 
@@ -175,15 +180,17 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
+try:
+    import posthog as _ph
+except ImportError:  # optional: events are only stored without it
+    _ph = None
+try:  # the generated backend's session factory (get_db is a FastAPI dependency, not a context manager)
+    from src.database import AsyncSessionLocal
+except ImportError:
+    from database import AsyncSessionLocal
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
-
-
-async def _get_db():
-    """Yield an async DB session (import from your project\'s database module)."""
-    from src.database import get_db  # type: ignore
-    async with get_db() as db:
-        yield db
 
 
 @router.post("/track")
@@ -196,10 +203,10 @@ async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
         return {"status": "ignored", "reason": "no event name"}
     try:
         from sqlalchemy import text
-        from src.database import get_db  # type: ignore
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
             await db.execute(
-                text("INSERT INTO analytics_events (event, user_id, data) VALUES (:e, :u, :d::jsonb)"),
+                # CAST(...): the ":d::jsonb" form is not a bind parameter for SQLAlchemy, so no event was ever stored
+                text("INSERT INTO analytics_events (event, user_id, data) VALUES (:e, :u, CAST(:d AS jsonb))"),
                 {"e": event, "u": user_id, "d": __import__("json").dumps(data)},
             )
             await db.commit()
@@ -207,7 +214,7 @@ async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
         logger.warning("Analytics DB write failed: %s", exc)
     # Also forward to PostHog if configured
     posthog_key = os.getenv("POSTHOG_API_KEY", "")
-    if posthog_key:
+    if posthog_key and _ph is not None:
         try:
             _ph.api_key = posthog_key
             _ph.capture(str(user_id or "anon"), event=event, properties=data)
@@ -225,8 +232,7 @@ async def list_events(
     import json as _json
     try:
         from sqlalchemy import text
-        from src.database import get_db  # type: ignore
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
             # Recent events
             where = "WHERE event = :e" if event else ""
             params: Dict[str, Any] = {"limit": limit}
@@ -238,7 +244,7 @@ async def list_events(
             )).fetchall()
 
             # 24h summary
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)  # a datetime: asyncpg rejects an ISO string
             stats = (await db.execute(
                 text("SELECT COUNT(*) as total, COUNT(DISTINCT user_id) as users, "
                      "AVG((data->>'duration_ms')::float) as avg_ms, "
