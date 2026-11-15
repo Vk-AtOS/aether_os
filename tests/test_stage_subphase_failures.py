@@ -55,3 +55,31 @@ def test_s01_parallel_gate_denial_stops_run(monkeypatch):
     pi = SimpleNamespace(project_id="p", run_id="r", input_data={})
     with pytest.raises(PipelineBlockedError):
         asyncio.run(_sup(s01).run_task(pi, []))
+
+
+def test_s01_p00c_runs_after_p00_and_sees_its_build_profile(monkeypatch):
+    # KAN-98 item 3: p00c reads build_profile while p00 (which produces it) ran in parallel.
+    seen = {}
+
+    def imp(name):
+        m = ModuleType(name)
+
+        async def run(pi, mem, out):
+            from aether_os.phases.base import TaskResult
+            if "p00_research" in name:
+                await asyncio.sleep(0.05)   # slow producer: a parallel p00c would start first
+                return TaskResult(output_path="", confidence=1, metadata={"build_profile": {"architecture": "microservices"}})
+            if "p00c" in name:
+                seen["profile"] = pi.input_data.get("build_profile")
+            if "p01_intake" in name:
+                pi.input_data.update(entities=[{"name": "x"}], project_contract={"a": 1})
+            return TaskResult(output_path="", confidence=1, metadata={})
+
+        m.run = run
+        return m
+
+    monkeypatch.setattr(s01.importlib, "import_module", imp)
+    monkeypatch.setattr("aether_os.core.projects.get_project_manager", lambda: _PM())
+    pi = SimpleNamespace(project_id="p", run_id="r", input_data={})
+    asyncio.run(_sup(s01).run_task(pi, []))
+    assert seen["profile"] == {"architecture": "microservices"}
