@@ -87,3 +87,13 @@ def test_kong_has_no_wildcard_cors_with_credentials_and_redis_rate_limit_when_co
     assert cors["origins"] == ["https://app.example"] and "*" not in str(cors["origins"])
     rl = full["plugins"][0]["config"]
     assert rl["policy"] == "redis" and rl["redis_host"] == "redis"
+
+
+def test_litmus_rbac_is_namespaced_and_cannot_touch_secrets_or_nodes():
+    from aether_os.core.chaos_engineering.chaos_generator import generate_litmus_rbac
+    docs = [d for d in yaml.safe_load_all(generate_litmus_rbac("shop")) if d]
+    kinds = [d["kind"] for d in docs]
+    assert kinds == ["ServiceAccount", "Role", "RoleBinding"]      # was ClusterRole + ClusterRoleBinding
+    resources = {r for rule in docs[1]["rules"] for r in rule["resources"]}
+    assert not resources & {"secrets", "nodes"}
+    assert all(d["metadata"]["namespace"] == "shop" for d in docs)
