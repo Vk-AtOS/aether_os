@@ -56,4 +56,22 @@ def test_scan_with_violations_fails_and_clean_scan_passes(tmp_path, monkeypatch,
 
 def test_axe_script_does_not_swallow_violations():
     # checkA11y(page, ctx, opts, skipFailures=true) never throws, which made every scan report 0 violations
-    assert "checkA11y" not in task_agent._AXE_SCRIPT and "axe.run()" in task_agent._AXE_SCRIPT
+    assert "checkA11y" not in task_agent._AXE_SCRIPT and "axe.run(" in task_agent._AXE_SCRIPT
+
+
+def test_section_508_rules_are_injected_for_domains_whose_pack_requires_them(tmp_path, monkeypatch, frontend):
+    assert "section508" in task_agent.axe_tags_for("govtech") and "section508" in task_agent.axe_tags_for("edtech")
+    assert task_agent.axe_tags_for("crm") == task_agent._BASE_AXE_TAGS
+    seen = {}
+
+    class Proc:
+        async def communicate(self):
+            return json.dumps({"violations": 0, "passes": 1, "incomplete": 0, "items": []}).encode(), b""
+
+    async def fake_exec(*a, **k):
+        seen["args"] = a
+        return Proc()
+    monkeypatch.setattr(task_agent.asyncio, "create_subprocess_exec", fake_exec)
+    asyncio.run(task_agent.run(SimpleNamespace(input_data={"frontend_url": frontend, "domain": "govtech"}), [], tmp_path))
+    assert "section508" in json.loads(seen["args"][-1])
+    assert "Section 508" in json.loads((tmp_path / "a11y_results.json").read_text())["wcag_level"]
