@@ -13,7 +13,6 @@ Hit rate targets:
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import time
@@ -83,8 +82,6 @@ class LLMCache:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import LLMCacheEntry
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            from sqlalchemy import insert as sa_insert
 
             sf = get_session_factory()
             async with sf() as session:

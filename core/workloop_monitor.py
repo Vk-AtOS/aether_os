@@ -17,7 +17,7 @@ import asyncio
 import logging
 import os
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

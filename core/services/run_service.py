@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)

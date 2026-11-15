@@ -198,9 +198,6 @@ resource "aws_route" "{slug}_{r2_id}_to_{r1_id}" {{
 
 """
 
-    provider_aliases = "\n".join(
-        f'  alias = "{r.replace("-", "_")}"' for r in regions
-    )
 
     provider_blocks = "\n".join(
         'provider "aws" {{\n  region = "{}"\n  alias  = "{}"\n}}\n'.format(r, r.replace("-", "_"))

@@ -16,8 +16,6 @@ platform_events) so a fresh DB can be set up without Alembic.
 """
 from __future__ import annotations
 
-import base64
-import json
 import logging
 from pathlib import Path
 from typing import Dict, List

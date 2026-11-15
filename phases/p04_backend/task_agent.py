@@ -9,19 +9,15 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from aether_os.core.architecture_governor import ArchitectureGovernor
 from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
 from aether_os.phases.utils import get_domain_ir
-from aether_os.phases.p04a_backend_codegen.task_agent import run as p04a_run
-from aether_os.phases.p04_uiux_design.task_agent import run as p04b_run
 from aether_os.phases.p04_backend.go_generator import (
     generate_go_multiservice,
     generate_go_project,
 )
 from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
-from aether_os.orchestrator.events import emit as _global_emit
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.sandbox.runner import SandboxUnavailable

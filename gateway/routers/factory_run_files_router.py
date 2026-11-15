@@ -122,7 +122,7 @@ def _safe_file_path(root_dir: pathlib.Path, path: str) -> pathlib.Path:
     try:
         file_path.relative_to(root_dir)
     except ValueError:
-        raise HTTPException(status_code=403, detail="Path traversal detected")
+        raise HTTPException(status_code=403, detail="Path traversal detected") from None
     return file_path
 
 
@@ -178,7 +178,7 @@ async def patch_file_content(
         except Exception as e:
             logger.warning("Guardian: failed to update baseline after file write: %s", e)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error writing file: {e}")
+        raise HTTPException(status_code=500, detail=f"Error writing file: {e}") from e
 
     return {"run_id": run_id, "path": body.path, "size": file_path.stat().st_size}
 
@@ -259,7 +259,7 @@ async def patch_envvars(
             os.unlink(tmp_name)
             raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error writing .env: {e}")
+        raise HTTPException(status_code=500, detail=f"Error writing .env: {e}") from e
 
     return {"run_id": run_id, "written": len(body.vars)}
 

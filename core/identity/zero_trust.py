@@ -19,7 +19,6 @@ import hmac
 import json
 import os
 import time
-from typing import Optional
 
 
 _ENV_KEY = "AETHER_ONE_ZT_SECRET"

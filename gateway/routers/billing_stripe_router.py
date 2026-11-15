@@ -44,7 +44,7 @@ def _stripe_client():
         raise HTTPException(
             status_code=503,
             detail="stripe package not installed. Run: pip install stripe>=7.0.0",
-        )
+        ) from None
     secret_key = os.environ.get("STRIPE_SECRET_KEY", "")
     if not secret_key:
         raise HTTPException(
@@ -115,7 +115,7 @@ async def stripe_checkout(req: Dict[str, Any], user: Dict[str, Any] = _current_u
         )
     except Exception as exc:
         logger.error("Stripe checkout session creation failed: %s", exc)
-        raise HTTPException(status_code=502, detail="Payment provider error; try again later")
+        raise HTTPException(status_code=502, detail="Payment provider error; try again later") from exc
 
     logger.info("Stripe checkout session created: org=%s plan=%s session=%s", org_id, plan_id, session.id)
     return {
@@ -145,14 +145,14 @@ async def stripe_webhook(request: Request):
     except Exception as exc:
         # Never echo parser or signature errors to the caller.
         logger.warning("Stripe webhook rejected: %s", type(exc).__name__)
-        raise HTTPException(status_code=400, detail="Invalid Stripe webhook")
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook") from exc
 
     try:
         outcome = await apply_event(stripe, event, _stripe_prices())
     except Exception as exc:
         # 5xx makes Stripe deliver the event again later.
         logger.warning("Stripe webhook %s could not be confirmed: %s", event.get("type"), exc)
-        raise HTTPException(status_code=502, detail="Could not confirm the event with Stripe")
+        raise HTTPException(status_code=502, detail="Could not confirm the event with Stripe") from exc
     logger.info("Stripe webhook %s %s: %s", event.get("type"), event.get("id"), outcome)
     return {"received": True}
 
@@ -181,7 +181,7 @@ async def stripe_portal(user: Dict[str, Any] = _current_user()):
         )
     except Exception as exc:
         logger.error("Stripe portal session creation failed: %s", exc)
-        raise HTTPException(status_code=502, detail="Payment provider error; try again later")
+        raise HTTPException(status_code=502, detail="Payment provider error; try again later") from exc
 
     return {"portal_url": portal_session.url}
 
@@ -232,4 +232,4 @@ async def _get_or_create_stripe_customer(org_id: str, email: str, stripe) -> str
         raise
     except Exception as exc:
         logger.error("_get_or_create_stripe_customer failed: %s", exc)
-        raise HTTPException(status_code=503, detail="Could not resolve Stripe customer")
+        raise HTTPException(status_code=503, detail="Could not resolve Stripe customer") from exc

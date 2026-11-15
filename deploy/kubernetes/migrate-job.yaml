@@ -1,0 +1,49 @@
+# Database schema job (run it before, and on every upgrade of, the api Deployment):
+#   kubectl apply -f deploy/kubernetes/migrate-job.yaml && kubectl -n aetheros wait --for=condition=complete job/aetheros-migrate --timeout=300s
+#   kubectl -n aetheros delete job aetheros-migrate     # before the next upgrade (Job specs are immutable)
+# An empty database is created from the models and stamped; an existing one gets `alembic upgrade head`
+# (scripts/db_migrate.py). The api pods refuse to start on a database that is not at head, so without this job a
+# fresh cluster crash-loops.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: aetheros-migrate
+  namespace: aetheros
+  labels:
+    app.kubernetes.io/name: aetheros-migrate
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aetheros-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: aetheros/api:latest
+          workingDir: /srv/aether_os
+          command: ["python", "scripts/db_migrate.py"]
+          envFrom:
+            - configMapRef:
+                name: aetheros-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: DATABASE_URL
+            - name: AETHER_FIELD_KEY    # the encrypt_sensitive_columns revision refuses to run without it
+              valueFrom:
+                secretKeyRef:
+                  name: aetheros-secrets
+                  key: AETHER_FIELD_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: "100m", memory: "256Mi"}
+            limits: {cpu: "500m", memory: "512Mi"}

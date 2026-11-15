@@ -5,7 +5,6 @@ personal data in logs. Real chain code on a throwaway SQLite file; identity inje
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 import httpx
 import pytest

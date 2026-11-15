@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -129,3 +129,45 @@ def send_to_dlq(body: str, reason: str) -> bool:
     except Exception as exc:
         logger.error("SQS DLQ send failed: %s", exc)
         return False
+
+
+def peek_dlq(limit: int = 10) -> List[Dict[str, Any]]:
+    """Look at (not consume) up to `limit` (max 10) dead-lettered messages: run id and reason only, never the body.
+
+    VisibilityTimeout=0 leaves them visible to the next reader. SQS cannot page a peek, so this is a window, not a listing.
+    """
+    dlq = os.environ.get("SQS_DLQ_URL", "")
+    if not dlq:
+        return []
+    try:
+        resp = _client().receive_message(
+            QueueUrl=dlq, MaxNumberOfMessages=max(1, min(int(limit), 10)), WaitTimeSeconds=0, VisibilityTimeout=0,
+            MessageAttributeNames=["All"], AttributeNames=["SentTimestamp", "ApproximateReceiveCount"])
+    except Exception as exc:
+        logger.error("SQS DLQ peek failed: %s", exc)
+        return []
+    items = []
+    for msg in resp.get("Messages", []):
+        try:
+            run_id = json.loads(msg["Body"]).get("run_id", "")
+        except (ValueError, AttributeError):
+            run_id = ""
+        attrs = msg.get("MessageAttributes", {})
+        items.append({"message_id": msg["MessageId"], "run_id": run_id,
+                      "reason": attrs.get("reason", {}).get("StringValue", ""),
+                      "sent_at_ms": int(msg.get("Attributes", {}).get("SentTimestamp", 0)),
+                      "receive_count": int(msg.get("Attributes", {}).get("ApproximateReceiveCount", 0))})
+    return items
+
+
+def dlq_depth() -> int:
+    """Approximate number of dead-lettered messages (-1 when it cannot be read)."""
+    dlq = os.environ.get("SQS_DLQ_URL", "")
+    if not dlq:
+        return 0
+    try:
+        attrs = _client().get_queue_attributes(QueueUrl=dlq, AttributeNames=["ApproximateNumberOfMessages"])
+        return int(attrs["Attributes"]["ApproximateNumberOfMessages"])
+    except Exception as exc:
+        logger.error("SQS DLQ depth failed: %s", exc)
+        return -1

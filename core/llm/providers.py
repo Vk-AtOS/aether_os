@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, Optional
+from typing import Optional
 
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.errors import LLMCallError

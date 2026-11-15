@@ -220,7 +220,7 @@ async def export_audit_csv(
                 hour=23, minute=59, second=59, microsecond=999999
             ).timestamp()
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}")
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}") from exc
 
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import AuditLog, User as UserModel
@@ -313,7 +313,7 @@ async def list_error_registry(
         return {"entries": entries, "total": len(entries)}
     except Exception as exc:
         logger.warning("admin: error-registry list failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to load error registry")
+        raise HTTPException(status_code=500, detail="Failed to load error registry") from exc
 
 
 @router.get("/admin/error-registry/summary")
@@ -329,7 +329,7 @@ async def error_registry_summary(
         return registry.get_summary()
     except Exception as exc:
         logger.warning("admin: error-registry summary failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to summarize error registry")
+        raise HTTPException(status_code=500, detail="Failed to summarize error registry") from exc
 
 
 @router.post("/admin/error-registry/{category}/mark-fixed")
@@ -357,4 +357,4 @@ async def mark_error_fixed(
         return {"ok": True, "category": category, "fix_description": fix_description}
     except Exception as exc:
         logger.warning("admin: mark-fixed failed for category %r: %s", category, exc)
-        raise HTTPException(status_code=500, detail="Failed to record fix")
+        raise HTTPException(status_code=500, detail="Failed to record fix") from exc

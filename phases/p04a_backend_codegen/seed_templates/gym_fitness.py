@@ -3,8 +3,7 @@ Seed template for gym_fitness domain.
 """
 import random
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
-from models import User, Member, Trainer, Class, Booking
+from models import Member, Trainer, Class, Booking
 
 async def seed_gym_fitness(db_session):
     # 1. Trainers (Minimum 10)

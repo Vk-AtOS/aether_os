@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace

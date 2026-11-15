@@ -50,7 +50,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

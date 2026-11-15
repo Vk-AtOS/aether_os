@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm import client as _llm_client
-from aether_os.phases.p05_frontend.prompts import DOMAIN_COMPONENT_DESC, DOMAIN_FALLBACK_WIDGETS
+from aether_os.phases.p05_frontend.prompts import DOMAIN_COMPONENT_DESC
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,6 @@ async def _generate_domain_component(
     """Generate a domain-specific React component via one LLM call with hardcoded fallback."""
 
     # Check fallback first to ensure we have one
-    fallback = DOMAIN_FALLBACK_WIDGETS.get(domain, "export default function DomainWidget() { return <div>Domain Overview</div> }")
 
     component_desc = DOMAIN_COMPONENT_DESC.get(domain, DOMAIN_COMPONENT_DESC.get("saas", "a SaaS dashboard widget"))
     entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []

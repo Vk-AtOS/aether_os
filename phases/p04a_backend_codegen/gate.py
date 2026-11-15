@@ -48,8 +48,6 @@ def validate(result: TaskResult) -> GateOutcome:
     for crud_file in crud_files:
         crud_content = crud_file.read_text()
         # List endpoints should have skip/limit or page/size
-        list_routes = re.findall(r'@\w+\.get\([^)]+\)[^@]+def \w+list[^(]*\([^)]*\)',
-                                  crud_content, re.IGNORECASE | re.DOTALL)
         get_routes = re.findall(r'@\w+\.get\(["\'][^"\']*["\'][^)]*\)', crud_content)
         if get_routes and "skip" not in crud_content and "limit" not in crud_content:
             warnings.append(f"{crud_file.name}: list endpoints may lack pagination (skip/limit)")

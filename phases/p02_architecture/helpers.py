@@ -5,7 +5,7 @@ builder, and tech stack fixer.
 """
 from __future__ import annotations
 import re
-from typing import Any, Dict, List
+from typing import Dict, List
 
 # ── Schema and defaults ───────────────────────────────────────────────────────
 
@@ -314,10 +314,10 @@ def build_fallback_architecture(raw_input: str, domain: str = "general") -> dict
                 "  Client->>API: HTTP Request\n"
                 "  API->>Auth: Validate JWT\n"
                 "  Auth-->>API: Payload\n"
-                f"  API->>Service: Business Logic\n"
-                f"  Service->>DB: SQL Query\n"
-                f"  DB-->>Service: Rows\n"
-                f"  Service-->>API: Result\n"
+                "  API->>Service: Business Logic\n"
+                "  Service->>DB: SQL Query\n"
+                "  DB-->>Service: Rows\n"
+                "  Service-->>API: Result\n"
                 "  API-->>Client: JSON Response"
             ),
             "security_considerations": profile.security_requirements + [

@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from aether_os.core.security.redact import redact_secrets
 

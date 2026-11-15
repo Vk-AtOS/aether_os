@@ -9,7 +9,7 @@ Contains generators for:
 """
 from __future__ import annotations
 
-from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField
+from aether_os.core.domain_ir import AetherType, DomainIR, IREntity
 from aether_os.phases.p04a_backend_codegen.ir_seed_generator import (  # noqa: F401  (re-exported for callers)
     _seed_value,
     _sort_entities_by_deps,
@@ -74,7 +74,7 @@ def _role_guard(roles: list) -> list:
     roles_repr = repr([r.lower() for r in roles])
     return [
         f"    if str((current_user.get('role') if isinstance(current_user, dict) else getattr(current_user, 'role', None)) or '').lower() not in {roles_repr}:",
-        f"        raise HTTPException(status_code=403, detail='Insufficient permissions')",
+        "        raise HTTPException(status_code=403, detail='Insufficient permissions')",
     ]
 
 
@@ -93,14 +93,14 @@ def _workflow_guard_lines(entity_name: str, transitions: dict) -> list:
         "",
     ]
     handler_lines = [
-        f"    _new_status = data.model_dump(exclude_unset=True).get('status')",
-        f"    if _new_status is not None and _new_status != obj.status:",
+        "    _new_status = data.model_dump(exclude_unset=True).get('status')",
+        "    if _new_status is not None and _new_status != obj.status:",
         f"        _allowed = {const_name}.get(obj.status, [])",
-        f"        if _new_status not in _allowed:",
-        f"            raise HTTPException(",
-        f"                status_code=422,",
-        f"                detail=f'Invalid status transition: {{obj.status!r}} → {{_new_status!r}}. Allowed from {{obj.status!r}}: {{_allowed}}',",
-        f"            )",
+        "        if _new_status not in _allowed:",
+        "            raise HTTPException(",
+        "                status_code=422,",
+        "                detail=f'Invalid status transition: {obj.status!r} → {_new_status!r}. Allowed from {obj.status!r}: {_allowed}',",
+        "            )",
     ]
     return {"module": module_lines, "handler": handler_lines}
 
@@ -121,7 +121,7 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
     # org_id filter fragments injected when multi_tenancy is enabled.
     _mt = f", models.{n}.org_id == current_user.get('org_id')" if multi_tenancy else ""
     _mt_list = f".where(models.{n}.org_id == current_user.get('org_id'))" if multi_tenancy else ""
-    _mt_create = f", org_id=current_user.get('org_id')" if multi_tenancy else ""
+    _mt_create = ", org_id=current_user.get('org_id')" if multi_tenancy else ""
 
     read_guard   = _role_guard(role_map.get("read", []))
     create_guard = _role_guard(role_map.get("create", []))
@@ -144,67 +144,67 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         "",
         f"@{router_var}.get('', response_model=schemas.PaginatedResponse)",
         f"async def list_{t}(",
-        f"    page: int = Query(1, ge=1),",
-        f"    page_size: int = Query(20, ge=1, le=200),",
-        f"    limit: Optional[int] = Query(None, ge=1, le=200),   # older clients; page_size is the documented name",
-        f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user=Depends(get_current_user),",
-        f"):",
+        "    page: int = Query(1, ge=1),",
+        "    page_size: int = Query(20, ge=1, le=200),",
+        "    limit: Optional[int] = Query(None, ge=1, le=200),   # older clients; page_size is the documented name",
+        "    db: AsyncSession = Depends(get_db),",
+        "    current_user=Depends(get_current_user),",
+        "):",
         *read_guard,
-        f"    size = limit or page_size",
-        f"    offset = (page - 1) * size",
+        "    size = limit or page_size",
+        "    offset = (page - 1) * size",
         f"    total_q = await db.execute(select(func.count()).select_from(models.{n}){_mt_list})",
-        f"    total = total_q.scalar_one()",
+        "    total = total_q.scalar_one()",
         f"    result = await db.execute(select(models.{n}){_mt_list}.offset(offset).limit(size))",
         f"    items = [schemas.{n}Response.model_validate(o) for o in result.scalars().all()]",
-        f"    return {{'items': items, 'total': total, 'page': page, 'page_size': size, 'limit': size}}",
+        "    return {'items': items, 'total': total, 'page': page, 'page_size': size, 'limit': size}",
         "",
         f"@{router_var}.post('', response_model=schemas.{n}Response, status_code=201)",
         f"async def create_{var}(",
         f"    data: schemas.{n}Create,",
-        f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user: dict = Depends(get_current_user),",
-        f"):",
+        "    db: AsyncSession = Depends(get_db),",
+        "    current_user: dict = Depends(get_current_user),",
+        "):",
         *create_guard,
         f"    obj = models.{n}(**data.model_dump(exclude_unset=True){_mt_create})",
-        f"    db.add(obj)",
-        f"    await db.flush()",
+        "    db.add(obj)",
+        "    await db.flush()",
         f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'CREATE', '{n}', str(getattr(obj, 'id', '')))",
-        f"    await db.refresh(obj)",
-        f"    return obj",
+        "    await db.refresh(obj)",
+        "    return obj",
         "",
         f"@{router_var}.get('/{{item_id}}', response_model=schemas.{n}Response)",
         f"async def get_{var}(",
-        f"    item_id: int,",
-        f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user: dict = Depends(get_current_user),",
-        f"):",
+        "    item_id: int,",
+        "    db: AsyncSession = Depends(get_db),",
+        "    current_user: dict = Depends(get_current_user),",
+        "):",
         *read_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id{_mt}))",
-        f"    obj = result.scalar_one_or_none()",
-        f"    if not obj:",
+        "    obj = result.scalar_one_or_none()",
+        "    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
-        f"    return obj",
+        "    return obj",
         "",
         f"@{router_var}.patch('/{{item_id}}', response_model=schemas.{n}Response)",
         f"async def update_{var}(",
-        f"    item_id: int,",
+        "    item_id: int,",
         f"    data: schemas.{n}Update,",
-        f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user: dict = Depends(get_current_user),",
-        f"):",
+        "    db: AsyncSession = Depends(get_db),",
+        "    current_user: dict = Depends(get_current_user),",
+        "):",
         *update_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id{_mt}))",
-        f"    obj = result.scalar_one_or_none()",
-        f"    if not obj:",
+        "    obj = result.scalar_one_or_none()",
+        "    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
         *guard_lines,
-        f"    for k, v in data.model_dump(exclude_unset=True).items():",
-        f"        setattr(obj, k, v)",
-        f"    await db.flush()",
+        "    for k, v in data.model_dump(exclude_unset=True).items():",
+        "        setattr(obj, k, v)",
+        "    await db.flush()",
         f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'UPDATE', '{n}', str(item_id))",
-        f"    await db.refresh(obj)",
-        f"    return obj",
+        "    await db.refresh(obj)",
+        "    return obj",
         "",
         f"@{router_var}.put('/{{item_id}}', response_model=schemas.{n}Response, include_in_schema=False)",
         f"async def update_{var}_put(item_id: int, data: schemas.{n}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):",
@@ -212,17 +212,17 @@ def _entity_router_with_rbac(entity: IREntity, role_map: dict, transitions: dict
         "",
         f"@{router_var}.delete('/{{item_id}}', status_code=204)",
         f"async def delete_{var}(",
-        f"    item_id: int,",
-        f"    db: AsyncSession = Depends(get_db),",
-        f"    current_user: dict = Depends(get_current_user),",
-        f"):",
+        "    item_id: int,",
+        "    db: AsyncSession = Depends(get_db),",
+        "    current_user: dict = Depends(get_current_user),",
+        "):",
         *delete_guard,
         f"    result = await db.execute(select(models.{n}).where(models.{n}.id == item_id{_mt}))",
-        f"    obj = result.scalar_one_or_none()",
-        f"    if not obj:",
+        "    obj = result.scalar_one_or_none()",
+        "    if not obj:",
         f"        raise HTTPException(status_code=404, detail='{n} not found')",
         f"    await _log_action(db, str(current_user.get('id', '') if isinstance(current_user, dict) else getattr(current_user, 'id', '')), 'DELETE', '{n}', str(item_id))",
-        f"    await db.delete(obj)",
+        "    await db.delete(obj)",
         "",
     ]
 
@@ -331,7 +331,7 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
         lines += [
             f"    # Stats breakdown from {status_entity.name}.{status_field.name}",
             f"    _total_r = await db.execute(select(func.count()).select_from(models.{status_entity.name}){_w(status_entity)})",
-            f"    _total_n = _total_r.scalar_one()",
+            "    _total_n = _total_r.scalar_one()",
             f"    stats['total_{status_entity.table}'] = _total_n",
         ]
 
@@ -341,17 +341,17 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
                     f"    _stage_{val.lower()}_r = await db.execute(",
                     f"        select(func.count()).select_from(models.{status_entity.name})",
                     f"        .where(models.{status_entity.name}.{status_field.name} == '{val}'{_m(status_entity)})",
-                    f"    )",
+                    "    )",
                     f"    stats['stage_{val.lower()}'] = _stage_{val.lower()}_r.scalar_one()",
                 ]
 
         lines += [
-            f"    _succ_r = await db.execute(",
+            "    _succ_r = await db.execute(",
             f"        select(func.count()).select_from(models.{status_entity.name})",
             f"        .where(models.{status_entity.name}.{status_field.name}.in_(['success', 'completed', 'done', 'active', 'Won']){_m(status_entity)})",
-            f"    )",
-            f"    _succ_n = _succ_r.scalar_one()",
-            f"    stats['success_rate'] = round(_succ_n / _total_n * 100, 2) if _total_n else 0.0",
+            "    )",
+            "    _succ_n = _succ_r.scalar_one()",
+            "    stats['success_rate'] = round(_succ_n / _total_n * 100, 2) if _total_n else 0.0",
             "",
         ]
 
@@ -373,7 +373,7 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
         lines += [
             f"    # Total cost from {cost_entity.name}.{cost_field.name}",
             f"    _cost_r = await db.execute(select(func.sum(models.{cost_entity.name}.{cost_field.name})){_w(cost_entity)})",
-            f"    stats['total_cost'] = float(_cost_r.scalar_one() or 0.0)",
+            "    stats['total_cost'] = float(_cost_r.scalar_one() or 0.0)",
             "",
         ]
 

@@ -3,8 +3,7 @@ Seed template for education domain.
 """
 import random
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
-from models import User, Course, Student, Enrollment, Grade
+from models import Course, Student, Enrollment, Grade
 
 async def seed_education(db_session):
     # 1. Courses (Minimum 5)

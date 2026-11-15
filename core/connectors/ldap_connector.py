@@ -70,7 +70,7 @@ class LDAPConnector(BaseConnector):
         Raises ConnectorError on failure.
         """
         try:
-            from ldap3 import Server, Connection, ALL, NTLM, SAFE_SYNC  # type: ignore
+            from ldap3 import Server, Connection, ALL  # type: ignore
         except ImportError as exc:
             raise ConnectorError(
                 "ldap3 is not installed. Add it to requirements.txt: ldap3>=2.9"

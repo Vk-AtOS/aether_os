@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import os
 import networkx as nx
-from typing import Any, Dict, List
 
 
 class KnowledgeGraph:

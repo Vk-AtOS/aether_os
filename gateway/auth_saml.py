@@ -246,11 +246,11 @@ async def saml_metadata() -> Response:
         metadata = settings.get_sp_metadata()
         return Response(content=metadata, media_type="application/xml")
     except ImportError:
-        raise HTTPException(status_code=503, detail="python3-saml not installed")
+        raise HTTPException(status_code=503, detail="python3-saml not installed") from None
     except Exception as exc:
         # SEC-051: Do not expose internal SAML error details in HTTP response
         logger.error("SAML metadata generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="SAML metadata generation failed")
+        raise HTTPException(status_code=500, detail="SAML metadata generation failed") from exc
 
 
 @saml_router.get("/login")
@@ -274,11 +274,11 @@ async def saml_login(
         sso_url = auth.login(return_to=_relay_state_for(org))
         return RedirectResponse(url=sso_url)
     except ImportError:
-        raise HTTPException(status_code=503, detail="python3-saml not installed")
+        raise HTTPException(status_code=503, detail="python3-saml not installed") from None
     except Exception as exc:
         # SEC-051: Do not expose internal SAML error details in HTTP response
         logger.exception("SAML login initiation failed")
-        raise HTTPException(status_code=500, detail="SAML login initiation failed")
+        raise HTTPException(status_code=500, detail="SAML login initiation failed") from exc
 
 
 @saml_router.post("/callback")
@@ -290,7 +290,7 @@ async def saml_callback(request: Request) -> RedirectResponse:
     try:
         from onelogin.saml2.auth import OneLogin_Saml2_Auth  # type: ignore
     except ImportError:
-        raise HTTPException(status_code=503, detail="python3-saml not installed")
+        raise HTTPException(status_code=503, detail="python3-saml not installed") from None
 
     form_data = await request.form()
     relay_state = form_data.get("RelayState", "")

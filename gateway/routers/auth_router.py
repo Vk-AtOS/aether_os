@@ -23,7 +23,7 @@ from aether_os.core.pipeline_state import get_redis
 from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
 from aether_os.gateway.auth_refresh import issue_token_pair, revoke_session
 from aether_os.gateway.auth import get_password_hash, create_access_token
-from aether_os.gateway.auth import verify_password, create_access_token
+from aether_os.gateway.auth import verify_password
 from sqlalchemy import select
 import os as _os
 import secrets

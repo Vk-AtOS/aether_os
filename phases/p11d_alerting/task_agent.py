@@ -1,6 +1,5 @@
 """P11d Alerting — generate Alertmanager config, Prometheus alert rules, and runbooks."""
 from __future__ import annotations
-import json
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List
@@ -17,7 +16,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
     project_name = data.get("project_name", "app")
-    domain = data.get("domain", "general")
 
     # ── Alertmanager config ───────────────────────────────────────────────────
     alertmanager_yml = textwrap.dedent("""\
@@ -185,7 +183,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
             If not resolved in 15 minutes, escalate to on-call engineer.
         """),
-        "HighLatency.md": textwrap.dedent(f"""\
+        "HighLatency.md": textwrap.dedent("""\
             # Runbook: High P95 Latency
 
             **Alert:** P95 response time > 2 seconds for 3 minutes
@@ -405,7 +403,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (alerting_dir / ".env.alerting.example").write_text(env_template)
 
     # ── Integration guide ─────────────────────────────────────────────────────
-    integration_md = textwrap.dedent(f"""\
+    integration_md = textwrap.dedent("""\
         # Alerting Integration Guide
 
         ## Files Generated

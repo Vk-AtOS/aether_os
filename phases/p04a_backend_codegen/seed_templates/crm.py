@@ -1,8 +1,7 @@
 """
 Seed template for crm domain.
 """
-from sqlalchemy import select, func
-from models import User, Contact, Company, Deal, Activity
+from models import Contact, Company, Deal
 
 async def seed_crm(db_session):
     # 1. Companies

@@ -106,7 +106,6 @@ def generate_python_storage_client(entities: List[dict]) -> str:
         f'if entity == "{e.get("table", "item")}": bucket = self.bucket_{e.get("table", "item")}'
         for e in entities
     )
-    entity_cases_download = entity_cases_upload
     entity_buckets_init = "\n        ".join(
         f'self.bucket_{e.get("table", "item")} = os.environ["BUCKET_{e.get("table", "item").upper()}"]'
         for e in entities

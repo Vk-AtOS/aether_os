@@ -1,6 +1,5 @@
 """Named integration templates for p04c — deterministic, production-ready clients."""
 from __future__ import annotations
-from pathlib import Path
 
 from .stripe import generate_stripe_client
 from .sendgrid import generate_sendgrid_client

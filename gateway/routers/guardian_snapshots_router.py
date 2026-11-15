@@ -147,7 +147,6 @@ async def update_baseline(
         raise HTTPException(status_code=403, detail="Superadmin access required")
 
     from aether_os.core.guardian.threat_detector import get_threat_detector, _CRITICAL_FILES
-    from pathlib import Path
 
     file_path = req.get("file_path")
     td = get_threat_detector()

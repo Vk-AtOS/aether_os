@@ -14,7 +14,7 @@ import logging
 import os
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import String, Text
+from sqlalchemy import Text
 from sqlalchemy.types import TypeDecorator
 
 logger = logging.getLogger(__name__)

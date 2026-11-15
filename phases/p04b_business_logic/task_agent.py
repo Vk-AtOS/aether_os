@@ -165,7 +165,7 @@ async def trigger_notification(obj, new_status: str):
         email_tmpl_dir = src_dir.parent / "templates" / "emails"
         email_tmpl_dir.mkdir(parents=True, exist_ok=True)
 
-        welcome_body = f"""
+        welcome_body = """
                     <h2 style="color: #4f46e5; margin-top: 0;">Welcome!</h2>
                     <p>We're excited to have you on board. Your account is ready to go.</p>
                     <a href="#" class="button">Get Started</a>
