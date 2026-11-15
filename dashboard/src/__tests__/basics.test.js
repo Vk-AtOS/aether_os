@@ -11,7 +11,7 @@ const { api } = await import('../api');
 const { decode } = await import('../hooks/useRole');
 const { appPath } = await import('../appUrl');
 const { nextDelay } = await import('../hooks/useRunStream');
-const { parseCallback } = await import('../oauthCallback');
+const { parseCallback, fromExchange } = await import('../oauthCallback');
 
 const jwt = (payload) => `h.${btoa(JSON.stringify(payload)).replace(/=/g, '')}.s`;
 
@@ -68,11 +68,18 @@ describe('urls and reconnect', () => {
 
 describe('oauth callback', () => {
   const q = (s) => new URLSearchParams(s);
-  it('routes an SSO MFA challenge to the code step instead of failing for lack of a token', () => {
-    expect(parseCallback(q('mfa_required=1&mfa_token=abc'))).toEqual({ kind: 'mfa', mfaToken: 'abc' });
+  it('takes a one-time code from the URL and never a token', () => {
+    expect(parseCallback(q('code=abc'))).toEqual({ kind: 'code', code: 'abc' });
+    expect(parseCallback(q('token=t&refresh_token=r')).kind).toBe('error');   // a token in the URL is not accepted
+    expect(parseCallback(q('')).kind).toBe('error');
+    expect(parseCallback(q('error=bad%20thing')).message).toBe('bad thing');
   });
-  it('accepts a session and rejects a bare callback', () => {
-    expect(parseCallback(q('token=t&refresh_token=r'))).toEqual({ kind: 'session', token: 't', refreshToken: 'r' });
+  it('turns the exchange answer into a session or an MFA challenge', () => {
+    expect(fromExchange({ kind: 'mfa', mfa_token: 'abc' })).toEqual({ kind: 'mfa', mfaToken: 'abc' });
+    expect(fromExchange({ kind: 'session', token: 't' })).toEqual({ kind: 'session', token: 't', refreshToken: null });
+    expect(fromExchange({}).kind).toBe('error');
+  });
+});
     expect(parseCallback(q('')).kind).toBe('error');
     expect(parseCallback(q('error=bad%20thing')).message).toBe('bad thing');
   });
