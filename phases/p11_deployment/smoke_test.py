@@ -53,10 +53,10 @@ def _read_credentials(project_dir: Path) -> tuple[str, str]:
         if cred_path.exists():
             try:
                 c = json.loads(cred_path.read_text())
-                return c.get("email", "demo@example.com"), c.get("password", "Admin1234!")
+                return c.get("email", "demo@example.com"), c.get("password", "")
             except Exception as exc:
                 logger.debug("smoke_test: failed to read credentials from %s (non-fatal): %s", cred_path, exc)
-    return "demo@example.com", "Admin1234!"
+    return "demo@example.com", ""  # no known password: login fails instead of guessing a shared one
 
 
 def _sample_payload(entity_name: str, fields: List[Dict]) -> Dict[str, Any]:

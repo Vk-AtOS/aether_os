@@ -360,6 +360,7 @@ class RunAppManager:
         _env = child_env(
             DATABASE_URL=f"sqlite+aiosqlite:///{root_dir}/preview.db",
             PYTHONPATH=str(backend_dir / "src"),
+            ADMIN_PASSWORD=_PREVIEW_PASSWORD,
             **sandbox_dirs(root_dir),
         )
         # Per-launch marker, passed in the environment (UVICORN_HEADERS), never on the command
