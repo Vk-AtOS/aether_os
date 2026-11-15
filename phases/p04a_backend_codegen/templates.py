@@ -10,7 +10,7 @@ so all existing imports continue to work.
 from __future__ import annotations
 
 # Re-export everything from templates_main so callers can import from either module.
-from phases.p04a_backend_codegen.templates_main import (  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.templates_main import (  # noqa: F401
     _MAIN_PY_TEMPLATE,
     _ROUTERS_INIT_PY,
     _REQUIREMENTS_TXT,
