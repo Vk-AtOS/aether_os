@@ -1,5 +1,4 @@
 """KAN-187: a change or reset cannot go back to one of the last passwords."""
-import pytest
 
 NEW1, NEW2 = "Another@Pass456!", "Third#Pass789?x"
 
