@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import aether_os.core.db as db
 from aether_os.core.audit import anchor, backfill, chain, deletion, subjects
 from aether_os.core.audit.ledger import DecisionLedger
+from aether_os.prime.models import PrimeCorrection  # erasure also deletes corrections (KAN-24)
 from aether_os.core.models import APIKey, AuditLog, Organisation, Run, User
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers import (
@@ -39,7 +40,7 @@ ROOT = {"user_id": "u-root", "org_id": A, "role": "superadmin"}
 async def world(ledger_sqlite, monkeypatch):
     async with db.get_engine().begin() as conn:
         await conn.run_sync(lambda c: db.Base.metadata.create_all(
-            c, tables=[t.__table__ for t in (Organisation, User, APIKey, Run)]))
+            c, tables=[t.__table__ for t in (Organisation, User, APIKey, Run, PrimeCorrection)]))
     async with ledger_sqlite() as s:
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (A, B)])
         await s.flush()
