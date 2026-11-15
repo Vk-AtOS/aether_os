@@ -1,0 +1,48 @@
+{
+  "dump": "aetheros_drill.dump",
+  "dump_bytes": 84766,
+  "server": "postgresql://postgres@127.0.0.1:54329/postgres",
+  "started_at": "2026-11-15T11:10:01Z",
+  "steps": [
+    {
+      "step": "create scratch database",
+      "seconds": 0.16,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "restore dump",
+      "seconds": 0.35,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "verify restored data",
+      "seconds": 1.27,
+      "ok": true,
+      "detail": "schema_at_head=True, core_tables_present=True, chains_verify=True, matches_external_anchors=True"
+    },
+    {
+      "step": "drop scratch database",
+      "seconds": 0.11,
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "passed": true,
+  "row_counts": {
+    "organisations": 3,
+    "users": 3,
+    "runs": 3,
+    "audit_chain": 50
+  },
+  "chain_entries": 50,
+  "checks": {
+    "schema_at_head": true,
+    "core_tables_present": true,
+    "chains_verify": true,
+    "matches_external_anchors": true
+  },
+  "total_seconds": 1.9,
+  "note": "local PostgreSQL 15.x on a developer machine, synthetic data (3 orgs, 50 ledger entries); NOT the production backup or environment"
+}
