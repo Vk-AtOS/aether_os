@@ -65,6 +65,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 gen_sam_config,
                 gen_lambda_makefile,
                 gen_lambda_readme,
+                gen_authorizer,
+                safe_ident,
             )
             aws_dir = output_dir / "serverless" / "aws"
             aws_src_dir = aws_dir / "src"
@@ -77,6 +79,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 gen_sam_template(project_name, entities, region)
             )
             (aws_src_dir / "handler.py").write_text(gen_mangum_handler(project_name))
+            (aws_src_dir / "authorizer.py").write_text(gen_authorizer())
             (aws_dir / "requirements.txt").write_text(gen_lambda_requirements())
             (aws_layers_dir / "requirements.txt").write_text(gen_lambda_requirements())
             (aws_dir / "samconfig.toml").write_text(gen_sam_config(project_name, region))
@@ -86,7 +89,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             # Per-entity Lambda handlers (capped at 8 to stay within Lambda quotas)
             for entity in entities[:8]:
                 handler_code = gen_entity_lambda_handler(entity)
-                ent_name = entity.get("name", entity.get("table", "item")).lower()
+                ent_name = safe_ident(entity.get("name", entity.get("table", "item")))
                 (aws_src_dir / f"{ent_name}_handler.py").write_text(handler_code)
 
             fn_count = len(entities[:8]) + 1  # entity handlers + main app
