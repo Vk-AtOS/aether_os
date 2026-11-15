@@ -1,13 +1,17 @@
-"""Runtime adapter: pgvector VECTOR column when available, JSON array fallback.
+"""Vector search over artifact_embeddings: pgvector in SQL when it is really there, JSON scan otherwise.
 
-Usage:
-    store = VectorStore(db_session)
-    store.upsert(artifact_id, embedding_list)
-    results = await store.search(query_vector, limit=10)
+pgvector is used only when ALL of these hold: the pgvector Python package is installed, the
+database is PostgreSQL, the `vector` extension exists and artifact_embeddings.embedding_vector
+exists. Anything else (SQLite development, no extension, a missing column, a vector of another
+size) falls back to the JSON column, so a build without pgvector never breaks.
 """
+from __future__ import annotations
+
 import logging
-from sqlalchemy.orm import Session
+from typing import Any, Dict, List, Optional
+
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -17,47 +21,58 @@ try:
 except ImportError:
     _HAS_PGVECTOR = False
 
+EMBEDDING_DIM = 1536            # artifact_embeddings.embedding_vector is vector(1536)
+JSON_SCAN_LIMIT = 2000          # newest rows ranked in Python when pgvector is unavailable
 
-class VectorStore:
-    def __init__(self, db: Session) -> None:
-        self._db = db
+_READY: Dict[str, bool] = {}    # per database URL: the extension and column checks cost a query each
 
-    def upsert(self, artifact_id: str, vector: list[float]) -> None:
-        """Save embedding to pgvector column if available, else to JSON column."""
-        from core.models import ArtifactEmbedding
-        row = self._db.get(ArtifactEmbedding, artifact_id)
-        if row is None:
-            logger.warning("VectorStore.upsert: artifact_id %s not found", artifact_id)
-            return
-        if _HAS_PGVECTOR:
-            row.embedding_vector = vector
-        else:
-            row.embedding = vector  # JSON fallback
-        self._db.commit()
 
-    def search(self, query_vector: list[float], limit: int = 10) -> list[str]:
-        """Cosine similarity search via pgvector (<=> operator).
+def literal(vector: List[float]) -> str:
+    """pgvector text form: '[0.1,0.2,...]'."""
+    return "[" + ",".join(repr(float(v)) for v in vector) + "]"
 
-        Returns a list of artifact_embedding IDs ordered by similarity.
-        # ponytail: JSON fallback search is O(n) full scan — use pgvector once extension installed
-        """
-        if not _HAS_PGVECTOR:
-            logger.warning(
-                "VectorStore.search: pgvector not installed — returning empty. "
-                "Run: pip install pgvector + CREATE EXTENSION vector; alembic upgrade heads"
-            )
-            return []
-        try:
-            rows = self._db.execute(
-                text(
-                    "SELECT id FROM artifact_embeddings "
-                    "WHERE embedding_vector IS NOT NULL "
-                    "ORDER BY embedding_vector <=> cast(:vec AS vector) "
-                    "LIMIT :lim"
-                ),
-                {"vec": str(query_vector), "lim": limit},
-            ).fetchall()
-            return [r[0] for r in rows]
-        except Exception as exc:
-            logger.warning("VectorStore.search failed: %s", exc)
-            return []
+
+async def pgvector_ready(session: AsyncSession) -> bool:
+    if not _HAS_PGVECTOR:
+        return False
+    bind = session.get_bind()
+    if bind.dialect.name != "postgresql":
+        return False
+    key = str(bind.url)
+    if key not in _READY:
+        row = (await session.execute(text(
+            "SELECT (SELECT count(*) FROM pg_extension WHERE extname = 'vector') > 0 AND "
+            "(SELECT count(*) FROM information_schema.columns WHERE table_name = 'artifact_embeddings' "
+            "AND column_name = 'embedding_vector') > 0"
+        ))).scalar()
+        _READY[key] = bool(row)
+        if not _READY[key]:
+            logger.warning("pgvector not active (extension or embedding_vector column missing): using JSON scan")
+    return _READY[key]
+
+
+async def write_vector(session: AsyncSession, row_id: str, vector: List[float]) -> bool:
+    """Store the pgvector copy of an embedding. False (nothing written) when pgvector is not usable."""
+    if len(vector) != EMBEDDING_DIM or not await pgvector_ready(session):
+        return False
+    await session.execute(
+        text("UPDATE artifact_embeddings SET embedding_vector = CAST(:v AS vector) WHERE id = :id"),
+        {"v": literal(vector), "id": row_id},
+    )
+    return True
+
+
+async def search(session: AsyncSession, org_id: str, query: List[float], limit: int) -> Optional[List[Dict[str, Any]]]:
+    """Nearest artifacts of an org by cosine distance in SQL, or None when pgvector cannot answer
+    (the caller then falls back to the JSON scan). Rows without a vector are not returned."""
+    if len(query) != EMBEDDING_DIM or not await pgvector_ready(session):
+        return None
+    rows = (await session.execute(
+        text(
+            "SELECT run_id, file_path, 1 - (embedding_vector <=> CAST(:q AS vector)) AS score "
+            "FROM artifact_embeddings WHERE org_id = :org AND embedding_vector IS NOT NULL "
+            "ORDER BY embedding_vector <=> CAST(:q AS vector) LIMIT :lim"
+        ),
+        {"q": literal(query), "org": org_id, "lim": limit},
+    )).all()
+    return [{"run_id": r[0], "file_path": r[1], "score": float(r[2])} for r in rows]

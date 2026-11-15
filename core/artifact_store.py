@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from aether_os.core import vector_store
 from aether_os.core.run_app import safe_fs
 
 try:
@@ -73,15 +74,20 @@ class ArtifactStore:
                 if existing:
                     existing.content_hash = content_hash
                     existing.embedding = embedding
+                    row_id = existing.id
                 else:
+                    row_id = str(uuid.uuid4())
                     session.add(ArtifactEmbedding(
-                        id=str(uuid.uuid4()),
+                        id=row_id,
                         run_id=run_id,
                         org_id=resolved_org_id,
                         file_path=file_path,
                         content_hash=content_hash,
                         embedding=embedding,
                     ))
+                await session.flush()
+                # The JSON column stays the source of truth; the vector copy is what SQL search ranks.
+                await vector_store.write_vector(session, row_id, embedding)
                 await session.commit()
         except Exception as exc:
             logger.error("Failed to store artifact %s: %s", file_path, exc)
@@ -125,10 +131,15 @@ class ArtifactStore:
 
         sf = get_session_factory()
         async with sf() as session:
+            nearest = await vector_store.search(session, org_id, [float(x) for x in query_np], fetch_limit)
+            if nearest is not None:
+                return nearest
+            # JSON fallback: rank the newest rows (it used to rank an arbitrary few, with no ORDER BY).
             rows = (await session.execute(
                 select(ArtifactEmbedding.run_id, ArtifactEmbedding.file_path, ArtifactEmbedding.embedding)
                 .where(ArtifactEmbedding.org_id == org_id)
-                .limit(fetch_limit)
+                .order_by(ArtifactEmbedding.created_at.desc())
+                .limit(max(fetch_limit, vector_store.JSON_SCAN_LIMIT))
             )).all()
 
         results = []
