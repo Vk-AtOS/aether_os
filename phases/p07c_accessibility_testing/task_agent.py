@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 _AXE_SCRIPT = """
 const { chromium } = require('playwright');
-const { checkA11y, injectAxe } = require('axe-playwright');
+const { injectAxe } = require('axe-playwright');
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
@@ -20,26 +20,17 @@ const { checkA11y, injectAxe } = require('axe-playwright');
   try {
     await page.goto(process.argv[2] || 'http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
     await injectAxe(page);
-    const results = await checkA11y(page, null, { detailedReport: true, includedImpacts: ['critical', 'serious', 'moderate', 'minor'] }, true);
-    // checkA11y throws on violations; if we reach here, no violations
+    // axe.run returns violations/passes/incomplete. The old helper call had skipFailures=true,
+    // which never throws, so the script always reported 0 violations.
+    const r = await page.evaluate(() => axe.run());
     console.log(JSON.stringify({
-      violations: 0,
-      passes: 0,
-      incomplete: 0,
-      items: [],
+      violations: r.violations.length,
+      passes: r.passes.length,
+      incomplete: r.incomplete.length,
+      items: r.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
     }));
   } catch (e) {
-    // checkA11y throws an AxeResults error containing violations
-    if (e && e.violations) {
-      console.log(JSON.stringify({
-        violations: e.violations.length,
-        passes: (e.passes || []).length,
-        incomplete: (e.incomplete || []).length,
-        items: e.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
-      }));
-    } else {
-      console.log(JSON.stringify({ error: e.message || String(e) }));
-    }
+    console.log(JSON.stringify({ error: e.message || String(e) }));
   } finally {
     await browser.close();
   }
@@ -104,6 +95,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
         axe_data = json.loads(stdout.decode().strip())
+        if "error" in axe_data or not isinstance(axe_data.get("violations"), int):
+            raise RuntimeError(axe_data.get("error") or "axe returned no violation count")
         results.update(axe_data)
         results["ran_axe"] = True
         logger.info("[p07c] axe done: %d violations, %d passes", axe_data.get("violations", 0), axe_data.get("passes", 0))
@@ -127,7 +120,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 logger.debug("p07c: ARIA scan failed for file %s (non-fatal): %s", f.name, exc)
         results["aria_issues"] = aria_issues[:10]
 
-    results["passed"] = results["violations"] == 0
+    # "No violations" is only a result when axe actually ran: a scan that did not run is not a pass.
+    results["passed"] = bool(results.get("ran_axe")) and results["violations"] == 0
     (output_dir / "a11y_results.json").write_text(json.dumps(results, indent=2))
 
     return TaskResult(
