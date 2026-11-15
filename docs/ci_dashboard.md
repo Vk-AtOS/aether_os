@@ -1,26 +1,11 @@
-# CI for the dashboard (snippet for A7, who owns .github/workflows)
+# Dashboard CI
 
-The dashboard has `npm test` (vitest) and `npm run lint`; CI has no dashboard job yet.
+`.github/workflows/ci.yml` job `dashboard` runs `npm ci`, `npm run lint`, `npm test` (vitest, jsdom component
+tests in `dashboard/src/__tests__`) and `npm run build`. `npm ci` needs the committed
+`dashboard/package-lock.json` (the same install the Dockerfile, deploy.sh and setup_vps.sh use). Update it
+with `npm install` after changing package.json and commit both.
 
-```yaml
-  dashboard:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: dashboard } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: npm install --no-audit --no-fund
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-        env:
-          # frame-src of the meta CSP; the preview origin of the target environment
-          VITE_PREVIEW_FRAME_SRC: https://*.preview.example.com
-      - run: npm audit --audit-level=high --omit=dev   # fails the job on high+ in runtime deps
-```
-
-Notes
-- `VITE_PREVIEW_FRAME_SRC` is read by `dashboard/vite.config.js` at build time. Unset means previews are blocked by the meta CSP (fails closed).
-- `package-lock.json` is git-ignored (.gitignore:98), so CI uses `npm install`; un-ignore and commit it to get `npm ci`, caching and a reproducible audit.
-- `npm run build:ci` runs lint, tests and build in one go for local use.
+- `VITE_PREVIEW_FRAME_SRC` (build time) is the preview origin for the meta CSP `frame-src`; unset means previews are blocked (fails closed).
+- Browser click-through specs: `npm run test:e2e` (Playwright, `dashboard/e2e`); they stub the API, so they need only
+  `npx playwright install chromium`, no running backend. They are not in the default CI job (browser download); add a job when wanted.
+- `npm audit --audit-level=high --omit=dev` is the supply-chain check; run it where the network is available.
