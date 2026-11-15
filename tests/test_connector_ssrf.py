@@ -1,5 +1,6 @@
 """KAN-110: org-supplied URLs/hosts must not reach the platform's own network."""
 import asyncio
+import os
 
 import pytest
 
@@ -79,3 +80,30 @@ def test_schema_importer_refuses_sqlite_uri_to_absolute_path(tmp_path):
     con.close()
     out = asyncio.run(import_schema(f"sqlite:///file:{db}?mode=ro&uri=true"))
     assert out["tables"] == [] and out["error"]
+
+
+def test_ssh_fetch_repo_refuses_local_and_http_urls_and_symlinked_files(gw, monkeypatch, tmp_path):
+    org = gw.register("sshfetch")
+    for bad in ("a/../../..", "http://127.0.0.1/x.git", "-oProxyCommand=x", "git://10.0.0.1/x"):
+        r = gw.client.post("/factory/fetch-repo", headers=org.auth,
+                           json={"type": "ssh", "url": bad, "ssh_key": "x"})
+        assert r.status_code == 422, bad
+
+    secret = tmp_path / "hostsecret.txt"
+    secret.write_text("TOP-SECRET-HOST-FILE")
+
+    class P:
+        returncode = 0
+        async def communicate(self):
+            return b"", b""
+
+    async def fake_exec(*argv, **kw):
+        os.makedirs(argv[-1])
+        os.symlink(secret, os.path.join(argv[-1], "README.md"))
+        assert "--" in argv and kw["env"].get("AETHER_SECRET_KEY") is None
+        return P()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    r = gw.client.post("/factory/fetch-repo", headers=org.auth,
+                       json={"type": "ssh", "url": "git@example.com:o/r.git", "ssh_key": "x"})
+    assert r.status_code == 200 and "TOP-SECRET-HOST-FILE" not in r.json()["context"]
