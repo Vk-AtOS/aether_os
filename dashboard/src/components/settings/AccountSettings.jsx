@@ -218,7 +218,7 @@ export const FactoryStatsPanel = ({ runs, costs }) => (
       </div>
       <div>
         <div className="text-[10px] font-bold text-muted uppercase tracking-tighter mb-1">Avg Cost/Run</div>
-        <div className="text-2xl font-bold text-warning">${costs.avg_cost_per_run?.toFixed(2) || '2.45'}</div>
+        <div className="text-2xl font-bold text-warning">{costs.avg_cost_per_run != null ? `$${Number(costs.avg_cost_per_run).toFixed(2)}` : '—'}</div>
       </div>
     </div>
   </section>
