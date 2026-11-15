@@ -17,6 +17,10 @@ const DEFAULTS = {
   'GET /webhooks': [],
   'GET /marketplace/profiles': [],
   'GET /marketplace/installed': [],
+  'GET /v2/plugins/catalog': [],
+  'GET /v2/plugins/installed': [],
+  'GET /memory/graph': { nodes: [], edges: [], stats: {} },
+  'GET /admin/users': { items: [], page: 1, limit: 50, total: 0 },
 };
 
 export const stubApi = async (page, routes = {}) => {

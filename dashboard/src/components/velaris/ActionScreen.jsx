@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../../api';
-import { hr, useVelaris, vc, vError, isDown, btn } from './velarisApi';
+import { useVelaris, vc, btn, send } from './velarisApi';
 import { LoadView, Card, Table, SpecForm, Notice } from './shared';
 import { useAct } from './useAct';
 import { decode } from '../../hooks/useRole';
@@ -13,37 +13,6 @@ import { inputClass } from '../prime/parts';
 // call is one of {hr: [AGENT, method]} (the /hr proxy), {agent: [AGENT, method]} (generic /velaris/agents, for
 // agents /hr does not serve) or {path, method} (chat / mail / flows proxies). Rules (role, typed word, caps) are the
 // gateway's; this file only presents them. Secrets and tokens are shown from memory once and never stored.
-
-const urlOf = (c) => (c.hr ? `/hr/${c.hr[0]}/${c.hr[1]}` : c.agent ? `/velaris/agents/${c.agent[0]}/${c.agent[1]}` : c.path);
-
-const save = (name, data) => {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
-
-// -> {pending, run, result}. Throws Error(plain message) with .down for 503.
-export const send = async (call, args = {}, { download } = {}) => {
-  const method = (call.method || 'post').toLowerCase();
-  if (call.hr && !download) return hr(call.hr[0], call.hr[1], args);
-  let res;
-  try {
-    res = await vc.request({ method, url: urlOf(call), data: method === 'get' || call.asQuery ? undefined : args, params: method === 'get' || call.asQuery ? args : undefined });
-  } catch (e) {
-    const err = new Error(vError(e));
-    err.down = isDown(e);
-    throw err;
-  }
-  if (res.status === 202) return { pending: true, run: res.data.run || null, result: null };
-  if (download) { save(download, res.data); return { pending: false, result: { saved: download } }; }
-  const body = res.data;
-  const result = call.agent || call.hr ? (body.result ?? {}) : body;
-  if (result && result.status && result.status !== 'ok' && (call.agent || call.hr)) {
-    throw new Error(result.reason || (result.errors || []).join('; ') || String(result.status).replace(/_/g, ' '));
-  }
-  return { pending: false, run: null, result };
-};
 
 // The signed-in organisation: library and memory scopes must be exactly it (Velaris refuses any other).
 const orgScope = () => decode(api.getToken() || '')?.org_id || '';
