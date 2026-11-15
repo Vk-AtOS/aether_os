@@ -37,6 +37,10 @@ class Organisation(Base):
     # LLM spend control (KAN-116): per-org USD cap overriding the plan default, and an org-level kill switch.
     llm_monthly_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     llm_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Admin MFA policy (KAN-186): when on, owners/admins without MFA are locked to MFA enrolment
+    # once the grace period (unix time, NULL = none) has passed.
+    require_admin_mfa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    admin_mfa_grace_until: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")

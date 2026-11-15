@@ -23,7 +23,7 @@ from aether_os.core.models import Run
 from aether_os.core.billing.payments import expire_if_due
 from aether_os.core.api_rate_limit import enforce_api_rate
 from aether_os.gateway.auth_refresh import assert_access_token_live
-from aether_os.gateway.role_gate import check_role
+from aether_os.gateway.role_gate import check_admin_mfa, check_role
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -103,6 +103,7 @@ async def get_current_user(
                 payload["org_id"] = db_user.org_id
                 request.state.audit_identity = {"org_id": db_user.org_id, "user_id": str(user_id)}
                 check_role(request, payload)
+                check_admin_mfa(request, payload, bool(db_user.mfa_enabled), db_org)
                 await enforce_api_rate(str(user_id), db_user.org_id)
 
         return payload
