@@ -269,7 +269,8 @@ async def run_pipeline_background(
             timeout=60.0,
         )
         if not _preflight.get("passed", True):
-            if os.environ.get("COUNCIL_STRICT_MODE", "false").lower() == "true":
+            from aether_os.core.council.council import _is_strict    # production defaults to strict (env override wins)
+            if _is_strict():
                 logger.warning(
                     "PreFlightCouncil STRICT: run %s rejected (score=%.2f): %s",
                     run_id, _preflight.get("score", 0.0), _preflight.get("reason", ""),
