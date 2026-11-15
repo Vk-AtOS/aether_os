@@ -18,6 +18,8 @@ from typing import Any, Dict
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
+from aether_os.core.resilience.health import snapshot
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
@@ -52,7 +54,6 @@ async def healthz() -> Dict[str, str]:
 async def readyz():
     """Readiness: 200 when this instance can serve traffic, 503 when it cannot (load balancers stop routing to it).
     Names the degraded components but nothing else; details are admin-only at /system/components."""
-    from aether_os.core.resilience.health import snapshot
     snap = await snapshot()
     body = {"ready": snap["ready"], "degraded": snap["degraded"]}
     return JSONResponse(body, status_code=200 if snap["ready"] else 503)

@@ -13,6 +13,9 @@ from typing import Any, Dict
 
 from sqlalchemy import text
 
+from aether_os.core.db import get_session_factory
+from aether_os.core.model_router_providers import _DEAD_MODELS, _DEAD_PROVIDERS, _is_dead
+from aether_os.core.pipeline_state import get_redis
 from aether_os.core.resilience.breaker import all_breakers
 from aether_os.core.resilience.bulkhead import all_bulkheads
 
@@ -22,7 +25,6 @@ OK, DEGRADED, DOWN = "ok", "degraded", "down"
 
 
 async def check_postgres(timeout: float = 3.0) -> Dict[str, Any]:
-    from aether_os.core.db import get_session_factory
     try:
         async def _probe() -> None:
             async with get_session_factory()() as s:
@@ -35,7 +37,6 @@ async def check_postgres(timeout: float = 3.0) -> Dict[str, Any]:
 
 
 async def check_redis(timeout: float = 2.0) -> Dict[str, Any]:
-    from aether_os.core.pipeline_state import get_redis
     try:
         client = await asyncio.wait_for(get_redis(), timeout)
         if client is None:
@@ -57,7 +58,6 @@ def check_velaris() -> Dict[str, Any]:
 
 
 def check_models() -> Dict[str, Any]:
-    from aether_os.core.model_router_providers import _DEAD_MODELS, _DEAD_PROVIDERS, _is_dead
     open_ = sorted({p for (scope, p) in list(_DEAD_PROVIDERS) if _is_dead(_DEAD_PROVIDERS, scope, p)}
                    | {m for (scope, m) in list(_DEAD_MODELS) if _is_dead(_DEAD_MODELS, scope, m)})
     return {"status": DEGRADED if open_ else OK, "open_breakers": open_}
