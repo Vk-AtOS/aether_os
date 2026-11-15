@@ -18,6 +18,7 @@ POST /settings/scim/rotate
 from __future__ import annotations
 
 import bcrypt
+import hashlib
 import logging
 import os
 import secrets
@@ -330,11 +331,13 @@ async def rotate_scim_token(user: Dict[str, Any] = _current_user()) -> Dict[str,
     new_token = secrets.token_urlsafe(32)
     token_hash = bcrypt.hashpw(new_token.encode(), bcrypt.gensalt()).decode()
     org_id = user["org_id"]
+    lookup = hashlib.sha256(new_token.encode()).hexdigest()
     async with get_session_factory()() as session:
         org = await session.get(Organisation, org_id)
         if org:
             # DB-H1: store only the hash; clear legacy plaintext column
             org.scim_token_hash = token_hash
+            org.scim_token_lookup = lookup
             org.scim_token = None
             await session.commit()
     # Plaintext returned here only — never stored, never logged
