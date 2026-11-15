@@ -182,6 +182,7 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
         "requirement":  run.requirement,
         "message":      run.message,
         "self_test_report": run.self_test_report,
+        "council_delivery": run.council_delivery,
     }
 async def set_run_priority(run_id: str, org_id: str, priority: str) -> bool:
     """Upsert priority for a run. Returns False if run not found or org mismatch."""
