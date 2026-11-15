@@ -77,7 +77,7 @@ echo ""
 echo "==> Verifying Bedrock connectivity..."
 ACCESS_TOKEN=$(curl -s -X POST http://localhost:8001/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"demo@aetheros.ai","password":"demo1234"}' \
+  -d "{\"email\":\"${AETHER_ADMIN_EMAIL:?set AETHER_ADMIN_EMAIL}\",\"password\":\"${AETHER_ADMIN_PASS:?set AETHER_ADMIN_PASS}\"}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token','FAILED'))" 2>/dev/null)
 
 if [[ "$ACCESS_TOKEN" == "FAILED" || -z "$ACCESS_TOKEN" ]]; then
@@ -92,6 +92,6 @@ fi
 
 echo ""
 echo "Done. Next steps:"
-echo "  1. Visit http://REDACTED_IP/ and start a new pipeline run"
+echo "  1. Visit your server URL and start a new pipeline run"
 echo "  2. Marketplace templates are at /api/marketplace/profiles"
-echo "  3. Load test: pip install locust && locust -f tests/load/locustfile.py --host=http://REDACTED_IP"
+echo "  3. Load test: pip install locust && locust -f tests/load/locustfile.py --host=<your server URL>"

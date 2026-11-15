@@ -5,7 +5,7 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.5.0
-python-multipart>=0.0.6
+python-multipart>=0.0.31
 
 # ── Database ──────────────────────────────────────────────────────────────────
 sqlalchemy[asyncio]>=2.0.0
@@ -14,8 +14,8 @@ alembic>=1.13.0
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 passlib[bcrypt]>=1.7.4
-PyJWT>=2.8.0
-cryptography>=42.0.0
+PyJWT>=2.15.1
+cryptography>=50.0.0
 slowapi>=0.1.9
 python3-saml>=1.16.0
 pyotp>=2.9.0
@@ -38,7 +38,7 @@ rich>=13.0.0
 
 # ── Config ────────────────────────────────────────────────────────────────────
 pyyaml>=6.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 networkx>=3.2.0             # call graph (DCSP dfle/call_graph.py)
@@ -48,16 +48,16 @@ sqlite-vec>=0.1.0           # Vector search for SQLite
 
 # ── Async / Files ─────────────────────────────────────────────────────────────
 aiofiles>=23.0.0
-aiohttp>=3.9.0               # p11_deployment: readiness probe for deployed containers
+aiohttp>=3.14.4               # p11_deployment: readiness probe for deployed containers
 
 # ── Dev / Test ────────────────────────────────────────────────────────────────
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
+pytest>=9.0.3
+pytest-asyncio>=1.0.0
 pytest-cov>=4.1.0
 ruff>=0.1.0
 
 # ── Optional — CI/CD phase (GitHub/GitLab PR API) ────────────────────────────
-requests>=2.31.0
+requests>=2.33.0
 razorpay>=1.4.2                # Razorpay payment gateway (India)
 stripe>=7.0.0                  # Stripe payment gateway (non-India)
 
@@ -90,7 +90,7 @@ pytest-timeout>=2.2.0
 # ── Factory Pipeline — Documentation ─────────────────────────────────────────
 pdoc>=14.0.0
 diagrams>=0.23.0
-fpdf2>=2.7.9                # PDF compliance report generation
+fpdf2>=2.8.8                # PDF compliance report generation
 
 # ── Factory Pipeline — Memory ─────────────────────────────────────────────────
 mem0ai>=0.0.20
@@ -106,7 +106,7 @@ sentry-sdk[fastapi]>=1.40.0
 prometheus-client>=0.20.0
 prometheus-fastapi-instrumentator==6.1.0
 structlog>=24.0.0
-langsmith>=0.1.0                # LangSmith tracing (explicit — also a transitive dep of langchain-core)
+langsmith>=0.8.18                # LangSmith tracing (explicit — also a transitive dep of langchain-core)
 
 # ── Factory Pipeline — Research ───────────────────────────────────────────────
 # gpt-researcher removed: uses Python 3.10+ match/case syntax, incompatible with Python 3.9

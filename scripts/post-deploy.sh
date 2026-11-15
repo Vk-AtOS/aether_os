@@ -12,7 +12,7 @@ set -euo pipefail
 
 BASE="${1:-http://localhost:8000}"
 EMAIL="${2:-${AETHER_ADMIN_EMAIL:-demo@aetheros.ai}}"
-PASS="${3:-${AETHER_ADMIN_PASS:-demo1234}}"
+PASS="${3:-${AETHER_ADMIN_PASS:?set AETHER_ADMIN_PASS or pass the password as arg 3}}"
 
 echo "[post-deploy] Waiting for service to be healthy..."
 for i in $(seq 1 30); do

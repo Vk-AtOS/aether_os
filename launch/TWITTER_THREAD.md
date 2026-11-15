@@ -103,7 +103,7 @@ A full pipeline run costs $0.40–$1.20 in LLM API fees at current pricing.
 
 **Tweet 10 (CTA)**
 
-Live demo: https://REDACTED_IP (demo@aetheros.ai / demo1234)
+Live demo: <demo URL and credentials: owner to fill in before posting>
 
 Built by one developer over a few months. Load-tested at p95 = 240ms, 50 concurrent users, 0% error rate.
 

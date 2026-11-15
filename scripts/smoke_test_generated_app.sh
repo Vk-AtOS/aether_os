@@ -5,8 +5,8 @@
 set -euo pipefail
 
 BASE_URL="${1:-http://localhost:8080}"
-ADMIN_EMAIL="${2:-admin@example.com}"
-ADMIN_PASS="${3:-Admin1234!}"
+ADMIN_EMAIL="${2:?usage: smoke_test_generated_app.sh <url> <email> <password>}"
+ADMIN_PASS="${3:?usage: smoke_test_generated_app.sh <url> <email> <password> (see preview_credentials.json)}"
 PASS=0
 FAIL=0
 

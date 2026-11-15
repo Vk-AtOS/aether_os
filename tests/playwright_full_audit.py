@@ -1,5 +1,5 @@
 """
-AetherOS Full Playwright Audit — targets live VPS at http://REDACTED_IP
+AetherOS Full Playwright Audit — targets the server in $AETHER_BASE_URL
 Covers all 20 UI tabs + per-org API key flow + live build monitoring.
 
 Usage:
@@ -9,12 +9,13 @@ Outputs: tests/playwright_audit_report.md
 """
 import asyncio
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
-BASE = "http://REDACTED_IP"
-EMAIL = "demo@aetheros.ai"
-PASSWORD = "demo1234"
+BASE = os.environ["AETHER_BASE_URL"]  # no default: never hardcode the server
+EMAIL = os.environ["AETHER_ADMIN_EMAIL"]
+PASSWORD = os.environ["AETHER_ADMIN_PASS"]
 
 REPORT_PATH = Path(__file__).parent / "playwright_audit_report.md"
 
