@@ -261,6 +261,7 @@ def create_app() -> FastAPI:
         ("spa",           "aether_os.gateway.routers.spa_router",           "router",       {},                        False),
         ("legal",         "aether_os.gateway.routers.legal_router",         "router",       {},                        False),
         ("notifications", "aether_os.gateway.routers.notifications_router", "router",       {},                        False),
+        ("notification_prefs", "aether_os.gateway.routers.notification_prefs_router", "router", {},                    False),
         ("learning",      "aether_os.gateway.routers.learning_router",      "router",       {},                        False),
         ("memory",        "aether_os.gateway.routers.memory_router",        "router",       {},                        False),
         ("webhooks",      "aether_os.gateway.routers.webhooks_router",      "router",       {},                        False),
