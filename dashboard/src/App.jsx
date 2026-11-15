@@ -55,6 +55,8 @@ const Chat              = React.lazy(() => import('./pages/Chat'));
 const Mail              = React.lazy(() => import('./pages/Mail'));
 const Control           = React.lazy(() => import('./pages/Control'));
 const Hr                = React.lazy(() => import('./pages/Hr'));
+const VelarisScreens    = React.lazy(() => import('./pages/VelarisScreens'));
+const Flows             = React.lazy(() => import('./pages/Flows'));
 
 
 const ProtectedRoute = ({ children }) => {
@@ -164,6 +166,9 @@ function App() {
         <Route path="control" element={<ErrorBoundary><Control /></ErrorBoundary>} />
         <Route path="hr" element={<ErrorBoundary><Hr /></ErrorBoundary>} />
         <Route path="hr/:tab" element={<ErrorBoundary><Hr /></ErrorBoundary>} />
+        <Route path="work" element={<Navigate to="/work/my-leave" replace />} />
+        <Route path="work/:screen" element={<ErrorBoundary><VelarisScreens /></ErrorBoundary>} />
+        <Route path="flows" element={<ErrorBoundary><Flows /></ErrorBoundary>} />
         <Route path="runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="dashboard/runs/:runId" element={<ErrorBoundary><RunDetail /></ErrorBoundary>} />
         <Route path="*" element={<NotFound />} />

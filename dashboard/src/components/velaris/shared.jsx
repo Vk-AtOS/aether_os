@@ -91,9 +91,9 @@ export const Table = ({ rows, cols, onRow, empty = 'Nothing here yet.' }) => (
   )
 );
 
-// A small form from field specs: {name, label, type: text|number|textarea|select|date|checkbox|list|json, options, required, help}
+// A small form from field specs: {name, label, type: text|password|number|textarea|select|date|checkbox|list|json, options, required, help}
 // onSubmit gets the typed values (numbers as numbers, list as an array, json parsed). Empty optional fields are left out.
-export const SpecForm = ({ fields, submitLabel, onSubmit, busy, initial = {} }) => {
+export const SpecForm = ({ fields, submitLabel, onSubmit, busy, disabled = false, initial = {} }) => {
   const [v, setV] = useState(() => Object.fromEntries(fields.map((f) => [f.name, initial[f.name] ?? (f.type === 'checkbox' ? false : '')])));
   const [err, setErr] = useState('');
   const submit = (e) => {
@@ -130,7 +130,7 @@ export const SpecForm = ({ fields, submitLabel, onSubmit, busy, initial = {} }) 
             ) : f.type === 'checkbox' ? (
               <input type="checkbox" checked={v[f.name]} onChange={(e) => setV({ ...v, [f.name]: e.target.checked })} />
             ) : (
-              <input type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'} step={f.type === 'number' ? 'any' : undefined}
+              <input type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : f.type === 'password' ? 'password' : 'text'} autoComplete={f.type === 'password' ? 'new-password' : undefined} step={f.type === 'number' ? 'any' : undefined}
                 className={inputClass} value={v[f.name]} onChange={(e) => setV({ ...v, [f.name]: e.target.value })} placeholder={f.placeholder} />
             )}
             {f.help && <span className="text-[10px] text-muted">{f.help}</span>}
@@ -138,7 +138,7 @@ export const SpecForm = ({ fields, submitLabel, onSubmit, busy, initial = {} }) 
         ))}
       </div>
       {err && <p role="alert" className="text-xs text-danger">{err}</p>}
-      <button type="submit" disabled={busy} className={btn()}>
+      <button type="submit" disabled={busy || disabled} className={btn()}>
         {busy ? <Loader2 className="w-3 h-3 animate-spin inline" aria-label="Working" /> : submitLabel}
       </button>
     </form>
