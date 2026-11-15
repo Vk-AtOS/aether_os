@@ -22,7 +22,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import User
 from aether_os.core.security.redact import redact_secrets
 from aether_os.prime.authz import (
-    ACTION_TYPES, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
+    ACTION_TYPES, AUTHORITY, EXECUTOR_AUTHORITY, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
 )
 from aether_os.prime import detail
 from aether_os.prime.executors import (
@@ -37,10 +37,11 @@ from aether_os.prime.service import PrimeService
 
 logger = logging.getLogger(__name__)
 
-REQUEST_TTL = timedelta(hours=72)
+REQUEST_TTL = timedelta(hours=72)   # the default; an organisation sets its own (prime/limits.py)
 # A request still "running" after this long was interrupted mid-execution. It is
 # shown as needs_attention and never picked up again by code.
 EXECUTION_STALE_AFTER = timedelta(minutes=5)
+URGENT_WITHIN = timedelta(hours=24)   # "urgent" in the badge and the view
 _ACTING = {Outcome.EXECUTE, Outcome.EXECUTE_AND_NOTIFY}
 _WAITING = {Outcome.NEEDS_APPROVAL, Outcome.ROUTE_TO_DEPUTY}
 
@@ -85,6 +86,14 @@ def _state(row: PrimeRequest, now: datetime) -> str:
     if row.status == "pending" and row.expires_at <= now:
         return "expired"
     return row.status
+
+
+def _urgency(row: PrimeRequest, now: datetime) -> Optional[str]:
+    """How soon an open request lapses: overdue | urgent (within 24h) | normal; None once decided."""
+    if row.status != "pending":
+        return None
+    left = row.expires_at - now
+    return "overdue" if left <= timedelta(0) else "urgent" if left <= URGENT_WITHIN else "normal"
 
 
 def _exec_status(row: PrimeRequest, now: datetime) -> Optional[str]:
@@ -144,7 +153,8 @@ class ApprovalService:
             outcome=decision.outcome.value, reason=decision.reason,
             status="approved" if auto else "pending",
             created_at=now,
-            expires_at=min(now + REQUEST_TTL, _naive_utc(delegation.valid_until)),
+            expires_at=min(now + timedelta(hours=(await get_limits(org_id)).request_ttl_hours),
+                           _naive_utc(delegation.valid_until)),
         )
         row.request_hash = compute_hash(row)
         if auto:
@@ -161,31 +171,56 @@ class ApprovalService:
 
     # ── read ──────────────────────────────────────────────────────────────────
 
-    async def inbox(self, uid: str, identities: Iterable[str], org_id: str,
-                    state: str = "pending", limit: int = 50, offset: int = 0) -> Dict[str, Any]:
-        """Requests the caller owns or is the active deputy for, pending first."""
-        now = _now()
-        ids = list(identities)
+    async def _queue(self, uid: str, ids: list, org_id: str, state: str, now: datetime):
+        """(who-it-concerns condition, state condition, open condition) for one caller.
+        An approver's open queue holds only what their ROLE may decide (AUTHORITY and
+        EXECUTOR_AUTHORITY); history and expired lists keep every request that concerns them."""
+        person = await person_in_org(org_id, uid)
+        role = person[0] if person else None
         mine = and_(PrimeRequest.org_id == org_id, or_(
             PrimeRequest.on_behalf_of == uid,
             and_(PrimeRequest.deputy.in_(ids), _live_delegation(now))))
         open_ = and_(PrimeRequest.status == "pending", PrimeRequest.expires_at > now)
+        if state == "pending":
+            types = [t for t, roles in AUTHORITY.items() if role in roles]
+            executors = [e for e, roles in EXECUTOR_AUTHORITY.items() if role in roles]
+            open_ = and_(open_, PrimeRequest.action_type.in_(types), PrimeRequest.executor.in_(executors))
         where = {
             "pending": open_,
             "expired": and_(PrimeRequest.status == "pending", PrimeRequest.expires_at <= now),
             "decided": PrimeRequest.status != "pending",
             "all": PrimeRequest.id.is_not(None),
         }[state]
+        return mine, where, open_
+
+    async def inbox(self, uid: str, identities: Iterable[str], org_id: str,
+                    state: str = "pending", limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Requests the caller owns or is the active deputy for, most urgent (soonest to expire) first."""
+        now = _now()
+        ids = list(identities)
+        mine, where, open_ = await self._queue(uid, ids, org_id, state, now)
         async with get_session_factory()() as session:
             total = (await session.execute(
                 select(func.count()).select_from(PrimeRequest).where(mine, where))).scalar_one()
             rows = (await session.execute(
                 select(PrimeRequest).where(mine, where)
-                .order_by(case((open_, 0), else_=1), PrimeRequest.created_at.desc(),
-                          PrimeRequest.id)
+                .order_by(case((open_, 0), else_=1),
+                          case((open_, PrimeRequest.expires_at), else_=None).asc(),
+                          PrimeRequest.created_at.desc(), PrimeRequest.id)
                 .limit(limit).offset(offset))).scalars().all()
         return {"total": total, "limit": limit, "offset": offset, "state": state,
                 "requests": [await self._view(r, uid, ids) for r in rows]}
+
+    async def counts(self, uid: str, identities: Iterable[str], org_id: str) -> Dict[str, int]:
+        """Badge numbers: requests this caller may decide now, and those lapsing within 24h."""
+        now = _now()
+        mine, where, _ = await self._queue(uid, list(identities), org_id, "pending", now)
+        async with get_session_factory()() as session:
+            pending = (await session.execute(
+                select(func.count()).select_from(PrimeRequest).where(mine, where))).scalar_one()
+            urgent = (await session.execute(select(func.count()).select_from(PrimeRequest).where(
+                mine, where, PrimeRequest.expires_at <= now + URGENT_WITHIN))).scalar_one()
+        return {"pending": pending, "urgent": urgent}
 
     async def get(self, request_id: str, uid: str, identities: Iterable[str],
                   org_id: str) -> Dict[str, Any]:
@@ -428,6 +463,7 @@ class ApprovalService:
             "outcome": row.outcome, "why": row.reason,
             "delegation_id": row.delegation_id, "deputy": row.deputy,
             "created_at": _iso(row.created_at), "expires_at": _iso(row.expires_at),
+            "urgency": _urgency(row, now),
             "decided_by": row.decided_by, "decided_at": _iso(row.decided_at),
             "decision_reason": row.decision_reason,
             "execution": ({"status": _exec_status(row, now), "result": row.exec_result,
