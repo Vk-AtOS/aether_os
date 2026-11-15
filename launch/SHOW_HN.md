@@ -57,7 +57,7 @@ For "Build a SaaS CRM with contact management and a deal pipeline", the output i
 
 FastAPI + SQLAlchemy async 2.0 + PostgreSQL + Redis + React 18 + TypeScript + Vite + Tailwind. Full list in README.
 
-The live demo is at https://REDACTED_IP (demo@aetheros.ai / demo1234). The VPS is a 4-core/8GB DigitalOcean droplet. It will fall over under heavy concurrent load — this is a demo, not a production cluster.
+The live demo is at <demo URL; owner to fill in before posting>. The VPS is a 4-core/8GB DigitalOcean droplet. It will fall over under heavy concurrent load — this is a demo, not a production cluster.
 
 Source is proprietary for now but I'm happy to open-source specific components (the MessageBus, the gate evaluation framework, the sandbox guard) if there's interest.
 
