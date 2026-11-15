@@ -96,16 +96,30 @@ export const Table = ({ rows, cols, onRow, empty = 'Nothing here yet.' }) => (
 export const SpecForm = ({ fields, submitLabel, onSubmit, busy, disabled = false, initial = {} }) => {
   const [v, setV] = useState(() => Object.fromEntries(fields.map((f) => [f.name, initial[f.name] ?? (f.type === 'checkbox' ? false : '')])));
   const [err, setErr] = useState('');
+  // A file field reads the chosen file in the browser into base64 (and its name into f.also): no base64 text box.
+  const pick = (f, file) => {
+    if (!file) { setV((o) => ({ ...o, [f.name]: '' })); return; }
+    if (file.size > (f.maxMb || 7) * 1024 * 1024) { setErr(`${f.label}: the file may be at most ${f.maxMb || 7} MB`); return; }
+    setErr('');
+    const rd = new FileReader();
+    rd.onload = () => setV((o) => ({ ...o, [f.name]: String(rd.result).split(',')[1] || '', ...(f.also ? { [f.also]: file.name } : {}) }));
+    rd.onerror = () => setErr(`${f.label}: the file could not be read`);
+    rd.readAsDataURL(file);
+  };
   const submit = (e) => {
     e.preventDefault();
     const out = {};
     try {
       for (const f of fields) {
+        if (f.type === 'file' && v[f.also]) out[f.also] = v[f.also];
         const raw = v[f.name];
         if (f.type === 'checkbox') { out[f.name] = raw; continue; }
         if (raw === '' || raw == null) { if (f.required) throw new Error(`${f.label} is required`); continue; }
         if (f.type === 'number') out[f.name] = Number(raw);
-        else if (f.type === 'list') out[f.name] = String(raw).split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+        else if (f.type === 'numlist') {
+          out[f.name] = String(raw).split(/[\s,]+/).filter(Boolean).map(Number);
+          if (out[f.name].some((n) => !Number.isFinite(n))) throw new Error(`${f.label} must be numbers`);
+        } else if (f.type === 'list') out[f.name] = String(raw).split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
         else if (f.type === 'json') { try { out[f.name] = JSON.parse(raw); } catch { throw new Error(`${f.label} is not valid JSON`); } }
         else out[f.name] = raw;
       }
@@ -127,6 +141,8 @@ export const SpecForm = ({ fields, submitLabel, onSubmit, busy, disabled = false
                 <option value="">{f.required ? 'Choose' : 'None'}</option>
                 {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
+            ) : f.type === 'file' ? (
+              <input type="file" aria-label={f.label} className={inputClass} onChange={(e) => pick(f, e.target.files?.[0])} />
             ) : f.type === 'checkbox' ? (
               <input type="checkbox" checked={v[f.name]} onChange={(e) => setV({ ...v, [f.name]: e.target.checked })} />
             ) : (
