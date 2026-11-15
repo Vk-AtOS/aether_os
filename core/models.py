@@ -442,6 +442,20 @@ class Notification(Base):
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
+class NotificationPref(Base):
+    """Which notification events reach whom, per channel. user_id '' is the organisation default; a user's
+    row overrides it. No row = the built-in default (everything on), so existing behaviour is unchanged."""
+    __tablename__ = "notification_prefs"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "event_type", name="uq_notification_prefs"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    in_app: Mapped[bool] = mapped_column(Boolean, default=True)
+    email: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class CodebaseProfile(Base):
     """Imported codebase profile for use as additional context in pipeline runs."""
     __tablename__ = "codebase_profiles"
