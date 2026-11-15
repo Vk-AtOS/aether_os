@@ -179,6 +179,12 @@ export const api = {
   approveDecision: (runId, decisionId, approved, reason) =>
     client.post(`/factory/runs/${runId}/decisions/${decisionId}/decide`, { approved, reason }),
 
+  // Client questionnaires (agency side)
+  listQuestionnaires: (runId) => client.get(`/runs/${runId}/questionnaires`),
+  getQuestionnaireStages: () => client.get('/questionnaire-stages'),
+  sendQuestionnaire: (runId, body) => client.post(`/runs/${runId}/questionnaire/send`, body),
+  fillQuestionnaire: (runId, body) => client.post(`/runs/${runId}/questionnaire/fill`, body),
+
   // Spec review gate
   getRunSpec: (runId) => client.get(`/factory/runs/${runId}/spec`),
   approveSpec: (runId, action = 'approve') => client.post(`/factory/runs/${runId}/approve-spec`, { action }),
