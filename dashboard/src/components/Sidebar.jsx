@@ -6,7 +6,7 @@ import {
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
   Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2, BrainCircuit, Briefcase,
-  Mail, UserSquare, KeyRound, Inbox,
+  Mail, UserSquare, KeyRound, Inbox, Gauge,
 } from 'lucide-react';
 import { HR_TABS } from './hr/tabs';
 import ProviderBadge from './ProviderBadge';
@@ -52,6 +52,7 @@ const Sidebar = () => {
   };
 
   const isAdmin = ['owner', 'admin'].includes(userRole);
+  const isSuperadmin = userRole === 'superadmin';
   const isViewer = userRole === 'viewer';
 
   const staticItems = [
@@ -103,13 +104,13 @@ const Sidebar = () => {
     { name: 'Prompt',           path: '/prompt',            icon: MessageSquare },
   ];
 
-  const adminItems = isAdmin ? [
+  const adminItems = [...(isAdmin ? [
     { name: 'Users',        path: '/admin/users',        icon: Users },
     { name: 'Audit Logs',   path: '/audit',              icon: ScrollText },
     { name: 'Billing',      path: '/admin/billing',      icon: CreditCard },
     { name: 'API Keys',     path: '/settings/api-keys',  icon: KeyRound },
     { name: 'Intelligence', path: '/admin/intelligence', icon: Sparkles },
-  ] : [];
+  ] : []), ...(isSuperadmin ? [{ name: 'Operator', path: '/operator', icon: Gauge }] : [])];
 
   const isActiveRoute = (path) => {
     if (path === '/') return location.pathname === '/';
