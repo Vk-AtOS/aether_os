@@ -16,16 +16,11 @@ const ApiKeys = () => {
   const [error, setError] = useState(null);
   const [secret, setSecret] = useState(null);
 
-  const load = useCallback(async () => {
-    try {
-      setKeys((await api.listOrgApiKeys()).data ?? []);
-      setError(null);
-    } catch (e) {
-      setError(apiError(e) || 'Failed to load API keys.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Promise chain, no state set before the request: this runs from an effect.
+  const load = useCallback(() => api.listOrgApiKeys()
+    .then((res) => { setKeys(res.data ?? []); setError(null); })
+    .catch((e) => setError(apiError(e) || 'Failed to load API keys.'))
+    .finally(() => setLoading(false)), []);
   useEffect(() => { load(); }, [load]);
 
   const create = async (e) => {
