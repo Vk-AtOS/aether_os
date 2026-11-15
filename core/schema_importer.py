@@ -17,6 +17,13 @@ def _validate_sqlite_path(connection_string: str) -> None:
     """
     # Strip the 'sqlite:///' prefix (3 slashes = relative, 4 = absolute)
     after_prefix = connection_string[len("sqlite:///"):]
+    # Root cause of the bypass: "file:/abs/path?uri=true" makes sqlite open an absolute path
+    # even though the string does not start with "/". Allow plain relative file names only.
+    if "?" in after_prefix or after_prefix.lower().startswith("file:") or ":" in after_prefix:
+        raise ValueError(
+            "SQLite connection string must be a plain relative path "
+            "(no URI form, no query string)"
+        )
     if after_prefix.startswith("/"):
         raise ValueError(
             "SQLite connection string must use a relative path, "
@@ -39,6 +46,10 @@ def _assert_public_host(connection_string: str) -> None:
         raise ValueError(f"invalid connection string: {exc}") from exc
     if not url.host:
         raise ValueError("connection string has no host")
+    # Root cause of the bypass: query parameters such as host=, hostaddr= or unix_socket=
+    # override the URL host inside the driver, so the checked host is not the one connected to.
+    if set(url.query) - {"sslmode", "connect_timeout", "charset"}:
+        raise ValueError("connection string query parameters are not allowed")
     try:
         resolve_public(f"http://{url.host}:{url.port or 80}/")
     except UnsafeURL as exc:
