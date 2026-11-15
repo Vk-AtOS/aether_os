@@ -203,9 +203,8 @@ _SP = {"run", "Popen", "call", "check_call", "check_output", "getoutput", "getst
 ALLOWED = {
     "phases/p03_scaffolding/task_agent.py": "git init / git clone of a user-given repo: no generated code",
     "phases/p05_frontend/preview.py": "playwright install (platform tool) and http.server serving static dist/ files",
-    "phases/p06_review_security/subtasks.py": "pip install bandit + bandit: static analysis, reads files only",
+    "phases/p06_review_security/subtasks.py": "bandit (pinned dependency): static analysis, reads files only",
     "phases/p07c_accessibility_testing/task_agent.py": "platform-written axe script loading a URL; not a generated file",
-    "phases/p08_cicd/dsee/test_runner.py": "OPEN: runs pytest on the CI-webhook repo (see report)",
     "phases/p08_cicd/repo/git_manager.py": "git operations",
     "phases/p08_cicd/repo/patch_applier.py": "git apply/commit",
     "phases/p08_cicd/task_agent.py": "bandit: static analysis",
@@ -260,3 +259,22 @@ def test_only_known_files_start_processes_outside_the_sandbox_package():
     for rel in found:
         assert not rel.startswith(("phases/p04", "phases/p07a", "phases/p07b", "phases/p07_", "phases/p07d")), rel
         assert not (rel.startswith("phases/p05") and rel != "phases/p05_frontend/preview.py"), rel
+
+
+def test_p08_tiered_tests_run_in_the_sandbox_and_fail_closed(fake, tmp_path, monkeypatch):
+    from aether_os.phases.p08_cicd.dsee.test_runner import TieredTestRunner
+    ok, _ = TieredTestRunner(tmp_path).run_tier1("tests/test_x.py::test_y").passed, None
+    assert ok and fake.calls[0].argv[1:4] == ["-m", "pytest", "tests/test_x.py::test_y"]
+    assert fake.calls[0].network is False and fake.calls[0].timeout
+
+    from aether_os.core.sandbox.runner import SandboxUnavailable
+    def none(*a, **k):
+        raise SandboxUnavailable("no docker")
+    monkeypatch.setattr(phase_exec, "get_runner", none)
+    res = TieredTestRunner(tmp_path).run_tier1("t")
+    assert res.passed is False and "sandbox unavailable" in res.output
+
+
+def test_p06_never_pip_installs_on_the_host():
+    src = (ROOT / "phases/p06_review_security/subtasks.py").read_text()
+    assert '"pip", "install"' not in src
