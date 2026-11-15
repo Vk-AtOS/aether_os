@@ -192,7 +192,7 @@ class ApprovalService:
         person = await person_in_org(org_id, uid)
         role = person[0] if person else None
         view["detail"] = await detail.build(row, await self._delegations.get(row.delegation_id), role)
-        view["action"]["params"] = detail.mask_params(
+        view["action"]["params"] = await detail.mask_params(
             org_id, row.params or {}, pseudonymise=role not in detail.MAY_SEE_PERSONAL)
         return view
 
@@ -238,7 +238,8 @@ class ApprovalService:
         async with get_session_factory()() as session:
             won = (await session.execute(
                 update(PrimeRequest)
-                .where(PrimeRequest.id == row.id, PrimeRequest.status == "pending")
+                .where(PrimeRequest.id == row.id, PrimeRequest.status == "pending",
+                       PrimeRequest.request_hash == row.request_hash)   # still what was shown
                 .values(status=wanted, decided_by=uid, decided_at=now,
                         decision_reason=reason, decided_hash=row.request_hash))).rowcount
             await session.commit()
