@@ -99,6 +99,7 @@ async def get_current_user(
                 # lose admin rights now, not when the (up to 15 min / refresh-extended) JWT expires.
                 payload["role"] = db_user.role
                 payload["org_id"] = db_user.org_id
+                request.state.audit_identity = {"org_id": db_user.org_id, "user_id": str(user_id)}
 
         return payload
 
@@ -122,6 +123,7 @@ async def get_current_user(
                 api_key, org = row
                 api_key.last_used_at = time.time()
                 await session.commit()
+                request.state.audit_identity = {"org_id": org.id, "user_id": f"api_key:{api_key.id}"}
                 return {
                     "sub": "api_key",
                     "org_id": org.id,
