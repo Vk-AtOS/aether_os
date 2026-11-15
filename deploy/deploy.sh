@@ -43,13 +43,13 @@ echo "→ Installing Python dependencies..."
 echo "→ Installing aether_os package (editable)..."
 "$VENV/pip" install -q -e "$INSTALL_DIR"
 
-# 4. Run database migrations. There is a single Alembic head: always upgrade to it
-#    (this includes the ledger and field-encryption migrations; the latter needs
-#    AETHER_FIELD_KEY in the environment). A failed migration must stop the deploy.
+# 4. Run database migrations (scripts/db_migrate.py: `alembic upgrade head` on an existing database, create-and-stamp on an
+#    empty one, because the chain cannot be replayed from nothing). The field-encryption migration needs
+#    AETHER_FIELD_KEY in the environment. A failed migration must stop the deploy.
 echo "→ Running database migrations..."
 cd "$INSTALL_DIR"
 set -a; [[ -f "$INSTALL_DIR/.env" ]] && . "$INSTALL_DIR/.env"; set +a
-"$VENV/python" -m alembic upgrade head
+PYTHONPATH="$(dirname "$INSTALL_DIR")" "$VENV/python" scripts/db_migrate.py
 
 # 5. Configure nginx domain (first deploy or when --domain is passed)
 if [[ -n "$DOMAIN" ]]; then

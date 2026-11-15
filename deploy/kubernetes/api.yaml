@@ -38,6 +38,9 @@ spec:
     metadata:
       labels:
         app: aetheros-api
+        # Velaris's NetworkPolicy admits only pods with these labels (KAN-112)
+        app.kubernetes.io/name: aetheros-api
+        app.kubernetes.io/component: api
     spec:
       containers:
         - name: api
