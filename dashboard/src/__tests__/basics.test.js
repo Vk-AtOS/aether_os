@@ -80,7 +80,3 @@ describe('oauth callback', () => {
     expect(fromExchange({}).kind).toBe('error');
   });
 });
-    expect(parseCallback(q('')).kind).toBe('error');
-    expect(parseCallback(q('error=bad%20thing')).message).toBe('bad thing');
-  });
-});
