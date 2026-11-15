@@ -70,6 +70,9 @@ watchdog>=3.0.0
 # ── Factory Pipeline — Code Generation ───────────────────────────────────────
 cookiecutter>=2.5.0
 
+# ── Vector search (artifact_embeddings.embedding_vector); the app falls back to a JSON scan without it
+pgvector>=0.3.0
+
 # ── Factory Pipeline — Security / Quality ────────────────────────────────────
 bandit>=1.7.0
 hypothesis>=6.100.0

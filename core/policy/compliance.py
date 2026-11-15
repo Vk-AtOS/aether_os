@@ -71,6 +71,8 @@ class ComplianceContext:
     repo_tags: List[str]  # e.g. ["drone", "defense", "medical", "payments"]
 
     notes: Optional[str] = None  # free-form annotation
+    # ISO country where the app's data will be stored; None = not stated by the requester.
+    hosting_country: Optional[str] = None
 
 
 @dataclass
@@ -179,7 +181,9 @@ class ComplianceEngine:
         self._rule_sensitive_data(ctx, violations, reasons)
 
         # India-specific compliance (DPDP Act 2023, IT Act 2000, RBI, SEBI, CERT-In)
-        if (ctx.country_code or "").upper() == "IN" or ctx.region.upper() in {"IN", "INDIA", "APAC"}:
+        # Only India: APAC is dozens of jurisdictions, and the India rules (RBI, CERT-In...) would
+        # otherwise fire, and demand approval, for every build in the region.
+        if (ctx.country_code or "").upper() == "IN" or (not ctx.country_code and ctx.region.upper() in {"IN", "INDIA"}):
             rule_india_dpdp(ctx, violations, reasons, ComplianceViolation)
             rule_india_rbi(ctx, violations, reasons, ComplianceViolation)
             rule_india_sebi(ctx, violations, reasons, ComplianceViolation)

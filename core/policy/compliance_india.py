@@ -128,7 +128,9 @@ def rule_india_rbi(
     if fintech_tags.intersection(
         {i.lower() for i in ctx.industries} | {t.lower() for t in ctx.repo_tags}
     ):
-        if ctx.uses_third_country_cloud or ctx.deployment_type == "saas":
+        hosting = (getattr(ctx, "hosting_country", None) or "").upper()
+        abroad = ctx.uses_third_country_cloud or bool(hosting and hosting != "IN")
+        if abroad:
             violations.append(
                 ComplianceViolation(
                     rule_id="IN_RBI_DATA_LOCALISATION",
@@ -136,13 +138,29 @@ def rule_india_rbi(
                     message=(
                         "RBI Payment System Data Localisation Directive (2018): "
                         "All payment transaction data must be stored only in India. "
-                        "SaaS or third-country cloud requires architecture review; "
+                        "Hosting outside India requires architecture review; "
                         "international leg may be mirrored but Indian copy is mandatory."
                     ),
                     severity="critical",
                 )
             )
             reasons.append("RBI mandate: payment data must be stored exclusively in India.")
+        elif ctx.deployment_type == "saas" and not hosting:
+            # "saas" says nothing about where the data lives: a SaaS in an Indian region complies.
+            # Unknown hosting needs a human to confirm it, it is not proof of a violation.
+            violations.append(
+                ComplianceViolation(
+                    rule_id="IN_RBI_DATA_LOCALISATION_UNCONFIRMED",
+                    area="india_rbi",
+                    message=(
+                        "RBI Payment System Data Localisation Directive (2018): hosting country "
+                        "was not stated. Confirm payment data is stored only in India "
+                        "(set compliance_flags.hosting_country to IN)."
+                    ),
+                    severity="high",
+                )
+            )
+            reasons.append("RBI: hosting country unconfirmed — confirm payment data stays in India.")
         else:
             violations.append(
                 ComplianceViolation(
@@ -219,7 +237,9 @@ def rule_india_certIn(
                     "NTP.GOV.IN traceable servers is mandatory. VPN/cloud providers "
                     "must retain subscriber records for 5 years."
                 ),
-                severity="medium",
+                # Operational obligations of the operator, not a property of this build: a notice,
+                # not an approval gate (medium made every Indian build "require approval").
+                severity="low",
             )
         )
         reasons.append("CERT-In 2022: 6-hour incident reporting, 180-day log retention in India.")

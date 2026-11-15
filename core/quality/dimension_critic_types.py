@@ -24,6 +24,15 @@ DIMENSION_WEIGHTS: dict[str, float] = {
 }
 
 
+# Frontend files are scored on their own three dimensions. They had no weights at all, so the
+# weighted overall of every .ts/.tsx file was 0.0 and every frontend file "failed" the critique.
+FRONTEND_DIMENSION_WEIGHTS: dict[str, float] = {
+    "typescript_types":     0.40,
+    "frontend_a11y":        0.30,
+    "frontend_correctness": 0.30,
+}
+
+
 @dataclass
 class DimensionScore:
     dimension: str

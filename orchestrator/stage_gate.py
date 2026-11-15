@@ -69,6 +69,23 @@ def summarize_stage_outcomes(results: Dict[str, Dict[str, Any]]) -> Dict[str, An
     return {"failed_stages": failed, "skipped_stages": skipped, "all_stages_ok": not failed and not skipped}
 
 
+def council_view(council_delivery: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """council_verdict / council_score for the dashboard, from the stored delivery-council result.
+
+    A council that did not run is "unavailable", never "approved" and never "rejected": the
+    dashboard reads these two keys and nothing filled them before.
+    """
+    if not council_delivery:
+        return {"council_verdict": None, "council_score": None}
+    if council_delivery.get("status") == "unavailable" or council_delivery.get("passed") is None:
+        return {"council_verdict": "unavailable", "council_score": None}
+    score = council_delivery.get("score")
+    return {
+        "council_verdict": "approved" if council_delivery.get("passed") else "rejected",
+        "council_score": round(score * 100) if isinstance(score, (int, float)) and score <= 1 else score,
+    }
+
+
 def recorded_status(result: Dict[str, Any]) -> str:
     """The status stored on the stage row: what happened, never an upgrade to "completed"."""
     status = result.get("status")

@@ -24,6 +24,23 @@ _HARDCODED_SECRET_RE = re.compile(
 )
 
 
+# Issue types that come from a scanner or reviewer (not a heuristic) and block delivery when unfixed.
+_BLOCKING_TYPES = ("security_finding", "hardcoded_secret")
+
+
+def finding_severity(finding: dict) -> str:
+    """Lower-case severity of a finding: bandit writes issue_severity, the LLM review severity."""
+    return str(finding.get("severity") or finding.get("issue_severity") or "").lower()
+
+
+def blocking_findings(unresolved: list[dict]) -> list[str]:
+    """Descriptions of unresolved High/Critical findings from a scanner or the security review."""
+    return [
+        i["description"] for i in unresolved
+        if i.get("issue_type") in _BLOCKING_TYPES and i.get("severity") in ("high", "critical")
+    ]
+
+
 def detect_critical_issues(
     backend_src: Optional[Path],
     security_findings: list,
@@ -46,7 +63,7 @@ def detect_critical_issues(
     for finding in security_findings:
         if not isinstance(finding, dict):
             continue
-        sev = str(finding.get("severity", "")).lower()
+        sev = finding_severity(finding)
         desc = str(finding.get("description", finding.get("detail", "")))
         if sev in ("critical", "high") or "sql injection" in desc.lower():
             file_hint = finding.get("file", "")

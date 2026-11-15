@@ -4762,8 +4762,9 @@ def _generate_domain_dashboard(domain: str, entities: List[dict]) -> str:
         f"    queryFn: () => apiClient.get('/{e}').then(r => r.data).catch(() => ({{}})),\n"
         f"    staleTime: 60_000,\n"
         f"  }})"
-        for (_, e, __, ___) in kpis
+        for e in dict.fromkeys(e for (_, e, __, ___) in kpis)  # one query per entity: a repeat is a redeclared const
     )
+    activity_var = f"{kpis[0][1]}Data"  # the chart counts this entity's records
 
     kpi_cards = "\n".join(
         f"""      <motion.div
@@ -4813,19 +4814,28 @@ import {{
   ResponsiveContainer, Legend
 }} from 'recharts'
 
-// SAMPLE data for the charts (labelled as such on screen): replace with a real analytics endpoint
-const TREND_DATA = [
-  {{ day: 'Mon', value: 42, prev: 38 }},
-  {{ day: 'Tue', value: 58, prev: 45 }},
-  {{ day: 'Wed', value: 51, prev: 52 }},
-  {{ day: 'Thu', value: 74, prev: 61 }},
-  {{ day: 'Fri', value: 63, prev: 58 }},
-  {{ day: 'Sat', value: 89, prev: 71 }},
-  {{ day: 'Sun', value: 95, prev: 82 }},
-]
+type Row = {{ created_at?: string }}
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Records created per day over the last 7 days and the 7 days before (from the rows already loaded).
+function activityByDay(rows: unknown) {{
+  const list: Row[] = Array.isArray(rows) ? rows : ((rows as {{ items?: Row[] }} | undefined)?.items ?? [])
+  const countOn = (d: Date) => list.filter((r) => r?.created_at && new Date(r.created_at).toDateString() === d.toDateString()).length
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Array.from({{ length: 7 }}, (_, k) => {{
+    const d = new Date(today)
+    d.setDate(today.getDate() - (6 - k))
+    const before = new Date(d)
+    before.setDate(d.getDate() - 7)
+    return {{ day: DAY_NAMES[d.getDay()], value: countOn(d), prev: countOn(before) }}
+  }})
+}}
 
 export default function Dashboard() {{
 {kpi_queries}
+  const TREND_DATA = activityByDay({activity_var})
+  const hasActivity = TREND_DATA.some((d) => d.value > 0 || d.prev > 0)
 
   return (
     <motion.div
@@ -4839,11 +4849,11 @@ export default function Dashboard() {{
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-1 font-medium">Welcome back. Here's what's happening.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-semibold">
-            <Activity size={{12}} /> Sample chart data
+        {{!hasActivity && (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-gray-600 text-xs font-semibold">
+            <Activity size={{12}} /> No activity in the last 14 days
           </span>
-        </div>
+        )}}
       </div>
 
       {{/* KPI Cards */}}
@@ -4861,8 +4871,8 @@ export default function Dashboard() {{
           className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
         >
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900 tracking-tight">7-Day Activity (sample data)</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Illustrative values, not your data: connect an analytics endpoint</p>
+            <h2 className="text-base font-semibold text-gray-900 tracking-tight">7-Day Activity</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Records created per day, from the data loaded on this page</p>
           </div>
           <ResponsiveContainer width="100%" height={{220}}>
             <AreaChart data={{TREND_DATA}} margin={{{{ top: 4, right: 4, left: -20, bottom: 0 }}}}>
@@ -4897,8 +4907,8 @@ export default function Dashboard() {{
           className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
         >
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900 tracking-tight">Weekly Breakdown (sample data)</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Illustrative values, not your data</p>
+            <h2 className="text-base font-semibold text-gray-900 tracking-tight">Weekly Breakdown</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Records created per day this week</p>
           </div>
           <ResponsiveContainer width="100%" height={{220}}>
             <BarChart data={{TREND_DATA}} margin={{{{ top: 4, right: 4, left: -20, bottom: 0 }}}}>

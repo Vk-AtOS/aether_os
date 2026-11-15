@@ -212,7 +212,8 @@ async def get_run_portal(
             "quality_score": _run_p.quality_score,
             "council_verdict": (
                 "passed" if _council.get("passed")
-                else ("failed" if _council else "pending")
+                else ("unavailable" if _council.get("status") == "unavailable"
+                      else ("failed" if _council else "pending"))
             ),
         },
         "deliverables": _deliverables,
