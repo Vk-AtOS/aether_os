@@ -126,6 +126,15 @@ async def _ensure_pepper(cid: str) -> str:
     raise RuntimeError(f"could not create the audit pepper for {cid}")
 
 
+async def label(org_id: Any, value: Any) -> str:
+    """A display-only pseudonym for a value of this organisation: HMAC-SHA256 under the
+    organisation's server-side pepper (full 128-bit prefix). Not reproducible without the
+    pepper, differs between organisations, and stores nothing. Erasing the org pepper
+    (erase_org) makes every label unrecomputable. Raises if the pepper cannot be had."""
+    pepper = await _ensure_pepper(chain.chain_id_for(org_id))
+    return "person-" + _hmac(pepper, "label", str(value))[:32]
+
+
 async def pseudonymise(org_id: Any, kind: str, value: str) -> Dict[str, str]:
     """The chain-safe reference for one email or IP of this organisation."""
     cid = chain.chain_id_for(org_id)

@@ -58,8 +58,10 @@ async def test_limits_default_then_admin_changes_are_validated_and_ledgered(svc)
     entry = (await chain.read_entries())[-1]
     assert entry["action"] == "prime.limits.change" and entry["actor"] == CAROL
     assert entry["payload"] == {"org_id": ORG,
-                                "from": {"payment_ceiling": "500000", "max_delegation_days": 30},
-                                "to": {"payment_ceiling": "2000", "max_delegation_days": 60}}
+                                "from": {"payment_ceiling": "500000", "max_delegation_days": 30,
+                                         "request_ttl_hours": 72},
+                                "to": {"payment_ceiling": "2000", "max_delegation_days": 60,
+                                       "request_ttl_hours": 72}}
     await prime_api.write_limits(prime_api.LimitsIn(payment_ceiling=2000, max_delegation_days=60), user=ADMIN)
     assert await actions() == ["prime.limits.change"]          # no change, no entry
     assert (await prime_api.meta(user=MEMBER))["payment_ceiling"] == "2000"

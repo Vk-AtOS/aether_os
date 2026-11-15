@@ -95,7 +95,7 @@ def test_role_table_is_deny_by_default():
     assert velaris_roles("viewer") == velaris_roles("member") == frozenset()
     for unknown in (None, "", "api", "superuser", "OWNER"):
         assert velaris_roles(unknown) == frozenset()
-    assert velaris_roles("admin") == {"hr_admin", "payroll_admin", "flow_approver"}
+    assert velaris_roles("admin") == {"hr_admin", "payroll_admin", "flow_approver", "model_admin"}
     assert {"governance_admin", "security_admin"} <= velaris_roles("owner")
     assert not {"governance_admin", "security_admin"} & velaris_roles("admin")
     assert MAY_ACT == {"owner", "admin", "member"}

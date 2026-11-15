@@ -6,6 +6,9 @@ import { apiError } from '../../apiError';
 const c = api.client;
 export const primeApi = {
   inbox: (params) => c.get('/prime/inbox', { params }),
+  inboxCount: () => c.get('/prime/inbox/count'),
+  get: (id) => c.get(`/prime/requests/${id}`),
+  edit: (id, body) => c.post(`/prime/requests/${id}/edit`, body),
   approve: (id, request_hash, reason) => c.post(`/prime/requests/${id}/approve`, { request_hash, reason }),
   reject: (id, request_hash, reason) => c.post(`/prime/requests/${id}/reject`, { request_hash, reason }),
   deputies: () => c.get('/prime/deputies'),

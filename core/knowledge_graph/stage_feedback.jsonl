@@ -1,5 +1,3 @@
 {"event": "stage_output", "stage_id": "s07_healing", "run_id": "p", "output_files": [], "quality_scores": {"healing_attempts": 0.0, "fixes_applied": 0.0}, "ts": "2026-11-14T18:27:06.571938+00:00"}
 {"event": "stage_output", "stage_id": "s07_healing", "run_id": "p", "output_files": [], "quality_scores": {"healing_attempts": 0.0, "fixes_applied": 0.0}, "ts": "2026-11-14T18:27:16.155891+00:00"}
 {"event": "stage_output", "stage_id": "s07_healing", "run_id": "p", "output_files": [], "quality_scores": {"healing_attempts": 0.0, "fixes_applied": 0.0}, "ts": "2026-11-14T18:27:20.620753+00:00"}
-{"event": "stage_output", "stage_id": "s05_quality", "run_id": "p", "output_files": [], "quality_scores": {"compliance_score": 0.0, "dimension_overall": 0.0}, "ts": "2026-11-15T10:08:53.690018+00:00"}
-{"event": "stage_output", "stage_id": "s05_quality", "run_id": "p", "output_files": [], "quality_scores": {"compliance_score": 0.0, "dimension_overall": 0.0}, "ts": "2026-11-15T10:08:53.697645+00:00"}
