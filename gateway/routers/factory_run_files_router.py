@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["run-files"])
@@ -332,7 +333,11 @@ async def add_changelog(
     req: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Add entry to project changelog."""
+    """Add entry to project changelog (member or above)."""
+    await enforce("run.annotate", user)
+    entry = req.get("entry")
+    if not isinstance(entry, str) or not entry.strip() or len(entry) > 2000:
+        raise HTTPException(status_code=422, detail="entry must be 1-2000 characters")
     from aether_os.core.memory.memory_manager import MemoryManager
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Run
@@ -348,5 +353,5 @@ async def add_changelog(
             raise HTTPException(status_code=404)
 
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
-        MemoryManager.add_changelog_entry(project_dir, req["entry"], user["sub"])
+        MemoryManager.add_changelog_entry(project_dir, entry, user["sub"])
         return {"status": "ok"}

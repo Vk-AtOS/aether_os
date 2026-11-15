@@ -19,3 +19,12 @@ def test_report_comes_from_the_phase_summary_and_is_tenant_scoped(gw, tmp_path, 
     got = gw.client.get("/factory/runs/trun-1/test-report", headers=org.auth).json()
     assert (got["passed"], got["failed"], got["errors"]) == (3, 1, ["boom"])
     assert gw.client.get("/factory/runs/trun-1/test-report", headers=other.auth).status_code == 404
+
+
+def test_changelog_needs_member_and_a_real_entry(gw):
+    org = gw.register("clog")
+    _run(gw, org, "trun-2")
+    viewer = gw.user_with_role("viewer", org.org_id)
+    url = "/factory/runs/trun-2/memory/changelog"
+    assert gw.client.post(url, headers=viewer.auth, json={"entry": "x"}).status_code == 403
+    assert gw.client.post(url, headers=org.auth, json={}).status_code == 422
