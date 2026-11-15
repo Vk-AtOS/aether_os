@@ -42,3 +42,38 @@ def test_a_bad_query_or_an_ordinary_bug_is_not_treated_as_the_database_being_dow
                 sa_exc.IntegrityError("INSERT", {}, Exception("duplicate key")), FileNotFoundError("x")):
         assert not isinstance(exc, DEPENDENCY_DOWN), type(exc)
 
+
+def test_postgres_breaker_opens_after_repeated_connect_failures_and_then_fails_fast():
+    """Root cause of slow outages: every request waited for its own connect timeout against a dead database.
+    Nothing listens on port 1, so every connect is refused; after 2 failures the third call must not even try."""
+    import asyncio
+    import time
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from aether_os.core.db import install_postgres_breaker
+    from aether_os.core.resilience.breaker import CircuitBreaker, CircuitOpen
+
+    async def go():
+        engine = create_async_engine("postgresql+asyncpg://u:p@127.0.0.1:1/db")
+        breaker = install_postgres_breaker(engine, CircuitBreaker("pg-test", failure_threshold=2, reset_after_s=60))
+        errors = []
+        for _ in range(3):
+            try:
+                async with engine.connect() as c:
+                    await c.execute(text("select 1"))
+            except Exception as exc:   # the test records which error each attempt produced
+                errors.append(exc)
+        t0 = time.monotonic()
+        try:
+            async with engine.connect():
+                pass
+        except CircuitOpen:
+            pass
+        fast = time.monotonic() - t0
+        await engine.dispose()
+        return breaker, errors, fast
+
+    breaker, errors, fast = asyncio.run(go())
+    assert breaker.state == "open"
+    assert any(isinstance(e, CircuitOpen) for e in errors[2:]), errors
+    assert fast < 0.1
