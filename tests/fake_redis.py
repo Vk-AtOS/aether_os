@@ -25,6 +25,7 @@ class _Pipe:
 class FakeRedis:
     def __init__(self):
         self.z: dict[str, dict[str, float]] = {}
+        self.kv: dict[str, str] = {}
         self.down = False
 
     def _check(self):
@@ -51,3 +52,21 @@ class FakeRedis:
 
     async def expire(self, key, seconds):
         self._check()
+
+    async def mget(self, keys):
+        self._check()
+        return [self.kv.get(k) for k in keys]
+
+    async def get(self, key):
+        self._check()
+        return self.kv.get(key)
+
+    async def set(self, key, value, ex=None, **kw):
+        self._check()
+        self.kv[key] = value
+        return True
+
+    async def delete(self, *keys):
+        self._check()
+        for k in keys:
+            self.kv.pop(k, None)
