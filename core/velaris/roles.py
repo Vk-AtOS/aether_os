@@ -23,6 +23,9 @@ VELARIS_ROLES: Dict[str, FrozenSet[str]] = {
 # Roles that may start work in Velaris at all (call agent methods, start flows).
 # A viewer may look at the catalogue and nothing else.
 MAY_ACT: FrozenSet[str] = frozenset({"owner", "admin", "member"})
+# Roles that may do organisation-wide or personal-data-wide things (exports, erasure, payroll runs, mailbox
+# provisioning). Checked in the gateway on every such row; Velaris applies its own roles on top.
+ADMIN_ROLES: FrozenSet[str] = frozenset({"owner", "admin"})
 
 
 def velaris_roles(org_role: Optional[str]) -> FrozenSet[str]:
