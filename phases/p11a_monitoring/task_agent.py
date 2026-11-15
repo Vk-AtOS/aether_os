@@ -296,6 +296,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
         def instrument_app(app: FastAPI) -> FastAPI:
             \"\"\"Wire up Prometheus FastAPI instrumentator.  Call after app = FastAPI(...).\"\"\"
+            if any(getattr(r, "path", "") == "/metrics" for r in app.routes):
+                return app  # already exposed: a second Instrumentator counts every request twice
             try:
                 from prometheus_fastapi_instrumentator import Instrumentator
                 Instrumentator(
@@ -350,7 +352,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if _main_py_path.exists():
         try:
             content = _main_py_path.read_text()
-            if "Instrumentator" not in content and "app = FastAPI(" in content:
+            if "Instrumentator" not in content and "/metrics" not in content and "app = FastAPI(" in content:
                 _metrics_snippet = (
                     "\ntry:\n"
                     "    from prometheus_fastapi_instrumentator import Instrumentator as _Instr\n"
