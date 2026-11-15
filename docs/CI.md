@@ -7,8 +7,7 @@
 | ruff (blocking) | `ruff check . --select E9,F63,F7,F82` | `pip install ruff` |
 | bandit (high severity) | `bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'` | bandit |
 | dependency audit (blocking) | `bash scripts/ci/audit_deps.sh` | pip-audit, network |
-| secret scan, tree + history (blocking) | `bash scripts/ci/secret_scan.sh` | gitleaks (`brew install gitleaks`) |
-| K8s placeholder self-test | `pytest tests/test_k8s_placeholders.py` | |
+| secret scan, full git history (blocking) | `bash scripts/ci/secret_scan.sh` | gitleaks (`brew install gitleaks`) |
 | tests + coverage floor | see `scripts/ci/run_all.sh` (needs `PYTHONPATH` so the checkout imports as `aether_os`) | Postgres only for `AETHER_PG_TEST_URL` tests (they skip without it) |
 | dashboard: install, lint, test, build | `cd dashboard && npm install && npm run lint && npm test && npm run build` | node 20 |
 | workflow syntax | `actionlint` | actionlint |
