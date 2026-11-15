@@ -16,6 +16,7 @@ import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
+from aether_os.core.security.git_remote import check_ssh_remote, ssh_command
 from aether_os.core.security.safe_http import UnsafeURL, check_url_shape, safe_request
 from aether_os.gateway.dependencies import get_current_user
 
@@ -169,10 +170,14 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             raise HTTPException(status_code=422, detail=f"gitlab_url refused: {exc}") from exc
 
     # SSRF/injection: SSH URLs must be actual git remotes, not file:// or local paths
+    ssh_remote = None
     if rtype == "ssh":
-        _lower = url.lower()
-        if _lower.startswith("file://") or _lower.startswith("/") or _lower.startswith("../"):
-            raise HTTPException(status_code=422, detail="SSH url must be a remote git address, not a local path")
+        # one helper parses BOTH url forms and runs the shared public-address check (core/security/git_remote.py)
+        try:
+            ssh_remote = await asyncio.to_thread(check_ssh_remote, url)
+        except UnsafeURL as exc:
+            logger.warning("fetch-repo: ssh remote refused: %s", exc)
+            raise HTTPException(status_code=422, detail="That ssh remote is not allowed (it must be a public git host on port 22)") from None
 
     _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
                   "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
@@ -243,14 +248,16 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             with open(key_file, "w") as kf:
                 kf.write(ssh_key)
             os.chmod(key_file, 0o600)
-            env = {**os.environ, "GIT_SSH_COMMAND": f"ssh -i {key_file} -o StrictHostKeyChecking=no -o BatchMode=yes"}
+            env = {**os.environ, "GIT_SSH_COMMAND": ssh_command(key_file, ssh_remote)}
             proc = await asyncio.create_subprocess_exec(
-                "git", "clone", "--depth=1", url, clone_dir,
+                "git", "-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always",
+                "clone", "--depth=1", "--", url, clone_dir,
                 env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
             if proc.returncode != 0:
-                raise HTTPException(status_code=422, detail=f"Git clone failed: {stderr.decode()[:500]}")
+                logger.warning("fetch-repo: git clone failed (rc=%s): %s", proc.returncode, stderr.decode(errors="replace")[:500])
+                raise HTTPException(status_code=422, detail="Git clone failed. Check the address, the key and the access.")
             context_parts.append(f"Repository: {url} (SSH clone)")
             found = 0
             for root, _dirs, files in os.walk(clone_dir):
