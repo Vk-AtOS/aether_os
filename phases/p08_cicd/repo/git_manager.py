@@ -58,7 +58,7 @@ class RepoManager:
 
             return str(repo_path)
         except subprocess.CalledProcessError as e:
-            raise RepoError(f"Git operation failed: {e.stderr or str(e)}")
+            raise RepoError(f"Git operation failed: {e.stderr or str(e)}") from e
 
     def get_local_path(self, repo_name: str) -> Optional[str]:
         """Returns the local path if the repo is cached."""

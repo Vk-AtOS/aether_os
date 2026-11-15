@@ -98,7 +98,7 @@ class Sandbox:
         except ValueError:
             raise SandboxViolation(
                 f"Write blocked — outside sandbox: {path}"
-            )
+            ) from None
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 

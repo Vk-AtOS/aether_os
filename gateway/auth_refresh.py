@@ -128,7 +128,7 @@ async def assert_access_token_live(claims: Dict[str, Any]) -> None:
         values = await r.mget(keys)
     except Exception as exc:
         logger.warning("Token revocation check failed (Redis unavailable) — denying request: %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
     exp = claims.get("exp") if isinstance(claims.get("exp"), (int, float)) else time.time() + 3600
     if values[0] or values[1] or (user_id and _before_cutoff(values[2], claims, family)):
         _remember(jti, False, exp)
@@ -164,7 +164,7 @@ async def consume_refresh_token(claims: Dict[str, Any]) -> str:
         raise
     except Exception as exc:
         logger.warning("Refresh token state check failed — denying refresh: %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
     return family
 
 
@@ -180,7 +180,7 @@ async def revoke_session(claims: Dict[str, Any]) -> None:
             await r.set(family_key(family), "1", ex=_REFRESH_TTL_SECONDS)
     except Exception as exc:
         logger.warning("Logout could not revoke tokens (jti=%s): %s", jti, exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) -> None:
@@ -196,7 +196,7 @@ async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) 
         await r.set(_cutoff_key(user_id), f"{int(time.time())}:{keep_family or ''}", ex=_REFRESH_TTL_SECONDS)
     except Exception as exc:
         logger.warning("Could not revoke sessions for user %s: %s", user_id, exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 # ── SSE exchange tokens ──────────────────────────────────────────────────────
@@ -212,7 +212,7 @@ async def sse_token_set(token: str, org_id: str, run_id: str) -> None:
         await r.set(f"sse:{token}", json.dumps({"org_id": org_id, "run_id": run_id}), ex=_SSE_TTL_SECONDS)
     except Exception as exc:
         logger.warning("SSE token could not be stored (Redis unavailable): %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 async def sse_token_pop(token: str) -> Optional[Dict[str, Any]]:
@@ -226,5 +226,5 @@ async def sse_token_pop(token: str) -> Optional[Dict[str, Any]]:
             value, _ = await pipe.execute()
     except Exception as exc:
         logger.warning("SSE token could not be checked (Redis unavailable): %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
     return json.loads(value) if value else None

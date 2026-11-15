@@ -114,7 +114,7 @@ def start(
         import uvicorn
     except ImportError:
         console.print("[red]uvicorn not installed. Run: pip install uvicorn[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     uvicorn.run(
         "aether_os.gateway.api:app",

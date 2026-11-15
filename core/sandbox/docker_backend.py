@@ -185,7 +185,7 @@ class ContainerProcess:
         try:
             _docker("wait", self.container_id, timeout=int(timeout or 3600))
         except subprocess.TimeoutExpired:
-            raise subprocess.TimeoutExpired(["docker", "wait", self.container_id], timeout)
+            raise subprocess.TimeoutExpired(["docker", "wait", self.container_id], timeout) from None
         self.returncode = self.returncode if self.returncode is not None else 0
         return self.returncode
 

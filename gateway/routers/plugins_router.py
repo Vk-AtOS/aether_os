@@ -124,9 +124,9 @@ async def install_plugin(
         result["plugin_id"] = req.plugin_id
         return result
     except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.delete("/installed/{plugin_id}")
@@ -211,10 +211,10 @@ async def invoke_connector(
         result = await connector.invoke(req.action, req.params)
         return result
     except ConnectorError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Connector invoke failed [%s/%s]: %s", req.plugin_id, req.action, exc)
-        raise HTTPException(status_code=500, detail=f"Connector error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Connector error: {exc}") from exc
 
 # Skills, Salesforce, and LDAP connector routes live in plugins_connectors_router.py —
 # see gateway/routers/plugins_connectors_router.py

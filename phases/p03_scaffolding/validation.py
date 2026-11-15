@@ -35,7 +35,7 @@ def validate_clone_url(url: str) -> str:
     try:
         port = parts.port
     except ValueError:
-        raise ValueError("invalid git URL port")
+        raise ValueError("invalid git URL port") from None
     if parts.scheme != "https" or "@" in parts.netloc or port not in (None, 443):
         raise ValueError("only plain https:// git URLs are allowed")
     if (parts.hostname or "").lower() not in allowed:

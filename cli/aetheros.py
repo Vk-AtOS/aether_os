@@ -134,10 +134,10 @@ def login(
             r.raise_for_status()
         except requests.HTTPError as e:
             console.print(f"[red]Login failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         except Exception as e:
             console.print(f"[red]Connection error:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data = r.json()
     _save_cfg({"url": url, "token": data["access_token"], "email": email})
     console.print(Panel(f"[bold green]Logged in[/bold green] as [cyan]{email}[/cyan]\nGateway: {url}", title="AetherOS", border_style="green"))
@@ -193,7 +193,7 @@ def run_pipeline(
             r = _post(cfg, "/factory/start", json=payload)
         except requests.HTTPError as e:
             console.print(f"[red]Failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data   = r.json()
     run_id = data.get("run_id") or data.get("id")
     console.print(Panel(
@@ -219,7 +219,7 @@ def list_runs(
             r = _get(cfg, "/factory/runs", params=params)
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data = r.json()
     runs = data.get("items") or data.get("runs") or (data if isinstance(data, list) else [])
 
@@ -263,7 +263,7 @@ def status(
             r = _get(cfg, f"/factory/runs/{run_id}")
         except requests.HTTPError as e:
             console.print(f"[red]Not found:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     run = r.json()
     if raw:
         console.print_json(json.dumps(run))
@@ -385,7 +385,7 @@ def cancel(
             _post(cfg, f"/factory/runs/{run_id}/cancel")
         except requests.HTTPError as e:
             console.print(f"[red]Failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     console.print(f"[yellow]Cancelled[/yellow] run [cyan]{run_id}[/cyan]")
 
 
@@ -404,7 +404,7 @@ def download(
             r = _get(cfg, f"/factory/runs/{run_id}/artifacts")
         except requests.HTTPError as e:
             console.print(f"[red]Failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     artifacts = r.json()
     if isinstance(artifacts, dict):
         artifacts = artifacts.get("items") or artifacts.get("artifacts") or []
@@ -476,7 +476,7 @@ def health():
             r = _get(cfg, "/health")
         except Exception as e:
             console.print(f"[red]Unreachable:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data = r.json()
     st = data.get("status", "unknown")
     style = "green" if st in ("ok", "healthy") else "yellow"

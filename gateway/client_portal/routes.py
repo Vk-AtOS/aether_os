@@ -212,7 +212,7 @@ async def get_project_status(project_id: str, _auth: Dict[str, Any] = Depends(_p
     except HTTPException:
         raise
     except Exception as e:
-        raise _portal_error("status", project_id, e)
+        raise _portal_error("status", project_id, e) from e
 
 
 @router.get("/{project_id}/phase/{phase_name}")
@@ -233,7 +233,7 @@ async def get_phase_output(project_id: str, phase_name: str, _auth: Dict[str, An
     except HTTPException:
         raise
     except Exception as e:
-        raise _portal_error("phase", project_id, e)
+        raise _portal_error("phase", project_id, e) from e
 
 
 @router.post("/{project_id}/approve")
@@ -252,7 +252,7 @@ async def approve_phase(
     try:
         approval, created = await portal_access.record_approval(project_id, principal, body.approved, body.comment)
     except Exception as e:
-        raise _portal_error("approve", project_id, e)
+        raise _portal_error("approve", project_id, e) from e
     if approval["applied_to"] == "spec_review":
         message = "Approval recorded. The build continues past spec review."
     else:
@@ -279,7 +279,7 @@ async def submit_feedback(
     except HTTPException:
         raise
     except Exception as e:
-        raise _portal_error("feedback", project_id, e)
+        raise _portal_error("feedback", project_id, e) from e
 
 
 # ── Download endpoints ────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ async def portal_download_zip(run_id: str, _auth: Dict[str, Any] = Depends(_port
             zf.writestr("BUILD_PROVENANCE.md", provenance_md)
     except Exception as exc:
         logger.error("ZIP assembly failed for run %s: %s", run_id, exc)
-        raise HTTPException(status_code=500, detail="Failed to build ZIP archive")
+        raise HTTPException(status_code=500, detail="Failed to build ZIP archive") from exc
 
     buf.seek(0)
     project_name = rec.get("project_name", run_id[:8]) or run_id[:8]

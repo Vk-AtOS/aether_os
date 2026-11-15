@@ -119,7 +119,7 @@ async def approve_decision(
             "recovery_action": "pipeline_will_auto_proceed_in_600s",
         }
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Decision belongs to a different org")
+        raise HTTPException(status_code=403, detail="Decision belongs to a different org") from None
 
 
 @router.post("/factory/runs/{run_id}/decisions/{decision_id}/decide")
@@ -143,9 +143,9 @@ async def decide_decision(
         )
         return decision.to_dict()
     except LookupError:
-        raise HTTPException(status_code=404, detail="Decision not found")
+        raise HTTPException(status_code=404, detail="Decision not found") from None
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Decision belongs to a different org")
+        raise HTTPException(status_code=403, detail="Decision belongs to a different org") from None
 
 
 @router.post("/factory/runs/{run_id}/validate-spec")
@@ -304,7 +304,7 @@ async def get_council_review(
     try:
         return json.loads(review_text)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to read council review: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to read council review: {exc}") from exc
 
 
 @router.post("/admin/runs/cleanup-council-review")

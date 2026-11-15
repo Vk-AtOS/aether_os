@@ -141,7 +141,7 @@ async def import_existing_schema(
         try:
             _validate_sqlite_path(connection_string)
         except ValueError as ve:
-            raise HTTPException(400, str(ve))
+            raise HTTPException(400, str(ve)) from ve
 
     from aether_os.core.schema_importer import import_schema
     result = await import_schema(connection_string)

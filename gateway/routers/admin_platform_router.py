@@ -96,7 +96,7 @@ async def prune_artifacts(
     try:
         ttl_days = int(req.get("ttl_days", 30))
     except (TypeError, ValueError):
-        raise HTTPException(status_code=422, detail="ttl_days must be a whole number of days")
+        raise HTTPException(status_code=422, detail="ttl_days must be a whole number of days") from None
     # 0 or a negative value moves the cutoff to now or the future: every file would go.
     if ttl_days < 1:
         raise HTTPException(status_code=422, detail="ttl_days must be at least 1")
@@ -157,7 +157,7 @@ async def export_audit_logs(
                 dt_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             ).timestamp()
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}")
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}") from exc
     org_id = user["org_id"]
     async with sf() as session:
         stmt = select(AuditLog, UserModel.email).outerjoin(
@@ -291,4 +291,4 @@ async def save_platform_file(
         return {"ok": True, "file": target.name, "baseline_updated": True}
     except Exception as exc:
         logger.error("Failed to save platform fix to %s: %s", target.name, exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
