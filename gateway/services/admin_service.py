@@ -29,7 +29,9 @@ async def invite_user_service(
     from aether_os.gateway.auth import get_password_hash
     from sqlalchemy import select
     import secrets as _sec
+    from aether_os.gateway.policy_guard import enforce_seat
 
+    await enforce_seat(org_id, f"invite:{inviter_name}")  # 402 quota_seats when the plan's seats are used
     sf = get_session_factory()
     async with sf() as session:
         existing = (await session.execute(

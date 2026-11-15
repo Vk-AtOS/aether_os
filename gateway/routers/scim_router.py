@@ -31,6 +31,7 @@ from aether_os.core.models import Organisation
 from aether_os.core.models import Organisation as _Org
 from aether_os.core.models import User as _User
 from aether_os.gateway.auth import get_password_hash
+from aether_os.gateway.policy_guard import enforce_seat
 from datetime import datetime as _dt
 from sqlalchemy import func, select
 import bcrypt as _bcrypt
@@ -168,6 +169,7 @@ async def scim_create_user(
     email = req.get("userName") or (req.get("emails") or [{}])[0].get("value")
     if not email:
         raise HTTPException(status_code=400, detail="userName or emails[0].value required")
+    await enforce_seat(user["org_id"], "scim")  # 402 quota_seats: the IdP cannot exceed the plan's seats
     sf = get_session_factory()
     async with sf() as session:
         if (await session.execute(select(_User).where(_User.email == email))).scalar_one_or_none():
