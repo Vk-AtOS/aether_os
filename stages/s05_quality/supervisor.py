@@ -40,6 +40,7 @@ from typing import Any, Dict, List
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.phases.utils import get_domain_ir
 from aether_os.core.projects import get_project_manager
+from aether_os.core.quality.frontend_tools import collect as collect_frontend_tools
 from aether_os.stages.s05_quality.helpers import quality_gate_summary
 from aether_os.stages.s05_quality.gate_functions import blocking_findings, detect_critical_issues, regenerate_file
 
@@ -125,6 +126,19 @@ class QualityGateSupervisor(PhaseBase):
                 )
             else:
                 logger.info("[s05] dimension critic: backend_output_path empty — skipping")
+            # Frontend: regex scorers plus the real tsc/eslint results (and axe-core's count when the
+            # a11y phase already produced one); tools that did not run are reported, never assumed clean.
+            fe_path = merged_data.get("frontend_output_path", "")
+            if fe_path and Path(fe_path).is_dir():
+                a11y = merged_data.get("accessibility_results") or {}
+                tools = await asyncio.to_thread(collect_frontend_tools, fe_path, a11y.get("violations_count"))
+                fe_reports = critique_directory(fe_path, tools=tools)
+                critic_reports += fe_reports
+                dimension_critique["frontend"] = {
+                    "files": len(fe_reports), "failed": sum(1 for r in fe_reports if not r.passed),
+                    "tsc_ran": tools.tsc_ran, "eslint_ran": tools.eslint_ran,
+                    "axe_violations": tools.axe_violations, "notes": tools.notes,
+                }
         except Exception as e:
             logger.warning("Dimension critique failed (non-critical): %s", e)
 

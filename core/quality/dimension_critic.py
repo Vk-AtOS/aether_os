@@ -19,10 +19,12 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Optional
 
 from aether_os.core.quality.dimension_critic_types import (
     CRITICAL_THRESHOLD,
     DIMENSION_WEIGHTS,
+    FRONTEND_DIMENSION_WEIGHTS,
     PASSING_THRESHOLD,
     CritiqueReport,
     DimensionScore,
@@ -37,6 +39,7 @@ from aether_os.core.quality.dimension_scorer import (
     score_security,
     score_testing,
 )
+from aether_os.core.quality.frontend_tools import FrontendToolReport, apply_tools
 from aether_os.core.quality.dimension_scorer_frontend import (
     score_frontend_a11y,
     score_frontend_correctness,
@@ -115,7 +118,7 @@ def _detect_artifact_type(file_path: str, content: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def critique_artifact(file_path: str, artifact_type: str = "") -> CritiqueReport:
+def critique_artifact(file_path: str, artifact_type: str = "", tools: Optional[FrontendToolReport] = None) -> CritiqueReport:
     """Read *file_path*, run all 8 dimension scorers, return a CritiqueReport.
 
     Fail-open: if the file cannot be read, returns a report with overall_score=0.0
@@ -156,9 +159,14 @@ def critique_artifact(file_path: str, artifact_type: str = "") -> CritiqueReport
             )
         dimension_scores.append(ds)
 
+    if is_frontend and tools is not None:
+        tsc_msgs, eslint_msgs = tools.for_file(file_path)
+        apply_tools(dimension_scores, tsc_msgs, eslint_msgs, tools.axe_violations)
+
     # Weighted overall score
+    weights = FRONTEND_DIMENSION_WEIGHTS if is_frontend else DIMENSION_WEIGHTS
     overall = sum(
-        DIMENSION_WEIGHTS.get(ds.dimension, 0.0) * ds.score
+        weights.get(ds.dimension, 0.0) * ds.score
         for ds in dimension_scores
     )
 
@@ -190,7 +198,7 @@ def critique_artifact(file_path: str, artifact_type: str = "") -> CritiqueReport
     return report
 
 
-def critique_directory(output_dir: str) -> list[CritiqueReport]:
+def critique_directory(output_dir: str, tools: Optional[FrontendToolReport] = None) -> list[CritiqueReport]:
     """Walk *output_dir*, auto-detect artifact types, critique each .py file.
 
     Returns one CritiqueReport per file. Non-Python files are skipped.
@@ -223,7 +231,7 @@ def critique_directory(output_dir: str) -> list[CritiqueReport]:
 
     for source_file in all_files:
         try:
-            report = critique_artifact(str(source_file))
+            report = critique_artifact(str(source_file), tools=tools)
             reports.append(report)
         except Exception as e:
             logger.warning("[dimension_critic] Failed to critique %s: %s", source_file, e)
