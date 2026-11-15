@@ -29,7 +29,6 @@ The registry is a process-level singleton that loads lazily on first access.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid

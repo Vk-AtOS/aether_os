@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Set, Tuple
 
 
 # ---------------------------------------------------------------------------

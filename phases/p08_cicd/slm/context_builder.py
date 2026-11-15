@@ -6,13 +6,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Any, Union
+from typing import TYPE_CHECKING, Dict, Any, Union
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from aether_os.phases.p08_cicd.dfle.log_parser import ParsedLog, StackFrame
-    from src.dfle.ast_index import FileIndexEntry
     from src.repo.indexer import UniversalIndexer
     from src.knowledge.graph import KnowledgeGraph
 

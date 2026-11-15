@@ -3,7 +3,6 @@ Seed 60 loadtest users + admin into PostgreSQL for load testing.
 Run: python3 tests/load/seed_load_users.py
 """
 import asyncio
-import os
 import sys
 import pathlib
 

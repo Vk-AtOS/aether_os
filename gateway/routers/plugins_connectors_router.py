@@ -169,7 +169,7 @@ async def list_salesforce_objects(
 ) -> List[str]:
     """List all available SObjects in the Salesforce org."""
     await _public_instance(instance_url)
-    from aether_os.core.connectors.salesforce_connector import SalesforceConnector, ConnectorError as SF_ConnectorError
+    from aether_os.core.connectors.salesforce_connector import SalesforceConnector
     connector = SalesforceConnector(
         {"instance_url": instance_url, "access_token": access_token}
     )

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 from aether_os.core.policy.enforce import authorize
 
@@ -112,7 +111,6 @@ class SnapshotAgent(Agent):
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import Snapshot
-            import json
             sf = get_session_factory()
             snap_data = {k: v for k, v in ctx.metadata.items()
                          if isinstance(v, (str, int, float, bool, type(None)))}

@@ -1,6 +1,5 @@
 """P07d E2E Testing — generates and runs Playwright end-to-end tests."""
 from __future__ import annotations
-import asyncio
 import json
 import logging
 import re

@@ -1,8 +1,7 @@
 """
 Seed template for saas domain.
 """
-from sqlalchemy import select, func
-from models import User, Organization, SubscriptionPlan, BillingRecord
+from models import User, Organization, SubscriptionPlan
 
 async def seed_saas(db_session):
     # 1. Plans

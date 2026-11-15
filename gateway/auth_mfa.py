@@ -13,7 +13,7 @@ Flow:
 from __future__ import annotations
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user

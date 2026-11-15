@@ -14,7 +14,6 @@ All UUIDs use a deterministic pattern for reproducibility.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)

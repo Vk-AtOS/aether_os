@@ -16,7 +16,6 @@ Data classes and constants live in dimension_critic_types.py.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
 

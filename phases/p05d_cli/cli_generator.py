@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from aether_os.phases.p05d_cli.cli_templates import (
     gen_auth_commands_py,

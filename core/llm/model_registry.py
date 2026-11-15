@@ -8,7 +8,6 @@ the registry can be imported without pulling in SDK dependencies.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 # ── Task type → tier routing ──────────────────────────────────────────────────
 _HEAVY_TASKS = {"code_generation", "security_scan", "testing", "architecture", "review"}

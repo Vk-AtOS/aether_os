@@ -6,7 +6,6 @@ raw string templates when the compiler is unavailable.
 """
 from __future__ import annotations
 
-import json
 import logging
 
 logger = logging.getLogger(__name__)

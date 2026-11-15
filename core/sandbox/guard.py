@@ -55,7 +55,6 @@ class Sandbox:
         """Run pytest on the given code and tests in a temporary directory."""
         import subprocess
         import tempfile
-        import os
         
         # Validation
         self.execute(code)

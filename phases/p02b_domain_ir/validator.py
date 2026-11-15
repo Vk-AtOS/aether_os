@@ -318,7 +318,6 @@ def apply_validation_to_run(
         fatal_result is None if the pipeline should continue, or a TaskResult
         instance that the caller must return immediately on fatal error.
     """
-    from pathlib import Path as _Path
 
     report = validate_domain_ir(raw_ir_dict)
 

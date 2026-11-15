@@ -1,6 +1,5 @@
 """P15 Gate — validates technical delivery package is complete (docs, runbook, Postman)."""
 from __future__ import annotations
-import json
 from pathlib import Path
 from aether_os.phases.base import GateOutcome, TaskResult
 

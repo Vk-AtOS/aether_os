@@ -8,7 +8,6 @@ Observability, SLA, costs, pricing, and feature-flags live in system_info_router
 from __future__ import annotations
 import logging
 import os
-import asyncio
 from typing import Any, Dict
 from fastapi import APIRouter, Depends
 from aether_os.gateway.dependencies import get_current_user

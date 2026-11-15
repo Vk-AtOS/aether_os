@@ -9,7 +9,6 @@ import json
 from typing import Any, Dict, FrozenSet
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
 
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.velaris_proxy import MAX_JSON, call, identity, read_body, reply

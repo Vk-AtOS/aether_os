@@ -6,7 +6,6 @@ Redis is required in multi-worker production. Set REDIS_URL env var.
 Default: redis://localhost:6379/0
 """
 from __future__ import annotations
-import asyncio
 import ipaddress
 import logging
 import os

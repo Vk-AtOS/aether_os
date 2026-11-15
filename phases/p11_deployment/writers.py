@@ -10,7 +10,6 @@ import re
 import shutil
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

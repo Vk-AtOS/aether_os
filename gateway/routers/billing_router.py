@@ -23,7 +23,6 @@ import hmac as _hmac, hashlib as _hashlib
 import hmac as _hmac_wh, hashlib as _hashlib_wh
 import razorpay
 import stripe as _stripe  # type: ignore[import]
-import uuid as _uuid_rz
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["billing"])
 RAZORPAY_PLANS: Dict[str, Dict] = {

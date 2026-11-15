@@ -19,7 +19,6 @@ Output structure:
       └── crud.py      (deterministic — _fallback_crud_routers, absolute imports guaranteed)
 """
 from __future__ import annotations
-import ast
 import json
 import logging
 import re

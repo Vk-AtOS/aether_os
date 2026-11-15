@@ -24,18 +24,13 @@ if _pkg_root not in _sys.path:
 import logging
 import os
 import pathlib
-import time
-import asyncio
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
+from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 # Pydantic models and middleware classes live in api_helpers.py to keep this
 # file under 600 lines. They are re-imported here for backwards compatibility
 # with any code that imports them from gateway.api directly.
@@ -65,7 +60,7 @@ except Exception as exc:
 logger = logging.getLogger(__name__)
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
-from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe, _seed_golden_examples_if_empty  # noqa: E402
+from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402,F401  (_get_cors_origins re-exported)
 from aether_os.gateway.lifespan import create_lifespan  # noqa: E402
 
 _init_sentry()
@@ -75,7 +70,6 @@ _background_tasks: set = set()
 
 # Auth dependency — defined in gateway/dependencies.py to avoid circular imports.
 # Re-exported here for any code that imports it from api directly.
-from aether_os.gateway.dependencies import security_scheme, get_current_user  # noqa: E402
 
 
 # NOTE: _get_cors_origins, Pydantic models, and middleware classes all live in
@@ -85,7 +79,7 @@ from aether_os.gateway.dependencies import security_scheme, get_current_user  # 
 # ── Generated-app process state — delegated to core.app_state (Redis-backed) ──
 # These module-level names are kept for backwards compatibility with any code that
 # still imports them directly; they delegate to the canonical storage in core.app_state.
-from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports, _CURRENT_RUN_MEMORY as _APP_CURRENT_RUN  # noqa: E402
+from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports  # noqa: E402
 
 _APP_PROCS: Dict[str, Any] = _get_all_procs()   # same dict object as core.app_state._PROCS
 _APP_PORTS: Dict[str, int] = _get_all_ports()   # same dict object as core.app_state._APP_PORTS

@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-import sys
 from pathlib import Path
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable

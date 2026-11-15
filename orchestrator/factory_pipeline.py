@@ -53,9 +53,8 @@ from aether_os.core.project_memory import (
 )
 from aether_os.orchestrator.phase_sequence import (
     CRITICAL_PHASES,
-    INACTIVE_PHASE_DIRS,
     PHASE_SEQUENCE,
-    PHASE_SUPERVISORS,
+    PHASE_SUPERVISORS,  # noqa: F401  re-exported: tests and tooling import it from here
     _load_supervisor,
 )
 from aether_os.orchestrator.run_state import (

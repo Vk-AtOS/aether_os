@@ -5,7 +5,6 @@ import asyncio
 import time
 import uuid
 
-import pytest
 
 from aether_os.orchestrator.factory_pipeline import FactoryPipeline
 from aether_os.orchestrator.stage_gate import record_run_timeout, timeout_reason

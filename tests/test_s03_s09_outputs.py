@@ -1,8 +1,6 @@
 """KAN-109: s03 gate understands Go/TypeScript output; s09 returns a string output_path."""
-import asyncio
 from pathlib import Path
 
-from aether_os.phases.base import TaskResult
 from aether_os.stages.s03_backend.helpers import validate_backend_output
 from aether_os.stages.s09_devops import supervisor as s09
 

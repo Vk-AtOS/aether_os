@@ -5,7 +5,7 @@ used by the frontend code-generation phase agent.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from aether_os.phases.p05_frontend.design_system import get_design_tokens
 

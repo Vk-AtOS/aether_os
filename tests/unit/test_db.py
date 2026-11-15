@@ -6,9 +6,6 @@ a real database connection. The session factory and engine are mocked.
 """
 from __future__ import annotations
 
-import os
-import sys
-import types
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
@@ -19,7 +16,6 @@ import pytest
 
 def _reset_db_module():
     """Reset global state in core.db between tests so each test starts clean."""
-    import importlib
     import aether_os.core.db as db_mod
     db_mod._engine = None
     db_mod._session_factory = None

@@ -142,7 +142,6 @@ async def import_codebase(
     import httpx
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import CodebaseProfile
-    from sqlalchemy import select
 
     repo_url: str = (body.get("repo_url") or "").strip().rstrip("/")
     branch: str = (body.get("branch") or "main").strip()
