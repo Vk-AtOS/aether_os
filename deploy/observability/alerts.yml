@@ -1,0 +1,80 @@
+# Prometheus alert rules (KAN-50). Load with `rule_files:` in prometheus.yml, or import into Managed Prometheus / Grafana.
+# Every metric used here is defined in code: tests/test_alert_rules.py fails if one is not.
+# Instrumentator metrics (http_requests_total, http_request_duration_seconds) come from prometheus-fastapi-instrumentator;
+# `up` comes from the scrape itself. /metrics needs the X-Metrics-Key header (METRICS_API_KEY).
+groups:
+  - name: aetheros-availability
+    rules:
+      - alert: AetherOSApiDown
+        expr: up{job="aetheros-api"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "AetherOS API instance {{ $labels.instance }} is not answering scrapes"
+          runbook: "docs/ops/RUNBOOKS.md#api"
+      - alert: AetherOSNotReady
+        expr: aether_ready == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "An AetherOS instance reports not ready (Postgres down, or Redis down while required)"
+          runbook: "docs/ops/RUNBOOKS.md#postgres"
+      - alert: ComponentDegraded
+        expr: aether_component_degraded == 1
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.component }} has been degraded for 5 minutes"
+          runbook: "docs/ops/RUNBOOKS.md"
+      - alert: CircuitBreakerOpen
+        expr: aether_breaker_open == 1
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Circuit breaker {{ $labels.name }} has been open for 5 minutes"
+          runbook: "docs/ops/RUNBOOKS.md#velaris"
+  - name: aetheros-errors
+    rules:
+      - alert: ErrorRateSpike
+        expr: |
+          sum(rate(http_requests_total{status="5xx"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 5% of API requests are failing with 5xx"
+          runbook: "docs/ops/RUNBOOKS.md#api"
+      - alert: SlowRequests
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 5
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p95 API latency is above 5 seconds"
+          runbook: "docs/ops/RUNBOOKS.md#api"
+  - name: aetheros-work
+    rules:
+      - alert: DeadLetteredJobs
+        expr: aether_queue_dead_letters > 0
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Pipeline jobs are in the dead-letter queue"
+          runbook: "docs/ops/RUNBOOKS.md#queue"
+      - alert: ApprovalOlderThanReminder
+        expr: aether_approval_oldest_pending_seconds > 14400
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "An approval request has waited more than 4 hours (its reminder interval)"
+          runbook: "docs/ops/RUNBOOKS.md#approvals"
+      - alert: OrganisationAtBudget80
+        expr: increase(aether_budget_alert_total[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "An organisation crossed 80% of its monthly model budget"
+          runbook: "docs/ops/RUNBOOKS.md#model-gateway"
+      - alert: BulkheadRejecting
+        expr: increase(aether_bulkhead_rejected_total[5m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "Bulkhead {{ $labels.name }} is refusing calls (saturated)"
+          runbook: "docs/ops/RUNBOOKS.md#velaris"

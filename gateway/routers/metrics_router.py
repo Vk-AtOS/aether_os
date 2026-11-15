@@ -32,6 +32,8 @@ async def metrics_endpoint(request: Request):
         return Response(status_code=401, content="Unauthorized")
     try:
         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        from aether_os.core.telemetry.metrics import refresh
+        await refresh()   # gauges (queue, approvals, breakers) are read at scrape time
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
     except ImportError:
         return Response(status_code=503, content="Prometheus client not installed")

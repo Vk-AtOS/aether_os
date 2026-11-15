@@ -19,6 +19,8 @@ import time
 import uuid
 from typing import Dict, Optional, Tuple
 
+from aether_os.core.telemetry.metrics import BUDGET_ALERTS, observe_cost
+
 logger = logging.getLogger(__name__)
 
 # Monthly token budgets per plan
@@ -140,6 +142,7 @@ class TokenBudgetManager:
             return False, f"Monthly budget exhausted ({usage['total_tokens']:,}/{budget:,} tokens)", "none"
         if fraction >= _ALERT_THRESHOLD and (org_id, month) not in _alerted:
             _alerted.add((org_id, month))
+            BUDGET_ALERTS.inc()
             logger.warning("LLM budget ALERT: org %s used %.0f%% of its %s monthly budget", org_id, fraction * 100, plan)
         if fraction >= _DOWNGRADE_THRESHOLD:
             return True, f"Budget {fraction:.0%} used — downgrading to Haiku", "haiku"
@@ -159,6 +162,7 @@ class TokenBudgetManager:
             input_tokens  * _COST_PER_INPUT_TOKEN.get(model, _COST_PER_INPUT_TOKEN["default"]) +
             output_tokens * _COST_PER_OUTPUT_TOKEN.get(model, _COST_PER_OUTPUT_TOKEN["default"])
         )
+        observe_cost(model, input_tokens, output_tokens, cost)
         try:
             from aether_os.core.db import get_session_factory
             sf = get_session_factory()
