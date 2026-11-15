@@ -8,4 +8,8 @@ export const renderAt = (ui, route = '/') => render(<MemoryRouter initialEntries
 // An axios-like resolved response.
 export const ok = (data) => Promise.resolve({ data });
 // An axios-like rejection with a FastAPI detail.
-export const fail = (status, detail) => Promise.reject({ response: { status, data: { detail } }, message: 'x' });
+export const fail = (status, detail) => {
+  const p = Promise.reject({ response: { status, data: { detail } }, message: 'x' });
+  p.catch(() => {}); // created before the code under test awaits it: not an unhandled rejection
+  return p;
+};
