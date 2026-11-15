@@ -139,7 +139,14 @@ async def decide_decision(
     await enforce("decision.decide", user)
     from aether_os.core.decisions.decision_engine import get_decision_engine
     engine = get_decision_engine()
-    approved = str(req.get("decision", "approve")).lower() == "approve"
+    # Fail closed: a body that says neither way is refused. (It used to default to approve, and the dashboard
+    # sent {approved: false}, which the server did not read, so every Reject approved the gate.)
+    if isinstance(req.get("approved"), bool):
+        approved = req["approved"]
+    elif str(req.get("decision", "")).lower() in ("approve", "deny", "reject"):
+        approved = str(req["decision"]).lower() == "approve"
+    else:
+        raise HTTPException(status_code=422, detail="decision must be 'approve' or 'deny' (or approved: true/false)")
     choice = req.get("choice")
     try:
         decision = await engine.resolve(
