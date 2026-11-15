@@ -76,6 +76,8 @@ def compute_hash(row: PrimeRequest) -> str:
         "amount": row.amount, "currency": row.currency, "params": row.params or {},
         "executor": row.executor, "delegation_id": row.delegation_id, "deputy": row.deputy,
         "expires_at": row.expires_at.isoformat(),
+        # Only once edited, so the hash of a request that was never edited is what it always was.
+        **({"revision": row.revision} if row.revision else {}),
     }).encode("utf-8")).hexdigest()
 
 
@@ -257,6 +259,8 @@ class ApprovalService:
             return 409, "this request has expired; it was not approved"
         if row.requested_by in {uid, *ids}:
             return 403, "you cannot decide a request you made yourself"
+        if set(row.edited_by or ()) & {uid, *ids}:
+            return 403, "you cannot decide a request you edited"
         if not approve:
             return None
         delegation = await self._delegations.get(row.delegation_id)
@@ -302,10 +306,13 @@ class ApprovalService:
     async def _no_second_person(self, row: PrimeRequest) -> bool:
         """Money or an external effect approved only by whoever asked for it. For an
         external effect the approver must also not be Prime or the person acted for."""
+        approver = (row.decided_by or "").lower()
+        if approver in {e.lower() for e in row.edited_by or ()}:
+            return True   # an editor is a contributor: never the sole approver of their own edit
         if not needs_second_person(row.action_type, row.executor):
             return False
         grantor = await self._grantor_ids(row)
-        requester, approver = row.requested_by.lower(), (row.decided_by or "").lower()
+        requester = row.requested_by.lower()
         if row.executor in EXTERNAL_EFFECT and (not approver or approver == PRIME or approver in grantor):
             return True
         return approver == requester or (approver == PRIME and requester in grantor)
@@ -411,6 +418,7 @@ class ApprovalService:
             blocked = await self._why_not(row, uid, list(ids), approve=True)
         return {
             "id": row.id, "state": state, "request_hash": row.request_hash,
+            "revision": row.revision or 0, "edited_by": list(row.edited_by or ()),
             "action": {"type": row.action_type, "on_behalf_of": row.on_behalf_of,
                        "requested_by": row.requested_by, "amount": row.amount,
                        "currency": row.currency, "params": row.params or {}},

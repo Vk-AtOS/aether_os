@@ -16,6 +16,7 @@ from aether_os.prime.authz import (
     ACTION_TYPES, AUTHORITY, CURRENCY, EXECUTOR_AUTHORITY, EXTERNAL_EFFECT, HARD_PAYMENT_CEILING,
     NEVER, OWNER_ADMIN, AutonomyLevel, Delegation, needs_second_person,
 )
+from aether_os.prime.edit_schema import editable_fields
 from aether_os.prime.ledger_view import by_request
 from aether_os.prime.limits import get_limits
 from aether_os.prime.models import PrimeRequest
@@ -122,6 +123,9 @@ def _timeline(entries: List[Dict[str, Any]], can_see: bool) -> List[Dict[str, An
         item = {"seq": e["seq"], "timestamp": e["timestamp"], "actor": e["actor"], "action": e["action"]}
         item.update({k: redact_secrets(p[k], limit=300) for k in _SHOWN_LEDGER_KEYS
                      if k in p and isinstance(p[k], (str, int, float, bool))})
+        if isinstance(p.get("changes"), dict):
+            item["changes"] = p["changes"]
+            item["revision"] = p.get("revision")
         if can_see and p.get("authority"):
             item["authority"] = p["authority"]
         out.append(item)
@@ -137,5 +141,6 @@ async def build(row: PrimeRequest, delegation: Optional[Delegation], viewer_role
         "data_touched": await data_touched(row.org_id, row.params or {}, can_see),
         "eligible_roles": eligible_roles(row.action_type, row.executor),
         "ledger": _timeline(await by_request(row.org_id, row.id), can_see),
-        "revision": getattr(row, "revision", 0) or 0,
+        "revision": row.revision or 0, "edited_by": list(row.edited_by or ()),
+        "editable_fields": editable_fields(row.action_type),
     }

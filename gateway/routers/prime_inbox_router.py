@@ -17,6 +17,7 @@ from aether_os.gateway.routers.prime_router import _delegation_out, _repo, _uid
 from aether_os.prime import Action
 from aether_os.prime.approvals import ApprovalService, RequestError, members
 from aether_os.prime.authz import CURRENCY, Amount, Currency
+from aether_os.prime.edits import edit_request
 from aether_os.prime.executors import DEFAULT_EXECUTOR
 from aether_os.prime.ledger_view import by_delegation
 
@@ -46,6 +47,13 @@ class DecisionIn(BaseModel):
     # The hash of the request as it was shown; the decision covers exactly that.
     request_hash: str = Field(min_length=64, max_length=64)
     reason: str = Field(default="", max_length=1000)
+
+
+class EditIn(BaseModel):
+    request_hash: str = Field(min_length=64, max_length=64)   # the revision the editor was shown
+    reason: str = Field(min_length=1, max_length=1000)
+    amount: Optional[Amount] = None                           # INR only; checked again against the limits
+    params: Dict[str, Any] = Field(default_factory=dict, max_length=20)
 
 
 def _person(user: Dict[str, Any]) -> Tuple[str, List[str], str]:
@@ -139,6 +147,20 @@ async def reject_request(
     request_id: str, body: DecisionIn, user: Dict[str, Any] = Depends(get_current_user)
 ) -> Dict[str, Any]:
     return await _decide(request_id, body, user, approve=False)
+
+
+@router.post("/requests/{request_id}/edit")
+async def edit_pending_request(
+    request_id: str, body: EditIn, user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Change a pending request's amount or editable parameters. Makes a new revision with a new
+    hash, so a decision that quotes the old hash is refused; the editor can never decide it."""
+    uid, ids, org_id = _person(user)
+    try:
+        return await edit_request(_approvals, request_id, uid, ids, org_id, body.request_hash,
+                                  body.reason, amount=body.amount, params=body.params)
+    except RequestError as e:
+        raise _http(e) from e
 
 
 @router.get("/deputies")
