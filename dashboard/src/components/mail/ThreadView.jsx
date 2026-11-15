@@ -108,7 +108,7 @@ const ThreadView = ({ mb, threadId, onReply, onChanged }) => {
               </div>
             </article>
           ))}
-          <Assistant mb={mb} thread={threadId} last={t.messages.at(-1).id} onReply={onReply} />
+          <Assistant mb={mb} thread={threadId} last={t.messages.at(-1)?.id} onReply={onReply} />
         </div>
       )}
     </LoadView>

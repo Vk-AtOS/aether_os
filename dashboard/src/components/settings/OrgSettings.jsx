@@ -1,4 +1,5 @@
 import React from 'react';
+import { confirmAction } from '../confirmAction';
 import { Settings as SettingsIcon, Server, FileText, Download } from 'lucide-react';
 
 // ── Audit Log Export Panel ─────────────────────────────────────────────────────
@@ -92,7 +93,11 @@ export const OrgConfigPanel = ({
         <p className="text-xs text-muted">When enabled, AetherOS runs pipelines without requesting human approval gates.</p>
         <div className="flex items-center gap-3 mt-1">
           <button
-            onClick={() => setOrgConfig(c => ({ ...c, autonomous_mode: !c.autonomous_mode }))}
+            onClick={async () => {
+              // Turning it on skips the spec review gate for every run in the organisation.
+              if (!orgConfig.autonomous_mode && !(await confirmAction('Autonomous mode skips the spec review step for every run in this organisation. Turn it on?', 'Enable autonomous mode'))) return;
+              setOrgConfig(c => ({ ...c, autonomous_mode: !c.autonomous_mode }));
+            }}
             role="switch"
             aria-checked={orgConfig.autonomous_mode}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${orgConfig.autonomous_mode ? 'bg-accent' : 'bg-border'}`}
@@ -136,7 +141,7 @@ export const OrgConfigPanel = ({
             />
             <div className="flex gap-3">
               <button
-                disabled={deleteOrgInput !== orgName || deleteOrgStatus === 'deleting'}
+                disabled={!orgName || deleteOrgInput !== orgName || deleteOrgStatus === 'deleting'}
                 onClick={onDeleteOrg}
                 className="text-[10px] font-bold bg-danger text-white px-4 py-1.5 rounded uppercase tracking-wider hover:bg-danger/90 transition-colors disabled:opacity-40"
               >
