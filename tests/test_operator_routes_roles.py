@@ -26,3 +26,10 @@ def test_cleanup_council_review_only_touches_the_callers_org(gw):
     assert gw.client.post("/admin/runs/cleanup-council-review", headers=a.auth).json()["promoted"] == 1
     assert gw.sql("SELECT status FROM runs WHERE id='stuck-a'")[0][0] == "completed"
     assert gw.sql("SELECT status FROM runs WHERE id='stuck-b'")[0][0] == "council_review"
+
+
+def test_org_quality_metrics_do_not_carry_the_platform_error_registry(gw):
+    org = gw.register("qmetrics")
+    root = gw.user_with_role("superadmin", org.org_id)
+    assert gw.client.get("/admin/platform/quality-metrics", headers=org.auth).json()["top_error_categories"] == []
+    assert gw.client.get("/admin/platform/quality-metrics", headers=root.auth).status_code == 200
