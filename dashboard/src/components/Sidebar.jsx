@@ -9,6 +9,7 @@ import {
   Mail, UserSquare,
 } from 'lucide-react';
 import { HR_TABS } from './hr/tabs';
+import { SCREENS } from './velaris/screens';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
 import { useRuns } from '../contexts/useRuns';
@@ -78,7 +79,9 @@ const Sidebar = () => {
     { name: 'Chat', path: '/chat', icon: MessageSquare },
     { name: 'Mail', path: '/mail', icon: Mail },
   ];
-  const opsItems = isViewer ? [] : [{ name: 'Control', path: '/control', icon: Cpu }];
+  const opsItems = isViewer ? [] : [{ name: 'Control', path: '/control', icon: Cpu }, { name: 'Flows', path: '/flows', icon: Cpu }];
+  // KAN-129..151 screens (screens.js): self-service ones for every acting role, the rest for owners and admins.
+  const workItems = isViewer ? [] : SCREENS.filter((s) => s.role === 'member' || isAdmin).map((s) => ({ name: s.title, path: `/work/${s.id}`, icon: UserSquare }));
   const hrItems = isAdmin ? HR_TABS.map(([slug, name]) => ({ name, path: `/hr/${slug}`, icon: UserSquare })) : [];
 
   const platformItems = [
@@ -175,7 +178,7 @@ const Sidebar = () => {
           })}
         </div>
 
-        {[['Workplace', workplaceItems], ['Operations', opsItems], ['HR', hrItems]].filter(([, items]) => items.length > 0).map(([title, items]) => (
+        {[['Workplace', workplaceItems], ['Operations', opsItems], ['HR', hrItems], ['Velaris work', workItems]].filter(([, items]) => items.length > 0).map(([title, items]) => (
           <div key={title} className="pt-2" role="group" aria-label={title}>
             <p className="px-3 pb-1 text-[10px] font-bold text-slate-600 uppercase tracking-widest">{title}</p>
             {items.map((item) => {
