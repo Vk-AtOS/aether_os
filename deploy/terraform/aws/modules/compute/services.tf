@@ -1,10 +1,6 @@
 # ECS services. Images are pinned by digest by the caller; no secret value appears here, only Secrets Manager references.
 
 locals {
-  # Files the apps read by path are written from secrets at start into a task-local volume (the root file system is read-only).
-  key_prelude     = "umask 077; mkdir -p /keys; printf '%s' \"$VELARIS_IDENTITY_PRIVATE_KEY_PEM\" > /keys/velaris_identity.pem; "
-  velaris_prelude = "umask 077; mkdir -p /keys; printf '%s' \"$VELARIS_IDENTITY_PUBLIC_KEY_PEM\" > /keys/velaris_identity.pub.pem; "
-
   sec = { for k, arn in var.secret_arns : k => { name = k, valueFrom = arn } }
 
   services = {
@@ -18,24 +14,23 @@ locals {
       role    = aws_iam_role.api.arn
       efs_ap  = aws_efs_access_point.aether.id
       efs_dir = "/home/aether/.aether_os"
-      command = ["sh", "-c", "${local.key_prelude}exec uvicorn aether_os.gateway.api:create_app --factory --host 0.0.0.0 --port 8000 --workers 2"]
+      command = ["uvicorn", "aether_os.gateway.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
       env = {
-        ENVIRONMENT                  = "production"
-        REQUIRE_REDIS                = "true"
-        CORS_ORIGINS                 = "https://${var.app_domain}"
-        FRONTEND_URL                 = "https://${var.app_domain}/dashboard"
-        AETHER_DASHBOARD_ORIGIN      = "https://${var.app_domain}"
-        AETHER_PREVIEW_ORIGIN        = "https://${var.preview_domain}"
-        AETHER_SANDBOX               = "docker"
-        AETHER_SANDBOX_IMAGE         = var.sandbox_image
-        SQS_QUEUE_URL                = var.queue_url
-        SQS_DLQ_URL                  = var.dlq_url
-        AWS_REGION                   = var.region
-        AWS_DEFAULT_REGION           = var.region
-        S3_BUCKET                    = var.artifacts_bucket
-        PIPELINE_MAX_CONCURRENT      = "2"
-        VELARIS_API_URL              = "http://velaris-api.${var.name}.internal:8730"
-        VELARIS_IDENTITY_PRIVATE_KEY = "/keys/velaris_identity.pem"
+        ENVIRONMENT             = "production"
+        REQUIRE_REDIS           = "true"
+        CORS_ORIGINS            = "https://${var.app_domain}"
+        FRONTEND_URL            = "https://${var.app_domain}/dashboard"
+        AETHER_DASHBOARD_ORIGIN = "https://${var.app_domain}"
+        AETHER_PREVIEW_ORIGIN   = "https://${var.preview_domain}"
+        AETHER_SANDBOX          = "docker"
+        AETHER_SANDBOX_IMAGE    = var.sandbox_image
+        SQS_QUEUE_URL           = var.queue_url
+        SQS_DLQ_URL             = var.dlq_url
+        AWS_REGION              = var.region
+        AWS_DEFAULT_REGION      = var.region
+        S3_BUCKET               = var.artifacts_bucket
+        PIPELINE_MAX_CONCURRENT = "2"
+        VELARIS_API_URL         = "http://velaris-api.${var.name}.internal:8730"
       }
       secrets  = [for k in ["DATABASE_URL", "REDIS_URL", "AETHER_SECRET_KEY", "AETHER_FIELD_KEY", "AETHER_ONE_ZT_SECRET", "AETHER_PREVIEW_SECRET", "AETHER_ADMIN_PASS", "ANTHROPIC_API_KEY", "VELARIS_API_SECRET", "VELARIS_IDENTITY_PRIVATE_KEY_PEM"] : local.sec[k]]
       lb_tg    = "api"
@@ -74,16 +69,15 @@ locals {
       role    = aws_iam_role.bare.arn
       efs_ap  = aws_efs_access_point.velaris.id
       efs_dir = "/data"
-      command = ["sh", "-c", "${local.velaris_prelude}exec python -m velaris.api"]
+      command = ["python", "-m", "velaris.api"]
       env = {
-        VELARIS_DATA                = "/data"
-        VELARIS_ORG                 = var.velaris_org
-        VELARIS_API_HOST            = "0.0.0.0"
-        VELARIS_IDENTITY_PUBLIC_KEY = "/keys/velaris_identity.pub.pem"
+        VELARIS_DATA     = "/data"
+        VELARIS_ORG      = var.velaris_org
+        VELARIS_API_HOST = "0.0.0.0"
       }
       secrets  = [for k in ["VELARIS_API_SECRET", "VELARIS_IDENTITY_PUBLIC_KEY_PEM", "VELARIS_DATA_KEY", "VELARIS_PRIME_API_KEY"] : local.sec[k]]
       lb_tg    = ""
-      health   = "python /app/deploy/healthcheck.py || exit 1"
+      health   = "python /app/healthcheck.py 8730 /health || exit 1"
       discover = true
     }
     velaris-public = {
@@ -105,7 +99,7 @@ locals {
       }
       secrets  = [local.sec["VELARIS_DATA_KEY"]]
       lb_tg    = "velaris-public"
-      health   = "python /app/deploy/healthcheck.py || exit 1"
+      health   = "python /app/healthcheck.py 8731 || exit 1"
       discover = false
     }
   }
@@ -133,7 +127,6 @@ resource "aws_ecs_task_definition" "svc" {
     }
   }
   volume { name = "tmp" }
-  volume { name = "keys" }
 
   container_definitions = jsonencode([{
     name                   = each.key
@@ -148,7 +141,6 @@ resource "aws_ecs_task_definition" "svc" {
     mountPoints = [
       { sourceVolume = "state", containerPath = each.value.efs_dir, readOnly = each.key == "preview" },
       { sourceVolume = "tmp", containerPath = "/tmp", readOnly = false },
-      { sourceVolume = "keys", containerPath = "/keys", readOnly = false },
     ]
     healthCheck = {
       command     = ["CMD-SHELL", each.value.health]
