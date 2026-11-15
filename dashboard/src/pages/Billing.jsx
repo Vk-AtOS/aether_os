@@ -6,8 +6,8 @@ import {
   Zap, Star, Building2, Loader2, ExternalLink, Download,
 } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
-import { confirmAction } from '../components/confirmAction';
 import { apiError } from '../apiError';
+import PlanReduction from '../components/billing/PlanReduction';
 
 const PLAN_ICONS  = { trial: Zap, pro: Star, enterprise: Building2 };
 const PLAN_COLORS = { trial: 'text-yellow-400', pro: 'text-accent', enterprise: 'text-purple-400' };
@@ -72,7 +72,6 @@ const Billing = () => {
       ? 'Payment successful! Your plan has been upgraded.' : null));
   const [portalLoading, setPortalLoading] = useState(false);
   const [invoices, setInvoices] = useState([]);
-  const [cancellingSubscription, setCancellingSubscription] = useState(false);
 
   // Promise chain with no state set before the requests: this runs from an effect.
   const fetchAll = useCallback(() => Promise.all([
@@ -182,21 +181,6 @@ const Billing = () => {
     }
   };
 
-  // ── India cancel subscription ─────────────────────────────────────────────
-  const handleCancelIndia = async () => {
-    if (!(await confirmAction('Cancel your subscription? Your organisation moves to the Free plan straight away.'))) return;
-    setCancellingSubscription(true);
-    try {
-      await api.client.post('/billing/cancel');
-      setSuccess('Subscription cancelled. Your organisation is now on the Free plan.');
-      await fetchAll();
-    } catch (e) {
-      setError(apiError(e) || 'Could not cancel subscription.');
-    } finally {
-      setCancellingSubscription(false);
-    }
-  };
-
   // ── Detect success/cancel from URL params after Stripe redirect ──────────
   // (the success message is read into initial state; fetchAll on mount already reloads the plan)
   useEffect(() => {
@@ -232,16 +216,8 @@ const Billing = () => {
               Manage Subscription
             </button>
           )}
-          {india && currentPlan !== 'trial' && (
-            <button
-              onClick={handleCancelIndia}
-              disabled={cancellingSubscription}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-danger border border-danger/30 rounded-lg hover:bg-danger/10 transition-colors disabled:opacity-50"
-            >
-              {cancellingSubscription ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-              Cancel Subscription
-            </button>
-          )}
+          <PlanReduction currentPlan={currentPlan} periodEnd={billingStatus?.period_end}
+            onDone={(m) => { setSuccess(m); setError(null); fetchAll(); }} onError={setError} />
           <button
             onClick={fetchAll}
             className="p-2 text-muted hover:text-bright border border-border rounded-lg transition-colors"

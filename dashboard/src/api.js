@@ -276,6 +276,7 @@ export const api = {
   getBillingStatus: () => client.get('/billing/status'),
   getInvoices: () => client.get('/billing/invoices'),
   cancelSubscription: () => client.post('/billing/cancel'),
+  downgradePlan: (targetPlan) => client.post('/billing/downgrade', { target_plan: targetPlan }),
 
   // Workspaces
   getWorkspaces: () => client.get('/workspaces'),
