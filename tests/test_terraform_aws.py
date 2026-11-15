@@ -27,6 +27,8 @@ def test_redis_never_evicts_and_data_tier_is_private():
     data = (TF / "modules/data/main.tf").read_text()
     assert '"noeviction"' in data and "publicly_accessible          = false" in data
     assert "storage_encrypted            = true" in data
+    assert '"rds.force_ssl"' in data and "parameter_group_name         = aws_db_parameter_group.this.name" in data   # TLS in transit
+    assert "transit_encryption_enabled = true" in data
 
 
 @pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform is not installed")
