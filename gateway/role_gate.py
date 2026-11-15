@@ -11,6 +11,7 @@ Handlers may still demand more (owner, superadmin, a policy action).
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Dict
 
 from fastapi import HTTPException, Request, status
@@ -61,3 +62,25 @@ def check_role(request: Request, user: Dict[str, Any]) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
     if role == "viewer" and not _matches(template, VIEWER_MAY + POLICY_GATED):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Viewers have read-only access")
+
+
+# An admin who must enrol in MFA may still do exactly this (enrol, sign out, read the policy).
+MFA_ENROLMENT_OK = ("/auth/mfa/", "/auth/logout", "/auth/my-orgs", "/account/settings")
+
+
+def check_admin_mfa(request: Request, user: Dict[str, Any], mfa_enabled: bool, org: Any, now: float = 0.0) -> None:
+    """403 {"error": "mfa_required"} for an owner/admin without MFA once the org requires it and the
+    grace period is over. Enforced here, on every authenticated request, because hiding admin UI
+    is not security (D7) and an admin session is the most valuable thing to steal."""
+    if mfa_enabled or not getattr(org, "require_admin_mfa", False):
+        return
+    if ROLE_RANK.get(user.get("role") or "", 0) < ROLE_RANK["admin"]:
+        return
+    if (getattr(org, "admin_mfa_grace_until", None) or 0) > (now or time.time()):
+        return
+    template = getattr(request.scope.get("route"), "path", None) or request.url.path
+    if _matches(template, MFA_ENROLMENT_OK):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, {
+        "error": "mfa_required", "message": "Your organisation requires administrators to enable MFA. "
+                                            "Set it up at /auth/mfa/setup, then sign in again."})
