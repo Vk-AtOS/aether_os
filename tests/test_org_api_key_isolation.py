@@ -185,6 +185,9 @@ async def test_context_org_is_used_when_the_caller_passes_no_org_id(keys):
 async def test_openrouter_key_is_per_org_too(keys, monkeypatch):
     monkeypatch.setenv("PRIMARY_LLM", "openrouter")
     monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "test/model:free")
+    # a :free model is a community pool: it only runs when the operator opts in (this test used to pass only because
+    # an org's stored key re-injected the pool after the data policy had removed it)
+    monkeypatch.setenv("ALLOW_COMMUNITY_LLM", "1")
     await api_key_store.save_api_key("openrouter", ORG_A, "or-org-a-key")
 
     assert (await _call(ORG_A))[1] == "openrouter"
