@@ -34,6 +34,18 @@ class WebhookOutbox(Base):
     updated_at: Mapped[float] = mapped_column(Float, nullable=False, default=time.time)
 
 
+class LlmDailyUsage(Base):
+    """Estimated model spend of one organisation for one UTC day. The monthly record (token_budget_records) cannot say
+    HOW FAST money is spent; this is what stops a looping agent from burning a whole month in a day."""
+    __tablename__ = "llm_daily_usage"
+    __table_args__ = (UniqueConstraint("org_id", "day", name="uq_llm_daily_usage"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    day: Mapped[str] = mapped_column(String(10), nullable=False)      # YYYY-MM-DD (UTC)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
 class NotificationQuietHours(Base):
     """A person's quiet hours: e-mail is held back between start and end (local time of `tz`). user_id '' is the
     organisation default. Start == end means no quiet hours."""

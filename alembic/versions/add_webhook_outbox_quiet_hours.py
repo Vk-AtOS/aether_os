@@ -1,4 +1,4 @@
-"""webhook_outbox (durable webhook retry, KAN-102) and notification_quiet_hours (KAN-159).
+"""webhook_outbox (durable webhook retry, KAN-102), notification_quiet_hours (KAN-159), llm_daily_usage (KAN-116).
 
 Revision ID: add_webhook_outbox_quiet_hours
 Revises: merge_r3_heads
@@ -33,6 +33,14 @@ def upgrade() -> None:
     )
     op.create_index('ix_webhook_outbox_due', 'webhook_outbox', ['status', 'next_attempt_at'])
     op.create_table(
+        'llm_daily_usage',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('org_id', sa.String(50), nullable=False, index=True),
+        sa.Column('day', sa.String(10), nullable=False),
+        sa.Column('cost_usd', sa.Float, nullable=False, server_default='0'),
+        sa.UniqueConstraint('org_id', 'day', name='uq_llm_daily_usage'),
+    )
+    op.create_table(
         'notification_quiet_hours',
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('org_id', sa.String(50), nullable=False, index=True),
@@ -45,6 +53,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table('llm_daily_usage')
     op.drop_table('notification_quiet_hours')
     op.drop_index('ix_webhook_outbox_due', table_name='webhook_outbox')
     op.drop_table('webhook_outbox')

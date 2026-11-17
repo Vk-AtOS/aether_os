@@ -20,6 +20,7 @@ CARD = "4111 1111 1111 1111"  # Luhn-valid test number
 async def env(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/c.db")
     monkeypatch.delenv("LLM_KILL_SWITCH", raising=False)
+    monkeypatch.setenv("LLM_DAILY_SHARE", "1")   # these tests spend whole months in one day; the daily cap has its own tests
     monkeypatch.setattr(db, "_engine", None)
     monkeypatch.setattr(db, "_session_factory", None)
     monkeypatch.setattr(controls, "_orgs", {})
