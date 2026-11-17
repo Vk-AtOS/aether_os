@@ -1,5 +1,6 @@
 """KAN-110: OAuth/SAML/SCIM users are verified; MFA is not skipped by federated sign-in."""
 import asyncio
+import uuid
 import urllib.parse
 
 from aether_os.gateway import auth_oauth
@@ -128,6 +129,8 @@ def test_saml_callback_redirects_with_a_one_time_code_not_tokens(gw, monkeypatch
         def get_errors(self): return []
         def get_attributes(self): return {"email": [owner.email]}
         def get_nameid(self): return owner.email
+        def get_last_assertion_id(self): return "a-" + uuid.uuid4().hex
+        def get_last_assertion_not_on_or_after(self): return None
 
     mod = types.ModuleType("onelogin.saml2.auth")
     mod.OneLogin_Saml2_Auth = FakeAuth
@@ -138,3 +141,34 @@ def test_saml_callback_redirects_with_a_one_time_code_not_tokens(gw, monkeypatch
     loc = resp.headers["location"]
     assert resp.status_code == 302 and "code=" in loc, loc
     assert "token=" not in loc and "eyJ" not in loc
+
+
+def test_saml_assertion_cannot_be_replayed(gw, monkeypatch):
+    """KAN-69 F16: a captured SAML response signed in again every time it was posted."""
+    import sys
+    import types
+    owner = gw.register("samlreplay")
+    for k, v in (("SAML_SP_ENTITY_ID", "sp"), ("SAML_SP_ACS_URL", "https://app.test/auth/saml/callback"),
+                 ("SAML_IDP_ENTITY_ID", "e"), ("SAML_IDP_SSO_URL", "https://idp.test/sso"), ("SAML_IDP_CERT", "x")):
+        monkeypatch.setenv(k, v)
+    assertion = {"id": "same-" + uuid.uuid4().hex}
+
+    class FakeAuth:
+        def __init__(self, *a, **k): pass
+        def process_response(self): pass
+        def is_authenticated(self): return True
+        def get_errors(self): return []
+        def get_attributes(self): return {"email": [owner.email]}
+        def get_nameid(self): return owner.email
+        def get_last_assertion_id(self): return assertion["id"]
+        def get_last_assertion_not_on_or_after(self): return None
+
+    mod = types.ModuleType("onelogin.saml2.auth")
+    mod.OneLogin_Saml2_Auth = FakeAuth
+    for name in ("onelogin", "onelogin.saml2"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "onelogin.saml2.auth", mod)
+    first = gw.client.post("/auth/saml/callback", data={"RelayState": ""}, follow_redirects=False)
+    again = gw.client.post("/auth/saml/callback", data={"RelayState": ""}, follow_redirects=False)
+    assert "code=" in first.headers["location"]
+    assert "code=" not in again.headers["location"] and "error=" in again.headers["location"]
