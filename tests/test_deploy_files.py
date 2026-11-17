@@ -142,3 +142,20 @@ def test_velaris_services_get_the_vault_key_file_outside_the_data_volume():
         svc = compose["services"][name]
         assert svc["environment"]["VELARIS_VAULT_KEY_FILE"] == "/run/vault/vault.key", name
         assert any(v.endswith("/run/vault/vault.key:ro") and not v.startswith("velaris_data") for v in svc["volumes"]), name
+
+
+def test_csp_connect_src_is_configurable_and_every_placeholder_is_substituted():
+    import re
+    import subprocess
+    conf = (DEPLOY / "nginx.conf").read_text()
+    placeholders = set(re.findall(r"\b[A-Z_]+_PLACEHOLDER\b", conf))
+    for script in ("setup_vps.sh", "deploy.sh"):
+        text = (DEPLOY / script).read_text()
+        assert all(p in text for p in placeholders), (script, placeholders)
+    assert "connect-src CSP_CONNECT_SRC_PLACEHOLDER;" in conf and "https: wss:" not in conf.split("connect-src", 1)[1][:60]
+    line = next(ln for ln in (DEPLOY / "setup_vps.sh").read_text().splitlines() if ln.startswith("CSP_CONNECT_SRC_CLEAN="))
+    run = lambda value: subprocess.run(["bash", "-c", line + '\nprintf "%s" "$CSP_CONNECT_SRC_CLEAN"'], capture_output=True,  # noqa: E731
+                                       text=True, env={"CSP_CONNECT_SRC": value} if value is not None else {}).stdout
+    assert run(None) == "'self' https: wss: blob:"                       # default unchanged: nothing breaks on upgrade
+    assert run("'self' wss://a.example.com") == "'self' wss://a.example.com"
+    assert ";" not in run("'self'; script-src *") and "\n" not in run("'self'\nadd_header X y;") and "|" not in run("a|b")
