@@ -4,7 +4,7 @@ import sys
 import types
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aether_os.phases.patterns.file_upload import FILE_UPLOAD_CODE
