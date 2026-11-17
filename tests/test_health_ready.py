@@ -1,6 +1,6 @@
 """KAN-47/49: liveness vs readiness, the degraded-component view and the dead-letter window."""
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -78,7 +78,8 @@ def test_dead_letters_of_other_organisations_are_not_shown():
             return Res()
 
     with patch.object(ops, "peek_dlq", return_value=items), patch.object(ops, "dlq_depth", return_value=57), \
-            patch.object(ops, "get_session_factory", return_value=lambda: Sess()):
+            patch.object(ops, "get_session_factory", return_value=lambda: Sess()), \
+            patch.object(ops.outbox, "dead_letters", new=AsyncMock(return_value=[])):
         mine = asyncio.run(ops.dead_letters({"role": "admin", "org_id": "o1"}))
         allq = asyncio.run(ops.dead_letters({"role": "superadmin", "org_id": "o0"}))
     assert [i["run_id"] for i in mine["items"]] == ["mine"] and mine["depth"] == 1

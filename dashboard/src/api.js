@@ -136,6 +136,8 @@ export const api = {
   getNotificationPrefs: () => client.get('/notifications/preferences'),
   setNotificationPref: (body) => client.put('/notifications/preferences', body),
   setOrgNotificationPref: (body) => client.put('/notifications/preferences/org', body),
+  getQuietHours: () => client.get('/notifications/quiet-hours'),
+  setQuietHours: (body) => client.put('/notifications/quiet-hours', body),
 
   // Platform operator (superadmin) read-only views
   operator: {

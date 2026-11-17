@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react';
 import { api } from '../../api';
 import { apiError } from '../../apiError';
 import { useRole } from '../../hooks/useRole';
+import QuietHours from './QuietHours';
 
 // Per-event, per-channel notification settings. Your own choice wins over the organisation default
 // (which owners/admins set here too). The server filters the bell and the email by the same rows.
@@ -56,6 +57,7 @@ const NotificationPrefs = () => {
       <div className="p-6 space-y-5">
         {error && <div role="alert" className="text-xs text-danger">{error}</div>}
         {mine && table(mine, 'me')}
+        <QuietHours />
         {isAdmin && (
           <div className="space-y-2">
             <h4 className="text-[10px] font-bold text-muted uppercase tracking-widest">Organisation default</h4>

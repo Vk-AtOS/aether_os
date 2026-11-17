@@ -15,6 +15,7 @@ from sqlalchemy import select
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
 from aether_os.core.queue.sqs_client import dlq_depth, peek_dlq
+from aether_os.core.webhooks import outbox
 from aether_os.core.resilience.health import snapshot
 from aether_os.gateway.dependencies import get_current_user
 
@@ -46,4 +47,7 @@ async def dead_letters(user: Dict[str, Any] = Depends(_admin)) -> Dict[str, Any]
                 select(Run.id).where(Run.org_id == user["org_id"], Run.id.in_(ids)))).scalars()) if ids else set()
         items = [i for i in items if i["run_id"] in own]
         depth = len(items)   # the platform-wide count is not an organisation's to see
-    return {"depth": depth, "items": items, "note": "a window of at most 10 messages, oldest-visible first"}
+    # Webhook deliveries that failed every retry (KAN-102): an organisation sees its own, the platform operator all.
+    webhooks = await outbox.dead_letters(None if user.get("role") == "superadmin" else user["org_id"])
+    return {"depth": depth, "items": items, "webhooks": webhooks,
+            "note": "queue: a window of at most 10 messages, oldest-visible first; webhooks: the newest 20 dead deliveries"}

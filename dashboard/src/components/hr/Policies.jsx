@@ -9,6 +9,21 @@ const Report = ({ policyKey }) => {
   return <LoadView q={q} isEmpty={(d) => !d.report || (Array.isArray(d.report) ? d.report.length === 0 : Object.keys(d.report).length === 0)} emptyText="No acknowledgement data yet.">{(d) => <Detail data={d.report} />}</LoadView>;
 };
 
+// Who has not acknowledged yet and is due soon (POLICY_ACKS.reminders_due, owner/admin).
+const OverdueList = () => {
+  const q = useHr('POLICY_ACKS', 'reminders_due');
+  return <LoadView q={q} isEmpty={(d) => Object.values(d).every((v) => Array.isArray(v) && v.length === 0)} emptyText="Nothing is overdue.">{(d) => <Detail data={d} />}</LoadView>;
+};
+const Overdue = () => {
+  const [on, setOn] = useState(false);
+  return (
+    <div className="space-y-2">
+      <button className={btn('ghost')} onClick={() => setOn(!on)}>{on ? 'Hide overdue acknowledgements' : 'Show overdue acknowledgements'}</button>
+      {on && <OverdueList />}
+    </div>
+  );
+};
+
 const Policies = () => {
   const q = useHr('POLICY_ACKS', 'list_policies');
   const [key, setKey] = useState('');
@@ -26,6 +41,7 @@ const Policies = () => {
             ['', (p) => <button className={btn('danger')} disabled={act.busy} onClick={(e) => { e.stopPropagation(); retire(p); }}>Retire</button>]]} />}
         </LoadView>
       </Card>
+      <Card title="Overdue"><Overdue /></Card>
       <Card title={key ? `Acknowledgements: ${key}` : 'Acknowledgements'}><Report key={key} policyKey={key} /></Card>
       <Card title="Publish a policy">
         <SpecForm submitLabel="Publish" busy={act.busy} onSubmit={publish} fields={[

@@ -87,6 +87,7 @@ export const SCREENS = [
     form('Interview reminders', H('INTERVIEW_SCHEDULER', 'reminders'), [num('within_hours', 'Within hours (blank = 24)')], 'Show'),
     form('Mark reminder sent', H('INTERVIEW_SCHEDULER', 'mark_reminder_sent'), [text('booking_id', 'Booking id', { required: true }), text('kind', 'Reminder (24h or 1h)', { required: true })], 'Mark sent'),
     form('Mark no-show (drafts a follow-up)', H('INTERVIEW_SCHEDULER', 'mark_no_show'), [text('booking_id', 'Booking id', { required: true }), { name: 'party', label: 'Who did not attend', type: 'select', options: ['candidate', 'interviewer'], required: true }, text('note', 'Note')], 'Mark no-show'),
+    load('Follow-up drafts (no-show and invitations)', H('INTERVIEW_SCHEDULER', 'list_drafts'), { args: { status: 'draft' }, rows: 'drafts', empty: 'No drafts waiting.' }),
     form('Hand an approved invitation to mail', H('INTERVIEW_SCHEDULER', 'hand_off_to_mail'), [text('draft_id', 'Invitation draft id', { required: true })], 'Create mail draft', { note: 'Nothing is sent: a person reads and sends it from the mailbox.' }),
     form('Posting tracking code', H('JOB_POSTINGS', 'resolve_tracking'), [text('code', 'Tracking code', { required: true })], 'Resolve'),
     form('Send indexing notification', H('JOB_POSTINGS', 'send_indexing_notification'), [text('posting_id', 'Posting id', { required: true }), { name: 'kind', label: 'Kind', type: 'select', options: ['URL_UPDATED', 'URL_DELETED'] }], 'Send'),
@@ -115,7 +116,7 @@ export const SCREENS = [
     load('Work samples', H('INTERVIEW_KIT', 'list_work_samples')),
     form('Review a work sample', H('INTERVIEW_KIT', 'review_work_sample'), [text('application_id', 'Application id', { required: true }), text('work_sample_id', 'Work sample id', { required: true }), json('checks', 'Checks (met or not, with the evidence seen)', { required: true }), { name: 'notes', label: 'Notes', type: 'textarea' }], 'Submit review'),
     form('Reviews of an application', H('INTERVIEW_KIT', 'work_sample_reviews'), [text('application_id', 'Application id', { required: true })], 'Show'),
-    load('Calibration report', H('INTERVIEW_KIT', 'calibration_report')),
+    load('Calibration report', H('INTERVIEW_KIT', 'calibration_report'), { rows: 'competencies', chart: { label: 'competency', value: 'krippendorff_alpha_ordinal', min: 0, max: 1 }, note: 'Agreement between interviewers per competency (Krippendorff alpha, 1 = full agreement). A short bar means the rubric needs rewriting.' }),
   ] },
   { id: 'interview-records', role: 'admin', title: 'Interview records', sub: 'Sessions, participant link, consent, audio and evidence. Consent is checked before recording; evidence never shows automatic scores. The candidate\'s own consent and audio upload go through their link, not here.', sections: [
     form('Sessions', H('INTERVIEW_RECORD', 'list_sessions'), [text('application_id', 'Application id (blank = all)')], 'List'),
@@ -159,13 +160,15 @@ export const SCREENS = [
     { kind: 'form', title: 'Remove an account (deletes its stored settings)', call: { method: 'delete', path: '/mail/mailboxes/{mb}/accounts/{aid}' }, fields: [text('mb', 'Mailbox id', { required: true }), text('aid', 'Account id', { required: true })], submit: 'Remove', danger: true, path_params: ['mb', 'aid'], raw: true },
     { kind: 'form', title: 'Sync now', call: { method: 'post', path: '/mail/mailboxes/{mb}/sync' }, fields: [text('mb', 'Mailbox id', { required: true })], submit: 'Sync', path_params: ['mb'], note: 'Shows counts, or a plain error such as authentication failed or host unreachable.', raw: true },
   ] },
-  { id: 'atlassian', role: 'member', title: 'Jira and Confluence', sub: 'Searching and reading need the Atlassian reader role in Velaris and no approval. Creating or moving an issue waits for approval. Page text is shown as plain text.', sections: [
+  { id: 'jira', role: 'member', title: 'Jira', sub: 'Searching and reading need the Atlassian reader role in Velaris and no approval. Creating or moving an issue waits for approval.', sections: [
     form('Search issues', A('JIRA', 'search_issues'), [text('jql', 'JQL query', { required: true }), num('max_results', 'Most results')], 'Search'),
-    form('Open an issue', A('JIRA', 'get_issue'), [text('key', 'Issue key', { required: true })], 'Open'),
+    form('Open an issue', A('JIRA', 'get_issue'), [text('key', 'Issue key', { required: true })], 'Open', { view: 'issue' }),
     form('Available transitions', A('JIRA', 'get_transitions'), [text('key', 'Issue key', { required: true })], 'Show'),
     form('Move an issue', A('JIRA', 'transition_issue'), [text('key', 'Issue key', { required: true }), text('transition_id', 'Transition id (from Available transitions)', { required: true })], 'Request move'),
     form('Create an issue', A('JIRA', 'create_issue'), [text('project_key', 'Project key', { required: true }), text('summary', 'Summary', { required: true }), text('issue_type', 'Type (blank = Task)'), { name: 'description', label: 'Description', type: 'textarea' }], 'Request create'),
     load('Projects', A('JIRA', 'list_projects')),
+  ] },
+  { id: 'confluence', role: 'member', title: 'Confluence', sub: 'Page text is shown as plain text. Ingesting a space waits for approval.', sections: [
     form('Search Confluence', A('CONFLUENCE', 'search'), [text('cql', 'CQL query', { required: true }), num('limit', 'Most results')], 'Search'),
     form('Read a page', A('CONFLUENCE', 'get_page_markdown'), [text('page_id', 'Page id', { required: true })], 'Open'),
     load('Spaces', A('CONFLUENCE', 'list_spaces')),
@@ -184,13 +187,19 @@ export const SCREENS = [
     form('Cost breakdown', A('FISCALIS', 'cost_breakdown'), [json('costs', 'Costs by category', { required: true, placeholder: '{"rent":50000,"salaries":400000}' })], 'Total'),
     form('Expense forecast', A('FISCALIS', 'forecast_expenses'), [nums('monthly_costs', 'Monthly costs, oldest first', { required: true }), num('growth_rate', 'Growth rate (0.05 = 5%)')], 'Forecast'),
   ] },
-  { id: 'knowledge', role: 'member', title: 'Library, research and memory', sub: 'Answers show their sources. Research and web search can be slow and use quota. Remembering waits for approval.', sections: [
+  { id: 'library', role: 'member', title: 'Document library', sub: 'Answers show their sources as links.', sections: [
     form('Ask the library', A('DOCUMENT_LIBRARY', 'ask'), [text('question', 'Question', { required: true })], 'Ask', { fixed: { scope: '@org' } }),
     form('Search the library', A('DOCUMENT_LIBRARY', 'search'), [text('query', 'Search', { required: true }), num('k', 'Most results')], 'Search', { fixed: { scope: '@org' } }),
+  ] },
+  { id: 'research', role: 'member', title: 'Research and web search', sub: 'Research and web search can be slow and use quota. Sources are links.', sections: [
     form('Research a topic (slow)', A('AUTONOMOUS_RESEARCH_ENGINE', 'research'), [text('question', 'Question', { required: true })], 'Research'),
     form('Web search', A('ADVANCED_SEARCH_ENGINE', 'web_search'), [text('query', 'Search', { required: true })], 'Search'),
     form('Read a web page', A('ADVANCED_SEARCH_ENGINE', 'read_page'), [text('url', 'Address', { required: true })], 'Read'),
+  ] },
+  { id: 'council', role: 'member', title: 'Model council', sub: 'Several models answer and the differences are shown.', sections: [
     form('Ask the model council', A('MODEL_COUNCIL', 'deliberate'), [text('question', 'Question', { required: true }), { name: 'context', label: 'Context', type: 'textarea' }], 'Deliberate'),
+  ] },
+  { id: 'memory', role: 'member', title: 'Long-term memory', sub: 'Remembering waits for approval.', sections: [
     form('Recall from memory', A('LONGTERM_MEMORY', 'recall'), [text('query', 'What', { required: true })], 'Recall', { fixed: { scope: '@org' } }),
     form('Remember', A('LONGTERM_MEMORY', 'remember'), [{ name: 'text', label: 'To remember', type: 'textarea', required: true }], 'Request remember', { fixed: { scope: '@org' } }),
   ] },

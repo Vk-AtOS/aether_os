@@ -63,6 +63,11 @@ class CircuitBreaker:
                 logger.info("circuit %s closed again", self.name)
             self._state, self._failures, self._probing = CLOSED, 0, False
 
+    def release_probe(self) -> None:
+        """A half-open probe ended without a verdict (cancelled): let the next caller probe."""
+        with self._lock:
+            self._probing = False
+
     def record_failure(self, error: object = "") -> None:
         with self._lock:
             self._failures += 1

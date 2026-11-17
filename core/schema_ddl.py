@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Every module that declares a table on core.db.Base. tests/test_schema_ddl.py fails when a new model module is
 # not listed here (it would be left out of a bootstrapped database and of Alembic autogenerate).
 MODEL_MODULES = (
-    "core.models",              # also registers core.scim_models
+    "core.models",              # also registers core.scim_models, core.models_ops
     "core.billing.payments",
     "core.onboarding",
     "core.identity.portal_access",

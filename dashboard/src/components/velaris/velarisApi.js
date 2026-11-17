@@ -50,7 +50,9 @@ export const hr = async (agent, method, args = {}) => {
 
 export const useHr = (agent, method, args = {}) => {
   const k = JSON.stringify(args);
-  const fetcher = useCallback(() => hr(agent, method, JSON.parse(k)).then((r) => ({ data: r.result })), [agent, method, k]);
+  // An empty id (nothing chosen yet) is not a request: asking Velaris for "" only produces an error banner.
+  const blank = Object.entries(args).some(([n, v]) => /_id$/.test(n) && (v === '' || v == null));
+  const fetcher = useCallback(() => (blank ? Promise.resolve({ data: null }) : hr(agent, method, JSON.parse(k)).then((r) => ({ data: r.result }))), [agent, method, k, blank]);
   return useVelaris(fetcher);
 };
 

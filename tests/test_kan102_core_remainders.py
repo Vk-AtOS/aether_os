@@ -31,18 +31,22 @@ def test_council_strict_is_the_default_in_production_and_the_run_hook_asks_it(mo
 
 @pytest.mark.asyncio
 async def test_webhook_delivery_tasks_are_referenced_until_done(monkeypatch):
-    from aether_os.core.webhooks import delivery
+    from aether_os.core.webhooks import delivery, outbox
     done = asyncio.Event()
 
-    async def slow(**kw):
+    async def slow(row_id):
         await asyncio.sleep(0.05)
         done.set()
         return True
 
     async def hooks(org, ev):
-        return [{"url": "https://x.example", "secret": "s"}]
+        return [{"id": "w1", "url": "https://x.example", "secret": "s"}]
+
+    async def enqueue(*a):
+        return "row1"
     monkeypatch.setattr(delivery, "_get_org_webhooks", hooks)
-    monkeypatch.setattr(delivery._delivery, "send", slow)
+    monkeypatch.setattr(outbox, "enqueue", enqueue)
+    monkeypatch.setattr(outbox, "attempt_row", slow)
     await delivery.deliver_event("o", "e", {})
     assert len(delivery._tasks) == 1
     gc.collect()

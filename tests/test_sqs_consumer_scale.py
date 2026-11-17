@@ -69,3 +69,51 @@ def test_poison_message_kept_when_dlq_send_fails(monkeypatch):
     monkeypatch.setattr(pc, "_mark_failed", mark)
     asyncio.run(pc._park_poison(_job(2, count=9)))
     assert deleted == []  # never drop the only copy
+
+
+def test_a_flood_of_bulk_jobs_cannot_take_every_slot(monkeypatch):
+    """KAN-49: per-job-class pools. Total 2 slots, bulk pool 1: the bulk jobs run one at a time, and a high-priority
+    job that arrives behind them still starts while one bulk job is running (it is not stuck behind the queue)."""
+    monkeypatch.setenv("SQS_MAX_INFLIGHT", "2")
+    monkeypatch.setattr(sq, "is_enabled", lambda: True)
+    assert pc.class_limits() == {"interactive": 2, "standard": 2, "bulk": 1}
+    assert pc.job_class({"codebase_mode": "import"}) == "bulk" and pc.job_class({"priority": "low"}) == "bulk"
+    assert pc.job_class({"priority": "high"}) == "interactive" and pc.job_class({}) == "standard"
+    jobs = [{**_job(i), "params": {"priority": "low"}} for i in range(3)] + [{**_job(9), "params": {"priority": "high"}}]
+    queue = list(jobs)
+    running = {"bulk": 0, "peak_bulk": 0, "high_started_during_bulk": False}
+
+    def receive(n, w):
+        return [queue.pop(0)] if queue else []
+
+    async def noop(run_id):
+        return None
+
+    async def execute(run_id, params, handle):
+        if params.get("priority") == "low":
+            running["bulk"] += 1
+            running["peak_bulk"] = max(running["peak_bulk"], running["bulk"])
+            await asyncio.sleep(0.1)
+            running["bulk"] -= 1
+        else:
+            running["high_started_during_bulk"] = running["bulk"] > 0
+
+    monkeypatch.setattr(sq, "receive_jobs", receive)
+    monkeypatch.setattr(pc, "_execute_job", execute)
+    monkeypatch.setattr(pc, "_mark_running", noop)
+
+    async def go():
+        pc._RUNNING = True
+        t = asyncio.create_task(pc._poll_loop())
+        await asyncio.sleep(0.9)
+        pc._RUNNING = False
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(go())
+    assert running["peak_bulk"] == 1
+    assert running["high_started_during_bulk"] is True
+    assert not queue
