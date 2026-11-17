@@ -28,6 +28,7 @@ import os
 import urllib.parse
 import uuid
 import secrets
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -38,6 +39,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation, User
 from aether_os.gateway.auth import get_password_hash
 from aether_os.gateway.auth_oauth import _signin_redirect
+from aether_os.gateway.auth_refresh import _redis as token_store
 from aether_os.gateway.policy_guard import enforce_seat
 
 logger = logging.getLogger(__name__)
@@ -287,6 +289,27 @@ async def saml_login(
         raise HTTPException(status_code=500, detail="SAML login initiation failed") from exc
 
 
+_ASSERTION_MIN_TTL_S, _ASSERTION_MAX_TTL_S = 300, 86400
+
+
+async def _claim_assertion(auth: Any) -> bool:
+    """Spend a SAML assertion id: True the first time, False on a replay (KAN-69 F16). A captured, still valid
+    response could otherwise be posted again and again. SET NX in the shared token store, kept until the
+    assertion itself expires; no id or an unreachable store is a denial, never "not used"."""
+    assertion_id = auth.get_last_assertion_id()
+    if not assertion_id:
+        return False
+    not_after = auth.get_last_assertion_not_on_or_after()
+    ttl = int(not_after - time.time()) + 60 if not_after else _ASSERTION_MAX_TTL_S
+    ttl = min(max(ttl, _ASSERTION_MIN_TTL_S), _ASSERTION_MAX_TTL_S)
+    try:
+        r = await token_store()
+        return bool(await r.set(f"saml_used:{assertion_id}", "1", nx=True, ex=ttl))
+    except Exception as exc:
+        logger.warning("SAML replay check failed (Redis unavailable) - denying: %s", exc)
+        return False
+
+
 @saml_router.post("/callback")
 async def saml_callback(request: Request) -> RedirectResponse:
     """Process IdP response, create/update user, redirect to frontend with JWT.
@@ -331,6 +354,13 @@ async def saml_callback(request: Request) -> RedirectResponse:
         frontend = _frontend_url()
         return RedirectResponse(
             url=f"{frontend}/login?error={urllib.parse.quote('SAML authentication failed')}",
+            status_code=302,
+        )
+
+    if not await _claim_assertion(auth):
+        logger.warning("SAML assertion replayed or not checkable: refused")
+        return RedirectResponse(
+            url=f"{_frontend_url()}/login?error={urllib.parse.quote('SAML authentication failed')}",
             status_code=302,
         )
 
