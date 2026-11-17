@@ -150,10 +150,8 @@ async def update_global_pattern(
     sf = get_session_factory()
     async with sf() as sess:
         p = await sess.get(GlobalPattern, pattern_id)
-        if not p:
+        if not p or p.org_id != user["org_id"]:      # one answer for "none" and "not yours" (KAN-69 F19)
             raise HTTPException(status_code=404, detail="Pattern not found")
-        if p.org_id != user["org_id"]:
-            raise HTTPException(status_code=403, detail="not_your_pattern")
         for field_name in ("domain", "pattern_name", "pattern_type", "success_rate", "usage_count", "avg_quality_score"):
             if field_name in body:
                 setattr(p, field_name, body[field_name])
@@ -171,10 +169,8 @@ async def delete_global_pattern(
     sf = get_session_factory()
     async with sf() as sess:
         p = await sess.get(GlobalPattern, pattern_id)
-        if not p:
+        if not p or p.org_id != user["org_id"]:      # one answer for "none" and "not yours" (KAN-69 F19)
             raise HTTPException(status_code=404, detail="Pattern not found")
-        if p.org_id != user["org_id"]:
-            raise HTTPException(status_code=403, detail="not_your_pattern")
         await sess.delete(p)
         await sess.commit()
 @router.get("/intelligence/quality-benchmark")

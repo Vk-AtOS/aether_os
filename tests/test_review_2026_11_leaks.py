@@ -20,3 +20,15 @@ def test_zero_trust_probe_failure_does_not_echo_the_exception(gw, monkeypatch):
     monkeypatch.setattr(zero_trust, "issue_ticket", boom)
     body = gw.client.get("/health/zero-trust").json()
     assert body["status"] == "degraded" and "internals" not in str(body)
+
+
+def test_another_orgs_pattern_id_is_not_found_not_forbidden(gw):
+    # KAN-69 F19: 403 vs 404 told a caller which pattern ids exist in other organisations
+    a, b = gw.register("patA"), gw.register("patB")
+    made = gw.client.post("/intelligence/global-patterns", headers=a.auth,
+                          json={"domain": "d", "pattern_name": "n", "pattern_type": "t"})
+    assert made.status_code in (200, 201), made.text
+    pid = made.json()["id"]
+    assert gw.client.put(f"/intelligence/global-patterns/{pid}", headers=b.auth, json={"domain": "x"}).status_code == 404
+    assert gw.client.delete(f"/intelligence/global-patterns/{pid}", headers=b.auth).status_code == 404
+    assert gw.client.delete("/intelligence/global-patterns/nope", headers=b.auth).status_code == 404
