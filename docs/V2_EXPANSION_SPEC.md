@@ -1,3 +1,5 @@
+> **This document is a spec, not a description of what is built.** Nothing in it is claimed as implemented. The "Current State" table was written in 2026 and is not current: at 15 Nov 2026 (commit `e5c23fd`) the pipeline has 12 stages over 50 phase directories.
+
 # AetherOS V2 — Multi-Language, Architecture-Aware Pipeline
 ## Technical Build Specification
 
@@ -16,7 +18,7 @@ microservices, mobile apps, Go/Node services, enterprise ERP, and domain-expert-
 | Architecture output | Single monolith |
 | Domain injection | DomainProfile hints (domain_engine.py) |
 | Stack selection | Hardcoded — all runs use FastAPI |
-| Phase count | 29 phases |
+| Phase count | 29 phases (as of writing; now 12 stages over 50 phase directories) |
 | Key artifact | `design_brief.json` from P00, `architecture.json` from P02 |
 
 **Key pipeline files:**

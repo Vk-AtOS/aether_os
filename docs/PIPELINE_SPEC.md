@@ -1,163 +1,128 @@
 # AetherOS Pipeline Specification
-**Version:** 1.0  
-**Date:** 2026-06-20  
-**Status:** Authoritative
 
----
+Checked against the code at commit `e5c23fd`. Where a statement could not be confirmed in code it says
+"not verified" or "not measured".
 
 ## 1. Overview
 
-AetherOS is an AI software factory that transforms a natural-language product specification into a
-fully deployed, production-ready application. The pipeline is a deterministic sequence of numbered
-phases (P00–P20). Each phase receives a `PhaseInput`, performs focused work, writes output
-artifacts to disk, and returns a `PhaseResult`. A central orchestrator (`factory_pipeline.py`)
-accumulates phase outputs into a shared `accumulated_context` dict that flows into every
-subsequent phase.
+A run goes through 12 stages in a fixed order. The order is `PHASE_SEQUENCE` in
+`orchestrator/phase_sequence.py:90-103`: `s01_intake`, `s02_architecture`, `s03_backend`, `s04_frontend`,
+`s05_quality`, `s06_testing`, `s07_healing`, `s08_observability`, `s09_devops`, `s10_enterprise`, `s11_handoff`,
+`s12_specialist`. A stage supervisor (`stages/sNN_*/supervisor.py`, mapped in `PHASE_SUPERVISORS`,
+`phase_sequence.py:108-121`) calls the phase agents that live in `phases/`. Earlier versions of this file said the
+pipeline was phases P00 to P20; that is no longer the structure.
 
-**Why this document exists:**
-- Defines the contract every phase must satisfy so new phases can be added without reading the
-  orchestrator source.
-- Specifies the `DomainKnowledgePack` plugin interface so third-party domain packs can be
-  authored and dropped in without modifying core code.
-- Serves as the authoritative reference for artifact schemas so downstream consumers (portals,
-  CI systems, compliance tools) can parse run outputs without consulting phase code.
+The orchestrator is `orchestrator/factory_pipeline.py`. After each stage it stores
+`accumulated_context["{stage}_output"]` and `accumulated_context["{stage}_path"]`
+(`factory_pipeline.py:629-630`) and saves a checkpoint. Stages can run in parallel waves
+(`orchestrator/parallel_runner.py`, `phase_dag.py`); the wave plan itself was not reviewed here.
 
-**Pipeline entry point:** `orchestrator/factory_pipeline.py`  
-**Phase registry:** `orchestrator/phase_sequence.py`  
-**Base dataclasses:** `core/domain_knowledge/base.py`  
-**Domain packs:** `core/domain_knowledge/packs/`
+Other code locations: base dataclasses `core/domain_knowledge/base.py`; domain packs
+`core/domain_knowledge/packs/`; stage rules `orchestrator/stage_gate.py`.
 
----
+## 2. Phase interface
 
-## 2. Phase Interface Schema
+`PhaseInput` and `PhaseResult` are Pydantic models in `orchestrator/messages.py:8-31`. The JSON Schema blocks
+that used to be here matched them field for field and are replaced by this list.
 
-Every phase supervisor class must accept a `PhaseInput` and return a dict that conforms to the
-`PhaseResult` shape. Both types are defined in `orchestrator/messages.py`.
+PhaseInput: `run_id`, `project_id`, `phase`, `input_data` (dict), `output_dir`, `client_id` (all required except
+`input_data`), `domain` (default `general`), `is_change_request` (default false), `change_context` (optional dict),
+`memory_context` (list of dicts).
 
-### 2.1 PhaseInput (Pydantic model)
+PhaseResult: `run_id`, `phase`, `status` (`passed`, `failed`, `escalated` or `upstream`), `output_path`,
+`confidence` (0.0 to 1.0 by convention; not range-checked), `issues`, `next_phase`, `upstream_route`,
+`failure_context`, `artifacts` (dict).
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "PhaseInput",
-  "type": "object",
-  "required": ["run_id", "project_id", "phase", "output_dir", "client_id"],
-  "properties": {
-    "run_id":            { "type": "string", "description": "UUID of the factory run" },
-    "project_id":        { "type": "string", "description": "UUID of the project" },
-    "phase":             { "type": "string", "description": "Phase name (e.g. p04_backend)" },
-    "input_data":        {
-      "type": "object",
-      "description": "Slice of accumulated_context passed to this phase",
-      "additionalProperties": true
-    },
-    "output_dir":        { "type": "string", "description": "Absolute path for phase artifacts" },
-    "domain":            { "type": "string", "default": "general" },
-    "client_id":         { "type": "string", "description": "Human-readable project slug" },
-    "is_change_request": { "type": "boolean", "default": false },
-    "change_context":    { "type": ["object", "null"], "default": null },
-    "memory_context":    {
-      "type": "array",
-      "items": { "type": "object" },
-      "description": "Relevant past-run memory entries from mem0"
-    }
-  }
-}
-```
+Phase agents themselves extend `PhaseBase` (`phases/base.py`) and return a `TaskResult` with `success`,
+`escalated`, `output_path`, `confidence`, `issues`, `metadata`. Retry policy: `max_retries = 3` by default
+(`phases/base.py:46`). A gate that still fails after the retries gives `escalated`.
 
-### 2.2 PhaseResult (Pydantic model)
+### Which stages abort the run
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "PhaseResult",
-  "type": "object",
-  "required": ["run_id", "phase", "status"],
-  "properties": {
-    "run_id":          { "type": "string" },
-    "phase":           { "type": "string" },
-    "status":          { "type": "string", "enum": ["passed", "failed", "escalated", "upstream"] },
-    "output_path":     { "type": "string", "default": "" },
-    "confidence":      { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0 },
-    "issues":          { "type": "array", "items": { "type": "string" } },
-    "next_phase":      { "type": ["string", "null"] },
-    "upstream_route":  { "type": ["string", "null"] },
-    "failure_context": { "type": ["object", "null"] },
-    "artifacts":       { "type": "object", "additionalProperties": true }
-  }
-}
-```
+`CRITICAL_PHASES` is `s01_intake`, `s02_architecture`, `s03_backend` (`phase_sequence.py:22-26`). For every
+stage an `escalated` result (gate failed after retries) ends the run (`orchestrator/stage_gate.py:
+gate_block_reason`). A `failed` or timed-out non-critical stage does not end the run.
 
-### 2.3 Orchestrator conventions
+## 3. Phase catalogue
 
-- After each phase the orchestrator stores:
-  - `accumulated_context["{phase_name}_output"]` = `phase_result["artifacts"]`
-  - `accumulated_context["{phase_name}_path"]` = `phase_result["output_path"]`
-- Well-known keys listed in the Phase Catalogue (Section 3) are extracted by the orchestrator
-  from artifact files and added directly to `accumulated_context` under their canonical name.
-- Critical phases (`p01_intake_requirements`, `p02_architecture`, `p02b_domain_ir`,
-  `p04_backend`, `p05_frontend`) abort the pipeline on failure. All others log the failure and
-  continue.
+`phases/` holds 49 directories named `pNN_*`, a `patterns/` directory (shared code) and `utils.py`. None of the `pNN_*` directories is in `PHASE_SEQUENCE`. They are all listed in `INACTIVE_PHASE_DIRS`
+(`phase_sequence.py:46-71`), which is a reference list for the stage supervisors, not a list of unused phases.
+Inputs and outputs below are the ones the stage supervisor's docstring gives for the stage; per-phase inputs and
+outputs were not read in every phase's code, so the columns are by stage. Which sub-steps ran in a real run:
+not measured.
 
----
+### Stage inputs and outputs (from `stages/*/supervisor.py` docstrings)
 
-## 3. Phase Catalogue
+| Stage | Phases called | Reads | Writes |
+|-------|---------------|-------|--------|
+| s01_intake | p00_research, p00b_data_archaeology, p00c_architecture_planner (parallel); p01_intake_requirements, p01b_integration_discovery | `raw_input`, `domain`, `autonomous_mode`, `build_profile` | `requirements`, `entities`, `api_endpoints`, `integration_map`, `design_brief`, `similar_past_runs`, `project_contract`, `service_map`, `user_personas`, `user_roles` |
+| s02_architecture | p02_architecture, p02b_domain_ir, p02c_permission_modeling, p03_scaffolding (sequential) | `requirements`, `entities`, `domain`, `project_contract`, `service_map` | `architecture_json`, `architecture_warnings`, `domain_ir`, `domain_ir_path`, `permission_model`, `project_scaffold` |
+| s03_backend | p04_backend (calls p04a_backend_codegen and p04_uiux_design), p04b_business_logic, p04c_integration_codegen, architecture governor | `domain_ir`, `permission_model`, `integration_map`, `architecture_decisions`, `project_contract`, `domain`, `stack_profile` | `backend_output_path`, `api_routes`, `seed_entities`, `integration_clients`, `design_tokens`, `governor_report` |
+| s04_frontend | p05_frontend; conditional p05b_mobile, p05c_desktop, p05d_cli, p05e_serverless | `domain_ir`, `design_tokens`, `backend_output_path`, `user_personas`, `build_profile`, `api_endpoints` | `frontend_output_path`, `frontend_framework`, `component_count` |
+| s05_quality | p06_review_security and p06b_formal_verification (parallel), then dimension scorer | `backend_output_path`, `frontend_output_path`, `domain_ir`, `permission_model` | `compliance_score`, `compliance_pdf_path`, `verification_report`, `dimension_critique`, `security_findings`, `quality_gate_passed` |
+| s06_testing | p07a_unit_testing now; p07b_performance_testing, p07c_accessibility_testing, p07d_e2e_testing are deferred to s07 | `backend_output_path`, `frontend_output_path`, `backend_port`, `frontend_url` | `test_results`, `perf_results`, `a11y_results`, `e2e_results`, `test_quality_flag`, `consolidated_report` |
+| s07_healing | p07b_self_healing, plus the deferred live tests | `backend_output_path`, `test_results`, `dimension_critique`, `security_findings`, `domain_ir` | `self_healing_report`, `healing_passed`, `repairs_applied`, `error_patterns`, `auto_validators` |
+| s08_observability | p09_observability, then p11a_monitoring, p11b_error_tracking, p11c_analytics (parallel), then p11d_alerting | `backend_output_path`, `healing_passed`, `domain`, `project_name` | `monitoring_path`, `prometheus_config`, `grafana_dashboards`, `sentry_configured`, `analytics_events`, `alert_rules_count` |
+| s09_devops | p08_cicd_deployment, p11_deployment, p11e_enterprise_deployment (conditional) | `backend_output_path`, `frontend_output_path`, `healing_passed`, `architecture_decisions`, `project_name`, `build_profile` | `dockerfile_path`, `ci_workflow_path`, `helm_chart_path`, `terraform_path`, `live_url`, `backend_port`, `k8s_manifests` |
+| s10_enterprise | p12a_feature_flags, p12b_ab_testing, p13_app_memory, p16_iam, p18_billing_metering, p21_sre_agent (parallel); p17_control_plane (conditional) | `backend_output_path`, `permission_model`, `architecture_decisions`, `healing_passed` | `feature_flags_path`, `ab_testing_path`, `memory_service_path`, `iam_policies_path`, `billing_path`, `k8s_operator_path`, `sre_agent_path` |
+| s11_handoff | p10_docs_delivery; then p14_client_portal and p15_handoff (parallel) | `backend_output_path`, `frontend_output_path`, `project_name`, `domain`, `healing_passed`, `test_results`, `compliance_score`, `dimension_critique`, `governor_report` | `readme_path`, `api_reference_path`, `architecture_doc_path`, `deployment_guide_path`, `postman_collection_path`, `client_portal_path`, `handoff_zip_path`, `quality_report_path` |
+| s12_specialist | p05b_mobile, p05c_desktop, p05d_cli, p05e_serverless, p19_service_catalog, p20_multiregion (all conditional, parallel) | `build_profile`, `backend_output_path`, `domain_ir` | `mobile_output_path`, `desktop_output_path`, `cli_output_path`, `serverless_path`, `service_catalog_path`, `multiregion_path`, `specialist_outputs` |
 
-Columns:
-- **phase_id** — directory name and registry key
-- **name** — human display name
-- **input_keys** — keys the phase reads from `input_data` (subset of `accumulated_context`)
-- **output_keys** — keys the phase adds to `accumulated_context` after it runs
+Conditions for the conditional phases are in the supervisor docstrings (for example p05b runs only when
+`build_profile.frontend_framework == "react_native"`; p17 only for kubernetes or microservice or event-driven
+builds). Note that p05b to p05e are listed under both s04 and s12.
 
-| phase_id | name | input_keys | output_keys |
-|---|---|---|---|
-| p00_research | Research & Spec Analysis | `designer_spec`, `domain`, `user_learning` | `p00_research_output`, `build_profile` |
-| p00b_data_archaeology | Data Archaeology | `designer_spec`, `build_profile` | `p00b_data_archaeology_output` |
-| p00c_architecture_planner | Architecture Planner | `designer_spec`, `build_profile` | `service_map`, `p00c_architecture_planner_output` |
-| p01_intake_requirements | Intake & Requirements | `designer_spec`, `domain`, `build_profile` | `p01_intake_requirements_output` |
-| p01b_integration_discovery | Integration Discovery | `p01_intake_requirements_output`, `designer_spec` | `integration_map`, `p01b_integration_discovery_output` |
-| p02_architecture | Architecture Design | `p01_intake_requirements_output`, `domain_knowledge`, `build_profile` | `architecture_json`, `p02_architecture_path`, `p02_architecture_output` |
-| p02b_domain_ir | Domain IR Generation | `architecture_json`, `domain_knowledge` | `domain_ir_path`, `p02b_domain_ir_output` |
-| p02c_permission_modeling | Permission Modeling | `domain_ir_path`, `architecture_json` | `permission_model`, `p02c_permission_modeling_output` |
-| p03_scaffolding | Project Scaffolding | `architecture_json`, `build_profile`, `client_id` | `p03_scaffolding_output` |
-| p04_backend | Backend Codegen | `architecture_json`, `domain_ir_path`, `domain_knowledge`, `build_profile`, `integration_map` | `backend_src_dir`, `backend_main_py`, `api_routes_path`, `p04_backend_output` |
-| p04b_business_logic | Business Logic Layer | `backend_src_dir`, `domain_knowledge`, `architecture_json` | `applied_patterns`, `p04b_business_logic_output` |
-| p04c_integration_codegen | Integration Clients | `integration_map`, `backend_src_dir` | `p04c_integration_codegen_output` |
-| p05_frontend | Frontend Codegen | `backend_src_dir`, `architecture_json`, `domain_knowledge`, `build_profile` | `p05_frontend_output` |
-| p05b_mobile | Mobile (React Native) | `architecture_json`, `build_profile` | `p05b_mobile_output` |
-| p05c_desktop | Desktop (Electron) | `architecture_json`, `build_profile` | `p05c_desktop_output` |
-| p05d_cli | CLI Tool | `architecture_json`, `build_profile` | `p05d_cli_output` |
-| p05e_serverless | Serverless Functions | `architecture_json`, `build_profile` | `p05e_serverless_output` |
-| p06_review_security | Security Review | `backend_src_dir`, `domain_knowledge`, `permission_model` | `council_review`, `council_feedback`, `p06_review_security_output` |
-| p07_testing | Test Generation | `backend_src_dir`, `architecture_json`, `domain_knowledge` | `p07_testing_output` |
-| p07b_self_healing | Self-Healing | `backend_src_dir`, `council_feedback`, `p07_testing_output` | `backend_src_dir`, `backend_main_py`, `p07b_self_healing_output` |
-| p08_cicd_deployment | CI/CD Pipeline | `backend_src_dir`, `architecture_json`, `build_profile` | `p08_cicd_deployment_output` |
-| p09_observability | Observability Config | `backend_src_dir`, `build_profile` | `p09_observability_output` |
-| p10_docs_delivery | Documentation | `architecture_json`, `backend_src_dir`, `domain_knowledge` | `p10_docs_delivery_output` |
-| p11_deployment | Docker Build & Deploy | `backend_src_dir`, `client_id`, `run_id` | `live_url`, `p11_deployment_output` |
-| p11a_monitoring | Prometheus + Grafana | `live_url`, `build_profile` | `p11a_monitoring_output` |
-| p11b_error_tracking | Sentry + structlog | `backend_src_dir`, `live_url` | `p11b_error_tracking_output` |
-| p11c_analytics | PostHog Analytics | `live_url`, `client_id` | `p11c_analytics_output` |
-| p11d_alerting | Alertmanager + Runbooks | `live_url`, `build_profile` | `p11d_alerting_output` |
-| p11e_enterprise_deployment | Enterprise Deploy (Helm/TF) | `architecture_json`, `build_profile`, `service_map` | `p11e_enterprise_deployment_output` |
-| p12a_feature_flags | Feature Flags (Unleash) | `backend_src_dir`, `architecture_json` | `p12a_feature_flags_output` |
-| p12b_ab_testing | A/B Testing (GrowthBook) | `backend_src_dir`, `live_url` | `p12b_ab_testing_output` |
-| p13_app_memory | App Memory Layer (mem0) | `backend_src_dir`, `architecture_json` | `graph_context`, `knowledge_graph_path`, `p13_app_memory_output` |
-| p14_client_portal | Client Review Portal | `p10_docs_delivery_output`, `live_url`, `run_id` | `p14_client_portal_output` |
-| p15_handoff | Technical Handoff Package | `architecture_json`, `backend_src_dir`, `live_url`, `council_review` | `p15_handoff_output` |
-| p16_iam | IAM / OPA Policies | `permission_model`, `architecture_json`, `build_profile` | `p16_iam_output` |
-| p17_control_plane | K8s Operator + CRDs | `service_map`, `architecture_json`, `build_profile` | `p17_control_plane_output` |
-| p18_billing_metering | Billing & Metering | `architecture_json`, `build_profile` | `p18_billing_metering_output` |
-| p19_service_catalog | Service Catalog UI | `service_map`, `architecture_json` | `p19_service_catalog_output` |
-| p20_multiregion | Multi-Region Deploy | `p11e_enterprise_deployment_output`, `build_profile` | `p20_multiregion_output` |
+### Phase directories (`ls phases/`)
+
+| Directory | Called by |
+|-----------|-----------|
+| p00_research, p00b_data_archaeology, p00c_architecture_planner, p01_intake_requirements, p01b_integration_discovery | s01 |
+| p02_architecture, p02b_domain_ir, p02c_permission_modeling, p03_scaffolding | s02 |
+| p04_backend, p04a_backend_codegen, p04b_business_logic, p04c_integration_codegen | s03 |
+| p04_uiux_design | `phases/p04_backend/task_agent.py:396` (inside p04), not by a stage supervisor |
+| p05_frontend, p05b_mobile, p05c_desktop, p05d_cli, p05e_serverless | s04 and s12 |
+| p06_review_security, p06b_formal_verification | s05 |
+| p07a_unit_testing | s06 |
+| p07b_performance_testing, p07c_accessibility_testing, p07d_e2e_testing | s06 docstring says deferred; run from s07 |
+| p07b_self_healing | s07 |
+| p07_testing | not called by a stage supervisor; it delegates to p07a to p07d (`phases/p07_testing/task_agent.py:15-18`) and is referenced by `orchestrator/phase_hooks.py` |
+| p08_cicd_deployment | s09; it wraps p08_cicd |
+| p08_cicd | called through p08_cicd_deployment (`phases/p08_cicd_deployment/task_agent.py:17`) |
+| p09_observability, p11a_monitoring, p11b_error_tracking, p11c_analytics, p11d_alerting | s08 |
+| p09_documentation | alias directory: its `gate.py` re-exports `p10_docs_delivery.gate`; not called by a stage |
+| p10_docs_delivery, p14_client_portal, p15_handoff | s11 |
+| p11_deployment, p11e_enterprise_deployment | s09 |
+| p12a_feature_flags, p12b_ab_testing, p13_app_memory, p16_iam, p17_control_plane, p18_billing_metering, p21_sre_agent | s10 |
+| p19_service_catalog, p20_multiregion | s12 |
+
+Directories that exist but are not in the sequence and not called by a stage supervisor: p04_uiux_design (called
+inside p04), p07_testing, p09_documentation, and p08_cicd (reached only through its wrapper).
+
+### p06b_formal_verification report
+
+p06b writes `formal_verification_report.json` (not `verification_report.json`) to its output directory and to the
+project root (`phases/p06b_formal_verification/task_agent.py:279`, `:170-172`). Schema version `1.0`
+(`task_agent.py:33`). Fields (`task_agent.py:136-153`): `schema_version`, `verified_at`, `z3_version`,
+`z3_available`, `project_name`, `domain`, `files_scanned`, `overall_verdict` (`PASS`, `FAIL` or `PARTIAL`),
+`confidence_score` (verified count divided by total), `z3_solver_time_ms`, `invariants_verified`,
+`invariants_failed`, `invariants_unverifiable` (lists of entries with `invariant_id`, `invariant_name`, `route`,
+`status`, `proof_method`, `solver_time_ms`, `confidence`, and `violation_detail` when present), and
+`partial_reason` when set. The gate blocks only on `FAIL`; `PARTIAL` passes with a warning
+(`phases/p06b_formal_verification/gate.py:1-12`). The `verification_report` dict in the s05 context is a
+shorter summary built by `stages/s05_quality/supervisor.py:362-380`, not this file.
 
 ---
 
 ## 4. Domain Pack Plugin Standard
 
 A domain pack is a Python module in `core/domain_knowledge/packs/` that exports a module-level
-`PACK` variable of type `DomainKnowledgePack`. The orchestrator discovers packs by matching the
-`domain` field against the domain value in `PhaseInput`.
+`PACK` variable of type `DomainKnowledgePack` (`core/domain_knowledge/base.py:121`). `load_pack(domain)` looks the
+domain name up in `_DOMAIN_PACK_MAP` and imports that module. Existing packs: ecommerce, edtech, erp, fintech,
+govtech, healthcare, legaltech, logistics, manufacturing, real_estate, saas, trading.
+
+The rules in 4.1 to 4.6 are conventions written by the pack authors. The dataclasses do not validate them, and
+the review of `phases/p06_review_security` and `stages/s05_quality` found no code that enforces
+`encrypted_at_rest`, `never_store` or `audit_trail`. Treat them as guidance, not as checks.
 
 ### 4.1 Required fields
 
@@ -172,10 +137,10 @@ A domain pack is a Python module in `core/domain_knowledge/packs/` that exports 
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
-| `workflows` | `List[WorkflowTemplate]` | `[]` | State machines injected into P04 backend prompt |
-| `compliance` | `List[ComplianceRule]` | `[]` | Compliance rules for P06 security review |
-| `api_patterns` | `List[str]` | `[]` | REST endpoint examples injected into P02 architecture |
-| `pipelines` | `List[BusinessProcessPipeline]` | `[]` | Process orchestration flows for P04b business logic |
+| `workflows` | `List[WorkflowTemplate]` | `[]` | State machines for the backend prompt (consumer not verified) |
+| `compliance` | `List[ComplianceRule]` | `[]` | Compliance rule text; `compliance_summary()` lists it for the p06 prompt |
+| `api_patterns` | `List[str]` | `[]` | REST endpoint examples (consumer not verified) |
+| `pipelines` | `List[BusinessProcessPipeline]` | `[]` | Process flows (consumer not verified) |
 
 ### 4.3 EntityTemplate validation rules
 
@@ -188,9 +153,9 @@ A domain pack is a Python module in `core/domain_knowledge/packs/` that exports 
 ### 4.4 FieldDef validation rules
 
 - `type` must be one of: `string | int | float | bool | datetime | fk | text`
-- `phi=True` implies `encrypted_at_rest=True` (enforced by P06 security review)
+- `phi=True` implies `encrypted_at_rest=True` (convention; no enforcing code found)
 - `pci=True` implies `encrypted_at_rest=True`
-- `never_store=True` — field is documented but must not appear in any INSERT/SELECT; use for
+- `never_store=True` - field is documented but must not appear in any INSERT/SELECT; use for
   raw card data, CVV, or other data that must stay out of the database entirely
 
 ### 4.5 WorkflowTemplate validation rules
@@ -203,8 +168,10 @@ A domain pack is a Python module in `core/domain_knowledge/packs/` that exports 
 
 | Value | Meaning |
 |---|---|
-| `mandatory` | P06 security review FAILS if the rule is violated in generated code |
-| `recommended` | P06 logs a warning; pipeline continues |
+| `mandatory` | default value of `ComplianceRule.enforcement` (`base.py:50-56`) |
+| `recommended` | the other documented value |
+
+How p06 uses `enforcement`: not verified. `compliance_summary()` only lists `[standard] rule` text in the p06 prompt (`base.py:212`).
 
 ### 4.7 Minimal conforming pack example
 
@@ -232,7 +199,7 @@ PACK = DomainKnowledgePack(
         ),
     ],
     prompt_injection="""LOGISTICS DOMAIN RULES:
-1. Tracking numbers are globally unique — enforce a UNIQUE constraint.
+1. Tracking numbers are globally unique - enforce a UNIQUE constraint.
 2. Shipment status transitions are append-only; use an event log, not status updates.
 """,
 )
@@ -240,9 +207,9 @@ PACK = DomainKnowledgePack(
 
 ### 4.8 Pack registration
 
-Drop the file in `core/domain_knowledge/packs/` and register it in
-`core/domain_knowledge/loader.py` (or the pack auto-discovery function if present). The domain
-slug in `PACK.domain` must exactly match the classifier output for the domain routing to work.
+Drop the file in `core/domain_knowledge/packs/` and add the domain name (and any aliases) to
+`_DOMAIN_PACK_MAP` in `core/domain_knowledge/loader.py:20-45`. There is no auto-discovery: a pack file that is
+not in that map is never loaded. `load_pack` returns `None` for a domain with no entry (for example `general`).
 
 ---
 
@@ -250,8 +217,7 @@ slug in `PACK.domain` must exactly match the classifier output for the domain ro
 
 A `BusinessProcessPipeline` describes an ordered, orchestrated sequence of service calls,
 state transitions, and notifications that implement a business workflow. Pipelines are attached
-to a `DomainKnowledgePack` and consumed by the P04b business logic phase to emit service
-orchestration code rather than bare CRUD endpoints.
+to a `DomainKnowledgePack` and described in the dataclass docstring (`base.py:76-91`) as input to the backend generator. Which phase consumes `pipelines`: not verified.
 
 ### 5.1 Pipeline fields
 
@@ -270,10 +236,10 @@ orchestration code rather than bare CRUD endpoints.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | `str` | — | snake_case, unique within the pipeline |
-| `action_type` | `str` | — | `service_call \| state_transition \| notification \| external_api \| batch \| schedule` |
-| `service` | `str` | — | Service class or entity name |
-| `method` | `str` | — | Method to invoke |
+| `name` | `str` | - | snake_case, unique within the pipeline |
+| `action_type` | `str` | - | `service_call \| state_transition \| notification \| external_api \| batch \| schedule` |
+| `service` | `str` | - | Service class or entity name |
+| `method` | `str` | - | Method to invoke |
 | `input_mapping` | `Dict[str,str]` | `{}` | Maps step inputs to context paths (e.g. `"entity.patient_id"`) |
 | `on_success` | `str` | `""` | Next step name, or `"END"` to terminate the pipeline |
 | `on_failure` | `str` | `"FAIL"` | `"FAIL"` aborts; `"SKIP"` continues to `on_success` target |
@@ -304,201 +270,79 @@ orchestration code rather than bare CRUD endpoints.
 
 ---
 
-## 6. Artifact Standards
+## 6. Artifact files
 
-The orchestrator and portal consumers expect the following artifact files in each run's output
-directory. All artifacts are JSON unless noted.
+These files are written by code. Earlier versions of this file listed schemas that did not match the code; the
+schemas below come from the writers.
 
 ### 6.1 `domain_knowledge.json`
 
-Produced by: `DomainKnowledgePack.to_dict_full()`  
-Written by: artifact collector after P01 domain resolution
-
-```json
-{
-  "domain": "string",
-  "display_name": "string",
-  "version": "1.0",
-  "entities": [
-    {
-      "name": "string",
-      "table": "string",
-      "description": "string",
-      "audit_trail": "boolean",
-      "soft_delete": "boolean",
-      "indexes": ["string"],
-      "fields": [
-        {
-          "name": "string",
-          "type": "string",
-          "required": "boolean",
-          "pii": "boolean",
-          "phi": "boolean",
-          "pci": "boolean",
-          "encrypted_at_rest": "boolean",
-          "never_store": "boolean",
-          "description": "string"
-        }
-      ]
-    }
-  ],
-  "workflows": [
-    {
-      "name": "string",
-      "entity": "string",
-      "field": "string",
-      "states": ["string"],
-      "transitions": { "state": ["string"] },
-      "terminal_states": ["string"],
-      "description": "string"
-    }
-  ],
-  "compliance": [
-    {
-      "standard": "string",
-      "rule": "string",
-      "affected_fields": ["string"],
-      "enforcement": "mandatory | recommended",
-      "implementation_hint": "string"
-    }
-  ],
-  "api_patterns": ["string"],
-  "pipelines": [
-    {
-      "name": "string",
-      "trigger": "string",
-      "trigger_entity": "string",
-      "trigger_condition": "string",
-      "description": "string",
-      "services_required": ["string"],
-      "integrations_required": ["string"],
-      "steps": [
-        {
-          "name": "string",
-          "action_type": "string",
-          "service": "string",
-          "method": "string",
-          "input_mapping": { "key": "path" },
-          "on_success": "string",
-          "on_failure": "string",
-          "compensation": "string",
-          "timeout_seconds": "integer",
-          "retry_count": "integer",
-          "description": "string"
-        }
-      ]
-    }
-  ],
-  "prompt_injection": "string"
-}
-```
+Written by p06_review_security into the project directory when `load_pack(domain)` finds a pack
+(`phases/p06_review_security/subtasks.py:346-356`). Content is `DomainKnowledgePack.to_dict_full()`
+(`core/domain_knowledge/base.py:148-210`): `domain`, `display_name`, `version` (`"1.0"`), `entities` (name,
+table, description, `audit_trail`, `soft_delete`, `indexes`, `fields` with `name`, `type`, `required`, `pii`,
+`phi`, `pci`, `encrypted_at_rest`, `never_store`, `description`), `workflows` (name, entity, field, states,
+transitions, terminal_states, description), `compliance` (standard, rule, affected_fields, enforcement,
+implementation_hint), `api_patterns`, `pipelines` (see section 5) and `prompt_injection`. No file is written for a
+domain with no pack.
 
 ### 6.2 `compliance_manifest.json`
 
-Produced by: P06 security review  
-Purpose: Machine-readable compliance gate result consumed by the client portal
-
-```json
-{
-  "run_id": "string (UUID)",
-  "generated_at": "string (ISO-8601)",
-  "standards": ["PCI-DSS", "HIPAA", "GDPR"],
-  "overall_status": "pass | fail | partial",
-  "rules": [
-    {
-      "standard": "string",
-      "rule": "string",
-      "enforcement": "mandatory | recommended",
-      "status": "pass | fail | not_applicable",
-      "evidence": "string",
-      "remediation": "string"
-    }
-  ],
-  "pii_fields_found": ["Entity.field_name"],
-  "phi_fields_found": ["Entity.field_name"],
-  "pci_fields_found": ["Entity.field_name"],
-  "encryption_verified": "boolean",
-  "audit_trail_verified": "boolean"
-}
-```
+Written into the generated project root by p06 (`phases/p06_review_security/manifest.py:20-111`) and by
+`core/compliance/manifest_writer.py:83-161`. It is the result of a code scan of the generated `main.py`, not a
+per-standard pass or fail list. Fields: `schema_version` (`"1.0"`), `generated_at`, `project_name`, `domain`,
+`overall_score` (from the scanner), `drift_fingerprint` (SHA-256 of the route-bearing `.py` files),
+`framework_versions` (a fixed map: HIPAA 2024, GDPR 2018, PCI-DSS 4.0, SOC2 2017), and `components`: one entry
+per route with `file`, `route`, `has_auth`, `has_audit_log`, `has_input_validation`, `has_rate_limiting`,
+`rules_satisfied`, `rules_violated` (each with `id`, `name`; violated ones add `severity` and `remediation`).
+The old fields `standards`, `overall_status`, `rules`, `pii_fields_found`, `encryption_verified` do not exist in
+the code. The manifest does not state compliance with any standard.
 
 ### 6.3 `business_model.json`
 
-Produced by: P00 research phase  
-Purpose: Structured product spec consumed by P01 and P02
+Written by p00_research (`phases/p00_research/business_model_generator.py:86-134`) from an LLM answer, or from a
+fixed fallback when the answer is missing or not valid JSON. Keys: `target_market`, `problem_statement`,
+`value_proposition`, `revenue_model`, `pricing_tiers`, `tam_usd_billions`, `sam_usd_billions`,
+`som_usd_millions`, `tam_source`, `competitive_landscape`, `go_to_market`, `gtm_detail`, `unit_economics`
+(`estimated_cac_usd`, `estimated_ltv_usd`, `ltv_cac_ratio`, `payback_months`), `key_risks`,
+`compliance_requirements`, plus `domain` and `generated_by` added by the code. The old schema in this file
+(`project_name`, `build_type`, `core_entities`, `non_functional_requirements`) was not what the code writes.
+The market and economics numbers are model output, not data.
 
-```json
-{
-  "project_name": "string",
-  "domain": "string",
-  "build_type": "web_app | microservice | mobile | desktop | cli | ml_pipeline",
-  "architecture": "monolith | microservices | serverless | event_driven",
-  "target_users": ["string"],
-  "core_entities": ["string"],
-  "key_workflows": ["string"],
-  "integrations_needed": ["string"],
-  "compliance_requirements": ["string"],
-  "non_functional_requirements": {
-    "max_response_ms": "integer",
-    "target_concurrent_users": "integer",
-    "uptime_sla": "string"
-  }
-}
-```
+### 6.4 `formal_verification_report.json`
+
+See section 3.
 
 ---
 
-## 7. Extension Points
+## 7. Extension points
 
-Third-party phases or domain-specific customisations can be inserted at three defined
-extension points. Inserting at other positions may break accumulated_context dependencies.
+The old text named three insertion points (before P00, after P15, after P20) in a P00 to P20 sequence. That
+sequence no longer exists, and no extension mechanism for third-party phases was found in the code. To add a
+phase today:
 
-### 7.1 pre-P00 — Stack classification hooks
+1. Create `phases/<name>/` with `task_agent.py`, `gate.py` and a supervisor class that extends `PhaseBase`.
+2. Call it from the stage supervisor that should own it (`stages/sNN_*/supervisor.py`). Stages are not
+   loaded from configuration.
+3. Add the name to `INACTIVE_PHASE_DIRS` in `orchestrator/phase_sequence.py` only if you want it listed there; the
+   set is documentation for the supervisors.
+4. To add a whole new stage, add it to `PHASE_SEQUENCE` and `PHASE_SUPERVISORS`, and decide whether it belongs in
+   `CRITICAL_PHASES` (`phase_sequence.py:22`) and `MANDATORY_STAGES` (`orchestrator/stage_gate.py`).
 
-**Insert before:** `p00_research`  
-**Use case:** Custom intent classifiers, domain auto-detectors, enterprise intake forms  
-**Required outputs added to accumulated_context:** `designer_spec`, optionally `build_profile`  
-**Constraint:** Must not require any accumulated_context keys (nothing has run yet)
+A claim in the old text that phases after P20 are skipped for non-kubernetes builds has no code behind it:
+conditions live in each supervisor (section 3).
 
-### 7.2 post-P15 — Post-delivery add-ons
+## 8. Domain pack checklist
 
-**Insert after:** `p15_handoff`  
-**Use case:** Custom compliance exporters, third-party audit integrations, CRM notification hooks  
-**Available accumulated_context keys:** all well-known keys from P00–P15  
-**Constraint:** Must not modify `backend_src_dir` or any code artifact — P11 deployment has
-already run
+A pack follows the conventions above when:
 
-### 7.3 post-P20 — Cloud platform extensions
+- `PACK.domain` is a lowercase slug and is listed in `_DOMAIN_PACK_MAP`
+- `PACK.display_name` is non-empty and `PACK.entities` has at least one entity
+- `PACK.prompt_injection` is non-empty
+- entities with `phi` or `pci` fields set `audit_trail=True`, and those fields set `encrypted_at_rest=True`
+- workflow `terminal_states` have no outbound transitions
+- `ComplianceRule.enforcement` is `"mandatory"` or `"recommended"`
+- every pipeline has at least one step, and every `on_success` is a step name in that pipeline or `"END"`
+- `PACK.to_dict_full()` returns a JSON-serialisable dict
 
-**Insert after:** `p20_multiregion`  
-**Use case:** Proprietary cloud provisioning, custom cost-reporting, enterprise SSO wiring  
-**Available accumulated_context keys:** all keys from P00–P20  
-**Constraint:** Phases here are always skipped (`status = "passed"` with empty artifacts) for
-non-kubernetes builds; check `build_profile.architecture == "kubernetes"` before doing work
-
-### 7.4 Registering an extension phase
-
-1. Create `phases/<your_phase>/supervisor_agent.py` with a `YourPhaseSupervisor` class
-   implementing `async def run(self, phase_input: PhaseInput) -> dict`.
-2. Add the phase name to `PHASE_SEQUENCE` in `orchestrator/phase_sequence.py` at the correct
-   position.
-3. Add the class path to `PHASE_SUPERVISORS` in `orchestrator/phase_sequence.py`.
-4. Mark the phase as non-critical unless pipeline abortion on its failure is intentional.
-
----
-
-## 8. Summary: Conformance Checklist
-
-A domain pack is conforming when all of the following are true:
-
-- [ ] `PACK.domain` is a lowercase slug with no spaces
-- [ ] `PACK.display_name` is non-empty
-- [ ] `PACK.entities` has at least one `EntityTemplate`
-- [ ] `PACK.prompt_injection` is non-empty and domain-specific
-- [ ] Every entity with `phi=True` or `pci=True` fields has `audit_trail=True`
-- [ ] Every `phi=True` or `pci=True` field has `encrypted_at_rest=True`
-- [ ] All `WorkflowTemplate.terminal_states` have no outbound transitions
-- [ ] All `ComplianceRule.enforcement` values are `"mandatory"` or `"recommended"`
-- [ ] Every `BusinessProcessPipeline.steps` list is non-empty
-- [ ] Every `ProcessStep.on_success` is either a valid step name within the pipeline or `"END"`
-- [ ] `PACK.to_dict_full()` returns a JSON-serialisable dict (no non-primitive types)
+None of these is checked by code at load time (`load_pack` only imports the module and reads `PACK`).

@@ -1,108 +1,100 @@
-# AetherOS — Sale Readiness Report
-**Generated:** 2026-07-22 | **HEAD:** `4ff0e95` | **Auditor:** Output Quality Program (4 sessions)
+# AetherOS - Sale Readiness Report
+
+**Rewritten:** 15 Nov 2026 | **Commit measured:** `e5c23fd` (branch `r3/a_docs`, plus uncommitted doc edits)
+
+This document replaces the 22 Jul 2026 version. That version had numbers and claims that were stale or false. It is a statement of what is in the repository and what is not proven. It is not a certification and not a warranty.
 
 ---
 
 ## What it is
 
-AetherOS is a 12-stage agentic pipeline that takes a natural-language requirement and delivers a running full-stack application: FastAPI backend (SQLAlchemy, async, Alembic), React 18/Vite frontend, Dockerfile, CI/CD, Kubernetes manifests, compliance PDF, and self-test report — in a single pipeline run averaging 7–10 minutes.
+AetherOS is a 12-stage pipeline (`stages/s01_intake` to `stages/s12_specialist`) that takes a plain-English requirement and writes a FastAPI backend, a React/Vite frontend, Dockerfile, CI files and Kubernetes manifests into a project folder. The code for this exists in the repo. A full end-to-end build on a real model has not been run as part of this work (see Known gaps).
 
 ---
 
-## Measured facts (verifiable from this repo)
+## How these numbers were measured
 
-| Metric | Value | How to verify |
-|--------|-------|---------------|
-| Git commits | 890 | `git log --oneline \| wc -l` |
-| Python source files | 755 (excl. pycache) | `find . -name "*.py" -not -path "*/__pycache__/*" \| wc -l` |
-| Python lines of code | ~209,700 | `find . -name "*.py" … \| xargs wc -l` |
-| Frontend source files (tsx/jsx/ts/js) | 202 (excl. node_modules) | `find dashboard/src -name "*.tsx" …` |
-| Phase agent directories | 55 | `ls phases/ \| wc -l` |
-| Phase agent Python files | 370 | `find phases/ -name "*.py" …` |
-| Alembic migrations | 56 | `ls alembic/versions/ \| wc -l` |
-| Test functions passing | **647** (0 failed, 3 skipped) | `uv run pytest tests/ -q` |
-| Benchmark golden prompts | 10 (across 5 domains) | `ls benchmarks/prompts/` |
-| Router files (gateway) | 14 | `ls gateway/routers/*.py \| wc -l` |
-| Multi-tenant isolation test | PASS | `pytest tests/test_multi_tenancy.py -v` |
+All numbers below were computed on 15 Nov 2026 at commit `e5c23fd`, from the repo root.
 
----
+| Metric | Value | Command |
+|---|---|---|
+| Git commits | 1237 | `git rev-list --count HEAD` |
+| Tracked Python files | 1141 | `git ls-files '*.py' \| wc -l` |
+| Python lines (tracked files) | 181935 | `git ls-files '*.py' \| xargs wc -l \| tail -1` |
+| Alembic migration files | 79 | `ls alembic/versions/*.py \| wc -l` |
+| Gateway router files named `*_router.py` | 72 | `ls gateway/routers/*_router.py \| wc -l` |
+| All `.py` files in `gateway/routers/` | 76 | `ls gateway/routers/*.py \| wc -l` |
+| Route decorators in `gateway/routers/*.py` | 333 | `cat gateway/routers/*.py \| grep -cE "^\s*@\w*router\.(get\|post\|put\|patch\|delete\|websocket\|api_route)\("` |
+| Pipeline stages | 12 | `ls stages` (`s01` to `s12`) |
+| Phase directories | 50 | `ls -d phases/p*/ \| wc -l` |
+| Tracked Python files under `phases/` | 378 | `git ls-files 'phases/*.py' \| wc -l` |
+| Test files | 217 | `git ls-files tests \| grep -cE "test_.*\.py$"` |
+| Tests collected by pytest | 1954 | `PYTHONPATH=/Users/apple/Desktop/wt3/a_docs python3.11 -m pytest --collect-only -q tests` (collection only) |
+| `def test_` lines in `tests/` | 1641 | `grep -rhoE "^\s*(async )?def test_" tests \| wc -l` (lower than 1954 because parametrized tests expand) |
+| Frontend source files in `dashboard/src` | 209 | `git ls-files dashboard/src \| grep -cE "\.(tsx\|jsx\|ts\|js)$"` |
+| Benchmark prompt files | 10 | `ls benchmarks/prompts \| wc -l` |
+| Python files over 600 lines | 4 | `git ls-files '*.py' \| xargs wc -l \| awk '$1>600 && $2!="total"'` (`orchestrator/factory_pipeline.py` 1202, `phases/p05_frontend/code_writer.py` 5792, `phases/p05_frontend/helpers.py` 601, `phases/p08_cicd/task_agent.py` 607) |
+| `dashboard/src/pages/ProjectView.jsx` lines | 457 | `wc -l` |
+| Bare `except:` lines | 2 | `git ls-files '*.py' \| xargs grep -nE "^\s*except\s*:"` (both are inside prompt example text: `core/prompt_compiler.py:273`, `phases/p04a_backend_codegen/prompts.py:89`) |
 
-## What was fixed across 4 output quality sessions (2026-07-20 to 2026-07-22)
+Last full test run: **1907 passed, 47 skipped**. This was reported by the integration run on branch r2/int. It was not re-run here. 1907 + 47 = 1954, which equals the collected count above.
 
-All items from `FIX_LIST.md` P0–P3 that are code-fixable without operator action are done. Summary:
-
-| Category | Items done | Notes |
-|----------|-----------|-------|
-| Security (S1–S4) | 4/4 | JWT secret purged from history, CORS hardened, ZT secret required, zero-trust wired |
-| Hygiene (H1–H5) | 5/5 | 403 screenshots/junk deleted, billing consolidated, dead aliases removed |
-| Code defects (C1–C8) | 6/8 | C1–C2/C4–C6 fixed; C3 (DB write amplification) and C7 (entity cap) fixed; C8 (inspect.signature hot path) fixed |
-| Output quality (Q1–Q12) | 12/12 | LLM-first page gen, compile-error loop, VLM critique, design tokens, seed data, TS scoring, benchmark harness |
-| Architecture (A1–A5, A7–A8, OD3) | 9/9 | pgvector migration, import cleanup, ProjectView split (2233L→429L), dead modules removed |
-| Docs (D1–D5) | 5/5 | DD doc regenerated (zero credentials), audit doc corrected |
+Not measured: test coverage percent, performance numbers, uptime, number of users or customers, number of generated apps, pass rate of generated apps.
 
 ---
 
-## Pipeline capabilities (code-confirmed, not marketing)
+## Known gaps (stated plainly)
 
-| Capability | Status | Evidence |
-|-----------|--------|---------|
-| FastAPI backend with auth (JWT RS256, bcrypt, refresh tokens) | ✅ Real | `gateway/` + `phases/p04a_backend_codegen/` |
-| React 18 / Vite / shadcn/ui frontend | ✅ Real | `phases/p05_frontend/code_writer.py` (35 generators) |
-| SQLAlchemy async ORM + Alembic migrations | ✅ Real | `core/db.py`, 56 migration files |
-| Multi-tenancy: org_id enforced at query level | ✅ Real + tested | `test_multi_tenancy.py` PASS |
-| LLM-first page generation with template fallback | ✅ Real | `phases/p05_frontend/llm_page_writer.py` |
-| Compile-error feedback loop (tsc+vite, max 3 rounds) | ✅ Real | `phases/p05_frontend/build_loop.py` |
-| VLM rubric critique (Gate-2 revision) | ✅ Real | `phases/p05_frontend/preview.py:vlm_rubric_critique()` |
-| Domain-specific design tokens (21 domains) | ✅ Real | `phases/p05_frontend/design_system.py` |
-| LLM-generated seed data (domain-plausible) | ✅ Real | `phases/p04a_backend_codegen/crud_generator_seed.py` |
-| pgvector embedding store (VECTOR(1536)) | ✅ Code done | Migration ready; needs `CREATE EXTENSION vector` on VPS |
-| Benchmark harness (buyer-runnable) | ✅ Real | `scripts/benchmark_harness.py` + `benchmarks/prompts/` |
-| Rate limiting, audit logging, CORS from env | ✅ Real | `core/rate_limiter.py`, `core/audit/` |
-| Kubernetes manifests (HPA, resource limits, non-root) | ✅ Real | `phases/p09_devops/` |
-| Compliance PDF generation | ✅ Real | `phases/p08_compliance/` |
-| Self-test report per run | ✅ Real | `phases/p06_testing/` |
+- **Nothing was run on real infrastructure in this work.** No real PostgreSQL, nginx, Helm, Docker build or real model run. The test suite uses test doubles and SQLite where it runs.
+- **CI on `main` is red.** The secret scan (gitleaks) fails until the owner rotates the secrets and rewrites git history.
+- **Git history still contains old secrets.** The rewrite is PENDING owner approval (KAN-175). Old JWT files and other secrets are still reachable in history. Rotation is tracked in KAN-173 and `docs/security/ROTATION_RUNBOOK.md`. A dry-run script exists at `scripts/security/history_rewrite_dryrun.sh`. Earlier versions of this document and of the due-diligence documents said history was purged. That was false.
+- **No external penetration test** (KAN-119).
+- **Legal documents are drafts** awaiting a lawyer (KAN-118). `IP_OWNERSHIP.md` is a declaration by the developer, not a legal opinion.
+- **Generated apps have open issues** (KAN-168, KAN-169). Examples from earlier audits that were not re-checked here: password reset in generated apps stores a token but does not send email (`phases/p04a_backend_codegen/helpers.py`), and preview apps use a fixed preview secret (`core/run_app/process_manager_helpers.py`).
+- **No certification.** There is no SOC 2, ISO 27001, HIPAA or GDPR certification or audit report for AetherOS. The code contains compliance checks and templates (for example `core/policy/compliance.py`, `core/compliance/`). That is not certification.
+- **SAML.** SAML code exists in `gateway/auth_saml.py` with a relay-state test in `tests/test_saml_relay_state.py`. A run against a real identity provider (Okta or other) is not recorded here. SCIM payload tests exist in `tests/test_scim_provisioning.py` and use simulated payloads.
+- **Not deployed here.** Whether a server is running, its uptime, and whether it is behind the code are not measured. No customers or users are claimed.
+- **No recorded end-to-end benchmark.** `benchmarks/results/` is empty at this commit. A benchmark harness (`scripts/benchmark_harness.py`) and 10 prompt files exist. No baseline scores are claimed.
+- **Model quality.** Output quality depends on the model configured. Earlier audits recorded that the operator environment ran on Amazon Nova models because the Anthropic path was blocked. The current environment is not measured here.
+- **Four files are over the repo's 600-line rule** (listed above). Two are pre-approved in `CLAUDE.md` (`code_writer.py`, `factory_pipeline.py`). `phases/p05_frontend/helpers.py` (601) and `phases/p08_cicd/task_agent.py` (607) are not.
+- **Earlier audit findings** (`docs/AUDIT_2026_08_08.md`, `PROJECT_STATE_AUDIT.md`) are historical. Current work is tracked in Jira project KAN. The owner register is KAN-204.
 
 ---
 
-## Active LLM runtime
+## What exists in the code (paths checked to exist at `e5c23fd`)
 
-Current production runs on **Amazon Bedrock** (Nova Pro / Nova Lite) due to an Anthropic payment instrument issue in the `.env`. Switching to Anthropic Claude (API key or fixed Bedrock credential) is the single highest-leverage quality improvement — no code change required.
+"Exists" means the file is in the repo. It does not mean it was run against real services.
 
----
+| Area | Where |
+|---|---|
+| Gateway (FastAPI) with auth, rate limiting, audit | `gateway/`, `core/rate_limiter.py`, `core/audit/` |
+| Database layer and migrations | `core/db.py`, `alembic/versions/` (79 files) |
+| Multi-tenant isolation test | `tests/test_multi_tenancy.py` |
+| LLM-first page writer with template fallback | `phases/p05_frontend/llm_page_writer.py` |
+| Compile-error loop | `phases/p05_frontend/build_loop.py` |
+| Visual critique function (earlier audit found it did not send the image; not re-checked here) | `phases/p05_frontend/preview.py` |
+| Design tokens | `phases/p05_frontend/design_system.py` |
+| Seed data generator | `phases/p04a_backend_codegen/crud_generator_seed.py` |
+| Frontend scorer | `core/quality/dimension_scorer_frontend.py` |
+| Benchmark harness | `scripts/benchmark_harness.py`, `benchmarks/prompts/` |
+| Kubernetes manifests | `deploy/kubernetes/` (not applied to any cluster in this work) |
+| Compliance report code | `core/compliance/pdf_report.py` |
+| CI workflows | `.github/workflows/ci.yml`, `.github/workflows/aetheros-generate.yml` |
 
-## What requires operator action before VPS deploy
-
-| Action | Who | Why |
-|--------|-----|-----|
-| `git push --force-with-lease origin main` | User confirms | History was rewritten (S1 — JWT purge); origin remote was removed |
-| Rotate all `.env` secrets | Operator | AWS key, `AETHER_SECRET_KEY`, `AETHER_ONE_ZT_SECRET`, SCIM token — all treated as exposed |
-| `CREATE EXTENSION IF NOT EXISTS vector;` on PostgreSQL | VPS operator | Required for pgvector A5 migration |
-| `alembic upgrade heads` on VPS | Operator | 56 migrations; `add_must_change_password` (V1) will break login if skipped |
-| Fix Anthropic payment instrument or add API key | Operator | Biggest quality lever; zero code change |
-| VPS: `git pull --force && systemctl restart aetheros` | Operator (DO console) | SSH blocked from dev machine |
-
----
-
-## What is NOT production-ready (honest accounting)
-
-| Item | Impact | Notes |
-|------|--------|-------|
-| Generated apps have broken password reset | Every generated app | `phases/p04a_backend_codegen/helpers.py:421` — token stored, email never sent |
-| Preview JWT secret is hardcoded in generated apps | Security | `core/run_app/process_manager_helpers.py:307` — `aetheros-preview-secret-not-for-production` |
-| Gallery (20 live demos) | Sale asset | Not yet built — needs frontier model key + compute |
-| E2E pipeline build verification | Confidence | Tests cover API/auth/multi-tenancy; full 12-phase pipeline E2E needs a paid LLM key |
-| VPS 30+ commits behind | Deploy | Not yet pulled; DO console required |
+Directories that an earlier version of this document cited and that do **not** exist: `phases/p06_testing`, `phases/p08_compliance`, `phases/p09_devops`. The nearest existing ones are `phases/p07_testing`, `phases/p06_review_security`, `phases/p08_cicd`.
 
 ---
 
-## Test suite status
+## What the operator must do before any deploy
 
-```
-647 passed, 0 failed, 3 skipped   ← verified 2026-07-22, HEAD 6b36410, 924s
-```
-
-All 4 tests that were failing at session start (auth regression from A2 import reorganization) are now fixed.
+| Action | Tracking |
+|---|---|
+| Approve and run the history rewrite, then force-push | KAN-175 |
+| Rotate every secret that was ever in the repo or in a local env file | KAN-173, `docs/security/ROTATION_RUNBOOK.md` |
+| `CREATE EXTENSION IF NOT EXISTS vector;` on PostgreSQL before the pgvector migration | not verified here |
+| `alembic upgrade heads` on the target database | not run here |
+| Provide a working model key | operator |
 
 ---
 
-*This document contains only claims verifiable from the current codebase. No marketing projections.*
+*Every number in this document has a command next to it. Anything not listed was not measured.*

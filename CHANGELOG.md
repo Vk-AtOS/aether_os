@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Pipeline checkpoint/resume**: Failed runs resume from last completed phase via `checkpoint_data` JSONB column on `runs` table; eliminates full restart on transient LLM failures
 - **Zero-trust identity module**: `core/identity/zero_trust.py` — HMAC-SHA256 signed tickets for agent-to-resource access authorisation
-- **Audit log hash-chaining**: `prev_hash` column on `audit_log` table; SOC 2 tamper evidence via SHA-256 chain
+- **Audit log hash-chaining**: `prev_hash` column on `audit_log` table; tamper evidence via SHA-256 chain (a control that can support SOC 2; AetherOS holds no SOC 2 certification)
 - **Codebase import**: Settings page allows importing an existing GitHub repository; stack detection wires into pipeline as pre-populated scaffold
 - **Audit log CSV export**: Admin endpoint `GET /admin/audit/export.csv` for compliance downloads
 - **p02b domain IR phase**: Normalised intermediate representation emitted between architecture and scaffolding phases; consumed by all downstream LLM prompts to avoid redundant domain re-detection
@@ -38,7 +38,7 @@ alembic upgrade add_pipeline_run_checkpoint
 
 ## [1.0.0] — 2026-06-01
 
-First stable release. All enterprise features complete, load-tested, and Playwright-verified.
+First stable release. (Original wording was "All enterprise features complete, load-tested, and Playwright-verified"; corrected 15 Nov 2026: completeness, load test and Playwright results are not recorded in this repository.)
 
 ### Added
 - **Project Designer**: Unified New Project wizard with HSL colour picker, tech-stack configurator, and designer_spec pipeline wiring (replaces legacy two-step wizard)
@@ -69,7 +69,7 @@ First stable release. All enterprise features complete, load-tested, and Playwri
 - SSE v2 token moved from URL query param to header (SEC fix)
 - Redis password enforcement and PostgreSQL port no longer host-exposed
 - asyncio.ensure_future loop= removed (Python 3.10+ compatibility)
-- All `datetime.utcnow()` replaced with timezone-aware `datetime.now(timezone.utc)`
+- `datetime.utcnow()` replaced with timezone-aware `datetime.now(timezone.utc)` in many places (correction, 15 Nov 2026: not all; `git ls-files '*.py' | xargs grep -n "utcnow()"` still finds uses, for example `core/context_helpers.py:63`)
 - Alembic heads merged and UNIQUE constraint on org/provider added for `org_api_keys`
 
 ### Security
@@ -83,7 +83,7 @@ First stable release. All enterprise features complete, load-tested, and Playwri
 - systemd service demoted from root to `aetheros` user with ProtectSystem=strict
 
 ### Performance
-- Load test: p95 = 240ms, 0% error rate at 50 concurrent users (Locust)
+- Load test: p95 = 240ms, 0% error rate at 50 concurrent users (Locust). Correction, 15 Nov 2026: no result file for this run is in the repository (`benchmarks/results/` is empty); the figure is not reproducible from the repo and is not measured. The load harness is in `tests/load/`
 - SQLite WAL mode + 22 explicit indexes on all high-traffic query patterns
 - PostgreSQL connection pool tuned: pool_size=3, max_overflow=7 per worker (safe under 100 max_connections default)
 
@@ -113,7 +113,7 @@ Initial public release of AetherOS — the autonomous, multi-tenant AI software 
 - Webhook delivery system with HMAC-SHA-256 signatures
 - Prometheus metrics, structlog structured logging, OTEL instrumentation
 - Bandit + Semgrep security scanning in CI pipeline
-- Load tested at p95 = 240 ms, 0% error rate, 50 concurrent users
+- Load harness in `tests/load/`. The earlier figure "p95 = 240 ms, 0% error rate, 50 concurrent users" has no recorded result in the repository and is not measured
 - PostgreSQL (asyncpg + SQLAlchemy async 2.0 + Alembic) as primary datastore
 - Redis message bus (RPUSH/BLPOP primary; asyncio.Queue fallback for single-process mode)
 - Systemd service unit, nginx reverse proxy config, certbot TLS, logrotate, fail2ban configs
@@ -138,7 +138,7 @@ Initial public release of AetherOS — the autonomous, multi-tenant AI software 
 
 ### Security
 - Zero-trust execution sandbox for generated-code subprocess invocation
-- Bare-except handlers replaced with specific exception catches across critical paths
+- Bare-except handlers replaced with specific exception catches across critical paths (at 15 Nov 2026 two bare `except:` lines remain, both inside prompt example text)
 - LangSmith telemetry gated behind explicit user consent
 - ARIA/WCAG 2.1 AA compliance applied to all dashboard components
 - Rate limiting hardened on all public auth endpoints

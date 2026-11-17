@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import asyncio
 from typing import Any, Dict
 
@@ -20,6 +21,14 @@ from aether_os.core.security.safe_http import UnsafeURL, check_url_shape, safe_r
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
+# Only real remotes: ssh://host/path or scp-style user@host:path. No http(s)/git/file/local paths.
+_SSH_REMOTE = re.compile(r"^(ssh://[A-Za-z0-9._@-]+(:\d+)?/[^\s]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s:][^\s]*)$")
+
+
+def _ssh_url_ok(url: str) -> bool:
+    return bool(_SSH_REMOTE.match(url)) and not url.startswith("-") and ".." not in url.split("/")
+
+
 router = APIRouter(tags=["factory"])
 
 
@@ -181,9 +190,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
 
     # SSRF/injection: SSH URLs must be actual git remotes, not file:// or local paths
     if rtype == "ssh":
-        _lower = url.lower()
-        if _lower.startswith("file://") or _lower.startswith("/") or _lower.startswith("../"):
-            raise HTTPException(status_code=422, detail="SSH url must be a remote git address, not a local path")
+        if not _ssh_url_ok(url):
+            raise HTTPException(status_code=422, detail="SSH url must be ssh://host/path or user@host:path")
 
     _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
                   "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
@@ -254,9 +262,11 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             with open(key_file, "w") as kf:
                 kf.write(ssh_key)
             os.chmod(key_file, 0o600)
-            env = {**os.environ, "GIT_SSH_COMMAND": f"ssh -i {key_file} -o StrictHostKeyChecking=no -o BatchMode=yes"}
+            # Gateway secrets must not reach git/ssh: minimal env only.
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmpdir, "GIT_SSH_COMMAND": f"ssh -i {key_file} -o StrictHostKeyChecking=no -o BatchMode=yes"}
             proc = await asyncio.create_subprocess_exec(
-                "git", "clone", "--depth=1", url, clone_dir,
+                "git", "-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always",
+                "clone", "--depth=1", "--", url, clone_dir,
                 env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -270,6 +280,9 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
                 for fn in files:
                     if fn.lower() in _KEY_FILES and found < max_files:
                         fpath = os.path.join(root, fn)
+                        # A cloned repo can hold symlinks to host files (e.g. /proc/self/environ).
+                        if os.path.islink(fpath) or not os.path.realpath(fpath).startswith(os.path.realpath(clone_dir) + os.sep):
+                            continue
                         try:
                             text = open(fpath, errors="ignore").read(3000)
                             rel = os.path.relpath(fpath, clone_dir)
