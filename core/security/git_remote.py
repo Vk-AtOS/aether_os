@@ -83,12 +83,27 @@ def check_ssh_remote(url: str) -> SshRemote:
     return SshRemote(host=host, port=port, address=addresses[0])
 
 
-def check_https_remote(url: str) -> str:
+@dataclass(frozen=True)
+class HttpsRemote:
+    url: str
+    host: str
+    addresses: tuple     # public addresses `host` resolved to at check time
+
+    def git_args(self) -> List[str]:
+        """`git -c` options that make git connect to the CHECKED addresses and nowhere else: curl is told
+        host:443:addresses (http.curloptResolve, git >= 2.37), so DNS is not asked again, while the URL keeps the host
+        name (SNI, Host header and certificate verification are unchanged). Redirects are not followed: a redirect
+        target would be resolved afresh and was never checked."""
+        addrs = ",".join(f"[{a}]" if ":" in a else a for a in self.addresses)
+        return ["-c", f"http.curloptResolve={self.host}:443:{addrs}", "-c", "http.followRedirects=false"]
+
+
+def check_https_remote_pinned(url: str) -> HttpsRemote:
     """The https counterpart of check_ssh_remote, for every clone or fetch of a user-supplied https URL: plain
     https on port 443, no credentials in the URL, a strict host name, and every address it resolves to public
-    (the same safe_http.resolve_public check). Blocking (DNS): call from a thread. Returns the stripped URL.
-    Raises UnsafeURL. Unlike ssh the connection cannot be pinned to the checked address, so DNS rebinding between
-    this check and git's own lookup is a known residual; the allow-list callers add on top narrows it."""
+    (the same safe_http.resolve_public check). The addresses that passed are returned with the URL; the caller runs
+    git with `git_args()` so the connection goes to them (resolved once, KAN-69). Blocking (DNS): call from a
+    thread. Raises UnsafeURL."""
     url = (url or "").strip()
     if not url or url.startswith("-") or len(url) > 1024 or any(c.isspace() or ord(c) < 32 for c in url):
         raise UnsafeURL("not a git https remote")
@@ -105,8 +120,13 @@ def check_https_remote(url: str) -> str:
     if not host:
         raise UnsafeURL("the remote has no host")
     _strict_host(host)
-    resolve_public(url)
-    return url
+    _, addresses = resolve_public(url)
+    return HttpsRemote(url=url, host=host, addresses=tuple(a.split("%", 1)[0] for a in addresses))
+
+
+def check_https_remote(url: str) -> str:
+    """check_https_remote_pinned for callers that only need the verdict; returns the stripped URL."""
+    return check_https_remote_pinned(url).url
 
 
 def ssh_command(key_file: str, remote: SshRemote) -> str:
