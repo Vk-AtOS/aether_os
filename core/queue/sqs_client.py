@@ -6,6 +6,8 @@ deferred so the rest of the platform starts fine without boto3 installed.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -14,6 +16,46 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 QUEUE_URL: str = os.environ.get("SQS_QUEUE_URL", "")
+
+
+_warned_unsigned: List[bool] = []
+
+
+def _sign_key() -> bytes:
+    return os.environ.get("SQS_JOB_HMAC_KEY", "").encode()
+
+
+def _canonical(payload: Dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+
+
+def _signature(payload: Dict[str, Any]) -> str:
+    return hmac.new(_sign_key(), _canonical(payload), hashlib.sha256).hexdigest()
+
+
+def seal_body(run_id: str, params: Dict[str, Any]) -> str:
+    """The message body. With SQS_JOB_HMAC_KEY set it carries `_sig`, an HMAC over everything else (KAN-69 SC-08):
+    anyone who can only SendMessage on the queue cannot make a worker start a run for another organisation."""
+    payload = json.loads(json.dumps({"run_id": run_id, **params}, default=str))
+    if _sign_key():
+        payload["_sig"] = _signature(payload)
+    return json.dumps(payload)
+
+
+def open_body(raw: str) -> Dict[str, Any]:
+    """The payload of a message, or ValueError when a key is configured and the signature is missing or wrong.
+    Without a key unsigned messages are accepted (the pre-existing behaviour) and a warning says so."""
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("job body is not an object")
+    sig = payload.pop("_sig", None)
+    if _sign_key():
+        if not isinstance(sig, str) or not hmac.compare_digest(sig, _signature(payload)):
+            raise ValueError("job signature missing or wrong")
+    elif not _warned_unsigned:
+        _warned_unsigned.append(True)
+        logger.warning("SQS: SQS_JOB_HMAC_KEY is not set, job bodies are not authenticated")
+    return payload
 
 
 def _client():
@@ -36,7 +78,7 @@ def send_pipeline_job(run_id: str, params: Dict[str, Any]) -> bool:
     if not queue_url:
         return False
     try:
-        body = json.dumps({"run_id": run_id, **params}, default=str)
+        body = seal_body(run_id, params)
         _client().send_message(
             QueueUrl=queue_url,
             MessageBody=body,
@@ -72,7 +114,7 @@ def receive_jobs(max_messages: int = 1, wait_seconds: int = 20) -> List[Dict[str
         jobs = []
         for msg in messages:
             try:
-                body = json.loads(msg["Body"])
+                body = open_body(msg["Body"])
                 run_id = body.pop("run_id", None) or msg.get("MessageAttributes", {}).get("run_id", {}).get("StringValue", "")
                 jobs.append({
                     "receipt_handle": msg["ReceiptHandle"],
@@ -82,7 +124,9 @@ def receive_jobs(max_messages: int = 1, wait_seconds: int = 20) -> List[Dict[str
                     "body": msg["Body"],
                 })
             except Exception as parse_exc:
-                logger.error("SQS message parse error: %s", parse_exc)
+                logger.error("SQS message refused (%s): parked in the DLQ", parse_exc)
+                if send_to_dlq(msg.get("Body", ""), f"refused: {parse_exc}"):
+                    delete_job(msg["ReceiptHandle"])
         return jobs
     except Exception as exc:
         logger.error("SQS receive_message failed: %s", exc)
