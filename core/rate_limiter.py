@@ -14,6 +14,8 @@ import uuid
 from collections import defaultdict
 from typing import Optional, TYPE_CHECKING
 
+from aether_os.core.resilience.redis_breaker import breaker_connection_class
+
 if TYPE_CHECKING:
     from starlette.requests import Request
 
@@ -102,7 +104,8 @@ async def _get_async_redis():
     try:
         import redis.asyncio as aioredis  # optional dependency — gracefully falls back to in-memory if not installed
         _async_redis_client = aioredis.Redis.from_url(
-            redis_url, decode_responses=True, socket_connect_timeout=2
+            redis_url, decode_responses=True, socket_connect_timeout=2,
+            connection_class=breaker_connection_class(),
         )
         await _async_redis_client.ping()
         _redis_available, _redis_retry_at = True, None

@@ -29,6 +29,7 @@ import redis.asyncio as aioredis
 from fastapi import HTTPException
 
 from aether_os.core.pipeline_state import REDIS_URL, get_redis
+from aether_os.core.resilience.redis_breaker import breaker_connection_class
 from aether_os.gateway.auth import create_access_token, create_refresh_token
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ async def _redis():
         return r
     loop = asyncio.get_running_loop()
     if _own_client is None or _own_client[0] is not loop:  # a client is bound to the loop that made it
-        _own_client = (loop, aioredis.from_url(REDIS_URL, decode_responses=True))
+        _own_client = (loop, aioredis.from_url(REDIS_URL, decode_responses=True, connection_class=breaker_connection_class()))
     return _own_client[1]
 
 
