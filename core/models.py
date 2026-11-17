@@ -619,3 +619,5 @@ def _fill_org_id_from_run(session: Session, flush_context, instances) -> None:
 
 
 from . import scim_models  # noqa: E402,F401  registers scim_groups / scim_group_members with Base
+
+from . import models_ops  # noqa: E402,F401  (registers webhook_outbox / notification_quiet_hours on Base.metadata)
