@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p08_cicd.generators import _generate_compliance_checker, _wire_prometheus_monitoring
 
@@ -99,22 +100,24 @@ class CICDAgent:
             if py_files:
                 try:
                     bandit_proc = await asyncio.create_subprocess_exec(
-                        "python3", "-m", "bandit", "-r", str(code_dir), "-f", "json", "-q",
+                        "python3", "-m", "bandit", *bandit_args(code_dir, "-q"),
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
                     bandit_stdout, _bandit_stderr = await asyncio.wait_for(
                         bandit_proc.communicate(), timeout=60
                     )
-                    if bandit_stdout:
-                        try:
-                            bandit_data = json.loads(bandit_stdout.decode())
-                            issues = bandit_data.get("results", [])
-                            high = [i for i in issues if i.get("issue_severity") == "HIGH"]
-                            results["security_issues"] = len(high)
-                            results["issues"] = [i.get("issue_text", "") for i in high[:5]]
-                        except Exception as _e:
-                            logger.warning("Failed to parse bandit JSON output: %s", _e)
+                    try:
+                        bandit_data = parse_bandit(bandit_stdout)
+                        issues = bandit_data.get("results", [])
+                        high = [i for i in issues if i.get("issue_severity") == "HIGH"]
+                        results["security_issues"] = len(high)
+                        results["issues"] = [i.get("issue_text", "") for i in high[:5]]
+                    except BanditScanError as _e:    # no report: the count below is unknown, not zero (KAN-69 SC-04)
+                        results["security_scan_incomplete"] = True
+                        logger.warning("[p08] bandit gave no usable report: %s", _e)
+                    except Exception as _e:
+                        logger.warning("Failed to read bandit report: %s", _e)
                 except asyncio.TimeoutError:
                     logger.warning("[p08] bandit scan timed out after 60s — skipping")
                 except Exception as _be:
