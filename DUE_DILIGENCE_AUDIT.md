@@ -1,3 +1,5 @@
+> **HISTORICAL RECORD. Audit dated 2026-07-20. Superseded.** All numbers and findings below are as of that date (about 748 Python files, 852 commits). Current state is in Jira project KAN (owner register KAN-204) and in `SALE_READINESS.md`, which has measured numbers at commit `e5c23fd` (15 Nov 2026: 1141 tracked Python files, 1237 commits). Correction to section 10 below: the "purge git history" priority is NOT done. The rewrite is pending owner approval (KAN-175); rotation is tracked in KAN-173. The Python line count in this audit (~143,800) is also not comparable to the current 181935.
+
 # AetherOS — Independent Due-Diligence Audit
 **Date:** 2026-07-20 · **Auditor:** Claude (full-codebase pass) · **Scope:** all first-party code, config, git history, docs, tests
 

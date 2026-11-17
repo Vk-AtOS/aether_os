@@ -174,6 +174,9 @@ async def update_marketplace_profile(
     body: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
+    # Profile text becomes run input for every installing org: same admin rule as delete/publish.
+    if user.get("role") not in ["owner", "admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     sf = get_session_factory()
     async with sf() as session:
         p = await session.get(MarketplaceProfile, profile_id)

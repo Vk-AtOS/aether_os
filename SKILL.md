@@ -1,8 +1,10 @@
 # aether_os — Claude Context File
-Last updated: 2026-04-29
+Last updated: 2026-04-29 (STALE: describes the project as of April 2026; corrected below on 15 Nov 2026)
+
+> Corrections at 15 Nov 2026, commit `e5c23fd`: the pipeline is 12 stages over 50 phase directories (`ls stages`, `ls -d phases/p*/`), not 10 phases; `tests/` has 217 test files and 1954 collected tests, not 61; `agents/` holds `base.py`, `implementations.py` and `tools/`, not p01 to p11 agents. Test results are in `SALE_READINESS.md`.
 
 ## What this project is
-AetherOS — Unified Multi-Agent Software Development System. Takes a software requirement and executes a full 10-phase development pipeline (Requirements → Architecture → Scaffold → Codegen → Review → Security → Testing → CI/CD → Docs → Package).
+AetherOS — Unified Multi-Agent Software Development System. Takes a software requirement and executes a development pipeline (as of April 2026: 10 phases; now 12 stages) (Requirements → Architecture → Scaffold → Codegen → Review → Security → Testing → CI/CD → Docs → Package).
 
 ## Tech stack
 - FastAPI (port 8080), Uvicorn/Gunicorn
@@ -15,20 +17,17 @@ AetherOS — Unified Multi-Agent Software Development System. Takes a software r
 
 ## Key file locations
 - `main.py` — Typer CLI entrypoint (start / demo / status commands)
-- `agents/` — individual phase agents (p01_requirements through p11_deployment)
+- `agents/` — base agent classes and tools (see correction above)
 - `core/` — errors, config, db, audit, policy, licensing, identity, approval
 - `gateway/` — FastAPI app, routes, client portal
 - `orchestrator/` — pipeline orchestration logic
 - `phases/` — phase definitions and execution
-- `tests/` — 61 tests (all passing as of 2026-04-19)
-- `COMPLETION_REPORT.md` — full file manifest and build notes
+- `tests/` — 61 tests as of 2026-04-19 (now 1954 collected)
 - `.env.example` — required env vars
 
 ## Current status
-- 61/61 tests passing
-- Most actively developed project (last commit 2026-04-29)
-- One modified file: `gateway/client_portal/routes.py`
-- Demo mode fully working: `python aether_os/main.py demo`
+- 61/61 tests passing as of 2026-04-19 (not current)
+- Status lines from April 2026 removed because they are not current and not measured (last commit, modified file, demo status).
 - API at http://0.0.0.0:8080
 
 ## What Claude CAN do in this project

@@ -1,11 +1,17 @@
 # Dashboard CI
 
-`.github/workflows/ci.yml` job `dashboard` runs `npm ci`, `npm run lint`, `npm test` (vitest, jsdom component
-tests in `dashboard/src/__tests__`) and `npm run build`. `npm ci` needs the committed
-`dashboard/package-lock.json` (the same install the Dockerfile, deploy.sh and setup_vps.sh use). Update it
-with `npm install` after changing package.json and commit both.
+`.github/workflows/ci.yml` job `dashboard` runs, in `dashboard/`: `npm ci --no-audit --no-fund`, `npm run lint`
+(eslint), `npm test` (`vitest run`; tests in `dashboard/src/__tests__`), `npm audit --omit=dev --audit-level=high`
+and `npm run build` (`vite build`). Every step is blocking.
 
-- `VITE_PREVIEW_FRAME_SRC` (build time) is the preview origin for the meta CSP `frame-src`; unset means previews are blocked (fails closed).
-- Browser click-through specs: `npm run test:e2e` (Playwright, `dashboard/e2e`); they stub the API, so they need only
-  `npx playwright install chromium`, no running backend. They are not in the default CI job (browser download); add a job when wanted.
-- `npm audit --audit-level=high --omit=dev` is the supply-chain check; run it where the network is available.
+`npm ci` needs the committed `dashboard/package-lock.json` (tracked in git). The `Dockerfile` (line 9),
+`deploy/deploy.sh` (line 72) and `deploy/setup_vps.sh` (line 77) use the same `npm ci`. After changing
+`package.json`, run `npm install` and commit both files.
+
+- `VITE_PREVIEW_FRAME_SRC` (build time) is the preview origin put into the meta CSP `frame-src` of
+  `dashboard/index.html` (`dashboard/vite.config.js:6-13`). Unset means `frame-src 'self'` only, so previews
+  are blocked.
+- Browser click-through specs: `npm run test:e2e` (Playwright, specs in `dashboard/e2e`). They are not in the CI
+  job. Whether they need a running backend or only `npx playwright install chromium`: not verified here.
+- The `npm audit` step needs network access; run it locally where the network is available.
+- Whether the job has ever run on GitHub: not verified.
