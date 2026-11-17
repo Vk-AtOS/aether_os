@@ -132,11 +132,26 @@ def check_paths_env_cmds(out, docs=None, src=None):
                         out.append(f"{doc}:{i}: python -m {mod} does not exist")
 
 
+def check_alembic_head(out):
+    """RUNBOOK says which revision is the single head; it must be the real one."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "alembic"))
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    for i, t, _ in lines("RUNBOOK.md"):
+        m = re.search(r"single head: `(\w+)`", t)
+        if m and heads != [m.group(1)]:
+            out.append(f"RUNBOOK.md:{i}: says the single head is {m.group(1)}; alembic heads are {heads}")
+
+
 def main():
     out = []
     if "--no-routes" not in sys.argv:
         check_routes(out)
     check_paths_env_cmds(out)
+    check_alembic_head(out)
     for o in out:
         print(o)
     print(f"check_docs: {len(out)} problem(s)")
