@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, text
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aether_os.core.db import Base
@@ -109,7 +109,7 @@ class PrimeCorrection(Base):
     on_behalf_of: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
     corrected_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    good_example: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("0"))
+    good_example: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     changed_outcome_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0,
                                                        server_default=text("0"))

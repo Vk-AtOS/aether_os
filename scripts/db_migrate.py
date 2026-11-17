@@ -3,11 +3,15 @@
 
     python -m aether_os.scripts.db_migrate        (or: python3.11 scripts/db_migrate.py)
 
-* EXISTING database (it has alembic_version or the runs table): `alembic upgrade head`.
-* EMPTY database: create the schema from the models (the same path init_db uses for throwaway databases) and
-  `alembic stamp head`. History is NOT replayed on an empty database: the chain was never run from nothing (the
-  baseline already contains columns that later revisions add, and one branch alters `organisations` before the other
-  creates it), so `alembic upgrade head` on a fresh Postgres fails; this was how a first `docker compose up` died.
+* EXISTING database (it has alembic_version or the runs table): `alembic upgrade head`, then core/schema_ddl.py is
+  re-applied (idempotent) so a database bootstrapped by an older version also gets the audit-ledger triggers.
+* EMPTY database: create_all from the models, core/schema_ddl.py (ledger triggers, extra indexes, pgvector), then
+  `alembic stamp head`. This is the ONLY supported way to build a database from nothing: `alembic upgrade head` cannot
+  replay the history on an empty database. Some of the reasons were repaired (a branch altered `organisations` before
+  the other created it; runs.org_id added twice; phase_configs key; alembic_version too narrow for the revision ids),
+  but encrypt_sensitive_columns still alters users.mfa_secret, a column no revision ever adds (it came from the
+  models), and reads org_api_keys, which a later revision creates. The same migrations on a production-shaped
+  database are unaffected.
 Exit 0 = the database is at head.
 """
 from __future__ import annotations
@@ -22,8 +26,10 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # the directory that contains the aether_os package
 
+from aether_os.core import schema_ddl  # noqa: E402
 from aether_os.core.db import _build_db_url, init_db  # noqa: E402
 
 logger = logging.getLogger("db_migrate")
@@ -54,6 +60,12 @@ def migrate() -> str:
         command.stamp(cfg, "head")
         return "created"
     command.upgrade(cfg, "head")
+    engine = create_engine(sync_url())
+    try:
+        with engine.begin() as conn:
+            schema_ddl.apply(conn)
+    finally:
+        engine.dispose()
     return "upgraded"
 
 
