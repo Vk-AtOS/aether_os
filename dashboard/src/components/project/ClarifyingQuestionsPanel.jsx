@@ -60,7 +60,7 @@ const ClarifyingQuestionsPanel = ({ runId, questions, answers, canRestart, onCha
           const id = `cq-${i}`;
           const hasOptions = Array.isArray(q.options) && q.options.length > 0;
           return (
-            <li key={path} className="bg-surface/50 border border-border rounded-lg p-4 space-y-1.5">
+            <li key={`${path}-${i}`} className="bg-surface/50 border border-border rounded-lg p-4 space-y-1.5">
               <label htmlFor={id} className="block text-sm font-medium text-bright">
                 {q.field_path && <span className="text-xs text-muted mr-2 font-mono">{q.field_path}</span>}
                 {q.question || 'No question text recorded.'}

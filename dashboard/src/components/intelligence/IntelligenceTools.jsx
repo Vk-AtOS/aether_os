@@ -114,6 +114,7 @@ export const ConflictResolverTool = () => {
   };
 
   const resolve = async (conflict_id) => {
+    if (!resolveText.trim()) { setResolveError('Write the resolution first.'); return; }
     setResolving(conflict_id);
     setResolveError('');
     try {

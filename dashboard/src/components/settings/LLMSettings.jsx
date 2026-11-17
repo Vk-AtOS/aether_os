@@ -24,7 +24,7 @@ export const ModelConfigPanel = ({
     </div>
     <div className="p-6 space-y-6">
       <p className="text-[11px] text-muted">
-        All models route through <span className="text-bright font-mono">openrouter.ai</span>. Copy any model ID from{' '}
+        These are OpenRouter model IDs, used when OpenRouter is the primary provider and as the fallback chain (with Bedrock as primary they are not used). Copy any model ID from{' '}
         <span className="text-accent font-mono">openrouter.ai/models</span> and paste it below.
         The fallback chain is cycled automatically when a model hits its rate limit.
       </p>
