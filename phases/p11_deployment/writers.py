@@ -85,7 +85,7 @@ def write_docker_compose(project_dir: Path, app_dir: Path) -> Path:
             build: {build_ctx}
             environment:
               DATABASE_URL: ${{DATABASE_URL:-sqlite:///./data/app.db}}
-              SECRET_KEY: ${{SECRET_KEY:-changeme-in-production-set-64-char-hex}}
+              SECRET_KEY: ${{SECRET_KEY:?set SECRET_KEY (64 hex chars) in .env}}
               REDIS_URL: ${{REDIS_URL:-redis://redis:6379}}
             ports:
               - "8000:8000"
