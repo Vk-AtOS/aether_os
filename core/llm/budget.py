@@ -14,6 +14,7 @@ Plan token budgets (per month):
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from typing import Dict, Optional, Tuple
@@ -30,6 +31,37 @@ _DOWNGRADE_THRESHOLD = 0.85   # switch to Haiku when >85% of budget used
 _ALERT_THRESHOLD     = 0.80   # alert once per org/month at 80%
 _BLOCK_THRESHOLD     = 1.00   # hard stop at 100% for every plan (D6)
 _alerted: set = set()
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def daily_cap_usd(monthly_cap: float) -> float:
+    """One organisation may spend at most LLM_DAILY_SHARE (default 0.25) of its monthly USD cap in one UTC day, but never
+    less than min(cap, $2): a looping agent cannot burn the month in a day, a normal first run is not blocked.
+    LLM_DAILY_SHARE=1 switches the daily limit off. The share is a default for the owner to review."""
+    share = max(0.0, min(1.0, float(os.environ.get("LLM_DAILY_SHARE", "0.25"))))
+    return max(monthly_cap * share, min(monthly_cap, 2.0))
+
+
+async def _daily_spent(session, org_id: str, day: str) -> float:
+    from aether_os.core.models_ops import LlmDailyUsage
+    from sqlalchemy import select
+    return (await session.execute(select(LlmDailyUsage.cost_usd).where(
+        LlmDailyUsage.org_id == org_id, LlmDailyUsage.day == day))).scalar() or 0.0
+
+
+async def _add_daily(session, org_id: str, day: str, cost: float) -> None:
+    from aether_os.core.models_ops import LlmDailyUsage as D
+    from sqlalchemy import update
+    if session.bind.dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    await session.execute(insert(D).values(id=str(uuid.uuid4()), org_id=org_id, day=day, cost_usd=0.0)
+                          .on_conflict_do_nothing(index_elements=["org_id", "day"]))
+    await session.execute(update(D).where(D.org_id == org_id, D.day == day).values(cost_usd=D.cost_usd + cost))
 
 
 async def _alert_80(org_id: str, month: str, pct: float, plan: str) -> None:
@@ -147,6 +179,13 @@ class TokenBudgetManager:
         if fraction >= _BLOCK_THRESHOLD:
             return False, (f"Monthly AI allowance exhausted (${spent:,.2f} of ${cap:,.2f}, "
                            f"{usage['total_tokens']:,}/{limit.tokens:,} tokens)"), "none"
+        daily_cap = daily_cap_usd(cap)
+        from aether_os.core.db import get_session_factory
+        async with get_session_factory()() as session:      # unreadable usage raises: the cap fails closed
+            today = await _daily_spent(session, org_id, _today())
+        if daily_cap > 0 and today + projected_cost_usd >= daily_cap and daily_cap < cap:
+            return False, (f"Daily AI allowance reached (${today:,.2f} of ${daily_cap:,.2f} today). "
+                           "It resets at 00:00 UTC, or ask an admin to raise the plan limit."), "none"
         if fraction >= _ALERT_THRESHOLD:
             await _alert_80(org_id, month, fraction, plan)
         if fraction >= _DOWNGRADE_THRESHOLD:
@@ -188,6 +227,7 @@ class TokenBudgetManager:
                         updated_at=time.time(),
                     )
                 )
+                await _add_daily(session, org_id, _today(), cost)
                 await session.commit()
         except Exception as exc:
             logger.warning("Budget record_usage failed (spend not recorded): %s", exc)
