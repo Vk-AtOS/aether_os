@@ -60,7 +60,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # nginx on the host is the only entry; Docker-published ports bypass ufw
     environment:
       DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/aether_os
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0
