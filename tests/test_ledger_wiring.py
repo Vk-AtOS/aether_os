@@ -44,6 +44,7 @@ async def world(ledger_sqlite, monkeypatch):
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (A, B)])
         await s.flush()
         s.add_all([User(id="u-alice", org_id=A, email=EMAIL, password_hash="x", role="owner"),
+                   User(id="u-owner2", org_id=A, email="owner2@example.test", password_hash="x", role="owner"),  # alice is not the last owner
                    User(id="u-mem", org_id=A, email="mem@example.test", password_hash="x"),
                    User(id="u-bob", org_id=B, email="bob@example.test", password_hash="x", role="admin")])
         await s.commit()

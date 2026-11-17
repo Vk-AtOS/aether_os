@@ -69,7 +69,7 @@ def gw(tmp_path_factory):
             )
 
         def register(name):
-            email = f"{name}_{uuid.uuid4().hex[:10]}@test.com"
+            email = f"{name}_{uuid.uuid4().hex[:10]}@test.com".lower()      # the API stores e-mails lower case
             resp = client.post("/auth/register", json={
                 "email": email, "password": _PASSWORD, "org_name": name,
                 "terms_accepted": True, "dpa_accepted": True,
