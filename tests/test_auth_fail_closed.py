@@ -87,6 +87,7 @@ async def _raise_503(*_a, **_k):
 
 def test_account_deletion_ends_every_session_or_does_nothing(gw, monkeypatch):
     user = gw.register("deleteme")
+    gw.user_with_role("owner", user.org_id)      # the last owner may not delete the account
     other_session = gw.login(user.email)
 
     async def cannot_revoke(_user_id, keep_family=None):
