@@ -122,3 +122,13 @@ def test_generate_workflow_is_hardened():
     assert any("checkout" in s.get("uses", "") for s in job["steps"])
     assert "maintainer-approved" in job["if"]
     assert "UNTRUSTED" in text and "${{ github.event.issue.body }}" not in text.split("run:")[1]
+
+
+def test_api_is_published_on_loopback_only():
+    # KAN-69 SC-02: `8000:8000` binds 0.0.0.0 and Docker-published ports bypass ufw, so the API was reachable
+    # without nginx (no TLS, no rate limits, spoofable X-Forwarded-For).
+    for name in ("docker-compose.yml", "docker-compose.staging.yml"):
+        compose = yaml.safe_load((ROOT / name).read_text())
+        for ports in (svc.get("ports", []) for svc in compose["services"].values()):
+            for p in ports:
+                assert str(p).startswith("127.0.0.1:"), f"{name}: {p} is published on every interface"
