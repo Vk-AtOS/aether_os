@@ -20,7 +20,7 @@ This file was checked against the code at commit `e5c23fd`. Commands that depend
 
 ## 0. Database Migrations
 
-The Alembic history has a single head: `merge_r2_heads` (`python3.11 -m alembic heads` prints `merge_r2_heads (head)`). It merges four earlier heads: `add_org_onboarding`, `add_prime_corrections`, `pgvector_backfill_and_index`, `scim_token_lookup` (`alembic/versions/merge_r2_heads_merge_r2_integration_heads.py:3`). `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
+The Alembic history has a single head: `merge_r3_heads` (`python3.11 -m alembic heads` prints `merge_r3_heads (head)`). It merges two earlier heads: `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
 
 Use the one migration command the project uses everywhere (`scripts/db_migrate.py`, called by `deploy/deploy.sh:52`, compose service `migrate`):
 
@@ -169,7 +169,7 @@ systemctl restart aetheros
 alembic history --verbose | head -20
 alembic downgrade -1
 ```
-Whether every revision has a working `downgrade()` was not verified. `merge_r2_heads` itself is an empty merge.
+Whether every revision has a working `downgrade()` was not verified. `merge_r3_heads` itself is an empty merge.
 
 ### Check after rollback
 ```bash

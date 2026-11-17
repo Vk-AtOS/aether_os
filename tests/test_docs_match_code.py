@@ -12,6 +12,7 @@ def test_docs_match_code():
     out = []
     check_docs.check_routes(out)
     check_docs.check_paths_env_cmds(out)
+    check_docs.check_alembic_head(out)
     assert not out, "\n".join(out)
 
 
