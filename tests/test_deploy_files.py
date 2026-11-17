@@ -132,3 +132,13 @@ def test_api_is_published_on_loopback_only():
         for ports in (svc.get("ports", []) for svc in compose["services"].values()):
             for p in ports:
                 assert str(p).startswith("127.0.0.1:"), f"{name}: {p} is published on every interface"
+
+
+def test_velaris_services_get_the_vault_key_file_outside_the_data_volume():
+    # KAN-69 VP-1: without a vault key the shipped profile failed closed for HR, mail and chat, and operators
+    # tended to put the key into the data volume.
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    for name in ("velaris", "velaris_public"):
+        svc = compose["services"][name]
+        assert svc["environment"]["VELARIS_VAULT_KEY_FILE"] == "/run/vault/vault.key", name
+        assert any(v.endswith("/run/vault/vault.key:ro") and not v.startswith("velaris_data") for v in svc["volumes"]), name
