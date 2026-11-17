@@ -26,7 +26,7 @@ from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter as _get_
 from aether_os.gateway.auth import verify_password, get_password_hash
 from aether_os.gateway.auth_refresh import revoke_user_sessions
 from aether_os.gateway import password_history
-from sqlalchemy import select
+from sqlalchemy import func, select
 import secrets
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -95,7 +95,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
         )
     session_factory = get_session_factory()
     async with session_factory() as session:
-        stmt = select(User).where(User.email == req.email)
+        stmt = select(User).where(func.lower(User.email) == req.email.strip().lower())
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
         if user:
