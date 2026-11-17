@@ -152,3 +152,13 @@ def test_screen_fields_are_the_arguments_velaris_takes(velaris):
             if "_extra" in fields or any(f.get("type") == "json" and f["name"] == "_extra" for f in sec.get("fields", [])):
                 bad.append(f"{s['id']}: catch-all JSON field")
     assert not bad, "\n".join(bad)
+
+
+def test_every_velaris_agent_is_on_hr_or_on_the_generic_list(velaris):
+    """KAN-69 VP-4: a new Velaris agent must be put on /hr or on the generic allow-list on purpose; HR and generic
+    never overlap (an HR agent on the generic route would be a second, weaker door)."""
+    from aether_os.gateway.velaris_generic_agents import GENERIC_AGENTS
+    from aether_os.gateway.velaris_hr_table import HR_ALLOW
+    agents = {k.split(".")[0] for k in velaris["methods"]}
+    assert not (set(HR_ALLOW) & GENERIC_AGENTS)
+    assert agents - set(HR_ALLOW) - GENERIC_AGENTS == set(), "unlisted Velaris agents"

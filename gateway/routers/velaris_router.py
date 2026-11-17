@@ -21,7 +21,7 @@ from aether_os.core.velaris.identity import identity_for_user
 from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.velaris_proxy import guard_args
-from aether_os.gateway.velaris_hr_table import HR_ALLOW
+from aether_os.gateway.velaris_generic_agents import GENERIC_AGENTS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/velaris", tags=["velaris"])
@@ -89,11 +89,11 @@ async def _ledger_after(who: Identity, action: str, outcome: str, detail: Dict[s
 
 
 def _served_elsewhere(agent: str, method: str) -> bool:
-    """Every HR agent is served by /hr, and only there (KAN-199): its table carries the role check, the typed
-    confirmation for export and erasure, the caps and the ledger rules, and a second route to the same methods
-    would be a second, weaker door. Agent names are upper case in Velaris; compare upper-cased so a case
-    variant cannot slip past."""
-    return agent.upper() in HR_ALLOW
+    """The generic route is an ALLOW-list (KAN-69 VP-4): only an agent named in GENERIC_AGENTS passes. Every HR
+    agent is served by /hr, and only there (KAN-199: role check, typed confirmation, caps, ledger rules), and a
+    new Velaris agent is unreachable here until someone lists it, so a missing table row can never open a door.
+    Exact, case-sensitive match: Velaris agent names are upper case."""
+    return agent not in GENERIC_AGENTS
 
 
 def _checked_tools(tools: Any) -> list:

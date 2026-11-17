@@ -58,11 +58,11 @@ class FakeVelaris:
         p = req.url.path
         if p == "/agents" and req.method == "GET":
             return httpx.Response(200, json=self.agents)
-        if p == "/agents/LEAVE/apply":
+        if p == "/agents/LOGISTA/apply":
             return httpx.Response(202, json={"kind": "act", "approval": "prime", "run": self.run})
-        if p == "/agents/PAY/get":
+        if p == "/agents/TACTICIAN/get":
             return httpx.Response(200, json={"kind": "read", "result": {"ok": True}})
-        if p == "/agents/PAY/secret":
+        if p == "/agents/TACTICIAN/secret":
             return httpx.Response(403, json={"error": {"code": "access_denied", "message": "no",
                                                        "trace": "Traceback (most recent call last)"}})
         if p == "/flows/pending":
@@ -125,7 +125,7 @@ async def test_agents_lists_the_catalogue(http, velaris):
 
 async def test_read_call_is_200_and_identity_comes_from_the_database(http, velaris):
     # Alice is an owner in the database; nothing the request says can change that.
-    r = await http.post("/velaris/agents/PAY/get", json={"employee_id": "e1", "roles": ["x"]},
+    r = await http.post("/velaris/agents/TACTICIAN/get", json={"employee_id": "e1", "roles": ["x"]},
                         headers={"X-Caller-Roles": "hr_admin", "X-Velaris-Identity": "forged",
                                  "X-Caller-Id": "root"})
     assert r.status_code == 200 and r.json()["result"] == {"ok": True}
@@ -141,18 +141,18 @@ async def test_role_comes_from_the_row_not_the_token(http, velaris):
         await s.execute(update(User).where(User.id == DAVE).values(role="viewer"))
         await s.commit()
     http.who["user"] = {**MEMBER, "role": "owner"}          # a stale/forged token claim
-    assert (await http.post("/velaris/agents/PAY/get", json={})).status_code == 403  # viewer cannot act
+    assert (await http.post("/velaris/agents/TACTICIAN/get", json={})).status_code == 403  # viewer cannot act
     assert (await http.get("/velaris/agents")).status_code == 200                    # but may look
     assert velaris.seen[-1]["claims"]["roles"] == []
 
 
 async def test_act_call_is_202_pending_approval(http, velaris):
-    r = await http.post("/velaris/agents/LEAVE/apply", json={"days": 2})
+    r = await http.post("/velaris/agents/LOGISTA/apply", json={"days": 2})
     assert r.status_code == 202 and r.json()["run"]["status"] == "waiting_approval"
 
 
 async def test_velaris_error_passes_through_without_extras(http, velaris):
-    r = await http.post("/velaris/agents/PAY/secret", json={})
+    r = await http.post("/velaris/agents/TACTICIAN/secret", json={})
     assert r.status_code == 403 and r.json() == {"error": {"code": "access_denied", "message": "no"}}
 
 
@@ -187,7 +187,7 @@ async def test_endpoints_need_a_token():
     app.include_router(velaris_router.router)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         for method, path in (("GET", "/velaris/agents"), ("GET", "/velaris/inventory"),
-                             ("POST", "/velaris/agents/A/b"), ("GET", "/velaris/flows/pending"),
+                             ("POST", "/velaris/agents/TACTICIAN/b"), ("GET", "/velaris/flows/pending"),
                              ("POST", "/velaris/flows"), ("GET", "/velaris/flows/r1")):
             assert (await c.request(method, path)).status_code == 401, path
 
@@ -205,7 +205,7 @@ async def test_generic_route_cannot_reopen_what_the_hr_proxy_leaves_out(http, ve
     for agent, method in (("EMPLOYEE_RECORDS", "erase_subject"), ("EMPLOYEE_RECORDS", "export_subject"),
                           ("ATS_CORE", "erase_candidates"), ("ATS_CORE", "export_candidate")):
         assert (await http.post(f"/velaris/agents/{agent}/{method}", json={})).status_code == 404
-    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["PAY.get", "EMPLOYEE_RECORDS.erase_subject"]})
+    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["TACTICIAN.get", "EMPLOYEE_RECORDS.erase_subject"]})
     assert r.status_code == 400 and "EMPLOYEE_RECORDS.erase_subject" in r.json()["detail"]
     assert (await http.post("/velaris/agents/employee_records/erase_subject", json={})).status_code == 404
     # the flow tool list fails closed: anything that is not a list of AGENT.method names is refused
@@ -215,17 +215,17 @@ async def test_generic_route_cannot_reopen_what_the_hr_proxy_leaves_out(http, ve
     assert velaris.seen == []
     # every HR agent is /hr-only, even for methods /hr allows; an agent /hr does not serve still passes through
     assert (await http.post("/velaris/agents/EMPLOYEE_RECORDS/get_employee", json={})).status_code == 404
-    assert (await http.post("/velaris/agents/PAY/get", json={})).status_code == 200
-    assert [s["path"] for s in velaris.seen] == ["/agents/PAY/get"]
+    assert (await http.post("/velaris/agents/TACTICIAN/get", json={})).status_code == 200
+    assert [s["path"] for s in velaris.seen] == ["/agents/TACTICIAN/get"]
 
 
 async def test_flows(http, velaris):
     assert (await http.get("/velaris/flows/pending")).json()["approval"] == "prime"
     assert (await http.get("/velaris/flows/run1")).json()["run_id"] == "run1"
     assert (await http.get("/velaris/flows/other")).status_code == 404
-    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["A.b"]})
+    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["TACTICIAN.b"]})
     assert r.status_code == 404      # the fake knows no POST /flows; the call was forwarded signed
-    assert velaris.seen[-1]["body"] == {"task": "t", "tools": ["A.b"]}
+    assert velaris.seen[-1]["body"] == {"task": "t", "tools": ["TACTICIAN.b"]}
 
 
 # ── executor ──────────────────────────────────────────────────────────────────
@@ -392,3 +392,11 @@ async def test_authorize_read_fails_closed_when_the_ledger_is_down(svc, velaris,
     with pytest.raises(HTTPException) as e:
         await service_api.authorize_read(read(ALICE), user=API_KEY)
     assert e.value.status_code == 503
+
+
+async def test_generic_route_is_an_allow_list(http, velaris):
+    # KAN-69 VP-4: an agent that nobody listed (a new HR agent missing from the table, a typo) is not reachable
+    assert (await http.post("/velaris/agents/BRAND_NEW_AGENT/read_all", json={})).status_code == 404
+    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["BRAND_NEW_AGENT.read_all"]})
+    assert r.status_code == 400
+    assert velaris.seen == []
