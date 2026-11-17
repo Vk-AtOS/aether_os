@@ -24,7 +24,7 @@ from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
 from aether_os.gateway.auth_refresh import issue_token_pair, revoke_session
 from aether_os.gateway.auth import get_password_hash, create_access_token
 from aether_os.gateway.auth import verify_password
-from sqlalchemy import select
+from sqlalchemy import func, select
 import os as _os
 import secrets
 logger = logging.getLogger(__name__)
@@ -52,6 +52,18 @@ class LoginResponse(BaseModel):
     plan: str = ""
     mfa_required: bool = False
     mfa_token: Optional[str] = None
+# bcrypt of a random password nobody knows: an unknown e-mail costs the same time as a wrong password, so the
+# response time does not tell whether the account exists (KAN-69 F17)
+_DUMMY_HASH = ""
+
+
+def _dummy_hash() -> str:
+    global _DUMMY_HASH
+    if not _DUMMY_HASH:
+        _DUMMY_HASH = get_password_hash(secrets.token_urlsafe(16))
+    return _DUMMY_HASH
+
+
 def _auth():
     return Depends(get_current_user)
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -80,7 +92,9 @@ async def register(req: RegisterRequest, request: Request) -> LoginResponse:
     session_factory = get_session_factory()
     async with session_factory() as session:
         # Check if email exists
-        stmt = select(User).where(User.email == req.email)
+        # e-mail addresses are case-insensitive: Bob@x.io and bob@x.io must not be two accounts
+        req.email = req.email.strip().lower()
+        stmt = select(User).where(func.lower(User.email) == req.email)
         result = await session.execute(stmt)
         if result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Email already registered")
@@ -172,12 +186,18 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
     if not await rl.check_login_attempts(client_ip):
         raise HTTPException(status_code=429, detail="Too many login attempts. Please wait 15 minutes before trying again.")
     user_agent = request.headers.get("User-Agent", "-")
+    # a second counter per account: a botnet rotating addresses still gets only a few guesses at one password
+    email_key = f"email:{req.email.strip().lower()}"
+    if not await rl.check_login_attempts(email_key):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please wait 15 minutes before trying again.")
     session_factory = get_session_factory()
     async with session_factory() as session:
-        stmt = select(User, Organisation).join(Organisation).where(User.email == req.email)
+        stmt = select(User, Organisation).join(Organisation).where(func.lower(User.email) == req.email.strip().lower())
         result = await session.execute(stmt)
         row = result.fetchone()
         if not row:
+            await asyncio.get_running_loop().run_in_executor(None, verify_password, req.password, _dummy_hash())
+            await rl.record_login_attempt(email_key)
             asyncio.create_task(get_ledger().async_log_audit_event(
                 org_id="-", user_id="-", action="login_failed",
                 metadata={"email": req.email, "reason": "user_not_found"},
@@ -190,6 +210,7 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
         loop = asyncio.get_running_loop()
         pw_ok = await loop.run_in_executor(None, verify_password, req.password, row[0].password_hash)
         if not pw_ok:
+            await rl.record_login_attempt(email_key)
             asyncio.create_task(get_ledger().async_log_audit_event(
                 org_id=row[1].id, user_id=row[0].id, action="login_failed",
                 metadata={"email": req.email, "reason": "invalid_password"},

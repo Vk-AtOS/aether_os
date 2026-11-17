@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.security.git_remote import check_https_remote
 from aether_os.phases.p03_scaffolding.validation import safe_project_name, validate_clone_url
 from aether_os.core.llm.client import get_llm_client
 from aether_os.core.context_helpers import record_decision
@@ -389,7 +390,7 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://appuser:${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}@db:5432/{project_name.lower()}
       SECRET_KEY: ${{SECRET_KEY}}
@@ -442,7 +443,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if github_url:
         try:
             validate_clone_url(github_url)
-        except ValueError as exc:
+            # the host allow-list alone is not enough (a listed host is not a promise about its DNS, and the list
+            # is configurable): the shared public-address check, as the intake router does (KAN-69)
+            await asyncio.to_thread(check_https_remote, github_url)
+        except ValueError as exc:      # UnsafeURL is a ValueError
             logger.warning("p03: github_url refused: %s", exc)
             return TaskResult(output_path=str(output_dir), confidence=0.0, success=False,
                               issues=[f"github_url refused: {exc}"])

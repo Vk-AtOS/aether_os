@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 
 from aether_os.core.domain_ir import AetherType, DomainIR, IRField
+from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields
 
 # ---------------------------------------------------------------------------
 # seed.py generator  (Gap 1 — realistic deterministic data, no LLM needed)
@@ -210,7 +211,7 @@ def generate_seed_py(
         lines.append(f"        {rows_var} = [")
         for idx in range(20):
             field_parts = []
-            for f in entity.fields:
+            for f in client_fields(entity, multi_tenancy):
                 if f.name in ("id", "created_at", "updated_at"):
                     continue
                 val = _seed_value(

@@ -21,7 +21,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.models import User, Organisation
 from aether_os.core.rate_limiter import get_client_ip, _get_async_redis, _redis_get_count, _redis_incr_window
 from aether_os.gateway.auth_refresh import _redis as token_store, issue_token_pair
-from aether_os.gateway.auth import decode_bearer_token
+from aether_os.gateway.auth import decode_bearer_token, verify_password
 from sqlalchemy import select
 import pyotp  # optional dependency — only used when MFA is enabled; not installed in all deployments
 logger = logging.getLogger(__name__)
@@ -71,9 +71,26 @@ class MfaSetupResponse(BaseModel):
     secret: str
 class MfaCodeRequest(BaseModel):
     code: str
+class MfaDisableRequest(BaseModel):
+    code: str
+    password: str
 class MfaConfirmRequest(BaseModel):
     mfa_token: str
     code: str
+async def _check_second_factor_code(user, code: str) -> None:
+    """A signed-in caller proving a TOTP code (setup, disable): same per-user attempt counter as the login
+    confirm, wrong codes are recorded, and a spent code cannot be replayed (KAN-69 F11)."""
+    key = f"user:{user.id}"
+    if not await _check_mfa_attempts(key):
+        raise HTTPException(status_code=429, detail="Too many MFA attempts. Please wait before trying again.")
+    if not _get_totp(user.mfa_secret).verify(code, valid_window=1):
+        await _record_mfa_attempt(key)
+        raise HTTPException(status_code=400, detail="Invalid TOTP code.")
+    if not await _claim_totp_code(user.id, code):
+        await _record_mfa_attempt(key)
+        raise HTTPException(status_code=400, detail="TOTP code has already been used.")
+
+
 def _get_totp(secret: str):
     try:
         return pyotp.TOTP(secret)
@@ -116,19 +133,17 @@ async def mfa_verify_setup(
             raise HTTPException(status_code=400, detail="MFA setup not initiated. Call /auth/mfa/setup first.")
         if user.mfa_enabled:
             raise HTTPException(status_code=400, detail="MFA is already enabled.")
-        totp = _get_totp(user.mfa_secret)
-        if not totp.verify(body.code, valid_window=1):
-            raise HTTPException(status_code=400, detail="Invalid TOTP code. Check your authenticator app.")
+        await _check_second_factor_code(user, body.code)
         user.mfa_enabled = True
         await session.commit()
     return {"message": "MFA enabled successfully"}
 # ── Disable ───────────────────────────────────────────────────────────────────
 @mfa_router.post("/disable")
 async def mfa_disable(
-    body: MfaCodeRequest,
+    body: MfaDisableRequest,
     user_claims: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, str]:
-    """Verify current TOTP code then disable MFA on the account."""
+    """Verify the password and the current TOTP code, then disable MFA on the account."""
     user_id = user_claims.get("user_id")
     sf = get_session_factory()
     async with sf() as session:
@@ -137,9 +152,11 @@ async def mfa_disable(
             raise HTTPException(status_code=404, detail="User not found")
         if not user.mfa_enabled or not user.mfa_secret:
             raise HTTPException(status_code=400, detail="MFA is not enabled on this account.")
-        totp = _get_totp(user.mfa_secret)
-        if not totp.verify(body.code, valid_window=1):
-            raise HTTPException(status_code=400, detail="Invalid TOTP code.")
+        # a stolen access token alone must not be able to switch the second factor off
+        if not verify_password(body.password, user.password_hash):
+            await _record_mfa_attempt(f"user:{user.id}")
+            raise HTTPException(status_code=403, detail="Wrong password.")
+        await _check_second_factor_code(user, body.code)
         user.mfa_enabled = False
         user.mfa_secret = None
         await session.commit()
