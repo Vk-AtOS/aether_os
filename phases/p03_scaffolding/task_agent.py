@@ -389,7 +389,7 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://appuser:${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}@db:5432/{project_name.lower()}
       SECRET_KEY: ${{SECRET_KEY}}
