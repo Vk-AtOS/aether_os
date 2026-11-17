@@ -42,7 +42,7 @@ For "Build a SaaS CRM with contact management and a deal pipeline", the output i
 - **MessageBus**: phases communicate exclusively through Redis RPUSH/BLPOP. The orchestrator never calls phase logic directly — it only reads and writes to the bus. This makes phases independently testable and swappable.
 - **Multi-tenancy**: every DB query filters by `org_id`. An `X-Org-ID` header is enforced in middleware. A failing row-level check is a 403, not a data leak.
 - **LLM routing**: Anthropic Claude primary → Google Gemini secondary → OpenRouter → Ollama. Each tier is gated behind an env var. Failover is automatic within a phase; the system doesn't retry across phases.
-- **Sandbox**: generated code that runs (in p07 testing and FDE run-app) goes through a sandbox guard that strips dangerous imports and blocks filesystem writes outside the project directory.
+- **Sandbox**: generated code that runs (in p07 testing and FDE run-app) runs in a Docker container (non-root, capabilities dropped, read-only root, no network for builds and tests).
 - **Self-healing loop**: p07b runs a patch agent that reads the failing test output, generates a targeted fix, applies it, and re-runs the test. It has a configurable iteration limit to prevent infinite loops.
 
 **Limitations I want to be honest about**

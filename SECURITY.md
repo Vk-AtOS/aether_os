@@ -137,8 +137,7 @@ ledger can be erased on account or organisation deletion (`core/audit/deletion.p
 `core/sandbox/docker_backend.py`: one Docker container per command; non-root user, `--cap-drop ALL`,
 `no-new-privileges`, default seccomp profile, read-only root filesystem, memory, CPU, pid and file limits, an
 allow-listed environment, no network for builds and tests, a firewalled egress network for package installs.
-`core/sandbox/guard.py` is a separate regex check for forbidden calls (`os.system`, `subprocess`, `exec`) and a
-path check; it is a filter, not isolation. Whether the host firewall is applied on any deployed host:
+The host-side regex filter and the two host-execution helpers that had no caller were deleted (KAN-69 SC-05). Whether the host firewall is applied on any deployed host:
 not verified (`core/sandbox/isolation_probe.py` exists to check this at run time).
 
 ### Data retention

@@ -124,7 +124,7 @@ Classes: `PreFlightCouncil`, `BackendAuditCouncil`, `FrontendAuditCouncil`, `Del
 
 ### Sandbox (`core/sandbox/`)
 
-Generated code runs through `SandboxRunner`, chosen by `AETHER_SANDBOX` (`core/sandbox/runner.py:158`). A Docker backend (`docker_backend.py`) and a macOS `sandbox-exec` backend (`macos_backend.py`) exist. In production only `docker` is allowed. `none` needs `AETHER_SANDBOX_ALLOW_NONE=1` and is for development only. `manager.py` also has optional SSH execution through paramiko.
+Generated code runs through `SandboxRunner`, chosen by `AETHER_SANDBOX` (`core/sandbox/runner.py:158`). A Docker backend (`docker_backend.py`) and a macOS `sandbox-exec` backend (`macos_backend.py`) exist. In production only `docker` is allowed. `none` needs `AETHER_SANDBOX_ALLOW_NONE=1` and is for development only.
 
 ### Plugins (`core/plugins/`)
 
