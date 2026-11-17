@@ -3,7 +3,10 @@ P04b Business Logic Layer — Logic Generators.
 Real functional scaffolds for Email, Payments, and Storage.
 """
 import json
+import re
 from typing import Dict
+
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 def _step_name(step) -> str:
     if isinstance(step, dict):
@@ -12,6 +15,8 @@ def _step_name(step) -> str:
 
 def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
     """Generate a Python StateMachine class for a workflow with role checks."""
+    if not _IDENT.match(entity_name or ""):      # it becomes a class name and sits inside a quoted log message
+        raise ValueError(f"unsafe workflow entity name {str(entity_name)[:40]!r}")
     raw_steps = workflow.get("steps", [])
     steps = [_step_name(s) for s in raw_steps]
 
