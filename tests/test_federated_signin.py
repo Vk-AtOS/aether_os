@@ -90,3 +90,22 @@ def test_oauth_callback_needs_the_cookie_of_the_browser_that_started_the_flow(gw
     gw.client.cookies.clear()                      # the victim's browser never started the flow
     r = gw.client.get(f"/auth/oauth/google/callback?code=c&state={state}", follow_redirects=False)
     assert "mismatch" in urllib.parse.unquote(r.headers["location"])
+
+
+def test_per_org_idp_users_are_unverified_and_cannot_be_linked_by_oauth(gw):
+    """KAN-69 F5: an org admin's own IdP could assert victim@gmail.com as verified, and the victim's later
+    Google sign-in then landed in that org."""
+    import pytest
+    from fastapi import HTTPException
+    from aether_os.gateway.auth_saml import _resolve_saml_user
+    owner = gw.register("idporg")
+    gw.sql("INSERT INTO saml_configs (id, org_id, idp_entity_id, idp_sso_url, idp_cert, created_at) "
+           "VALUES ('c1', ?, 'e', 'https://idp.example/sso', 'x', '2026-01-01')", (owner.org_id,))
+    victim = "victim_idp@gmail.test"
+    user, _ = asyncio.run(_resolve_saml_user(victim, owner.org_id))
+    assert user.email_verified is False and user.role == "member"
+    again, _ = asyncio.run(_resolve_saml_user(victim, owner.org_id))        # its own IdP keeps signing it in
+    assert again.id == user.id
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(auth_oauth._upsert_oauth_user(victim))
+    assert ei.value.status_code == 403

@@ -108,6 +108,12 @@ def _redirect_with_error(message: str) -> RedirectResponse:
     )
 
 
+async def _org_has_own_idp(session, org_id: str) -> bool:
+    from aether_os.core.models import SamlConfig
+    from sqlalchemy import select
+    return (await session.execute(select(SamlConfig.id).where(SamlConfig.org_id == org_id))).first() is not None
+
+
 async def _upsert_oauth_user(email: str):
     """Find or create User + Organisation for the given OAuth email. Returns (user, org)."""
     from aether_os.core.db import get_session_factory
@@ -126,6 +132,10 @@ async def _upsert_oauth_user(email: str):
         ).fetchone()
         if row:
             user, org = row
+            if await _org_has_own_idp(session, org.id):
+                # An org that runs its own SAML IdP controls which addresses exist in it; linking a Google or
+                # GitHub identity by email into it would hand that org's admins a way to capture accounts.
+                raise HTTPException(status_code=403, detail="Your organisation requires single sign-on")
             if not user.email_verified:
                 # Never auto-link an unverified local account: whoever pre-registered
                 # it may hold refresh tokens, API keys, MFA secrets or invites. The
