@@ -12,7 +12,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Optional
 
-from aether_os.core.security.git_remote import check_https_remote
+from aether_os.core.security.git_remote import check_https_remote_pinned
 from aether_os.core.security.safe_http import UnsafeURL
 
 
@@ -35,7 +35,8 @@ class RepoManager:
         """
         # A user-supplied URL: the same checks as the intake router (https, no credentials, public addresses).
         try:
-            repo_url = check_https_remote(repo_url)
+            remote = check_https_remote_pinned(repo_url)
+            repo_url = remote.url
         except UnsafeURL as exc:
             raise RepoError(f"Repository URL refused: {exc}") from exc
         if commit_sha is not None and not re.fullmatch(r"[0-9a-fA-F]{7,64}", commit_sha):
@@ -62,16 +63,16 @@ class RepoManager:
         try:
             if not repo_path.exists():
                 # Clone
-                self._run_git(["clone", "--", authenticated_url, str(repo_path)])
+                self._run_git(["clone", "--", authenticated_url, str(repo_path)], pin=remote.git_args())
             else:
                 # Fetch and pull
-                self._run_git(["fetch", "--all"], cwd=str(repo_path))
+                self._run_git(["fetch", "--all"], cwd=str(repo_path), pin=remote.git_args())
                 if commit_sha:
                     self._run_git(["checkout", commit_sha], cwd=str(repo_path))
                 else:
                     # Use authenticated URL for pull as well
                     self._run_git(["remote", "set-url", "origin", authenticated_url], cwd=str(repo_path))
-                    self._run_git(["pull"], cwd=str(repo_path))
+                    self._run_git(["pull"], cwd=str(repo_path), pin=remote.git_args())
 
             return str(repo_path)
         except subprocess.TimeoutExpired as e:
@@ -84,7 +85,7 @@ class RepoManager:
         repo_path = self.cache_dir / repo_name
         return str(repo_path) if repo_path.exists() else None
 
-    def _run_git(self, args: list[str], cwd: Optional[str] = None) -> str:
+    def _run_git(self, args: list[str], cwd: Optional[str] = None, pin: Optional[list[str]] = None) -> str:
         """Helper to run git commands."""
         # Only https may be spoken, whatever the URL (or a redirect) says; no prompts.
         env = os.environ.copy()
@@ -92,7 +93,7 @@ class RepoManager:
         env["GIT_TERMINAL_PROMPT"] = "0"
 
         result = subprocess.run(
-            ["git"] + args,
+            ["git", *(pin or []), *args],
             cwd=cwd,
             capture_output=True,
             text=True,
