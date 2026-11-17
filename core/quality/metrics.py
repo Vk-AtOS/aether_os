@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.sandbox import phase_exec
+from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
@@ -321,17 +322,17 @@ def _check_frontend_complete(project_dir: Path) -> float:
 def _check_security_bandit(src_dir: Path) -> float:
     try:
         result = subprocess.run(
-            ["bandit", "-r", "-f", "json", str(src_dir)],
+            ["bandit", *bandit_args(src_dir)],
             capture_output=True, text=True, timeout=30,
         )
-        if not result.stdout:
-            return 1.0
-        data = json.loads(result.stdout)
-        findings = data.get("results", [])
+        findings = parse_bandit(result.stdout).get("results", [])
         if not findings:
             return 1.0
         high = sum(1 for r in findings if r.get("issue_severity") == "HIGH")
         return max(0.0, 1.0 - (high * 0.2))
+    except BanditScanError as exc:     # bandit ran but gave no report: not "clean" (KAN-69 SC-04)
+        logger.warning("_check_security_bandit: no usable bandit report: %s", exc)
+        return 0.0
     except Exception as exc:
         logger.debug("_check_security_bandit: bandit scan failed, using default: %s", exc)
         return 0.8

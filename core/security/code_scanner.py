@@ -10,6 +10,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
+
 logger = logging.getLogger(__name__)
 
 # Domain-specific rules: (rule_id, regex_pattern, message, severity)
@@ -139,11 +141,16 @@ class CodeScanner:
         # Note: bandit requires installation
         try:
             res = subprocess.run(
-                ["bandit", "-r", project_dir, "-f", "json", "-q"],
+                ["bandit", *bandit_args(project_dir, "-q")],
                 capture_output=True, text=True
             )
-            if res.stdout:
-                data = json.loads(res.stdout)
+            try:
+                data = parse_bandit(res.stdout)
+            except BanditScanError as e:       # an empty report is not "no findings" (KAN-69 SC-04)
+                logger.error("Bandit produced no report for %s: %s", project_dir, e)
+                findings.append(Finding(severity="CRITICAL", rule_id="SCAN_INCOMPLETE", file_path=str(project_dir),
+                                        line_number=0, message=f"Static analysis did not run: {e}"))
+            else:
                 for issue in data.get("results", []):
                     sev = issue["issue_severity"]
                     findings.append(Finding(
