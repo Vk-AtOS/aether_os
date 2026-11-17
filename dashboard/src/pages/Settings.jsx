@@ -255,9 +255,7 @@ const Settings = () => {
     setBedrockTestStatus('testing');
     setBedrockTestResult(null);
     try {
-      const payload = { aws_region: bedrockConfig.aws_region, model_id: bedrockConfig.bedrock_model_heavy };
-      if (bedrockConfig.aws_access_key_id.trim()) payload.aws_access_key_id = bedrockConfig.aws_access_key_id.trim();
-      if (bedrockConfig.aws_secret_access_key.trim()) payload.aws_secret_access_key = bedrockConfig.aws_secret_access_key.trim();
+      // The server tests the platform's own Bedrock credentials only (typed keys are never used to dial out).
       const res = await api.client.post('/settings/test-provider', { provider: 'bedrock' });
       setBedrockTestResult(res.data);
       setBedrockTestStatus(res.data?.success ? 'ok' : 'fail');
