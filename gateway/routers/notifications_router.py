@@ -36,6 +36,8 @@ async def get_notifications(
         off = await notification_prefs.disabled_events(user["org_id"], user.get("user_id"))
         if off:
             stmt = stmt.where(_Notif.type.not_in(off))
+            if "budget_alert" in off:   # the 80% notice carries the month in its type (llm_budget_80:<month>)
+                stmt = stmt.where(~_Notif.type.like("llm_budget_80%"))
         stmt = stmt.order_by(_Notif.created_at.desc()).limit(limit)
         if unread_only:
             stmt = stmt.where(_Notif.is_read == False)  # noqa: E712
