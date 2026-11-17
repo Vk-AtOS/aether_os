@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import pathlib
+import sys
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -130,31 +132,32 @@ class AutoRecovery:
         )
 
         logger.info("Guardian AutoRecovery: %s (alembic=%s, db=%s)", outcome, alembic_ok, health_ok)
-        return health_ok
+        # Recovered means the data is back AND the schema is current: a failed or skipped migration is not success.
+        return health_ok and alembic_ok
+
+    @staticmethod
+    def _alembic_ini() -> Optional[pathlib.Path]:
+        root = pathlib.Path(__file__).resolve().parent.parent.parent   # the aether_os package directory
+        return next((p for p in (root / "alembic.ini", root.parent / "alembic.ini") if p.exists()), None)
 
     async def _run_alembic_upgrade(self) -> bool:
-        """Run alembic upgrade heads in an executor (blocking operation)."""
-        import pathlib
-
-        alembic_ini = pathlib.Path(__file__).resolve().parent.parent.parent / "aether_os" / "alembic.ini"
-        if not alembic_ini.exists():
-            # Try one level up (common layout)
-            alembic_ini = pathlib.Path(__file__).resolve().parent.parent.parent / "alembic.ini"
-
-        if not alembic_ini.exists():
-            logger.warning("Guardian: alembic.ini not found — skipping migration step")
-            return True  # non-fatal
+        """alembic upgrade heads. False when it cannot be shown to have succeeded, including when alembic.ini is
+        missing: recovery restored an older schema, so "no migration ran" must not be reported as "schema current"."""
+        alembic_ini = self._alembic_ini()
+        if alembic_ini is None:
+            logger.error("Guardian: alembic.ini not found - the restored schema was NOT brought up to date")
+            return False
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                "alembic", "-c", str(alembic_ini), "upgrade", "heads",
+                sys.executable, "-m", "alembic", "-c", str(alembic_ini), "upgrade", "heads",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             if proc.returncode != 0:
-                logger.warning("Guardian alembic upgrade warnings: %s", stderr.decode(errors="replace")[:300])
-                return proc.returncode == 0
+                logger.warning("Guardian alembic upgrade failed: %s", stderr.decode(errors="replace")[:300])
+                return False
             logger.info("Guardian: alembic upgrade heads completed")
             return True
         except asyncio.TimeoutError:
