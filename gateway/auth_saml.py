@@ -346,7 +346,7 @@ async def saml_callback(request: Request) -> RedirectResponse:
 
     if user.mfa_enabled:
         from aether_os.gateway.auth_oauth import _signin_redirect
-        return _signin_redirect(user, org)
+        return await _signin_redirect(user, org)
 
     _saml_claims = {
         "sub": user.email, "user_id": user.id,

@@ -107,3 +107,26 @@ async def test_a_failing_mailer_does_not_stop_the_sweep(svc, counting):
     async def broken(*a):
         raise OSError("smtp down")
     assert (await reminders.sweep(notify=broken))["reminded"] == 1
+
+
+async def _notes(kind):
+    from sqlalchemy import select
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import Notification
+    async with get_session_factory()() as s:
+        return (await s.execute(select(Notification).where(Notification.type == kind))).scalars().all()
+
+
+async def test_approvers_get_an_in_app_notice_on_submit_reminder_and_expiry(svc, counting):
+    """KAN-26 / KAN-159: the notices used to be email only."""
+    await grant()
+    req = (await svc.submit(act("leave.approve", requested_by=DAVE), ORG, "counting"))["request"]
+    needed = await _notes("approval_needed")
+    assert needed and all(n.link == "/prime/inbox" and n.org_id == ORG for n in needed)
+    await set_row(req["id"], expires_at=_now() + timedelta(hours=2), created_at=_now() - timedelta(hours=70))
+    await reminders.sweep(notify=Outbox())
+    assert len(await _notes("approval_expiring")) >= 1
+    await set_row(req["id"], expires_at=_now() - timedelta(minutes=1))
+    await reminders.sweep(notify=Outbox())
+    assert len(await _notes("approval_expired")) >= 1
+    assert "approval_expired" in __import__("aether_os.core.notification_prefs", fromlist=["EVENTS"]).EVENTS

@@ -68,7 +68,8 @@ def test_org_url_connectors_connect_through_the_pinned_client(monkeypatch):
 ])
 def test_schema_importer_refuses_driver_host_overrides(cs):
     out = asyncio.run(import_schema(cs))
-    assert out["tables"] == [] and "query parameters" in out["error"]
+    # the shared checker (core/security/db_url.py) refuses a driver option that overrides the host
+    assert out["tables"] == [] and "not allowed" in out["error"]
 
 
 def test_schema_importer_refuses_sqlite_uri_to_absolute_path(tmp_path):

@@ -24,11 +24,15 @@ _SAFE = {"GET", "HEAD", "OPTIONS"}
 # their own session and preferences, read-like calls that happen to be POST, and the
 # Velaris-backed surfaces (chat, mail, HR, control), where Velaris enforces its own roles.
 VIEWER_MAY = (
-    "/auth/logout", "/auth/change-password", "/auth/mfa/", "/account", "/account/preferences",
+    "/auth/logout", "/auth/change-password", "/auth/mfa/",
     "/settings/preferences", "/notifications/", "/memory/search", "/prime/", "/factory/estimate",
     "/factory/runs/{run_id}/sse-token", "/factory/runs/{run_id}/preview-session",
     "/chat/", "/mail/", "/hr/", "/velaris/", "/control/",
 )
+
+# Exact templates a viewer may mutate. "/account" used to be a PREFIX in VIEWER_MAY and so also let a viewer reach
+# every future /account/... route (today POST /account/import-codebase, which stores an organisation-wide profile).
+VIEWER_EXACT = ("/account", "/account/preferences")
 
 # Routes whose handler REALLY asks the policy engine (enforce / admit_run_start / the billing and plugin
 # admin helpers): it decides by role, returns the structured denial the dashboard keys on and ledgers it,
@@ -80,7 +84,7 @@ def check_role(request: Request, user: Dict[str, Any]) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Unknown role")
     if _matches(template, ADMIN_ONLY) and rank < ROLE_RANK["admin"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    if role == "viewer" and not (_matches(template, VIEWER_MAY) or _exact(template, POLICY_GATED)):
+    if role == "viewer" and not (_matches(template, VIEWER_MAY) or _exact(template, VIEWER_EXACT) or _exact(template, POLICY_GATED)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Viewers have read-only access")
 
 

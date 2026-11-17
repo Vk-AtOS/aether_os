@@ -100,3 +100,20 @@ def gw(tmp_path_factory):
     db_mod._engine = None
     db_mod._session_factory = None
     ps_mod._redis = None
+
+
+@pytest.fixture(autouse=True)
+def _platform_llm_budget_bypassed(request, monkeypatch):
+    """Platform-owned LLM calls (no org) are charged to a budget row in the database. Most tests have no migrated
+    database, so the check is bypassed unless a test opts in with @pytest.mark.platform_budget."""
+    if request.node.get_closest_marker("platform_budget"):
+        return
+    from aether_os.core.llm import budget
+    from aether_os.core.llm.plans import PLATFORM_ORG
+    real = budget.TokenBudgetManager.check_budget
+
+    async def check(self, org_id, plan, projected_cost_usd=0.0, cap_usd=None):
+        if org_id == PLATFORM_ORG:
+            return True, "ok", "sonnet"
+        return await real(self, org_id, plan, projected_cost_usd, cap_usd)
+    monkeypatch.setattr(budget.TokenBudgetManager, "check_budget", check)

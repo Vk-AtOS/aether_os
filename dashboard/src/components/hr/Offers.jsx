@@ -64,6 +64,8 @@ const Offers = () => {
   const [open, setOpen] = useState(null);
   const q = useHr('OFFER_LETTERS', 'list_offers', tab === 'inbox' ? { status: 'pending_approval' } : {});
   const act = useAct();
+  const templates = useHr('OFFER_LETTERS', 'list_templates');     // the picker (KAN-139): built-in and this organisation's own
+  const templateIds = (templates.data?.templates || []).map((t) => (typeof t === 'string' ? t : t.id || t.name)).filter(Boolean);
   const create = (v) => act.run(async () => { const out = await hr('OFFER_LETTERS', 'create_offer', v); q.reload(); return out; },
     { title: 'Draft this offer?', message: `A draft for ${v.candidate_name} is created. It needs two different approvers and you cannot approve it yourself.` });
   return (
@@ -80,7 +82,8 @@ const Offers = () => {
           { name: 'role_title', label: 'Role title', type: 'text', required: true }, { name: 'department', label: 'Department', type: 'text', required: true }, { name: 'location', label: 'Location', type: 'text', required: true },
           { name: 'join_date', label: 'Join date', type: 'date', required: true }, { name: 'annual_ctc', label: 'Annual CTC', type: 'number', required: true },
           { name: 'hiring_manager_id', label: 'Hiring manager (user id)', type: 'text', required: true }, { name: 'hr_approver_id', label: 'HR approver (user id)', type: 'text', required: true },
-          { name: 'application_id', label: 'Application id', type: 'text' }]} />
+          { name: 'application_id', label: 'Application id', type: 'text' },
+          ...(templateIds.length ? [{ name: 'template_id', label: 'Template', type: 'select', options: templateIds }] : [])]} />
         {act.view}
       </Card>
     </div>

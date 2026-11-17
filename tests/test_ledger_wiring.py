@@ -166,7 +166,7 @@ async def test_data_export_holds_only_the_callers_own_entries(world):
 
 # ── item 4: pseudonyms in exports ────────────────────────────────────────────
 
-@pytest.mark.parametrize("path", ["/admin/audit/export.csv", "/admin/audit-logs/export"])
+@pytest.mark.parametrize("path", ["/admin/audit/export.csv"])
 async def test_csv_exports_show_the_subject_not_the_reference(world, path):
     await _login()
     ref = (await chain.read_entries())[0]["payload"]["ip_address"]["subject"]

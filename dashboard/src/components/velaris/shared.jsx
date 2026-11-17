@@ -91,21 +91,55 @@ export const Table = ({ rows, cols, onRow, empty = 'Nothing here yet.' }) => (
   )
 );
 
+// Choose several of many options (flow tools): a filter box over a scrollable list of checkboxes; shows the count.
+const Picker = ({ field, value, onChange }) => {
+  const [q, setQ] = useState('');
+  const shown = (field.options || []).filter((o) => o.toLowerCase().includes(q.toLowerCase())).slice(0, 200);
+  const toggle = (o) => onChange(value.includes(o) ? value.filter((x) => x !== o) : [...value, o]);
+  return (
+    <div className="space-y-1">
+      <input className={inputClass} placeholder="Filter" aria-label={`Filter ${field.label}`} value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="max-h-40 overflow-y-auto border border-border rounded p-2 space-y-0.5" role="group" aria-label={field.label}>
+        {shown.length === 0 && <p className="text-[11px] text-muted">Nothing matches.</p>}
+        {shown.map((o) => (
+          <label key={o} className="flex items-center gap-2 text-xs text-bright"><input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />{o}</label>
+        ))}
+      </div>
+      <span className="text-[10px] text-muted">{value.length} selected of {(field.options || []).length}</span>
+    </div>
+  );
+};
+
 // A small form from field specs: {name, label, type: text|password|number|textarea|select|date|checkbox|list|json, options, required, help}
 // onSubmit gets the typed values (numbers as numbers, list as an array, json parsed). Empty optional fields are left out.
 export const SpecForm = ({ fields, submitLabel, onSubmit, busy, disabled = false, initial = {} }) => {
-  const [v, setV] = useState(() => Object.fromEntries(fields.map((f) => [f.name, initial[f.name] ?? (f.type === 'checkbox' ? false : '')])));
+  const [v, setV] = useState(() => Object.fromEntries(fields.map((f) => [f.name, initial[f.name] ?? (f.type === 'checkbox' ? false : f.type === 'picker' ? [] : '')])));
   const [err, setErr] = useState('');
+  // A file field reads the chosen file in the browser into base64 (and its name into f.also): no base64 text box.
+  const pick = (f, file) => {
+    if (!file) { setV((o) => ({ ...o, [f.name]: '' })); return; }
+    if (file.size > (f.maxMb || 7) * 1024 * 1024) { setErr(`${f.label}: the file may be at most ${f.maxMb || 7} MB`); return; }
+    setErr('');
+    const rd = new FileReader();
+    rd.onload = () => setV((o) => ({ ...o, [f.name]: String(rd.result).split(',')[1] || '', ...(f.also ? { [f.also]: file.name } : {}) }));
+    rd.onerror = () => setErr(`${f.label}: the file could not be read`);
+    rd.readAsDataURL(file);
+  };
   const submit = (e) => {
     e.preventDefault();
     const out = {};
     try {
       for (const f of fields) {
+        if (f.type === 'file' && v[f.also]) out[f.also] = v[f.also];
         const raw = v[f.name];
         if (f.type === 'checkbox') { out[f.name] = raw; continue; }
+        if (f.type === 'picker') { if (f.required && !raw.length) throw new Error(`${f.label} is required`); if (raw.length) out[f.name] = raw; continue; }
         if (raw === '' || raw == null) { if (f.required) throw new Error(`${f.label} is required`); continue; }
         if (f.type === 'number') out[f.name] = Number(raw);
-        else if (f.type === 'list') out[f.name] = String(raw).split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+        else if (f.type === 'numlist') {
+          out[f.name] = String(raw).split(/[\s,]+/).filter(Boolean).map(Number);
+          if (out[f.name].some((n) => !Number.isFinite(n))) throw new Error(`${f.label} must be numbers`);
+        } else if (f.type === 'list') out[f.name] = String(raw).split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
         else if (f.type === 'json') { try { out[f.name] = JSON.parse(raw); } catch { throw new Error(`${f.label} is not valid JSON`); } }
         else out[f.name] = raw;
       }
@@ -127,6 +161,10 @@ export const SpecForm = ({ fields, submitLabel, onSubmit, busy, disabled = false
                 <option value="">{f.required ? 'Choose' : 'None'}</option>
                 {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
+            ) : f.type === 'picker' ? (
+              <Picker field={f} value={v[f.name]} onChange={(next) => setV({ ...v, [f.name]: next })} />
+            ) : f.type === 'file' ? (
+              <input type="file" aria-label={f.label} className={inputClass} onChange={(e) => pick(f, e.target.files?.[0])} />
             ) : f.type === 'checkbox' ? (
               <input type="checkbox" checked={v[f.name]} onChange={(e) => setV({ ...v, [f.name]: e.target.checked })} />
             ) : (

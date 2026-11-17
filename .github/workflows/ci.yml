@@ -125,3 +125,30 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Build
         run: npm run build
+
+  dashboard-e2e:
+    # Click-through specs (dashboard/e2e) against the built dashboard with the API stubbed in the browser (KAN-62,
+    # KAN-18/21/23, the Velaris screens). Needs no backend, only Chromium.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Playwright specs
+        run: npm run test:e2e
+        env:
+          CI: "true"
+      - name: Upload the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: dashboard/test-results
+          retention-days: 7

@@ -148,14 +148,17 @@ class DecisionEngine:
             raise LookupError(f"Decision {decision_id} not found")
         if decision.org_id and decision.org_id != org_id:
             raise PermissionError("Decision belongs to a different org")
-        # ponytail: check-then-write, two simultaneous resolves can both pass; a conditional UPDATE would close it.
         if decision.status != "pending":
             raise AlreadyDecided(f"Decision {decision_id} is already {decision.status}")
 
-        decision.status = "approved" if approved else "denied"
-        decision.human_choice = choice
-        decision.decided_at = time.time()
-        await self._db_save(decision)
+        new_status = "approved" if approved else "denied"
+        decided_at = time.time()
+        # The check above is only a fast path. THIS statement decides: UPDATE .. WHERE status='pending' changes a row
+        # for exactly one of two simultaneous clicks (or a click racing the timeout), the other changes none.
+        if not await self._db_claim(decision_id, new_status, choice, decided_at):
+            current = await self._db_get(decision_id)
+            raise AlreadyDecided(f"Decision {decision_id} is already {current.status if current else 'decided'}")
+        decision.status, decision.human_choice, decision.decided_at = new_status, choice, decided_at
 
         # Notify waiting workers via Redis pub/sub
         try:
@@ -221,6 +224,21 @@ class DecisionEngine:
         raise LookupError(f"Decision {decision_id} not found")
 
     # ── DB persistence ────────────────────────────────────────────────────────
+
+    async def _db_claim(self, decision_id: str, status: str, choice: Optional[str], decided_at: float) -> bool:
+        """Atomically move a decision from pending to `status`. True for the one caller that did it."""
+        from datetime import datetime
+        from sqlalchemy import update
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Decision as DecisionModel
+
+        async with get_session_factory()() as session:
+            res = await session.execute(
+                update(DecisionModel)
+                .where(DecisionModel.id == decision_id, DecisionModel.status == "pending")
+                .values(status=status, human_choice=choice, decided_at=datetime.fromtimestamp(decided_at)))
+            await session.commit()
+        return res.rowcount == 1
 
     async def _db_save(self, decision: Decision) -> None:
         try:
