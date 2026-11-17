@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import update
 
 from aether_os.core.db import get_session_factory
-from aether_os.core.llm import controls
+from aether_os.core.llm import budget, controls
 from aether_os.core.llm.budget import get_budget_manager
 from aether_os.core.llm.plans import PLAN_LIMITS
 from aether_os.core.models import Organisation
@@ -102,6 +102,9 @@ async def usage(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, A
     cap = policy.cap_usd if policy.cap_usd is not None else (limit.usd if limit else 0.0)
     u = await get_budget_manager().get_usage(user["org_id"], time.strftime("%Y-%m"))
     spent = u["estimated_cost_usd"] or 0.0
+    async with get_session_factory()() as session:
+        today = await budget._daily_spent(session, user["org_id"], budget._today())
     return {"plan": policy.plan, "month": time.strftime("%Y-%m"), "spent_usd": round(spent, 4),
             "cap_usd": cap, "percent_used": round(100 * spent / cap, 1) if cap else 100.0,
-            "llm_disabled": policy.disabled}
+            "llm_disabled": policy.disabled,
+            "today_spent_usd": round(today, 4), "daily_cap_usd": round(budget.daily_cap_usd(cap), 2)}

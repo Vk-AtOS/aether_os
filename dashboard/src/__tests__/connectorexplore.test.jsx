@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, fireEvent, cleanup, render } from '@testing-library/react';
-import { ok, fail } from './helpers';
+import { screen, fireEvent, cleanup, render } from '@testing-library/react';
+import { ok, fail, settle } from './helpers';
 
 const api = vi.hoisted(() => ({ salesforceValidate: vi.fn(), salesforceObjects: vi.fn(), ldapValidate: vi.fn(), ldapUsers: vi.fn() }));
 vi.mock('../api', () => ({ api, default: api }));
@@ -24,17 +24,20 @@ describe('ConnectorExplore', () => {
     fireEvent.change(screen.getByLabelText('Instance URL'), { target: { value: 'https://x.my.salesforce.com' } });
     fireEvent.change(screen.getByLabelText('Access token'), { target: { value: 'tok' } });
     fireEvent.click(screen.getByText('List objects'));
-    await waitFor(() => expect(api.salesforceObjects).toHaveBeenCalledWith({ instance_url: 'https://x.my.salesforce.com', access_token: 'tok' }));
-    expect((await screen.findByRole('status')).textContent).toMatch(/Account/);
+    await settle();
+    expect(api.salesforceObjects).toHaveBeenCalledWith({ instance_url: 'https://x.my.salesforce.com', access_token: 'tok' });
+    expect(screen.getByRole('status').textContent).toMatch(/Account/);
   });
 
   it('ldap: validate failure text and server errors are shown', async () => {
     api.ldapValidate.mockReturnValueOnce(ok({ ok: false, message: 'LDAP server rejected: blocked host' }));
     render(<ConnectorExplore pluginId="ldap" />);
     fireEvent.click(screen.getByText('Validate'));
-    expect((await screen.findByRole('status')).textContent).toMatch(/blocked host/);
+    await settle();
+    expect(screen.getByRole('status').textContent).toMatch(/blocked host/);
     api.ldapUsers.mockReturnValue(fail(403, { error: 'role_insufficient', required_role: 'admin' }));
     fireEvent.click(screen.getByText('List users'));
-    expect((await screen.findByRole('alert')).textContent).toMatch(/admin role/);
+    await settle();
+    expect(screen.getByRole('alert').textContent).toMatch(/admin role/);
   });
 });

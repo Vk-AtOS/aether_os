@@ -93,7 +93,7 @@ const Drafts = () => {
           </div>
         ))}
       </LoadView>
-      {preview && <Detail data={{ subject: preview.subject, body: preview.body }} />}
+      {preview && <><p className="text-[11px] text-warning">Preview only: the name and address below are placeholders, not the real candidate.</p><Detail data={{ subject: preview.subject, body: preview.body }} /></>}
     </Card>
   );
 };

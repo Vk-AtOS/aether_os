@@ -22,10 +22,34 @@ HEARTBEAT_S = 300            # re-extend visibility well inside the 3600 s it is
 MAX_RECEIVES = int(os.environ.get("SQS_MAX_RECEIVES", "3"))   # then: poison message -> DLQ
 _slots: Optional[asyncio.Semaphore] = None   # bounded in-flight jobs per process (backpressure)
 _inflight: set = set()
+# Per-job-class pools (KAN-49): a flood of one class cannot occupy every slot. Order matters only for the docs.
+CLASSES = ("interactive", "standard", "bulk")
+_pools: Dict[str, asyncio.Semaphore] = {}
+_waiting = 0                  # received jobs parked until their class pool has room (they hold no run slot)
+WAIT_LIMIT_S = 1800           # inside the 3600 s visibility the receive set; past it the message goes back
 
 
 def _max_inflight() -> int:
     return max(1, int(os.environ.get("SQS_MAX_INFLIGHT", os.environ.get("PIPELINE_MAX_CONCURRENT", "2"))))
+
+
+def job_class(params: Dict[str, Any]) -> str:
+    """interactive: a high-priority run; bulk: low priority or a whole-codebase import (long, heavy); else standard."""
+    if params.get("codebase_mode") or params.get("priority") == "low":
+        return "bulk"
+    return "interactive" if params.get("priority") == "high" else "standard"
+
+
+def class_limits() -> Dict[str, int]:
+    """Concurrent jobs per class on this process. Defaults: bulk may use half the slots (at least 1) so it can never
+    take them all; override with SQS_POOL_INTERACTIVE / SQS_POOL_STANDARD / SQS_POOL_BULK."""
+    total = _max_inflight()
+    default = {"interactive": total, "standard": total, "bulk": max(1, total // 2)}
+    return {c: max(1, int(os.environ.get(f"SQS_POOL_{c.upper()}", default[c]))) for c in CLASSES}
+
+
+def _max_waiting() -> int:
+    return max(1, int(os.environ.get("SQS_MAX_WAITING", "4")))
 
 
 async def _park_poison(job: Dict[str, Any]) -> None:
@@ -118,11 +142,49 @@ async def _execute_job(run_id: str, params: Dict[str, Any], receipt_handle: str)
             heartbeat_task.cancel()
 
 
-async def _run_slot(job: Dict[str, Any]) -> None:
+async def _mark_running(run_id: str) -> None:
+    try:
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Run
+        from sqlalchemy import update as _upd
+        async with get_session_factory()() as s:
+            await s.execute(_upd(Run).where(Run.id == run_id).values(status="running"))
+            await s.commit()
+    except Exception as db_exc:
+        logger.warning("SQS consumer: DB status update failed: %s", db_exc)
+
+
+async def _run_slot(job: Dict[str, Any], cls: str) -> None:
+    """Run a job that already holds one run slot and one slot of its class pool; free both when done."""
     try:
         await _execute_job(job["run_id"], job["params"], job["receipt_handle"])
     finally:
+        _pools[cls].release()
         _slots.release()
+
+
+async def _run_when_class_has_room(job: Dict[str, Any], cls: str) -> None:
+    """The class pool was full when this job arrived: wait for it WITHOUT holding a run slot (so other classes keep
+    flowing), then take both slots and run. The message stays invisible meanwhile; after WAIT_LIMIT_S it goes back."""
+    global _waiting
+    _waiting += 1
+    try:
+        try:
+            await asyncio.wait_for(_pools[cls].acquire(), WAIT_LIMIT_S)
+        except asyncio.TimeoutError:
+            from aether_os.core.queue.sqs_client import change_visibility
+            await asyncio.to_thread(change_visibility, job["receipt_handle"], 0)
+            logger.warning("SQS consumer: run %s waited %ds for the %s pool - returned to the queue", job["run_id"], WAIT_LIMIT_S, cls)
+            return
+        try:
+            await _slots.acquire()
+        except BaseException:
+            _pools[cls].release()
+            raise
+    finally:
+        _waiting -= 1
+    await _mark_running(job["run_id"])
+    await _run_slot(job, cls)
 
 
 async def _poll_loop() -> None:
@@ -132,10 +194,15 @@ async def _poll_loop() -> None:
     global _slots
 
     _slots = asyncio.Semaphore(_max_inflight())
-    logger.info("SQS pipeline consumer started (max in flight %d)", _max_inflight())
+    _pools.clear()
+    _pools.update({c: asyncio.Semaphore(n) for c, n in class_limits().items()})
+    logger.info("SQS pipeline consumer started (max in flight %d, pools %s)", _max_inflight(), class_limits())
     while _RUNNING:
         if not is_enabled():
             await asyncio.sleep(30)
+            continue
+        if _waiting >= _max_waiting():      # enough parked jobs: leave the rest on the queue for other nodes
+            await asyncio.sleep(2)
             continue
         await _slots.acquire()
         handed_off = False
@@ -150,19 +217,16 @@ async def _poll_loop() -> None:
                     await _park_poison(job)
                     continue
                 logger.info("SQS consumer: picked up run %s (delivery %s)", run_id, job.get("receive_count", 1))
-                try:
-                    from aether_os.core.db import get_session_factory
-                    from aether_os.core.models import Run
-                    from sqlalchemy import update as _upd
-                    async with get_session_factory()() as s:
-                        await s.execute(_upd(Run).where(Run.id == run_id).values(status="running"))
-                        await s.commit()
-                except Exception as db_exc:
-                    logger.warning("SQS consumer: DB status update failed: %s", db_exc)
-                task = asyncio.create_task(_run_slot(job))
+                cls = job_class(job["params"])
+                if _pools[cls].locked():
+                    task = asyncio.create_task(_run_when_class_has_room(job, cls))
+                else:
+                    await _pools[cls].acquire()           # not locked: returns at once
+                    await _mark_running(run_id)
+                    task = asyncio.create_task(_run_slot(job, cls))
+                    handed_off = True
                 _inflight.add(task)
                 task.add_done_callback(_inflight.discard)
-                handed_off = True
         except asyncio.CancelledError:
             break
         except Exception as exc:
