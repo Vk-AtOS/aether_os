@@ -22,6 +22,9 @@ from typing import Dict, List
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
+import auth as _auth
+from auth import get_current_user
+
 router = APIRouter(prefix="/ws", tags=["websocket"])
 logger = logging.getLogger(__name__)
 
@@ -74,53 +77,57 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _user_from_token(token: str | None) -> dict | None:
+    """The app's own access token (RS256 public key from auth.py), or None. Never a shared or empty secret."""
+    if not token:
+        return None
+    try:
+        claims = _auth.jwt.decode(token, _auth._PUBLIC_KEY, algorithms=[_auth.ALGORITHM])
+    except Exception as exc:
+        logger.warning("websocket: token rejected: %s", exc)
+        return None
+    if claims.get("type") != "access" or not claims.get("sub"):
+        return None
+    return claims
+
+
+def _room_key(claims: dict, room_id: str) -> str:
+    """Rooms are private to a tenant: the same room name in two organisations is two rooms."""
+    return f"{claims.get('org_id') or ''}:{room_id}"
+
+
 @router.websocket("/{room_id}")
 async def websocket_endpoint(room_id: str, ws: WebSocket, token: str | None = None) -> None:
-    """WebSocket endpoint. Client connects and receives room broadcasts."""
-    await manager.connect(room_id, ws)
-    await ws.send_json({"type": "connected", "room": room_id, "members": manager.room_count(room_id)})
+    """WebSocket endpoint. Client connects with ?token=<access token> and receives room broadcasts."""
+    claims = _user_from_token(token)
+    if claims is None:
+        await ws.close(code=1008)       # policy violation: not signed in
+        return
+    room = _room_key(claims, room_id)
+    await manager.connect(room, ws)
+    await ws.send_json({"type": "connected", "room": room_id, "members": manager.room_count(room)})
     try:
         while True:
             data = await ws.receive_json()
             # Echo back with sender info; clients can also broadcast via HTTP POST
-            await manager.broadcast(room_id, {"type": "message", "room": room_id, "data": data})
+            await manager.broadcast(room, {"type": "message", "room": room_id, "data": data})
     except WebSocketDisconnect:
-        await manager.disconnect(room_id, ws)
-        await manager.broadcast(room_id, {"type": "left", "room": room_id})
+        await manager.disconnect(room, ws)
+        await manager.broadcast(room, {"type": "left", "room": room_id})
     except Exception as exc:
         logger.warning("WS error in room %s: %s", room_id, exc)
-        await manager.disconnect(room_id, ws)
+        await manager.disconnect(room, ws)
 
 
 @router.post("/{room_id}/broadcast", status_code=200)
 async def broadcast_message(
     room_id: str,
     payload: dict,
-    token: str = "",
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """HTTP endpoint to broadcast a message to all WebSocket clients in a room.
-    Requires a valid JWT token (passed as ?token= query param or Authorization header).
-    """
-    import os
-    _secret = os.getenv("SECRET_KEY", "")
-    _algorithm = os.getenv("JWT_ALGORITHM", "HS256")
-
-    if not token:
-        raise HTTPException(status_code=401, detail="Authentication token required")
-
-    try:
-        from jose import jwt as _jose_jwt, JWTError as _JWTError
-        payload_data = _jose_jwt.decode(token, _secret, algorithms=[_algorithm])
-        user_id = payload_data.get("sub") or payload_data.get("user_id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: missing subject")
-    except _JWTError as exc:
-        logger.warning("websocket broadcast: JWT validation failed for room %s: %s", room_id, exc)
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    except Exception as exc:
-        logger.warning("websocket broadcast: token decode error: %s", exc)
-        raise HTTPException(status_code=401, detail="Token validation error")
-
-    sent = await manager.broadcast(room_id, {"type": "broadcast", "room": room_id, "data": payload})
+    """HTTP endpoint to broadcast a message to all WebSocket clients in the caller's room.
+    Requires a valid access token (Authorization header), checked by the app's own auth module."""
+    sent = await manager.broadcast(
+        _room_key(current_user, room_id), {"type": "broadcast", "room": room_id, "data": payload})
     return {"room": room_id, "recipients": sent}
 '''
