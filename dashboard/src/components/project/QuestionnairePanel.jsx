@@ -4,7 +4,6 @@ import { api } from '../../api';
 import { apiError } from '../../apiError';
 
 const input = 'w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs text-bright';
-const origin = () => window.location.origin;
 
 // Agency side of client questionnaires for one run: sessions and whether the client answered, send a link by
 // email, or fill the answers in on the client's behalf. The server needs member or above for all of it.
@@ -76,8 +75,7 @@ const QuestionnairePanel = ({ runId, isViewer }) => {
               <td className="py-1.5 text-bright">{s.stage_id}</td><td>{s.respondent_email || 'filled by agency'}</td>
               <td className={s.status === 'completed' ? 'text-emerald-400' : 'text-amber-400'}>{s.status}</td>
               <td>{s.expires_at ? new Date(s.expires_at).toLocaleDateString() : ''}</td>
-              <td>{s.status !== 'completed' && s.respondent_email && (
-                <button className="text-accent hover:underline" onClick={() => navigator.clipboard?.writeText(`${origin()}${s.share_url}`)}>Copy link</button>)}</td>
+              <td />
             </tr>))}</tbody></table>
       )}
 

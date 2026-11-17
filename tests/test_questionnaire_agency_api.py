@@ -65,3 +65,25 @@ def test_fill_on_behalf_stores_answers_and_requires_the_required_ones(gw):
                         json={"stage_id": STAGE, "answers": {q["id"]: "v" for q in qs if q.get("required")}})
     assert ok.status_code == 200, ok.text
     assert gw.client.get("/runs/qrun-4/questionnaires", headers=org.auth).json()[0]["status"] == "completed"
+
+
+def test_share_token_is_stored_hashed_and_never_logged_or_listed(gw, monkeypatch, caplog):
+    """KAN-69 F18: the database holds a hash, the log holds no token, the list returns no link, and a leaked
+    hash does not open the link; rows written before (plain token) still resolve."""
+    import hashlib
+    import logging
+    monkeypatch.setenv("APP_BASE_URL", "https://app.example.com")
+    org = gw.register("qhash")
+    _run(gw, org, "qrun-h")
+    with caplog.at_level(logging.INFO):
+        r = gw.client.post("/runs/qrun-h/questionnaire/send", headers=org.auth,
+                           json={"stage_id": STAGE, "respondent_email": "c@client.com", "respondent_name": "C"})
+    token = r.json()["share_url"].rsplit("/", 1)[1]
+    assert token not in caplog.text
+    stored = gw.sql("SELECT access_token FROM questionnaire_sessions WHERE run_id = 'qrun-h'")[0][0]
+    assert stored == hashlib.sha256(token.encode()).hexdigest() != token
+    assert "share_url" not in gw.client.get("/runs/qrun-h/questionnaires", headers=org.auth).json()[0]
+    assert gw.client.get(f"/questionnaire/{token}/status").status_code == 200
+    assert gw.client.get(f"/questionnaire/{stored}/status").status_code == 404          # the hash is not a credential
+    gw.sql("UPDATE questionnaire_sessions SET access_token = 'legacyplaintexttoken' WHERE run_id = 'qrun-h'")
+    assert gw.client.get("/questionnaire/legacyplaintexttoken/status").status_code == 200
