@@ -13,6 +13,7 @@ Authenticated endpoints (agency / internal use):
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import secrets
@@ -47,10 +48,22 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _token_hash(token: str) -> str:
+    """Only the sha256 of a share token is stored (KAN-69 F18): a database or backup reader cannot open a link."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _by_token(token: str):
+    """WHERE clause for a presented token. Rows written before F18 hold the plain token (43 chars); a 64-char
+    presented value is never matched against the plain column, or a leaked hash would open the link."""
+    stored = [_token_hash(token)] + ([token] if len(token) != 64 else [])
+    return QuestionnaireSession.access_token.in_(stored)
+
+
 async def _get_session_by_token(token: str, db) -> QuestionnaireSession:
     """Look up a QuestionnaireSession by access_token. Raises 404 if missing."""
     qs = (await db.execute(
-        select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+        select(QuestionnaireSession).where(_by_token(token))
     )).scalar_one_or_none()
     if not qs:
         raise HTTPException(status_code=404, detail="Link not found or expired")
@@ -103,7 +116,7 @@ async def get_questionnaire(token: str, request: Request):
     sf = get_session_factory()
     async with sf() as db:
         qs = (await db.execute(
-            select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+            select(QuestionnaireSession).where(_by_token(token))
         )).scalar_one_or_none()
         if not qs or _is_expired(qs):
             accept = request.headers.get("Accept", "")
@@ -152,7 +165,7 @@ async def submit_questionnaire(token: str, body: Dict[str, Any]):
     sf = get_session_factory()
     async with sf() as db:
         qs = (await db.execute(
-            select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+            select(QuestionnaireSession).where(_by_token(token))
         )).scalar_one_or_none()
         if not qs:
             raise HTTPException(status_code=404, detail="Link not found or expired")
@@ -190,7 +203,7 @@ async def questionnaire_status(token: str):
     sf = get_session_factory()
     async with sf() as db:
         qs = (await db.execute(
-            select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+            select(QuestionnaireSession).where(_by_token(token))
         )).scalar_one_or_none()
         if not qs:
             raise HTTPException(status_code=404, detail="Link not found or expired")
@@ -243,7 +256,6 @@ async def list_questionnaires(
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
                 "expires_at": r.token_expires_at.isoformat() if r.token_expires_at else None,
-                "share_url": f"/api/questionnaire/{r.access_token}",
             }
             for r in rows
         ]
@@ -291,7 +303,7 @@ async def send_questionnaire(
             run_id=run_id,
             stage_id=stage_id,
             status="sent",
-            access_token=token,
+            access_token=_token_hash(token),
             token_expires_at=expires_at,
             respondent_email=respondent_email,
             respondent_name=respondent_name,
@@ -303,7 +315,7 @@ async def send_questionnaire(
         await db.commit()
 
     share_url = _build_share_url(token, request)
-    logger.info("[questionnaire] share link: /questionnaire/%s (stage=%s, run=%s)", token, stage_id, run_id)
+    logger.info("[questionnaire] share link created (stage=%s, run=%s)", stage_id, run_id)
 
     stage_label = STAGE_LABELS.get(stage_id, stage_id)
     email_sent = await _send_email_via_sendgrid(
@@ -315,10 +327,7 @@ async def send_questionnaire(
         expires_at=expires_at,
     )
     if not email_sent:
-        logger.info(
-            "[questionnaire] Email not sent (SENDGRID_API_KEY not configured). Share URL: %s",
-            share_url,
-        )
+        logger.info("[questionnaire] Email not sent (SENDGRID_API_KEY not configured); the link is in the response only")
 
     return {
         "session_id": qs.id,
@@ -365,7 +374,7 @@ async def fill_questionnaire(
             run_id=run_id,
             stage_id=stage_id,
             status="completed",
-            access_token=token,
+            access_token=_token_hash(token),
             token_expires_at=expires_at,
             questions=questions,
             answers=answers,
