@@ -30,9 +30,69 @@ const ListTable = ({ list }) => {
   );
 };
 
-const Out = ({ data, rows, cols }) => {
+// Only http(s) addresses become links; anything else (javascript:, data:) stays plain text.
+const safeHref = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null);
+
+// Sources of an answer (library, research, search) as a list of links, never as raw HTML.
+export const Sources = ({ list }) => (
+  <div className="space-y-1"><div className="text-[11px] font-bold text-muted uppercase">Sources</div>
+    <ul className="text-xs list-disc pl-4 space-y-0.5">{list.map((x, i) => {
+      const o = typeof x === 'string' ? { url: x } : (x || {});
+      const href = safeHref(o.url || o.link || o.href);
+      const label = o.title || o.name || o.url || o.source || o.id || `Source ${i + 1}`;
+      return <li key={i}>{href ? <a className="text-accent underline break-all" href={href} target="_blank" rel="noopener noreferrer">{String(label)}</a> : <span className="break-all">{String(label)}</span>}</li>;
+    })}</ul>
+  </div>
+);
+
+// A Jira issue as a fixed layout (key, summary, status, people, description); unknown fields stay under Full detail.
+export const IssueView = ({ data }) => {
+  const i = data?.issue || data || {};
+  const f = i.fields || i;
+  const name = (v) => (v && typeof v === 'object' ? v.displayName || v.name || '' : v || '');
+  const desc = typeof f.description === 'string' ? f.description : f.description ? JSON.stringify(f.description) : '';
+  const comments = f.comment?.comments || i.comments || [];
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="text-sm font-bold text-bright"><span className="font-mono">{i.key}</span> {f.summary}</div>
+      <div className="flex flex-wrap gap-3 text-muted">
+        {[['Status', name(f.status)], ['Type', name(f.issuetype)], ['Priority', name(f.priority)], ['Assignee', name(f.assignee)], ['Reporter', name(f.reporter)]].filter(([, v]) => v).map(([k, v]) => <span key={k}>{k}: <b className="text-bright">{String(v)}</b></span>)}
+      </div>
+      {desc && <pre className="whitespace-pre-wrap break-words bg-surface p-2 rounded border border-border">{desc}</pre>}
+      {comments.length > 0 && <div><div className="text-[11px] font-bold text-muted uppercase">Comments ({comments.length})</div>
+        {comments.slice(0, 20).map((c, k) => <div key={k} className="border-l border-border pl-2 my-1"><b>{name(c.author)}</b> <span className="text-muted">{c.created}</span><pre className="whitespace-pre-wrap break-words">{typeof c.body === 'string' ? c.body : JSON.stringify(c.body)}</pre></div>)}</div>}
+      <details><summary className="text-[11px] text-muted cursor-pointer">Full detail</summary><Detail data={data} /></details>
+    </div>
+  );
+};
+
+// Side-by-side horizontal bars for one number per row (calibration: agreement per competency, -1..1).
+export const BarChart = ({ list, label, value, min = 0, max = 1 }) => (
+  <div className="space-y-1" role="img" aria-label="Chart">
+    {list.map((r, i) => {
+      const v = Number(r?.[value]);
+      const ok = Number.isFinite(v);
+      const pct = ok ? Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100)) : 0;
+      return (
+        <div key={i} className="grid grid-cols-[12rem_1fr_4rem] items-center gap-2 text-xs">
+          <span className="truncate" title={String(r?.[label] ?? '')}>{String(r?.[label] ?? '')}</span>
+          <div className="h-3 bg-surface border border-border rounded"><div className={`h-full rounded ${ok && v >= 0.667 ? 'bg-success' : ok && v >= 0.4 ? 'bg-warning' : 'bg-danger'}`} style={{ width: `${pct}%` }} /></div>
+          <span className="font-mono text-right">{ok ? v.toFixed(2) : 'n/a'}</span>
+        </div>
+      );
+    })}
+  </div>
+);
+
+const Out = ({ data, rows, cols, view, chart }) => {
   const list = rows ? (data?.[rows] ?? []) : null;
+  if (view === 'issue' && data && typeof data === 'object') return <IssueView data={data} />;
+  if (chart && list?.length) return <div className="space-y-3"><BarChart list={list} {...chart} /><ListTable list={list} /></div>;
   if (list && cols) return <Table rows={list} cols={cols.map(([h, k]) => [h, (r) => String(r[k] ?? '')])} />;
+  if (data && typeof data === 'object' && !Array.isArray(data) && Array.isArray(data.sources) && data.sources.length) {
+    const { sources, ...rest } = data;
+    return <div className="space-y-3">{Object.keys(rest).length > 0 && <Out data={rest} />}<Sources list={sources} /></div>;
+  }
   const arr = Array.isArray(data) ? data : Object.values(data || {}).length === 1 && Array.isArray(Object.values(data)[0]) ? Object.values(data)[0] : null;
   if (arr && arr.length && arr.every((r) => r && typeof r === 'object' && !Array.isArray(r))) return <ListTable list={arr} />;
   if (typeof data === 'string') return <pre className="text-xs whitespace-pre-wrap break-words">{data}</pre>;   // text, never HTML
@@ -47,7 +107,7 @@ const Load = ({ s }) => {
     <Card title={s.title} actions={<button className={btn('ghost')} onClick={() => setN(n + 1)}>Refresh</button>}>
       {s.note && <p className="text-xs text-muted">{s.note}</p>}
       <LoadView q={q} isEmpty={(d) => d == null || (typeof d === 'object' && Object.keys(d).length === 0)} emptyText={s.empty || 'Nothing here yet.'}>
-        {(d) => <Out data={d} rows={s.rows} cols={s.cols} />}
+        {(d) => <Out data={d} rows={s.rows} cols={s.cols} view={s.view} chart={s.chart} />}
       </LoadView>
     </Card>
   );
@@ -84,7 +144,7 @@ const Form = ({ s }) => {
           <input aria-label={`Type ${s.typed}`} className={`${inputClass} max-w-[10rem] ml-2`} value={typed} onChange={(e) => setTyped(e.target.value)} />
         </label>
       )}
-      {out != null && !s.once && <Out data={out} />}
+      {out != null && !s.once && <Out data={out} view={s.view} />}
       {out != null && s.once && (
         <Notice tone="warn">Shown once. Copy it now: it is not stored and cannot be shown again.<div className="mt-2 break-all font-mono"><Detail data={out} /></div>
           <button className={`${btn('ghost')} mt-2`} onClick={() => setOut(null)}>Hide</button></Notice>

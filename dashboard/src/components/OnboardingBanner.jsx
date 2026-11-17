@@ -5,6 +5,15 @@ import { api } from '../api';
 import { apiError } from '../apiError';
 import { useRole } from '../hooks/useRole';
 
+// One sentence per server step id: what the step is and why. Unknown ids just show their title.
+const HINTS = {
+  llm_key: 'Pipelines call a language model. Add your own key (or a cloud model) so runs use your account and your spend cap.',
+  first_run: 'Describe an app in plain words. The factory plans, builds and tests it. A first run takes a few minutes.',
+  invite_team: 'Add a teammate so approvals and reviews have a second person.',
+  plan: 'Free and trial plans have a lower monthly model budget. Pick a plan when you need more.',
+  sso: 'Single sign-on lets your identity provider control who can sign in.',
+};
+
 const Step = ({ done, title, optional, onGo }) => (
   <div className={`flex items-center gap-4 p-3 rounded-lg border ${done ? 'border-success/30 bg-success/5' : 'border-border bg-surface/50'}`}>
     <span className={done ? 'text-success' : 'text-muted'}>{done ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}</span>
@@ -31,6 +40,7 @@ const OnboardingBanner = () => {
 
   if (!Array.isArray(state?.steps) || state.dismissed || state.complete) return null;
   const done = state.steps.filter((s) => s.done).length;
+  const current = state.steps.find((s) => !s.done);
 
   const dismiss = async () => {
     try { await api.dismissOnboarding(); setState({ ...state, dismissed: true }); }
@@ -50,6 +60,14 @@ const OnboardingBanner = () => {
       <div className="w-full h-1.5 bg-border/50 rounded-full mb-4 overflow-hidden">
         <div className="h-full bg-accent rounded-full" style={{ width: `${(done / state.steps.length) * 100}%` }} />
       </div>
+      {current && (
+        <div data-testid="wizard-current" className="mb-3 p-4 rounded-lg border border-accent/40 bg-accent/5">
+          <div className="text-[10px] font-bold text-accent uppercase tracking-wider">Step {state.steps.indexOf(current) + 1} of {state.steps.length}</div>
+          <div className="text-sm font-bold text-bright mt-1">{current.title}</div>
+          {HINTS[current.id] && <p className="text-xs text-muted mt-1">{HINTS[current.id]}</p>}
+          <button onClick={() => navigate(current.link)} className="mt-3 text-xs font-bold bg-accent text-white px-4 py-1.5 rounded">Start this step</button>
+        </div>
+      )}
       <div className="space-y-2">
         {state.steps.map((s) => <Step key={s.id} done={s.done} title={s.title} optional={!s.required} onGo={() => navigate(s.link)} />)}
       </div>
