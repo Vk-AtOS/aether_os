@@ -109,3 +109,32 @@ def test_per_org_idp_users_are_unverified_and_cannot_be_linked_by_oauth(gw):
     with pytest.raises(HTTPException) as ei:
         asyncio.run(auth_oauth._upsert_oauth_user(victim))
     assert ei.value.status_code == 403
+
+
+def test_saml_callback_redirects_with_a_one_time_code_not_tokens(gw, monkeypatch):
+    """KAN-69 F8: the SAML callback put the access and 30-day refresh token in the redirect URL (logs, history,
+    Referer), and the dashboard no longer accepts that form, so SSO sign-in was also broken."""
+    import sys
+    import types
+    owner = gw.register("samlcb")
+    for k, v in (("SAML_SP_ENTITY_ID", "sp"), ("SAML_SP_ACS_URL", "https://app.test/auth/saml/callback"),
+                 ("SAML_IDP_ENTITY_ID", "e"), ("SAML_IDP_SSO_URL", "https://idp.test/sso"), ("SAML_IDP_CERT", "x")):
+        monkeypatch.setenv(k, v)
+
+    class FakeAuth:
+        def __init__(self, *a, **k): pass
+        def process_response(self): pass
+        def is_authenticated(self): return True
+        def get_errors(self): return []
+        def get_attributes(self): return {"email": [owner.email]}
+        def get_nameid(self): return owner.email
+
+    mod = types.ModuleType("onelogin.saml2.auth")
+    mod.OneLogin_Saml2_Auth = FakeAuth
+    for name in ("onelogin", "onelogin.saml2"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "onelogin.saml2.auth", mod)
+    resp = gw.client.post("/auth/saml/callback", data={"RelayState": ""}, follow_redirects=False)
+    loc = resp.headers["location"]
+    assert resp.status_code == 302 and "code=" in loc, loc
+    assert "token=" not in loc and "eyJ" not in loc
