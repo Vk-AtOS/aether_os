@@ -20,33 +20,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm import client as _llm_client
-from aether_os.phases.p05_frontend.prompts import DOMAIN_COMPONENT_DESC
+from aether_os.phases.p05_frontend.design_brief import entity_widget_brief
+from aether_os.phases.p05_frontend.prompts import get_domain_color_hint
 
 logger = logging.getLogger(__name__)
-
-# Domain-appropriate colour palette hints so the LLM picks scheme-consistent colours
-DOMAIN_COLOR_HINTS: Dict[str, str] = {
-    "healthcare":   "teal palette: bg-teal-50/100, text-teal-800/900, borders teal-200, accents teal-600",
-    "fintech":      "dark navy-gold: bg-slate-900, text-yellow-300, cards bg-slate-800, accents yellow-400",
-    "ecommerce":    "rose-pink: bg-rose-50, text-rose-900, cards bg-white border-rose-100, accents rose-600",
-    "marketplace":  "violet: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
-    "education":    "sky-cyan: bg-sky-50, text-sky-900, cards bg-white border-sky-100, accents sky-600",
-    "gym_fitness":  "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
-    "fitness":      "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
-    "real_estate":  "emerald: bg-emerald-50, text-emerald-900, cards bg-white border-emerald-100, accents emerald-600",
-    "hospitality":  "amber-warm: bg-amber-50, text-amber-900, cards bg-white border-amber-100, accents amber-600",
-    "restaurant":   "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
-    "food":         "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
-    "logistics":    "slate-blue: bg-slate-50, text-slate-900, cards bg-white border-slate-200, accents slate-600",
-    "iot":          "slate-blue: bg-slate-900, text-cyan-300, cards bg-slate-800, accents cyan-400",
-    "hrm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "crm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "analytics":    "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "saas":         "violet-purple: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
-    "security":     "slate-red: bg-slate-900, text-red-300, cards bg-slate-800 border-slate-700, accents red-500",
-    "sports":       "green-energy: bg-green-50, text-green-900, cards bg-white border-green-100, accents green-600",
-    "library":      "stone: bg-stone-50, text-stone-900, cards bg-white border-stone-200, accents amber-700",
-}
 
 
 def _write_with_guard(path: Path, content: str) -> None:
@@ -118,7 +95,8 @@ async def _generate_domain_component(
 
     # Check fallback first to ensure we have one
 
-    component_desc = DOMAIN_COMPONENT_DESC.get(domain, DOMAIN_COMPONENT_DESC.get("saas", "a SaaS dashboard widget"))
+    # the model's design brief when there is one, else a description built from this app's own entities
+    component_desc = (accumulated_context or {}).get("widget_description") or entity_widget_brief(domain, entities)
     entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []
 
     # Inject KG/RAG architecture context from knowledge graph
@@ -152,7 +130,7 @@ async def _generate_domain_component(
         )
     else:
         # Fall back to domain-based color hints
-        _color_hint = DOMAIN_COLOR_HINTS.get(domain, "white/gray neutral: bg-white, text-gray-900, cards bg-white border-gray-100")
+        _color_hint = get_domain_color_hint(domain)
 
     _rag_section = (
         f"## Architecture Context (from knowledge graph)\n{rag_context}\n\n"

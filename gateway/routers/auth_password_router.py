@@ -25,6 +25,7 @@ from aether_os.core.pipeline_state import get_redis
 from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter as _get_rl
 from aether_os.gateway.auth import verify_password, get_password_hash
 from aether_os.gateway.auth_refresh import revoke_user_sessions
+from aether_os.gateway import password_history
 from sqlalchemy import select
 import secrets
 logger = logging.getLogger(__name__)
@@ -188,6 +189,9 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
         if not user:
             raise HTTPException(status_code=400, detail="User no longer exists")
         loop = asyncio.get_running_loop()
+        if await password_history.is_reused(session, user, req.new_password):
+            raise HTTPException(status_code=422, detail=password_history.REUSED)
+        await password_history.remember(session, user, user.password_hash)
         user.password_hash = await loop.run_in_executor(None, get_password_hash, req.new_password)
         # A reset means the old password may be known to someone else: end every
         # session. Before commit, so a failed revocation (503) changes nothing.
@@ -228,6 +232,9 @@ async def change_password(req: Dict[str, Any], request: Request, user: Dict[str,
         pw_ok = await loop.run_in_executor(None, verify_password, current_pw, db_user.password_hash)
         if not pw_ok:
             raise HTTPException(status_code=401, detail="Current password is incorrect.")
+        if await password_history.is_reused(session, db_user, new_pw):
+            raise HTTPException(status_code=422, detail=password_history.REUSED)
+        await password_history.remember(session, db_user, db_user.password_hash)
         db_user.password_hash = await loop.run_in_executor(None, get_password_hash, new_pw)
         # FIX-15: clear forced password-change flag after successful rotation
         if getattr(db_user, "must_change_password", False):

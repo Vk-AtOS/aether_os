@@ -41,6 +41,7 @@ import asyncio
 import copy
 import importlib
 import logging
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -52,48 +53,26 @@ logger = logging.getLogger(__name__)
 _K8S_ARCHITECTURES = {"microservices", "event_driven"}
 
 # ---------------------------------------------------------------------------
-# Router file discovery map for enterprise extensions
+# Enterprise extension routers
 # ---------------------------------------------------------------------------
-# Each entry: (feature_key, [candidate relative paths], import_alias, router_var)
-_ENTERPRISE_ROUTER_CANDIDATES: List[Tuple[str, List[str], str, str]] = [
-    (
-        "feature_flags",
-        ["feature_flags/flag_admin_router.py", "feature_flags_router.py"],
-        "_ff_router",
-        "router",
-    ),
-    (
-        "iam",
-        ["iam/router.py", "iam_router.py"],
-        "_iam_router",
-        "router",
-    ),
-    (
-        "billing",
-        ["billing/billing_webhook.py", "billing_router.py"],
-        "_billing_router",
-        "router",
-    ),
-    (
-        "ab_testing",
-        ["ab_testing/ab_router.py", "ab_testing_router.py"],
-        "_ab_router",
-        "router",
-    ),
+# Each entry: (phase, package, router module, import alias).
+# A sub-phase writes <its own output dir>/<package>/..., NOT into the app: the old table looked for
+# the files under the app's src/, where they never are, so nothing was ever wired. The package is
+# copied into src/ and then included. p16_iam writes policy files only (no router), so it is not here.
+_ENTERPRISE_ROUTERS: List[Tuple[str, str, str, str]] = [
+    ("p12a_feature_flags", "feature_flags", "flag_admin_router", "_ff_router"),
+    ("p12b_ab_testing", "ab_testing", "ab_router", "_ab_router"),
+    ("p18_billing_metering", "billing", "billing_webhook", "_billing_router"),
 ]
 
 
 def _autowire_enterprise_extensions(
-    backend_src: Path, features_generated: List[str]
+    backend_src: Path, succeeded_phases: List[str], phase_dirs: Dict[str, Path]
 ) -> List[str]:
-    """Patch the generated app's main.py to include enterprise extension routers.
+    """Copy each generated extension package into the app's src/ and include its router in main.py.
 
-    For each feature in features_generated, searches for the router file at known
-    candidate paths relative to backend_src. If found and not already wired into
-    main.py, appends a try/except include_router block. Validates the patched file
-    with ast.parse() before writing — skips the extension if parsing fails.
-
-    Returns a list of extension names that were successfully wired.
+    The patched main.py is validated with ast.parse before it is written; an extension whose
+    snippet breaks the file is skipped. Returns the packages that are wired.
     """
     main_py_path = backend_src / "main.py"
     if not main_py_path.exists():
@@ -104,67 +83,48 @@ def _autowire_enterprise_extensions(
     patched_main = original_main
     wired: List[str] = []
 
-    for feature_key, candidates, alias, router_var in _ENTERPRISE_ROUTER_CANDIDATES:
-        # Only wire features that were actually generated in this run
-        if not any(feature_key in f for f in features_generated):
+    for phase, package, router_module, alias in _ENTERPRISE_ROUTERS:
+        if phase not in succeeded_phases:
             continue
-
-        # Find first existing candidate router file
-        found_path: Path | None = None
-        for candidate in candidates:
-            candidate_path = backend_src / candidate
-            if candidate_path.exists():
-                found_path = candidate_path
-                break
-
-        if found_path is None:
-            logger.debug("s10 autowire: no router file found for feature '%s' — skipped", feature_key)
+        src_pkg = phase_dirs.get(phase, Path("/nonexistent")) / package
+        dest_pkg = backend_src / package
+        if not (src_pkg / f"{router_module}.py").exists() and not (dest_pkg / f"{router_module}.py").exists():
+            logger.warning("s10 autowire: %s has no %s/%s.py — not wired", phase, package, router_module)
             continue
+        if src_pkg.is_dir():
+            dest_pkg.mkdir(parents=True, exist_ok=True)
+            for py in src_pkg.glob("*.py"):
+                shutil.copy2(py, dest_pkg / py.name)
+            (dest_pkg / "__init__.py").touch()
 
-        # Derive Python import path relative to src/ (replace / with . and strip .py)
-        rel_import = str(found_path.relative_to(backend_src)).replace("/", ".").removesuffix(".py")
-
-        # Skip if already wired (idempotency)
-        if rel_import in patched_main or alias in patched_main:
-            logger.debug("s10 autowire: '%s' already wired into main.py — skipped", feature_key)
-            wired.append(feature_key)
+        import_path = f"{package}.{router_module}"
+        if import_path in patched_main:
+            wired.append(package)  # idempotent: already wired
             continue
-
+        # main.py imports the app's modules by plain name (src/ is on sys.path), so the same here.
         snippet = (
-            f"\n# Enterprise extension: {feature_key} (auto-wired by s10)\n"
+            f"\n# Enterprise extension: {package} (auto-wired by s10)\n"
             f"try:\n"
-            f"    from {rel_import} import {router_var} as {alias}\n"
+            f"    from {import_path} import router as {alias}\n"
             f"    app.include_router({alias}, prefix=\"/api\")\n"
-            f"except Exception as _autowire_{feature_key}_exc:\n"
-            f"    import logging as _awl\n"
-            f"    _awl.getLogger(__name__).warning("
-            f"'s10 autowire: {feature_key} router unavailable: %s', _autowire_{feature_key}_exc)\n"
+            f"except Exception as _autowire_{package}_exc:\n"
+            f"    logging.getLogger(__name__).warning("
+            f"'s10 autowire: {package} router unavailable: %s', _autowire_{package}_exc)\n"
         )
-
-        candidate_patched = patched_main + snippet
-
-        # Validate with ast.parse before committing
         try:
-            ast.parse(candidate_patched)
+            ast.parse(patched_main + snippet)
         except SyntaxError as syn_exc:
-            logger.warning(
-                "s10 autowire: patched main.py fails ast.parse for '%s' — skipping: %s",
-                feature_key, syn_exc,
-            )
+            logger.warning("s10 autowire: patched main.py fails ast.parse for '%s' — skipping: %s", package, syn_exc)
             continue
-
-        patched_main = candidate_patched
-        wired.append(feature_key)
-        logger.info("s10 autowire: wired enterprise extension '%s' into main.py", feature_key)
+        patched_main += snippet
+        wired.append(package)
+        logger.info("s10 autowire: wired enterprise extension '%s' into main.py", package)
 
     if patched_main != original_main:
-        try:
-            main_py_path.write_text(patched_main, encoding="utf-8")
-            logger.info("s10 autowire: main.py updated with %d extension(s): %s", len(wired), wired)
-        except Exception as write_exc:
-            logger.error("s10 autowire: failed to write patched main.py: %s", write_exc)
-
+        main_py_path.write_text(patched_main, encoding="utf-8")
+        logger.info("s10 autowire: main.py updated with %d extension(s): %s", len(wired), wired)
     return wired
+
 
 STAGE_CONTRACT = {
     "stage": "s10_enterprise",
@@ -347,7 +307,8 @@ class EnterpriseStageSupervisor(PhaseBase):
             backend_src = Path(backend_src_path)
             # Treat succeeded phase names as the list of features that were generated
             try:
-                autowired = _autowire_enterprise_extensions(backend_src, succeeded)
+                phase_dirs = {n: pm.get_output_dir(phase_input.project_id, n) for n in succeeded}
+                autowired = _autowire_enterprise_extensions(backend_src, succeeded, phase_dirs)
                 metadata["autowired_extensions"] = autowired
                 logger.info(
                     "s10_enterprise: auto-wired %d enterprise extension(s): %s",

@@ -7,13 +7,11 @@ from __future__ import annotations
 
 import json
 import logging
-import ast
 import re
 from typing import Tuple
 
 from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import DEFAULT_ROLE_MODEL
-from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
-from phases.p04a_backend_codegen.prompts import build_crud_prompt, build_seed_prompt
+from aether_os.phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code
 
 logger = logging.getLogger(__name__)
 
@@ -137,159 +135,6 @@ Return VALID JSON only (no markdown):
             )
 
     raise ValueError("Could not parse models/schemas from LLM response")
-
-
-_SQL_SHAPE_RE = re.compile(r"\b(SELECT|UPDATE|DELETE|INSERT)\b.*\b(FROM|SET|INTO|WHERE|VALUES)\b", re.IGNORECASE | re.DOTALL)
-
-
-def _check_and_fix_sql_injection(code: str) -> str:
-    """Reject generated crud.py that builds SQL with an f-string (a SQL injection vector).
-
-    Found with the AST: an f-string with interpolated values whose literal text has the shape of a
-    statement. The old regex rewrote the matched text to 'None  # TODO', which both corrupted
-    unrelated code between two quotes and shipped a TODO; the caller already treats a ValueError as
-    'this LLM output is unusable' and falls back to the template generator.
-    """
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return code  # not our concern here: later syntax validation rejects it
-    for node in ast.walk(tree):
-        if isinstance(node, ast.JoinedStr) and any(isinstance(v, ast.FormattedValue) for v in node.values):
-            literal = "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
-            if _SQL_SHAPE_RE.search(literal):
-                logger.warning("p04a sql_injection_check: raw SQL f-string at line %s: %.100s", node.lineno, literal)
-                raise ValueError(f"LLM CRUD code builds SQL with an f-string (line {node.lineno})")
-    return code
-
-
-def _scrub_password_fields_from_response(code: str) -> str:
-    """Post-processing pass: remove password_hash/password/hashed_password from response schemas.
-
-    LLM-generated crud.py sometimes leaks password fields into response dicts.
-    This scrub ensures they never appear in any dict comprehension or Pydantic model.
-    Only modifies lines that explicitly include these fields as dict keys in responses.
-    """
-    _BANNED = ("password_hash", "password", "hashed_password")
-    out_lines = []
-    for line in code.splitlines():
-        # Remove banned fields from inline dict comprehensions that filter columns by name
-        # e.g. {c.name: ... if c.name not in ('password_hash',)} patterns are already safe;
-        # target: literal key assignments like '"password_hash": obj.password_hash'
-        for field in _BANNED:
-            # Drop lines that are bare key-value pairs for password fields in response dicts
-            if (
-                f'"{field}"' in line or f"'{field}'" in line
-            ) and "not in" not in line and "exclude" not in line:
-                stripped = line.strip()
-                # Only drop if the line IS the key-value pair (not a comment or import)
-                if stripped.startswith(f'"{field}"') or stripped.startswith(f"'{field}'"):
-                    logger.debug("p04a scrub: removed password field line: %s", stripped)
-                    break
-        else:
-            out_lines.append(line)
-    return "\n".join(out_lines)
-
-
-async def _llm_crud_routers(
-    llm, project_name: str, entities: list, models_code: str, schemas_code: str,
-    mem_hint: str = "", multi_tenancy: bool = False,
-) -> str:
-    """One LLM call → routers/crud.py with all entity CRUD routers."""
-
-    # Build a compact entity→fields map so the LLM can produce correct column references
-    entity_fields_summary = ""
-    for e in entities:
-        fields = e.get("fields", []) or []
-        field_names = [f.get("name", f) if isinstance(f, dict) else str(f) for f in fields]
-        entity_fields_summary += f"  {e.get('name','')}: {', '.join(field_names)}\n"
-
-    # Pass full models + schemas so LLM sees exact class names, field names, and types
-    # Cap at 5000 chars each to stay within context budget
-    models_ctx = models_code[:5000] + ("\n# ... (truncated)" if len(models_code) > 5000 else "")
-    schemas_ctx = schemas_code[:5000] + ("\n# ... (truncated)" if len(schemas_code) > 5000 else "")
-
-    # Conditionally inject multi-tenancy filtering instructions into CRUD prompt
-    tenancy_block = _MULTI_TENANCY_PROMPT if multi_tenancy else ""
-
-    prompt = build_crud_prompt(
-        project_name=project_name,
-        entity_fields_summary=entity_fields_summary,
-        models_ctx=models_ctx,
-        schemas_ctx=schemas_ctx,
-        mem_hint=mem_hint,
-        multi_tenancy_block=tenancy_block,
-        auth_flows_prompt=_AUTH_FLOWS_PROMPT,
-    )
-
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=6000)
-    if not result or len(result.strip()) < 200:
-        raise ValueError("Empty or too-short LLM response for CRUD routers")
-
-    # Strip markdown fences if present
-    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
-    code = re.sub(r"\n?```\s*$", "", code.strip())
-
-    # Fix relative imports that break when src/ is loaded as an absolute package
-    # e.g. Bedrock Nova sometimes writes "from..schemas import" or "from ..models import"
-    code = re.sub(r"from\s*\.+\s*(schemas|models|database|auth)\s+import", r"from \1 import", code)
-
-    # Post-process: remove any password fields that leaked into response dicts
-    code = _scrub_password_fields_from_response(code)
-
-    # Post-process: neutralise raw SQL f-strings (SQL injection risk)
-    code = _check_and_fix_sql_injection(code)
-
-    return code
-
-
-async def _llm_seed_data(
-    llm, project_name: str, domain: str, entities: list, models_code: str
-) -> str:
-    """One LLM call → seed.py with realistic startup data."""
-    models_ctx = models_code[:3000] + (
-        "\n# ... (truncated)" if len(models_code) > 3000 else ""
-    )
-    prompt = build_seed_prompt(
-        project_name=project_name,
-        domain=domain,
-        models_ctx=models_ctx,
-    )
-
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
-    if not result or len(result.strip()) < 200:
-        raise ValueError("Empty LLM seed response")
-
-    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
-    code = re.sub(r"\n?```\s*$", "", code.strip())
-    return code
-
-
-async def _llm_service_layer(
-    llm, project_name: str, entities: list, models_code: str, schemas_code: str,
-    mem_hint: str = "",
-) -> str:
-    """One LLM call → services/entity_services.py with one service class per entity."""
-    prompt = f"""
-Generate src/services/__init__.py for "{project_name}".
-{mem_hint}
-Create one service class per entity: class EntityService with async staticmethods:
-  - get_all(db, skip, limit) -> list
-  - get_by_id(db, id) -> model | None
-  - create(db, data) -> model
-  - update(db, id, data) -> model | None
-  - delete(db, id) -> bool
-Each method uses SQLAlchemy async session (AsyncSession).
-Import models from ..models, return ORM objects.
-The CRUD routers will call these service methods instead of querying the DB directly.
-Return ONLY the complete Python file. No markdown.
-"""
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
-    if not result or len(result.strip()) < 100:
-        raise ValueError("Empty LLM response for service layer")
-    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
-    code = re.sub(r"\n?```\s*$", "", code.strip())
-    return code
 
 
 # ── Fallback generators (no LLM) ──────────────────────────────────────────────
@@ -566,5 +411,5 @@ def _fallback_crud_routers(
 
 
 # Re-exports from split modules (file-size limit compliance)
-from phases.p04a_backend_codegen.crud_generator_service import _fallback_service_layer  # noqa: F401
-from phases.p04a_backend_codegen.crud_generator_seed import _fallback_seed  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.crud_generator_service import _fallback_service_layer  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.crud_generator_seed import _fallback_seed  # noqa: F401

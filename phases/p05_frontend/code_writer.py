@@ -13,9 +13,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aether_os.phases.p05_frontend.prompts import (
-    DOMAIN_STAT_LABELS,
-)
 from aether_os.phases.p05_frontend.scaffold import (
     EXCLUDED_COLS,
     to_pascal_case,
@@ -2954,13 +2951,12 @@ def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain:
     stat_cards: List[str] = []
 
     icons = ["BarChart3", "Users", "Activity", "TrendingUp", "Package", "FileText", "Calendar", "Database"]
-    domain_labels = DOMAIN_STAT_LABELS.get(domain, DOMAIN_STAT_LABELS["saas"])
 
     for i, ent in enumerate(entities):
         table = ent["table"]
         camel = table[0].lower() + to_pascal_case(table)[1:]
         endpoint = route_map.get(table, f"/{table}")
-        label = domain_labels[i] if i < len(domain_labels) else to_label(table)
+        label = to_label(table)   # the card counts this entity: the old per-domain list labelled card i by position, not by what it counts
         icon = icons[i % len(icons)]
 
         query_lines.append(

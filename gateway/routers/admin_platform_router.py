@@ -18,7 +18,6 @@ import io
 import logging
 import os
 import pathlib
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from aether_os.core.audit import subjects
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.core.retention import prune_artifact_files
 from aether_os.core.db import get_session_factory
 from aether_os.core.db_utils import update_run_status
 from aether_os.core.guardian.threat_detector import get_threat_detector
@@ -103,26 +103,7 @@ async def prune_artifacts(
         raise HTTPException(status_code=422, detail="ttl_days must be at least 1")
     dry_run   = bool(req.get("dry_run", False))
     artifacts_root = pathlib.Path(os.environ.get("ARTIFACT_DIR", "artifacts"))
-    cutoff = time.time() - ttl_days * 86400
-    deleted_files: list[str] = []
-    deleted_bytes = 0
-    if artifacts_root.exists():
-        for p in sorted(artifacts_root.rglob("*")):
-            # Symlinks are skipped: is_file()/stat() follow them, so the age and
-            # size reported would be those of a file outside the artifact directory.
-            if p.is_file() and not p.is_symlink() and p.stat().st_mtime < cutoff:
-                deleted_bytes += p.stat().st_size
-                deleted_files.append(str(p.relative_to(artifacts_root)))
-                if not dry_run:
-                    p.unlink(missing_ok=True)
-        # Remove empty dirs
-        if not dry_run:
-            for p in sorted(artifacts_root.rglob("*"), reverse=True):
-                if p.is_dir():
-                    try:
-                        p.rmdir()
-                    except OSError as e:
-                        logger.warning("admin_platform_router: could not remove empty dir %s: %s", p, e)
+    deleted_files, deleted_bytes = prune_artifact_files(artifacts_root, ttl_days, dry_run)
     return {
         "dry_run": dry_run,
         "ttl_days": ttl_days,

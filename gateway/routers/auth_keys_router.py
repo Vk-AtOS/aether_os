@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
@@ -41,6 +41,8 @@ LIST_LIMIT = 100       # hard page maximum
 
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    # "read" = GET only (CI dashboards, exports); "write" = changes too. Default keeps what keys could always do.
+    scopes: list[Literal["read", "write"]] = Field(default=["read", "write"], min_length=1, max_length=2)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -73,6 +75,7 @@ async def create_api_key(
             org_id=org_id,
             key_hash=hashed,
             name=req.name,
+            scopes=",".join(sorted(set(req.scopes))),
         )
         session.add(api_key)
         await session.commit()
@@ -95,6 +98,7 @@ async def create_api_key(
         "id": api_key.id,
         "api_key": raw_key,
         "name": req.name,
+        "scopes": sorted(set(req.scopes)),
         "message": "Store this key safely. It will not be shown again.",
     }
 
@@ -114,7 +118,8 @@ async def list_api_keys(limit: int = Query(LIST_LIMIT, ge=1, le=LIST_LIMIT), off
             .order_by(APIKey.created_at.desc()).limit(limit).offset(offset)
         )).scalars().all()
     return [
-        {"id": k.id, "name": k.name, "created_at": str(k.created_at), "last_used_at": k.last_used_at}
+        {"id": k.id, "name": k.name, "scopes": [x for x in k.scopes.split(",") if x], "created_at": str(k.created_at),
+         "last_used_at": k.last_used_at}
         for k in rows
     ]
 
