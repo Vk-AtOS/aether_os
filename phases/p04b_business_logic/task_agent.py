@@ -1,5 +1,6 @@
 """P04b Business Logic Layer — Workflows, notifications, payments."""
 from __future__ import annotations
+import html
 import json
 import logging
 import re
@@ -14,6 +15,7 @@ from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_stripe_service,
     generate_s3_service,
 )
+from aether_os.phases.p04b_business_logic.safe_names import check_logic_names, write_inside
 from aether_os.phases.p04b_business_logic.helpers import (
     _FALLBACK_WORKFLOW_ENGINE,
     _FALLBACK_BUSINESS_RULES,
@@ -69,6 +71,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 issues=[f"DomainIR unavailable and inline recovery failed: {exc}"],
             )
 
+    bad_names = check_logic_names(ir_data)
+    if bad_names:     # fail closed before anything is written (KAN-69 G6)
+        logger.error("p04b: refusing the IR: %s", bad_names)
+        return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=bad_names)
+
     flags = phase_input.input_data.get("integration_flags", {})
     project_name = phase_input.input_data.get('project_name', 'App')
     domain = phase_input.input_data.get('domain', 'general')
@@ -111,7 +118,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     for wf in ir_data.get("workflows", []):
         entity = wf.get("entity", "Entity")
         sm_code = generate_workflow_sm(entity, wf)
-        (workflow_dir / f"{entity.lower()}_sm.py").write_text(sm_code)
+        write_inside(workflow_dir, f"{entity.lower()}_sm.py", sm_code)
 
     # 3. Logic generation - Integrations (src_dir was resolved above)
 
@@ -198,11 +205,9 @@ async def trigger_notification(obj, new_status: str):
             event = notif.get("event", "notification")
             tmpl_body = f"""
                     <h2>Notification: {event.replace('_', ' ').capitalize()}</h2>
-                    <p>{notif.get('template', 'No details provided.')}</p>
+                    <p>{html.escape(str(notif.get('template', 'No details provided.')))}</p>
             """
-            (email_tmpl_dir / f"{event}.html").write_text(
-                get_responsive_email_template(project_name, tmpl_body)
-            )
+            write_inside(email_tmpl_dir, f"{event}.html", get_responsive_email_template(project_name, tmpl_body))
 
     # ── LLM Call A — Approval Workflow Engine ────────────────────────────────
     domain = phase_input.input_data.get("domain", "general")
