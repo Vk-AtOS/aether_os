@@ -7,9 +7,20 @@ import { StateBadge, Detail } from './hrParts';
 const MAX = 45 * 1024;      // the document travels base64 inside a 64 KiB request
 const b64 = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('The file could not be read.')); r.readAsDataURL(f); });
 
-const Verify = ({ id }) => {
+// The document hash from the request is shown next to the verdict so it can be compared with a sealed download.
+const Verify = ({ id, hash }) => {
   const q = useHr('ESIGN', 'verify', { request_id: id });
-  return <LoadView q={q}>{(v) => <Detail data={v} />}</LoadView>;
+  return (
+    <LoadView q={q}>{(v) => (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs">
+          <StateBadge state={v.valid ? 'approved' : 'rejected'} /><span>{v.valid ? 'Every check passed' : 'At least one check failed'}</span>
+        </div>
+        {hash && <div className="text-xs">Document SHA-256: <code data-testid="doc-hash" className="font-mono break-all">{hash}</code></div>}
+        <Detail data={v} />
+      </div>
+    )}</LoadView>
+  );
 };
 
 const Request = ({ id, done }) => {
@@ -28,7 +39,7 @@ const Request = ({ id, done }) => {
             <button className={btn('ghost')} onClick={() => setCheck(true)}>Verify integrity</button>
           </div>
           {act.view}
-          {check && <Verify id={id} />}
+          {check && <Verify id={id} hash={(d.request || d).document_sha256} />}
         </div>
       )}</LoadView>
     </Card>
