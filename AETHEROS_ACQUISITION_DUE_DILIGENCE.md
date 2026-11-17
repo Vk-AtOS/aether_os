@@ -9,14 +9,14 @@ This replaces the 22 Jul 2026 version, which had stale numbers and two false cla
 AetherOS is a 12-stage pipeline that takes a plain-English product description and writes a full-stack application (React, FastAPI, PostgreSQL target) into a project folder. Build time per app is not measured.
 
 ## How these numbers were measured
-Measured 15 Nov 2026 at commit `e5c23fd`.
+Recomputed 17 Nov 2026 at r3/int `88659af` with `python scripts/ci/repo_stats.py`; the test rows are carried over from the r2/int run.
 
 | Metric | Value | Command |
 |---|---|---|
-| Commits | 1237 | `git rev-list --count HEAD` |
-| Tracked Python files | 1141 | `git ls-files '*.py' \| wc -l` |
-| Python lines | 181935 | `git ls-files '*.py' \| xargs wc -l \| tail -1` |
-| Alembic migrations | 79 | `ls alembic/versions/*.py \| wc -l` |
+| Commits | 1308 | `git rev-list --count HEAD` |
+| Tracked Python files | 1190 | `git ls-files '*.py' \| wc -l` |
+| Python lines | 185698 | `git ls-files '*.py' \| xargs wc -l \| tail -1` |
+| Alembic migrations | 84 | `ls alembic/versions/*.py \| wc -l` |
 | Router files `*_router.py` | 72 | `ls gateway/routers/*_router.py \| wc -l` |
 | Frontend source files (`dashboard/src`) | 209 | `git ls-files dashboard/src \| grep -cE "\.(tsx\|jsx\|ts\|js)$"` |
 | Tests collected | 1954 | `python3.11 -m pytest --collect-only -q tests` (collection only) |

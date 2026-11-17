@@ -71,7 +71,7 @@ None. Valid reports may be credited in release notes if the reporter agrees.
 - API keys: generated as `aesk_` plus random hex; stored as a SHA-256 hash, with legacy bcrypt hashes still
   verified (`auth.py:157-173`).
 - MFA: TOTP through `pyotp`. Login returns `mfa_required` and a short-lived token when the user has MFA on
-  (`gateway/auth_mfa.py`, `routers/auth_router.py:215-220`). MFA confirm is limited to 5 attempts per 5 minutes,
+  (`gateway/auth_mfa.py`, `gateway/routers/auth_router.py:215-220`). MFA confirm is limited to 5 attempts per 5 minutes,
   per IP and per user, and a used code cannot be replayed (`auth_mfa.py:32-68`). An organisation can require MFA
   for owners and admins, with a grace period (`gateway/role_gate.py:86-101`; `Organisation.require_admin_mfa`).
   Whether any organisation has it on: not measured.

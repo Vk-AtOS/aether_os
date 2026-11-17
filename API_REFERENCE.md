@@ -2,9 +2,10 @@
 
 This file is generated from the live FastAPI app, not written by hand.
 
-- Generated from commit `e5c23fd` (`git rev-parse --short HEAD`).
+- Route list last synchronised on 17 Nov 2026 (r4/a_docs2, based on r3/int `88659af`). `scripts/ci/check_docs.py` (CI step "Docs match code") fails when a row here is not a live route, when a live route has no row, or when a summary is empty.
+- Summaries are the handler docstring. Where a handler has none, the text is derived from the handler name and path (for the generic `/hr/<AGENT>/<method>` proxy routes, from the agent and method name). Treat those as labels, not specifications.
 - Method: import `aether_os.gateway.api.app` and walk `app.routes` (every `APIRoute`).
-- Counts: 651 route objects, 661 method+path pairs. `app.openapi()` lists 580 paths and 642 operations; the rest are hidden from the schema (`include_in_schema=False`) and are marked "hidden from OpenAPI" in the Summary column.
+- Counts: 658 route objects, 666 method+path pairs. `app.openapi()` lists 587 paths and 649 operations; the rest are hidden from the schema (`include_in_schema=False`) and are marked "hidden from OpenAPI" in the Summary column.
 - The tables list routes only. Request and response bodies are not generated here. Read the handler, or run the app and open `/docs` (disabled when `ENVIRONMENT=production`, `gateway/api.py:107-108`).
 - The "Auth" column is derived from the dependency tree of each route plus a text scan of the handler. It is a guide, not a proof. Treat the handler as the source of truth.
 - To regenerate, run a script that imports the app and prints one table per router module. The script used for this file is a throw-away and is not kept in the repo. Regenerate it after route changes; a stale table is wrong.
@@ -96,7 +97,7 @@ Over the API limit returns 429 with `Retry-After: 60`. If the shared store is do
 
 ## Routes
 
-<!-- GENERATED: commit e5c23fd; 651 APIRoute objects; 661 method+path pairs; 580 OpenAPI paths; 642 OpenAPI operations; 56 pairs without an auth dependency -->
+<!-- GENERATED: r3/int 88659af; 658 APIRoute objects; 666 method+path pairs; 587 OpenAPI paths; 649 OpenAPI operations; 57 pairs with 'no auth dependency' -->
 
 ### `gateway/auth_mfa.py`
 
@@ -111,14 +112,15 @@ Tags: mfa. Routes: 4.
 
 ### `gateway/auth_oauth.py`
 
-Tags: oauth. Routes: 4.
+Tags: oauth. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/auth/oauth/github` | no auth dependency | (no docstring) |
-| GET | `/auth/oauth/github/callback` | no auth dependency | (no docstring) (hidden from OpenAPI) |
-| GET | `/auth/oauth/google` | no auth dependency | (no docstring) |
-| GET | `/auth/oauth/google/callback` | no auth dependency | (no docstring) (hidden from OpenAPI) |
+| GET | `/auth/oauth/github` | no auth dependency | Github login. |
+| GET | `/auth/oauth/github/callback` | no auth dependency | Github callback. (hidden from OpenAPI) |
+| GET | `/auth/oauth/google` | no auth dependency | Google login. |
+| GET | `/auth/oauth/google/callback` | no auth dependency | Google callback. (hidden from OpenAPI) |
+| POST | `/auth/oauth/exchange` | no auth dependency | Trade the one-time code from the callback redirect for the session (or MFA challenge). Single use, 60 s. |
 
 ### `gateway/auth_saml.py`
 
@@ -138,9 +140,9 @@ Tags: client-portal. Routes: 6.
 | Method | Path | Auth | Summary |
 |---|---|---|---|
 | POST | `/portal/{project_id}/approve` | `_portal_auth` | Record the client's sign-off (or change request) for this project. |
-| POST | `/portal/{project_id}/feedback` | `_portal_auth` | (no docstring) |
-| GET | `/portal/{project_id}/phase/{phase_name}` | `_portal_auth` | (no docstring) |
-| GET | `/portal/{project_id}/status` | `_portal_auth` | (no docstring) |
+| POST | `/portal/{project_id}/feedback` | `_portal_auth` | Submit feedback. |
+| GET | `/portal/{project_id}/phase/{phase_name}` | `_portal_auth` | Get phase output. |
+| GET | `/portal/{project_id}/status` | `_portal_auth` | Get project status. |
 | GET | `/portal/{run_id}/download` | `_portal_auth` | Download all project artifacts as a ZIP file (portal token or owning-org user). |
 | GET | `/portal/{run_id}/provenance` | `_portal_auth` | Return the build provenance Markdown document. |
 
@@ -177,7 +179,7 @@ Tags: account. Routes: 8.
 | PUT | `/account/preferences` | `get_current_user`; floor: any role | Update user preferences. |
 | GET | `/account/projects` | `get_current_user`; floor: any role | List all generated projects for the org. |
 | GET | `/account/projects/search` | `get_current_user`; floor: any role | Search projects by name or requirement text. |
-| GET | `/account/storage` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/account/storage` | `get_current_user`; floor: any role | Get account storage. |
 | GET | `/account/usage` | `get_current_user`; floor: any role | Get current usage and limits for the organisation. |
 
 ### `gateway/routers/account_settings_router.py`
@@ -193,13 +195,12 @@ Tags: account. Routes: 4.
 
 ### `gateway/routers/admin_platform_router.py`
 
-Tags: admin. Routes: 6.
+Tags: admin. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/admin/audit-logs/export` | `get_current_user`; floor: any role; handler checks role inline | Export audit logs as a CSV file. Admin/owner only. |
-| POST | `/admin/kill-all` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| GET | `/admin/platform-health` | `get_current_user`; floor: any role; handler checks role inline | (no docstring) |
+| POST | `/admin/kill-all` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Kill all. |
+| GET | `/admin/platform-health` | `get_current_user`; floor: any role; handler checks role inline | Platform health. |
 | POST | `/admin/platform/save-file` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Apply a code fix to a platform-level monitored file (P9). |
 | POST | `/admin/prune-artifacts` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Delete artifact files older than `ttl_days` (default 30). Superadmin only. |
 | POST | `/admin/system/deploy` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Pull latest code from git and restart the service. |
@@ -224,12 +225,12 @@ Tags: admin. Routes: 10.
 | GET | `/admin/error-registry` | `get_current_user`; floor: any role; handler calls `_require_registry`; handler checks role inline | Return all entries from the error registry. Platform operator (superadmin) only: the registry is platform-wide, not per organisation. |
 | GET | `/admin/error-registry/summary` | `get_current_user`; floor: any role; handler calls `_require_registry`; handler checks role inline | Return per-category counts, last-seen dates, and fix status. Platform operator (superadmin) only: the registry is platform-wide, not per organisation. |
 | POST | `/admin/error-registry/{category}/mark-fixed` | `get_current_user`; floor: member+ (viewer denied); handler calls `_require_registry`; handler checks role inline | Record a fix for a given error category. Superadmin only. |
-| GET | `/admin/users` | `get_current_user`; floor: any role; handler checks role inline | (no docstring) |
-| POST | `/admin/users/invite` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| POST | `/admin/users/{user_id}/deactivate` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| POST | `/admin/users/{user_id}/reactivate` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
+| GET | `/admin/users` | `get_current_user`; floor: any role; handler checks role inline | List users. |
+| POST | `/admin/users/invite` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Invite user. |
+| POST | `/admin/users/{user_id}/deactivate` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Deactivate user. |
+| POST | `/admin/users/{user_id}/reactivate` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Reactivate user. |
 | POST | `/admin/users/{user_id}/reset-password` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Reset a user's password to a temporary value.  Admin/owner only. |
-| POST | `/admin/users/{user_id}/role` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
+| POST | `/admin/users/{user_id}/role` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Update user role. |
 
 ### `gateway/routers/agents_router.py`
 
@@ -242,7 +243,7 @@ Tags: agents. Routes: 2.
 
 ### `gateway/routers/app_preview_router.py`
 
-Tags: app-preview. Routes: 12.
+Tags: app-preview. Routes: 10.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
@@ -332,8 +333,8 @@ Tags: runs. Routes: 2.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/factory/runs/{run_id}/clarifying-answers` | `require_run_user`, `get_current_user`; floor: any role | (no docstring) |
-| POST | `/factory/runs/{run_id}/clarifying-answers` | `require_run_user`, `get_current_user`; floor: policy engine decides; handler calls `enforce` | (no docstring) |
+| GET | `/factory/runs/{run_id}/clarifying-answers` | `require_run_user`, `get_current_user`; floor: any role | Get clarifying answers. |
+| POST | `/factory/runs/{run_id}/clarifying-answers` | `require_run_user`, `get_current_user`; floor: policy engine decides; handler calls `enforce` | Submit clarifying answers. |
 
 ### `gateway/routers/compliance_router.py`
 
@@ -341,11 +342,11 @@ Tags: audit, compliance. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/audit/logs` | `get_current_user`; floor: any role; handler checks role inline | (no docstring) |
+| GET | `/audit/logs` | `get_current_user`; floor: any role; handler checks role inline | Get audit logs. |
 | GET | `/audit/logs/export` | `get_current_user`; floor: any role; handler checks role inline | T4-09: Export audit logs as JSON or CSV. Retention window controlled by `days`. |
 | DELETE | `/audit/logs/purge` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Refused: the audit ledger is append-only (no update or delete paths). |
 | GET | `/compliance/artifacts/{run_id}` | `require_run_user`, `get_current_user`; floor: any role | Return a ZIP containing the compliance JSON + PDF for a given run. |
-| GET | `/compliance/org-report` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/compliance/org-report` | `get_current_user`; floor: any role | Get compliance report. |
 
 ### `gateway/routers/factory_analytics_router.py`
 
@@ -450,7 +451,7 @@ Tags: Guardian. Routes: 4.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/guardian/events` | `get_current_user`; floor: any role; handler calls `_require_admin`; handler checks role inline | (no docstring) |
+| GET | `/guardian/events` | `get_current_user`; floor: any role; handler calls `_require_admin`; handler checks role inline | List events. |
 | POST | `/guardian/scan` | `get_current_user`; floor: member+ (viewer denied) | FE-H1: Trigger a Guardian threat scan for the caller's org. |
 | GET | `/guardian/stats` | `get_current_user`; floor: any role; handler checks role inline | Cumulative prevention counters - powers the real-time threat dashboard. |
 | GET | `/guardian/status` | no auth dependency (handler reads the bearer token itself); handler checks role inline | Current threat level, last snapshot, and live service health. |
@@ -461,7 +462,7 @@ Tags: Guardian. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| POST | `/guardian/events/{event_id}/resolve` | `get_current_user`; floor: member+ (viewer denied); handler calls `_require_admin`; handler checks role inline | (no docstring) |
+| POST | `/guardian/events/{event_id}/resolve` | `get_current_user`; floor: member+ (viewer denied); handler calls `_require_admin`; handler checks role inline | Resolve event. |
 | POST | `/guardian/restore/{snapshot_id}` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Restore the platform database from a snapshot. Superadmin only. |
 | GET | `/guardian/snapshots` | `get_current_user`; floor: any role; handler checks role inline | List available database snapshots. Platform-level, so restricted to superadmins. |
 | POST | `/guardian/snapshots` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Trigger a manual database snapshot. Superadmin only. |
@@ -555,11 +556,11 @@ Tags: llm-controls. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| POST | `/admin/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | (no docstring) |
-| PUT | `/admin/llm/orgs/{org_id}/cap` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | (no docstring) |
-| GET | `/admin/llm/status` | `get_current_user`; floor: any role; handler calls `_superadmin`; handler checks role inline | (no docstring) |
-| POST | `/settings/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| GET | `/settings/llm/usage` | `get_current_user`; floor: any role | (no docstring) |
+| POST | `/admin/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Global kill. |
+| PUT | `/admin/llm/orgs/{org_id}/cap` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Set org cap. |
+| GET | `/admin/llm/status` | `get_current_user`; floor: any role; handler calls `_superadmin`; handler checks role inline | Status for `/admin/llm/status`. |
+| POST | `/settings/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org kill. |
+| GET | `/settings/llm/usage` | `get_current_user`; floor: any role | Usage for `/settings/llm/usage`. |
 
 ### `gateway/routers/marketplace_router.py`
 
@@ -569,11 +570,11 @@ Tags: marketplace. Routes: 7.
 |---|---|---|---|
 | POST | `/marketplace/install/{profile_id}` | `get_current_user`; floor: policy engine decides; handler calls `admit_run_start` | T5-02: Install a marketplace profile - increment usage_count and start a |
 | GET | `/marketplace/installed` | `get_current_user`; floor: any role | FE-H2: Return the marketplace profiles installed for the caller's org. |
-| GET | `/marketplace/profiles` | no auth dependency | (no docstring) |
-| DELETE | `/marketplace/profiles/{profile_id}` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| GET | `/marketplace/profiles/{profile_id}` | no auth dependency | (no docstring) |
-| PUT | `/marketplace/profiles/{profile_id}` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| POST | `/marketplace/publish` | `get_current_user`; floor: admin+ | (no docstring) |
+| GET | `/marketplace/profiles` | no auth dependency | List profiles. |
+| DELETE | `/marketplace/profiles/{profile_id}` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Delete marketplace profile. |
+| GET | `/marketplace/profiles/{profile_id}` | no auth dependency | Get marketplace profile. |
+| PUT | `/marketplace/profiles/{profile_id}` | `get_current_user`; floor: member+ (viewer denied) | Update marketplace profile. |
+| POST | `/marketplace/publish` | `get_current_user`; floor: admin+ | Publish profile. |
 
 ### `gateway/routers/memory_router.py`
 
@@ -598,9 +599,9 @@ Tags: notifications. Routes: 3.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/notifications/preferences` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/notifications/preferences` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/notifications/preferences/org` | `get_current_user`; floor: any role; handler checks role inline | (no docstring) |
+| GET | `/notifications/preferences` | `get_current_user`; floor: any role | Get preferences. |
+| PUT | `/notifications/preferences` | `get_current_user`; floor: any role | Put preferences. |
+| PUT | `/notifications/preferences/org` | `get_current_user`; floor: any role; handler checks role inline | Put org preferences. |
 
 ### `gateway/routers/notifications_router.py`
 
@@ -608,9 +609,9 @@ Tags: notifications. Routes: 3.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/notifications` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/notifications/read-all` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/notifications/{notif_id}/read` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/notifications` | `get_current_user`; floor: any role | Get notifications. |
+| POST | `/notifications/read-all` | `get_current_user`; floor: any role | Mark all notifications read. |
+| POST | `/notifications/{notif_id}/read` | `get_current_user`; floor: any role | Mark notification read. |
 
 ### `gateway/routers/onboarding_router.py`
 
@@ -618,8 +619,8 @@ Tags: onboarding. Routes: 2.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/onboarding` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/onboarding/dismiss` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
+| GET | `/onboarding` | `get_current_user`; floor: any role | Get onboarding. |
+| POST | `/onboarding/dismiss` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Dismiss onboarding. |
 
 ### `gateway/routers/ops_status_router.py`
 
@@ -627,7 +628,7 @@ Tags: system. Routes: 2.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/system/components` | `_admin`, `get_current_user`; floor: any role | (no docstring) |
+| GET | `/system/components` | `_admin`, `get_current_user`; floor: any role | Components for `/system/components`. |
 | GET | `/system/dead-letters` | `_admin`, `get_current_user`; floor: any role; handler checks role inline | The queue is platform-wide, so an organisation sees only the dead letters of its own runs. |
 
 ### `gateway/routers/plugins_connectors_router.py`
@@ -667,10 +668,10 @@ Tags: client-portal-admin. Routes: 4.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/factory/runs/{run_id}/portal-approvals` | `require_run_user`, `get_current_user`; floor: any role; handler calls `enforce` | (no docstring) |
-| GET | `/factory/runs/{run_id}/portal-tokens` | `require_run_user`, `get_current_user`; floor: any role; handler calls `enforce` | (no docstring) |
+| GET | `/factory/runs/{run_id}/portal-approvals` | `require_run_user`, `get_current_user`; floor: any role; handler calls `enforce` | List portal approvals. |
+| GET | `/factory/runs/{run_id}/portal-tokens` | `require_run_user`, `get_current_user`; floor: any role; handler calls `enforce` | List portal tokens. |
 | POST | `/factory/runs/{run_id}/portal-tokens` | `require_run_user`, `get_current_user`; floor: policy engine decides; handler calls `enforce` | Issue a portal token for this run. The `token` field is returned here and never again. |
-| DELETE | `/factory/runs/{run_id}/portal-tokens/{token_id}` | `require_run_user`, `get_current_user`; floor: policy engine decides; handler calls `enforce` | (no docstring) |
+| DELETE | `/factory/runs/{run_id}/portal-tokens/{token_id}` | `require_run_user`, `get_current_user`; floor: policy engine decides; handler calls `enforce` | Revoke portal token. |
 
 ### `gateway/routers/preview_session_router.py`
 
@@ -678,7 +679,7 @@ Tags: runs. Routes: 1.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| POST | `/factory/runs/{run_id}/preview-session` | `require_run_user`, `get_current_user`; floor: any role | (no docstring) |
+| POST | `/factory/runs/{run_id}/preview-session` | `require_run_user`, `get_current_user`; floor: any role | Create preview session. |
 
 ### `gateway/routers/prime_corrections_router.py`
 
@@ -689,7 +690,7 @@ Tags: prime-corrections. Routes: 4.
 | GET | `/prime/corrections/eval-set` | `get_current_user`; floor: any role; handler checks role inline | Good examples as test cases: input, expected corrected output. Edits only (a rejection |
 | POST | `/prime/corrections/outcome` | `get_current_user`; floor: any role | Say whether the retrieved corrections changed what the agent proposed. |
 | GET | `/prime/corrections/relevant` | `get_current_user`; floor: any role | The corrections to show an agent before it proposes this action, and the prompt block. |
-| PUT | `/prime/corrections/{correction_id}/good-example` | `get_current_user`; floor: any role; handler calls `_admin` | (no docstring) |
+| PUT | `/prime/corrections/{correction_id}/good-example` | `get_current_user`; floor: any role; handler calls `_admin` | Mark good example. |
 
 ### `gateway/routers/prime_inbox_router.py`
 
@@ -701,10 +702,10 @@ Tags: prime. Routes: 8.
 | GET | `/prime/inbox` | `get_current_user`; floor: any role | Requests waiting for the caller, as owner or as the active deputy of a delegation. |
 | GET | `/prime/inbox/count` | `get_current_user`; floor: any role | Badge numbers for the dashboard: what the caller may decide now, and what lapses within 24h. |
 | POST | `/prime/requests` | `get_current_user`; floor: any role | Ask Prime to carry out an action. Prime decides; a person may have to approve. |
-| GET | `/prime/requests/{request_id}` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/prime/requests/{request_id}` | `get_current_user`; floor: any role | Get request. |
 | POST | `/prime/requests/{request_id}/approve` | `get_current_user`; floor: any role | Approve exactly the request whose hash is quoted, then carry it out once. |
 | POST | `/prime/requests/{request_id}/edit` | `get_current_user`; floor: any role | Change a pending request's amount or editable parameters. Makes a new revision with a new |
-| POST | `/prime/requests/{request_id}/reject` | `get_current_user`; floor: any role | (no docstring) |
+| POST | `/prime/requests/{request_id}/reject` | `get_current_user`; floor: any role | Reject request. |
 
 ### `gateway/routers/prime_ledger_router.py`
 
@@ -712,7 +713,7 @@ Tags: prime. Routes: 2.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/prime/ledger/entries` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/prime/ledger/entries` | `get_current_user`; floor: any role | List entries. |
 | GET | `/prime/ledger/entries/{seq}` | `get_current_user`; floor: any role | One entry, the hash of the entry before it, and whether the link holds. |
 
 ### `gateway/routers/prime_router.py`
@@ -723,9 +724,9 @@ Tags: prime. Routes: 9.
 |---|---|---|---|
 | GET | `/prime/activity` | `get_current_user`; floor: any role | Ledger entries about the caller's own delegations and Prime decisions, newest first. |
 | POST | `/prime/check` | `get_current_user`; floor: any role | Ask Prime what it would do with this action on the caller's behalf. |
-| GET | `/prime/delegations` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/prime/delegations` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/prime/delegations/{delegation_id}/revoke` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/prime/delegations` | `get_current_user`; floor: any role | List delegations. |
+| POST | `/prime/delegations` | `get_current_user`; floor: any role | Create delegation. |
+| POST | `/prime/delegations/{delegation_id}/revoke` | `get_current_user`; floor: any role | Revoke delegation. |
 | GET | `/prime/ledger/verify` | `get_current_user`; floor: any role; handler checks role inline | Verify the caller's own organisation chain (incrementally from its newest signed |
 | GET | `/prime/limits` | `get_current_user`; floor: any role; handler checks role inline | This organisation's Prime limits and the bounds no setting can pass. |
 | PUT | `/prime/limits` | `get_current_user`; floor: any role; handler checks role inline | Change the organisation's limits. Organisation admins only; ledgered. |
@@ -834,15 +835,15 @@ Tags: scim. Routes: 9.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/scim/v2/Groups` | `_verify_scim_auth`; handler calls `_require_admin` | (no docstring) |
-| POST | `/scim/v2/Groups` | `_verify_scim_auth`; handler calls `_require_admin` | (no docstring) |
-| DELETE | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | (no docstring) |
-| GET | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | (no docstring) |
-| PATCH | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | (no docstring) |
-| PUT | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | (no docstring) |
-| GET | `/scim/v2/ResourceTypes` | `_verify_scim_auth` | (no docstring) |
-| GET | `/scim/v2/Schemas` | `_verify_scim_auth` | (no docstring) |
-| GET | `/scim/v2/ServiceProviderConfig` | `_verify_scim_auth` | (no docstring) |
+| GET | `/scim/v2/Groups` | `_verify_scim_auth`; handler calls `_require_admin` | List groups. |
+| POST | `/scim/v2/Groups` | `_verify_scim_auth`; handler calls `_require_admin` | Create group. |
+| DELETE | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | Delete group. |
+| GET | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | Get group. |
+| PATCH | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | Patch group. |
+| PUT | `/scim/v2/Groups/{group_id}` | `_verify_scim_auth`; handler calls `_require_admin` | Replace group. |
+| GET | `/scim/v2/ResourceTypes` | `_verify_scim_auth` | Resource types. |
+| GET | `/scim/v2/Schemas` | `_verify_scim_auth` | Schemas for `/scim/v2/Schemas`. |
+| GET | `/scim/v2/ServiceProviderConfig` | `_verify_scim_auth` | Service provider config. |
 
 ### `gateway/routers/scim_router.py`
 
@@ -850,12 +851,12 @@ Tags: scim. Routes: 6.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/scim/v2/Users` | `_verify_scim_auth`; handler checks role inline | (no docstring) |
+| GET | `/scim/v2/Users` | `_verify_scim_auth`; handler checks role inline | Scim list users. |
 | POST | `/scim/v2/Users` | `_verify_scim_auth`; handler calls `enforce_seat`; handler checks role inline | SCIM provision a new user into the org. |
-| DELETE | `/scim/v2/Users/{user_id}` | `_verify_scim_auth`; handler checks role inline | (no docstring) |
-| GET | `/scim/v2/Users/{user_id}` | `_verify_scim_auth`; handler checks role inline | (no docstring) |
+| DELETE | `/scim/v2/Users/{user_id}` | `_verify_scim_auth`; handler checks role inline | Scim delete user. |
+| GET | `/scim/v2/Users/{user_id}` | `_verify_scim_auth`; handler checks role inline | Scim get user. |
 | PATCH | `/scim/v2/Users/{user_id}` | `_verify_scim_auth` | RFC 7644 3.5.2. Supports active and userName; other attributes are accepted and ignored |
-| PUT | `/scim/v2/Users/{user_id}` | `_verify_scim_auth`; handler checks role inline | (no docstring) |
+| PUT | `/scim/v2/Users/{user_id}` | `_verify_scim_auth`; handler checks role inline | Scim update user. |
 
 ### `gateway/routers/settings_advanced_router.py`
 
@@ -863,19 +864,19 @@ Tags: settings. Routes: 13.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/settings/council-config` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/settings/council-config` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
+| GET | `/settings/council-config` | `get_current_user`; floor: any role | Get council config. |
+| PUT | `/settings/council-config` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Update council config. |
 | GET | `/settings/llm-config` | `get_current_user`; floor: any role | Return LLM config for the current organisation. |
 | PUT | `/settings/llm-config` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Update LLM config for the current organisation. |
-| GET | `/settings/phases/config` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/settings/phases/{phase_name}/config` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| GET | `/settings/preferences` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/settings/preferences` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/settings/scim` | `get_current_user`; floor: any role | (no docstring) |
+| GET | `/settings/phases/config` | `get_current_user`; floor: any role | Get all phase configs. |
+| POST | `/settings/phases/{phase_name}/config` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Update phase config. |
+| GET | `/settings/preferences` | `get_current_user`; floor: any role | Get preferences. |
+| PUT | `/settings/preferences` | `get_current_user`; floor: any role | Update preferences. |
+| GET | `/settings/scim` | `get_current_user`; floor: any role | Get scim config. |
 | POST | `/settings/scim/rotate` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Generate a new SCIM token. DB-H1: stores only the bcrypt hash; plaintext is |
-| DELETE | `/settings/sso` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
-| GET | `/settings/sso` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/settings/sso` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | (no docstring) |
+| DELETE | `/settings/sso` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Delete sso config. |
+| GET | `/settings/sso` | `get_current_user`; floor: any role | Get sso config. |
+| PUT | `/settings/sso` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Upsert sso config. |
 
 ### `gateway/routers/settings_router.py`
 
@@ -898,8 +899,8 @@ Tags: spa. Routes: 2.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/dashboard` | no auth dependency | (no docstring) (hidden from OpenAPI) |
-| GET | `/dashboard/{path:path}` | no auth dependency | (no docstring) (hidden from OpenAPI) |
+| GET | `/dashboard` | no auth dependency | Dashboard spa missing. (hidden from OpenAPI) |
+| GET | `/dashboard/{path:path}` | no auth dependency | Dashboard spa missing. (hidden from OpenAPI) |
 
 ### `gateway/routers/system_info_router.py`
 
@@ -927,11 +928,13 @@ Tags: system. Routes: 4.
 
 ### `gateway/routers/velaris_hr_router.py`
 
-Tags: velaris-hr. Routes: 1.
+Tags: velaris-hr. Routes: 3.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
 | GET | `/hr/allowlist` | `get_current_user`; floor: any role | The pairs this proxy will forward (lets the UI say 'not available' instead of guessing). `admin` lists the |
+| GET | `/hr/links` | `get_current_user` | Links for `/hr/links`. |
+| PUT | `/hr/links/{user_id}` | `get_current_user` | Set link. |
 
 ### `gateway/routers/velaris_router.py`
 
@@ -955,11 +958,11 @@ Tags: webhooks. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/webhooks` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/webhooks` | `get_current_user`; floor: admin+ | (no docstring) |
-| DELETE | `/webhooks/{webhook_id}` | `get_current_user`; floor: admin+ | (no docstring) |
-| PUT | `/webhooks/{webhook_id}` | `get_current_user`; floor: admin+ | (no docstring) |
-| POST | `/webhooks/{webhook_id}/test` | `get_current_user`; floor: admin+ | (no docstring) |
+| GET | `/webhooks` | `get_current_user`; floor: any role | List webhooks. |
+| POST | `/webhooks` | `get_current_user`; floor: admin+ | Create webhook. |
+| DELETE | `/webhooks/{webhook_id}` | `get_current_user`; floor: admin+ | Delete webhook. |
+| PUT | `/webhooks/{webhook_id}` | `get_current_user`; floor: admin+ | Update webhook. |
+| POST | `/webhooks/{webhook_id}/test` | `get_current_user`; floor: admin+ | Test webhook. |
 
 ### `gateway/routers/workspaces_router.py`
 
@@ -967,313 +970,318 @@ Tags: workspaces. Routes: 5.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/workspaces` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/workspaces` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| DELETE | `/workspaces/{workspace_id}` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| GET | `/workspaces/{workspace_id}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/workspaces/{workspace_id}` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
+| GET | `/workspaces` | `get_current_user`; floor: any role | List workspaces. |
+| POST | `/workspaces` | `get_current_user`; floor: member+ (viewer denied) | Create workspace. |
+| DELETE | `/workspaces/{workspace_id}` | `get_current_user`; floor: member+ (viewer denied) | Delete workspace. |
+| GET | `/workspaces/{workspace_id}` | `get_current_user`; floor: any role | Get workspace. |
+| PUT | `/workspaces/{workspace_id}` | `get_current_user`; floor: member+ (viewer denied) | Update workspace. |
 
 ### `gateway/velaris_proxy.py`
 
-Tags: velaris-chat, velaris-control, velaris-hr, velaris-mail, velaris-providers. Routes: 295.
+Tags: velaris-chat, velaris-control, velaris-hr, velaris-mail, velaris-providers. Routes: 300.
 
 | Method | Path | Auth | Summary |
 |---|---|---|---|
-| GET | `/chat/admin/channels/{channel_id}/export` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/chat/admin/channels/{channel_id}/hold` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/admin/messages/{message_id}/erase` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/admin/settings` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/chat/admin/settings` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/admin/sweep` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/admin/users/{user_id}/erase` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/admin/users/{user_id}/export` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/assistant/drafts` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/assistant/drafts/{draft_id}/confirm` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/assistant/drafts/{draft_id}/discard` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/assistant/proposals` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/assistant/proposals/{run_id}/confirm` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/assistant/proposals/{run_id}/decide` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/channels` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/channels` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/channels/public` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/channels/{channel_id}` | `get_current_user`; floor: any role | (no docstring) |
-| PATCH | `/chat/channels/{channel_id}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/chat/channels/{channel_id}/draft` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/channels/{channel_id}/join` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/channels/{channel_id}/leave` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/channels/{channel_id}/members` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/chat/channels/{channel_id}/members/{user_id}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/chat/channels/{channel_id}/members/{user_id}/role` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/channels/{channel_id}/messages` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/channels/{channel_id}/messages` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/channels/{channel_id}/pins` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/channels/{channel_id}/read` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/channels/{channel_id}/topics` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/drafts` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/events` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/events/stream` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/files` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/files/{digest}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/me/export` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/chat/messages/{message_id}` | `get_current_user`; floor: any role | (no docstring) |
-| PATCH | `/chat/messages/{message_id}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/messages/{message_id}/history` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/chat/messages/{message_id}/pin` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/chat/messages/{message_id}/pin` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/chat/messages/{message_id}/reactions/{emoji}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/chat/messages/{message_id}/reactions/{emoji}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/messages/{message_id}/unfurl` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/chat/queues/{queue_id}` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/chat/register` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/chat/search` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/control/pending` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/control/runs` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/control/runs/{run_id}` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/control/runs/{run_id}/decide` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/control/runs/{run_id}/kill` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/control/runs/{run_id}/report` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/control/runs/{run_id}/undo` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/control/tasks` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/add_application` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/add_candidate` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/aggregate_counts` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/approve_requisition` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/candidate_contact` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/candidate_summary` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/close_requisition` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/create_requisition` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/decision_log` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/duplicate_review` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/erase_candidates` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/export_candidate` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/get_application` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/get_requisition` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/list_requisitions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/move_stage` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/open_requisition` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/pipeline` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/record_offer_outcome` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/resolve_duplicate` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/retention_due` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ATS_CORE/withdraw_consent` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/approve_conversion` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/change_record` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/complete_exit_task` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/employee_history` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/erase_subject` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/exit_status` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/export_subject` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/finalise_exit` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/get_employee` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/list_employees` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/propose_conversion` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/reject_conversion` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/retention_status` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/retention_table` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/start_exit` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/EMPLOYEE_RECORDS/workforce_aggregate` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/create_request` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/get_request` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/get_sealed_document` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/list_requests` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/process_due` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/seal_request` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/send_reminders` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/send_request` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/verify` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ESIGN/void_request` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/add_question` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/agreement_report` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/assign_panel` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/calibration_report` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/create_kit` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/create_work_sample` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/define_rubric` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/get_kit` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/list_questions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/list_work_samples` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/review_work_sample` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/scorecards` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/submit_scorecard` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_KIT/work_sample_reviews` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/close_session` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/create_session` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/evidence_view` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/issue_participant_token` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/list_sessions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/mark_event` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_RECORD/replay_pad` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/approve_draft` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/book_interview` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/cancel_interview` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/complete_interview` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/issue_schedule_token` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/list_bookings` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/list_drafts` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/list_interviewers` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/mark_no_show` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/mark_reminder_sent` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/propose_slots` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/reminders` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/render_invitation` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/reschedule_interview` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/INTERVIEW_SCHEDULER/set_availability` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/approve_pack` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/approve_posting` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/get_company_profile` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/get_posting` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/list_packs` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/mark_pack_posted` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/mark_pack_taken_down` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/mark_posting_live` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/prepare_careers_posting` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/prepare_pack` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/resolve_tracking` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/send_indexing_notification` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/set_company_profile` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/take_down_posting` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/JOB_POSTINGS/takedown_due` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/LEAVE_MANAGEMENT/apply` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/LEAVE_MANAGEMENT/approve` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/LEAVE_MANAGEMENT/employee_history` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/LEAVE_MANAGEMENT/get_balance` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/LEAVE_MANAGEMENT/pending_approvals` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/LEAVE_MANAGEMENT/reject` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/add_template` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/approve` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/compensation_preview` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/create_offer` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/expire_due` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/get_offer` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/list_offers` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/list_templates` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/record_response` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/reject` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/render_offer` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/revise_offer` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/send_offer` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/submit_for_approval` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/OFFER_LETTERS/withdraw_offer` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/cancel_case` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/case_status` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/check_aadhaar` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/collect_document` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/complete_task` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/get_document` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/get_form` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/get_identifiers` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/list_cases` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/list_templates` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/reminders_due` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/start_onboarding` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/submit_form` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/submit_identifier` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ONBOARDING_FLOW/waive_task` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/PAYROLL_ENGINE/compute` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/PAYROLL_ENGINE/compute_bulk` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/PAYROLL_ENGINE/get_payslip` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/PAYROLL_ENGINE/get_statutory_deductions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/PAYROLL_ENGINE/get_ytd_summary` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/PAYROLL_ENGINE/org_statutory_summary` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/acknowledge` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/compliance_report` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/get_policy` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/list_policies` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/pending_for_employee` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/publish_policy` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/reminders_due` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/POLICY_ACKS/retire_policy` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/alias_proposals` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/bias_audit` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/get_evidence` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/list_skills` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/match_requisition` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/parse_resume` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/propose_alias` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/review_alias` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/RESUME_EVIDENCE/unknown_skills` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/accept_submission` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/create_form` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/discard_submission` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/get_form` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/get_submission` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/issue_candidate_token` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/list_forms` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/pending_submissions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/process_withdrawal` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/public_routes` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/publish_form` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/sweep_submissions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/unpublish_form` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/SCREENING_FORMS/withdrawal_requests` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PAYROLL/get_cost_to_company` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PAYROLL/get_payslip` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PAYROLL/get_statutory_deductions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PAYROLL/get_ytd_summary` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PEOPLE/get_attendance` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PEOPLE/get_attendance_summary` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PEOPLE/get_employees` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/hr/ZOHO_PEOPLE/get_leave_summary` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/approvals` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/domains` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/domains` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/domains/verify` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/mail/mailboxes/{mb}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/accounts` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/accounts` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/mail/mailboxes/{mb}/accounts/{aid}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/aliases` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/assistant/action-items` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/assistant/draft-reply` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/assistant/summarise` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/assistant/triage` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/mail/mailboxes/{mb}/delegates` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/delegates` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/delegates` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/drafts` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/mail/mailboxes/{mb}/drafts/{did}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/drafts/{did}` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/drafts/{did}/submit` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/export` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/folders` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/folders` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/legal-hold` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/messages` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/mail/mailboxes/{mb}/messages/{mid}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/messages/{mid}` | `get_current_user`; floor: any role | (no docstring) |
-| PATCH | `/mail/mailboxes/{mb}/messages/{mid}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/messages/{mid}/attachments/{sha}` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/messages/{mid}/restore` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/quota` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/rules` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/rules` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/rules/dry-run` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/mail/mailboxes/{mb}/rules/{rid}` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/rules/{rid}` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/settings` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/mailboxes/{mb}/settings` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/submissions` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/mailboxes/{mb}/sync` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/mailboxes/{mb}/threads/{tid}` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/outbox/process` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/retention/run` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/settings` | `get_current_user`; floor: any role | (no docstring) |
-| PUT | `/mail/settings` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/settings/dkim` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/mail/submissions/{sid}` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/submissions/{sid}/cancel` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/mail/submissions/{sid}/decide` | `get_current_user`; floor: any role | (no docstring) |
-| GET | `/model-providers` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/model-providers` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| GET | `/model-providers/usage` | `get_current_user`; floor: any role | (no docstring) |
-| DELETE | `/model-providers/{pid}` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| PUT | `/model-providers/{pid}` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| GET | `/model-providers/{pid}/models` | `get_current_user`; floor: any role | (no docstring) |
-| POST | `/model-providers/{pid}/models/refresh` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| POST | `/model-providers/{pid}/rotate` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
-| POST | `/model-providers/{pid}/test` | `get_current_user`; floor: member+ (viewer denied) | (no docstring) |
+| GET | `/chat/admin/channels/{channel_id}/export` | `get_current_user`; floor: any role | Velaris chat admin export get. |
+| PUT | `/chat/admin/channels/{channel_id}/hold` | `get_current_user`; floor: any role | Velaris chat admin hold put. |
+| POST | `/chat/admin/messages/{message_id}/erase` | `get_current_user`; floor: any role | Velaris chat admin erase post. |
+| GET | `/chat/admin/settings` | `get_current_user`; floor: any role | Velaris chat admin settings get. |
+| PUT | `/chat/admin/settings` | `get_current_user`; floor: any role | Velaris chat admin settings set put. |
+| POST | `/chat/admin/sweep` | `get_current_user`; floor: any role | Velaris chat admin sweep post. |
+| POST | `/chat/admin/users/{user_id}/erase` | `get_current_user`; floor: any role | Velaris chat admin user erase post. |
+| GET | `/chat/admin/users/{user_id}/export` | `get_current_user`; floor: any role | Velaris chat admin user export get. |
+| GET | `/chat/assistant/drafts` | `get_current_user`; floor: any role | Velaris chat assistant drafts get. |
+| POST | `/chat/assistant/drafts/{draft_id}/confirm` | `get_current_user`; floor: any role | Velaris chat assistant draft confirm post. |
+| POST | `/chat/assistant/drafts/{draft_id}/discard` | `get_current_user`; floor: any role | Velaris chat assistant draft discard post. |
+| GET | `/chat/assistant/proposals` | `get_current_user`; floor: any role | Velaris chat assistant proposals get. |
+| POST | `/chat/assistant/proposals/{run_id}/confirm` | `get_current_user`; floor: any role | Velaris chat assistant proposal confirm post. |
+| POST | `/chat/assistant/proposals/{run_id}/decide` | `get_current_user`; floor: any role | Velaris chat assistant proposal decide post. |
+| GET | `/chat/channels` | `get_current_user`; floor: any role | Velaris chat channels get. |
+| POST | `/chat/channels` | `get_current_user`; floor: any role | Velaris chat channel create post. |
+| GET | `/chat/channels/public` | `get_current_user`; floor: any role | Velaris chat channels public get. |
+| GET | `/chat/channels/{channel_id}` | `get_current_user`; floor: any role | Velaris chat channel get get. |
+| PATCH | `/chat/channels/{channel_id}` | `get_current_user`; floor: any role | Velaris chat channel update patch. |
+| PUT | `/chat/channels/{channel_id}/draft` | `get_current_user`; floor: any role | Velaris chat draft set put. |
+| POST | `/chat/channels/{channel_id}/join` | `get_current_user`; floor: any role | Velaris chat channel join post. |
+| POST | `/chat/channels/{channel_id}/leave` | `get_current_user`; floor: any role | Velaris chat channel leave post. |
+| POST | `/chat/channels/{channel_id}/members` | `get_current_user`; floor: any role | Velaris chat member add post. |
+| DELETE | `/chat/channels/{channel_id}/members/{user_id}` | `get_current_user`; floor: any role | Velaris chat member remove delete. |
+| PUT | `/chat/channels/{channel_id}/members/{user_id}/role` | `get_current_user`; floor: any role | Velaris chat member role put. |
+| GET | `/chat/channels/{channel_id}/messages` | `get_current_user`; floor: any role | Velaris chat messages get. |
+| POST | `/chat/channels/{channel_id}/messages` | `get_current_user`; floor: any role | Velaris chat message post post. |
+| GET | `/chat/channels/{channel_id}/pins` | `get_current_user`; floor: any role | Velaris chat pins get. |
+| POST | `/chat/channels/{channel_id}/read` | `get_current_user`; floor: any role | Velaris chat read post. |
+| GET | `/chat/channels/{channel_id}/topics` | `get_current_user`; floor: any role | Velaris chat topics get. |
+| GET | `/chat/drafts` | `get_current_user`; floor: any role | Velaris chat drafts get. |
+| GET | `/chat/events` | `get_current_user`; floor: any role | Velaris chat events get. |
+| GET | `/chat/events/stream` | `get_current_user`; floor: any role | Velaris chat events stream get. |
+| POST | `/chat/files` | `get_current_user`; floor: any role | Velaris chat file upload post. |
+| GET | `/chat/files/{digest}` | `get_current_user`; floor: any role | Velaris chat file download get. |
+| GET | `/chat/me/export` | `get_current_user`; floor: any role | Velaris chat me export get. |
+| DELETE | `/chat/messages/{message_id}` | `get_current_user`; floor: any role | Velaris chat message delete delete. |
+| PATCH | `/chat/messages/{message_id}` | `get_current_user`; floor: any role | Velaris chat message edit patch. |
+| GET | `/chat/messages/{message_id}/history` | `get_current_user`; floor: any role | Velaris chat message history get. |
+| DELETE | `/chat/messages/{message_id}/pin` | `get_current_user`; floor: any role | Velaris chat unpin delete. |
+| PUT | `/chat/messages/{message_id}/pin` | `get_current_user`; floor: any role | Velaris chat pin put. |
+| DELETE | `/chat/messages/{message_id}/reactions/{emoji}` | `get_current_user`; floor: any role | Velaris chat unreact delete. |
+| PUT | `/chat/messages/{message_id}/reactions/{emoji}` | `get_current_user`; floor: any role | Velaris chat react put. |
+| GET | `/chat/messages/{message_id}/unfurl` | `get_current_user`; floor: any role | Velaris chat message unfurl get. |
+| DELETE | `/chat/queues/{queue_id}` | `get_current_user`; floor: any role | Velaris chat queue drop delete. |
+| POST | `/chat/register` | `get_current_user`; floor: any role | Velaris chat register post. |
+| GET | `/chat/search` | `get_current_user`; floor: any role | Velaris chat search get. |
+| GET | `/control/pending` | `get_current_user`; floor: any role | Velaris control pending get. |
+| POST | `/control/runs` | `get_current_user`; floor: any role | Velaris control start post. |
+| GET | `/control/runs/{run_id}` | `get_current_user`; floor: any role | Velaris control state get. |
+| POST | `/control/runs/{run_id}/decide` | `get_current_user`; floor: any role | Velaris control decide post. |
+| POST | `/control/runs/{run_id}/kill` | `get_current_user`; floor: any role | Velaris control kill post. |
+| GET | `/control/runs/{run_id}/report` | `get_current_user`; floor: any role | Velaris control report get. |
+| POST | `/control/runs/{run_id}/undo` | `get_current_user`; floor: any role | Velaris control undo post. |
+| GET | `/control/tasks` | `get_current_user`; floor: any role | Velaris control tasks get. |
+| POST | `/hr/ATS_CORE/add_application` | `get_current_user`; floor: any role | Velaris HR ats core: add application. |
+| POST | `/hr/ATS_CORE/add_candidate` | `get_current_user`; floor: any role | Velaris HR ats core: add candidate. |
+| POST | `/hr/ATS_CORE/aggregate_counts` | `get_current_user`; floor: any role | Velaris HR ats core: aggregate counts. |
+| POST | `/hr/ATS_CORE/approve_requisition` | `get_current_user`; floor: any role | Velaris HR ats core: approve requisition. |
+| POST | `/hr/ATS_CORE/candidate_contact` | `get_current_user`; floor: any role | Velaris HR ats core: candidate contact. |
+| POST | `/hr/ATS_CORE/candidate_summary` | `get_current_user`; floor: any role | Velaris HR ats core: candidate summary. |
+| POST | `/hr/ATS_CORE/close_requisition` | `get_current_user`; floor: any role | Velaris HR ats core: close requisition. |
+| POST | `/hr/ATS_CORE/create_requisition` | `get_current_user`; floor: any role | Velaris HR ats core: create requisition. |
+| POST | `/hr/ATS_CORE/decision_log` | `get_current_user`; floor: any role | Velaris HR ats core: decision log. |
+| POST | `/hr/ATS_CORE/duplicate_review` | `get_current_user`; floor: any role | Velaris HR ats core: duplicate review. |
+| POST | `/hr/ATS_CORE/erase_candidates` | `get_current_user`; floor: any role | Velaris HR ats core: erase candidates. |
+| POST | `/hr/ATS_CORE/export_candidate` | `get_current_user`; floor: any role | Velaris HR ats core: export candidate. |
+| POST | `/hr/ATS_CORE/get_application` | `get_current_user`; floor: any role | Velaris HR ats core: get application. |
+| POST | `/hr/ATS_CORE/get_requisition` | `get_current_user`; floor: any role | Velaris HR ats core: get requisition. |
+| POST | `/hr/ATS_CORE/list_requisitions` | `get_current_user`; floor: any role | Velaris HR ats core: list requisitions. |
+| POST | `/hr/ATS_CORE/move_stage` | `get_current_user`; floor: any role | Velaris HR ats core: move stage. |
+| POST | `/hr/ATS_CORE/open_requisition` | `get_current_user`; floor: any role | Velaris HR ats core: open requisition. |
+| POST | `/hr/ATS_CORE/pipeline` | `get_current_user`; floor: any role | Velaris HR ats core: pipeline. |
+| POST | `/hr/ATS_CORE/record_offer_outcome` | `get_current_user`; floor: any role | Velaris HR ats core: record offer outcome. |
+| POST | `/hr/ATS_CORE/resolve_duplicate` | `get_current_user`; floor: any role | Velaris HR ats core: resolve duplicate. |
+| POST | `/hr/ATS_CORE/retention_due` | `get_current_user`; floor: any role | Velaris HR ats core: retention due. |
+| POST | `/hr/ATS_CORE/withdraw_consent` | `get_current_user`; floor: any role | Velaris HR ats core: withdraw consent. |
+| POST | `/hr/EMPLOYEE_RECORDS/approve_conversion` | `get_current_user`; floor: any role | Velaris HR employee records: approve conversion. |
+| POST | `/hr/EMPLOYEE_RECORDS/change_record` | `get_current_user`; floor: any role | Velaris HR employee records: change record. |
+| POST | `/hr/EMPLOYEE_RECORDS/complete_exit_task` | `get_current_user`; floor: any role | Velaris HR employee records: complete exit task. |
+| POST | `/hr/EMPLOYEE_RECORDS/employee_history` | `get_current_user`; floor: any role | Velaris HR employee records: employee history. |
+| POST | `/hr/EMPLOYEE_RECORDS/erase_subject` | `get_current_user`; floor: any role | Velaris HR employee records: erase subject. |
+| POST | `/hr/EMPLOYEE_RECORDS/exit_status` | `get_current_user`; floor: any role | Velaris HR employee records: exit status. |
+| POST | `/hr/EMPLOYEE_RECORDS/export_subject` | `get_current_user`; floor: any role | Velaris HR employee records: export subject. |
+| POST | `/hr/EMPLOYEE_RECORDS/finalise_exit` | `get_current_user`; floor: any role | Velaris HR employee records: finalise exit. |
+| POST | `/hr/EMPLOYEE_RECORDS/get_employee` | `get_current_user`; floor: any role | Velaris HR employee records: get employee. |
+| POST | `/hr/EMPLOYEE_RECORDS/list_employees` | `get_current_user`; floor: any role | Velaris HR employee records: list employees. |
+| POST | `/hr/EMPLOYEE_RECORDS/propose_conversion` | `get_current_user`; floor: any role | Velaris HR employee records: propose conversion. |
+| POST | `/hr/EMPLOYEE_RECORDS/reject_conversion` | `get_current_user`; floor: any role | Velaris HR employee records: reject conversion. |
+| POST | `/hr/EMPLOYEE_RECORDS/retention_status` | `get_current_user`; floor: any role | Velaris HR employee records: retention status. |
+| POST | `/hr/EMPLOYEE_RECORDS/retention_table` | `get_current_user`; floor: any role | Velaris HR employee records: retention table. |
+| POST | `/hr/EMPLOYEE_RECORDS/start_exit` | `get_current_user`; floor: any role | Velaris HR employee records: start exit. |
+| POST | `/hr/EMPLOYEE_RECORDS/workforce_aggregate` | `get_current_user`; floor: any role | Velaris HR employee records: workforce aggregate. |
+| POST | `/hr/ESIGN/create_request` | `get_current_user`; floor: any role | Velaris HR esign: create request. |
+| POST | `/hr/ESIGN/get_request` | `get_current_user`; floor: any role | Velaris HR esign: get request. |
+| POST | `/hr/ESIGN/get_sealed_document` | `get_current_user`; floor: any role | Velaris HR esign: get sealed document. |
+| POST | `/hr/ESIGN/list_requests` | `get_current_user`; floor: any role | Velaris HR esign: list requests. |
+| POST | `/hr/ESIGN/process_due` | `get_current_user`; floor: any role | Velaris HR esign: process due. |
+| POST | `/hr/ESIGN/seal_request` | `get_current_user`; floor: any role | Velaris HR esign: seal request. |
+| POST | `/hr/ESIGN/send_reminders` | `get_current_user`; floor: any role | Velaris HR esign: send reminders. |
+| POST | `/hr/ESIGN/send_request` | `get_current_user`; floor: any role | Velaris HR esign: send request. |
+| POST | `/hr/ESIGN/verify` | `get_current_user`; floor: any role | Velaris HR esign: verify. |
+| POST | `/hr/ESIGN/void_request` | `get_current_user`; floor: any role | Velaris HR esign: void request. |
+| POST | `/hr/INTERVIEW_KIT/add_question` | `get_current_user`; floor: any role | Velaris HR interview kit: add question. |
+| POST | `/hr/INTERVIEW_KIT/agreement_report` | `get_current_user`; floor: any role | Velaris HR interview kit: agreement report. |
+| POST | `/hr/INTERVIEW_KIT/assign_panel` | `get_current_user`; floor: any role | Velaris HR interview kit: assign panel. |
+| POST | `/hr/INTERVIEW_KIT/calibration_report` | `get_current_user`; floor: any role | Velaris HR interview kit: calibration report. |
+| POST | `/hr/INTERVIEW_KIT/create_kit` | `get_current_user`; floor: any role | Velaris HR interview kit: create kit. |
+| POST | `/hr/INTERVIEW_KIT/create_work_sample` | `get_current_user`; floor: any role | Velaris HR interview kit: create work sample. |
+| POST | `/hr/INTERVIEW_KIT/define_rubric` | `get_current_user`; floor: any role | Velaris HR interview kit: define rubric. |
+| POST | `/hr/INTERVIEW_KIT/get_kit` | `get_current_user`; floor: any role | Velaris HR interview kit: get kit. |
+| POST | `/hr/INTERVIEW_KIT/list_questions` | `get_current_user`; floor: any role | Velaris HR interview kit: list questions. |
+| POST | `/hr/INTERVIEW_KIT/list_work_samples` | `get_current_user`; floor: any role | Velaris HR interview kit: list work samples. |
+| POST | `/hr/INTERVIEW_KIT/review_work_sample` | `get_current_user`; floor: any role | Velaris HR interview kit: review work sample. |
+| POST | `/hr/INTERVIEW_KIT/scorecards` | `get_current_user`; floor: any role | Velaris HR interview kit: scorecards. |
+| POST | `/hr/INTERVIEW_KIT/submit_scorecard` | `get_current_user`; floor: any role | Velaris HR interview kit: submit scorecard. |
+| POST | `/hr/INTERVIEW_KIT/work_sample_reviews` | `get_current_user`; floor: any role | Velaris HR interview kit: work sample reviews. |
+| POST | `/hr/INTERVIEW_RECORD/close_session` | `get_current_user`; floor: any role | Velaris HR interview record: close session. |
+| POST | `/hr/INTERVIEW_RECORD/create_session` | `get_current_user`; floor: any role | Velaris HR interview record: create session. |
+| POST | `/hr/INTERVIEW_RECORD/evidence_view` | `get_current_user`; floor: any role | Velaris HR interview record: evidence view. |
+| POST | `/hr/INTERVIEW_RECORD/issue_participant_token` | `get_current_user`; floor: any role | Velaris HR interview record: issue participant token. |
+| POST | `/hr/INTERVIEW_RECORD/list_sessions` | `get_current_user`; floor: any role | Velaris HR interview record: list sessions. |
+| POST | `/hr/INTERVIEW_RECORD/mark_event` | `get_current_user`; floor: any role | Velaris HR interview record: mark event. |
+| POST | `/hr/INTERVIEW_RECORD/replay_pad` | `get_current_user`; floor: any role | Velaris HR interview record: replay pad. |
+| POST | `/hr/INTERVIEW_SCHEDULER/approve_draft` | `get_current_user`; floor: any role | Velaris HR interview scheduler: approve draft. |
+| POST | `/hr/INTERVIEW_SCHEDULER/book_interview` | `get_current_user`; floor: any role | Velaris HR interview scheduler: book interview. |
+| POST | `/hr/INTERVIEW_SCHEDULER/cancel_interview` | `get_current_user`; floor: any role | Velaris HR interview scheduler: cancel interview. |
+| POST | `/hr/INTERVIEW_SCHEDULER/complete_interview` | `get_current_user`; floor: any role | Velaris HR interview scheduler: complete interview. |
+| POST | `/hr/INTERVIEW_SCHEDULER/issue_schedule_token` | `get_current_user`; floor: any role | Velaris HR interview scheduler: issue schedule token. |
+| POST | `/hr/INTERVIEW_SCHEDULER/list_bookings` | `get_current_user`; floor: any role | Velaris HR interview scheduler: list bookings. |
+| POST | `/hr/INTERVIEW_SCHEDULER/list_drafts` | `get_current_user`; floor: any role | Velaris HR interview scheduler: list drafts. |
+| POST | `/hr/INTERVIEW_SCHEDULER/list_interviewers` | `get_current_user`; floor: any role | Velaris HR interview scheduler: list interviewers. |
+| POST | `/hr/INTERVIEW_SCHEDULER/mark_no_show` | `get_current_user`; floor: any role | Velaris HR interview scheduler: mark no show. |
+| POST | `/hr/INTERVIEW_SCHEDULER/mark_reminder_sent` | `get_current_user`; floor: any role | Velaris HR interview scheduler: mark reminder sent. |
+| POST | `/hr/INTERVIEW_SCHEDULER/propose_slots` | `get_current_user`; floor: any role | Velaris HR interview scheduler: propose slots. |
+| POST | `/hr/INTERVIEW_SCHEDULER/reminders` | `get_current_user`; floor: any role | Velaris HR interview scheduler: reminders. |
+| POST | `/hr/INTERVIEW_SCHEDULER/render_invitation` | `get_current_user`; floor: any role | Velaris HR interview scheduler: render invitation. |
+| POST | `/hr/INTERVIEW_SCHEDULER/reschedule_interview` | `get_current_user`; floor: any role | Velaris HR interview scheduler: reschedule interview. |
+| POST | `/hr/INTERVIEW_SCHEDULER/set_availability` | `get_current_user`; floor: any role | Velaris HR interview scheduler: set availability. |
+| POST | `/hr/JOB_POSTINGS/approve_pack` | `get_current_user`; floor: any role | Velaris HR job postings: approve pack. |
+| POST | `/hr/JOB_POSTINGS/approve_posting` | `get_current_user`; floor: any role | Velaris HR job postings: approve posting. |
+| POST | `/hr/JOB_POSTINGS/get_company_profile` | `get_current_user`; floor: any role | Velaris HR job postings: get company profile. |
+| POST | `/hr/JOB_POSTINGS/get_posting` | `get_current_user`; floor: any role | Velaris HR job postings: get posting. |
+| POST | `/hr/JOB_POSTINGS/list_packs` | `get_current_user`; floor: any role | Velaris HR job postings: list packs. |
+| POST | `/hr/JOB_POSTINGS/mark_pack_posted` | `get_current_user`; floor: any role | Velaris HR job postings: mark pack posted. |
+| POST | `/hr/JOB_POSTINGS/mark_pack_taken_down` | `get_current_user`; floor: any role | Velaris HR job postings: mark pack taken down. |
+| POST | `/hr/JOB_POSTINGS/mark_posting_live` | `get_current_user`; floor: any role | Velaris HR job postings: mark posting live. |
+| POST | `/hr/JOB_POSTINGS/prepare_careers_posting` | `get_current_user`; floor: any role | Velaris HR job postings: prepare careers posting. |
+| POST | `/hr/JOB_POSTINGS/prepare_pack` | `get_current_user`; floor: any role | Velaris HR job postings: prepare pack. |
+| POST | `/hr/JOB_POSTINGS/resolve_tracking` | `get_current_user`; floor: any role | Velaris HR job postings: resolve tracking. |
+| POST | `/hr/JOB_POSTINGS/send_indexing_notification` | `get_current_user`; floor: any role | Velaris HR job postings: send indexing notification. |
+| POST | `/hr/JOB_POSTINGS/set_company_profile` | `get_current_user`; floor: any role | Velaris HR job postings: set company profile. |
+| POST | `/hr/JOB_POSTINGS/take_down_posting` | `get_current_user`; floor: any role | Velaris HR job postings: take down posting. |
+| POST | `/hr/JOB_POSTINGS/takedown_due` | `get_current_user`; floor: any role | Velaris HR job postings: takedown due. |
+| POST | `/hr/LEAVE_MANAGEMENT/apply` | `get_current_user`; floor: any role | Velaris HR leave management: apply. |
+| POST | `/hr/LEAVE_MANAGEMENT/approve` | `get_current_user`; floor: any role | Velaris HR leave management: approve. |
+| POST | `/hr/LEAVE_MANAGEMENT/employee_history` | `get_current_user`; floor: any role | Velaris HR leave management: employee history. |
+| POST | `/hr/LEAVE_MANAGEMENT/get_balance` | `get_current_user`; floor: any role | Velaris HR leave management: get balance. |
+| POST | `/hr/LEAVE_MANAGEMENT/pending_approvals` | `get_current_user`; floor: any role | Velaris HR leave management: pending approvals. |
+| POST | `/hr/LEAVE_MANAGEMENT/reject` | `get_current_user`; floor: any role | Velaris HR leave management: reject. |
+| POST | `/hr/OFFER_LETTERS/add_template` | `get_current_user`; floor: any role | Velaris HR offer letters: add template. |
+| POST | `/hr/OFFER_LETTERS/approve` | `get_current_user`; floor: any role | Velaris HR offer letters: approve. |
+| POST | `/hr/OFFER_LETTERS/compensation_preview` | `get_current_user`; floor: any role | Velaris HR offer letters: compensation preview. |
+| POST | `/hr/OFFER_LETTERS/create_offer` | `get_current_user`; floor: any role | Velaris HR offer letters: create offer. |
+| POST | `/hr/OFFER_LETTERS/expire_due` | `get_current_user`; floor: any role | Velaris HR offer letters: expire due. |
+| POST | `/hr/OFFER_LETTERS/get_offer` | `get_current_user`; floor: any role | Velaris HR offer letters: get offer. |
+| POST | `/hr/OFFER_LETTERS/list_offers` | `get_current_user`; floor: any role | Velaris HR offer letters: list offers. |
+| POST | `/hr/OFFER_LETTERS/list_templates` | `get_current_user`; floor: any role | Velaris HR offer letters: list templates. |
+| POST | `/hr/OFFER_LETTERS/record_response` | `get_current_user`; floor: any role | Velaris HR offer letters: record response. |
+| POST | `/hr/OFFER_LETTERS/reject` | `get_current_user`; floor: any role | Velaris HR offer letters: reject. |
+| POST | `/hr/OFFER_LETTERS/render_offer` | `get_current_user`; floor: any role | Velaris HR offer letters: render offer. |
+| POST | `/hr/OFFER_LETTERS/revise_offer` | `get_current_user`; floor: any role | Velaris HR offer letters: revise offer. |
+| POST | `/hr/OFFER_LETTERS/send_offer` | `get_current_user`; floor: any role | Velaris HR offer letters: send offer. |
+| POST | `/hr/OFFER_LETTERS/submit_for_approval` | `get_current_user`; floor: any role | Velaris HR offer letters: submit for approval. |
+| POST | `/hr/OFFER_LETTERS/withdraw_offer` | `get_current_user`; floor: any role | Velaris HR offer letters: withdraw offer. |
+| POST | `/hr/ONBOARDING_FLOW/cancel_case` | `get_current_user`; floor: any role | Velaris HR onboarding flow: cancel case. |
+| POST | `/hr/ONBOARDING_FLOW/case_status` | `get_current_user`; floor: any role | Velaris HR onboarding flow: case status. |
+| POST | `/hr/ONBOARDING_FLOW/check_aadhaar` | `get_current_user`; floor: any role | Velaris HR onboarding flow: check aadhaar. |
+| POST | `/hr/ONBOARDING_FLOW/collect_document` | `get_current_user`; floor: any role | Velaris HR onboarding flow: collect document. |
+| POST | `/hr/ONBOARDING_FLOW/complete_task` | `get_current_user`; floor: any role | Velaris HR onboarding flow: complete task. |
+| POST | `/hr/ONBOARDING_FLOW/get_document` | `get_current_user`; floor: any role | Velaris HR onboarding flow: get document. |
+| POST | `/hr/ONBOARDING_FLOW/get_form` | `get_current_user`; floor: any role | Velaris HR onboarding flow: get form. |
+| POST | `/hr/ONBOARDING_FLOW/get_identifiers` | `get_current_user`; floor: any role | Velaris HR onboarding flow: get identifiers. |
+| POST | `/hr/ONBOARDING_FLOW/list_cases` | `get_current_user`; floor: any role | Velaris HR onboarding flow: list cases. |
+| POST | `/hr/ONBOARDING_FLOW/list_templates` | `get_current_user`; floor: any role | Velaris HR onboarding flow: list templates. |
+| POST | `/hr/ONBOARDING_FLOW/reminders_due` | `get_current_user`; floor: any role | Velaris HR onboarding flow: reminders due. |
+| POST | `/hr/ONBOARDING_FLOW/start_onboarding` | `get_current_user`; floor: any role | Velaris HR onboarding flow: start onboarding. |
+| POST | `/hr/ONBOARDING_FLOW/submit_form` | `get_current_user`; floor: any role | Velaris HR onboarding flow: submit form. |
+| POST | `/hr/ONBOARDING_FLOW/submit_identifier` | `get_current_user`; floor: any role | Velaris HR onboarding flow: submit identifier. |
+| POST | `/hr/ONBOARDING_FLOW/waive_task` | `get_current_user`; floor: any role | Velaris HR onboarding flow: waive task. |
+| POST | `/hr/PAYROLL_ENGINE/compute` | `get_current_user`; floor: any role | Velaris HR payroll engine: compute. |
+| POST | `/hr/PAYROLL_ENGINE/compute_bulk` | `get_current_user`; floor: any role | Velaris HR payroll engine: compute bulk. |
+| POST | `/hr/PAYROLL_ENGINE/get_payslip` | `get_current_user`; floor: any role | Velaris HR payroll engine: get payslip. |
+| POST | `/hr/PAYROLL_ENGINE/get_statutory_deductions` | `get_current_user`; floor: any role | Velaris HR payroll engine: get statutory deductions. |
+| POST | `/hr/PAYROLL_ENGINE/get_ytd_summary` | `get_current_user`; floor: any role | Velaris HR payroll engine: get ytd summary. |
+| POST | `/hr/PAYROLL_ENGINE/org_statutory_summary` | `get_current_user`; floor: any role | Velaris HR payroll engine: org statutory summary. |
+| POST | `/hr/POLICY_ACKS/acknowledge` | `get_current_user`; floor: any role | Velaris HR policy acks: acknowledge. |
+| POST | `/hr/POLICY_ACKS/compliance_report` | `get_current_user`; floor: any role | Velaris HR policy acks: compliance report. |
+| POST | `/hr/POLICY_ACKS/get_policy` | `get_current_user`; floor: any role | Velaris HR policy acks: get policy. |
+| POST | `/hr/POLICY_ACKS/list_policies` | `get_current_user`; floor: any role | Velaris HR policy acks: list policies. |
+| POST | `/hr/POLICY_ACKS/pending_for_employee` | `get_current_user`; floor: any role | Velaris HR policy acks: pending for employee. |
+| POST | `/hr/POLICY_ACKS/publish_policy` | `get_current_user`; floor: any role | Velaris HR policy acks: publish policy. |
+| POST | `/hr/POLICY_ACKS/reminders_due` | `get_current_user`; floor: any role | Velaris HR policy acks: reminders due. |
+| POST | `/hr/POLICY_ACKS/retire_policy` | `get_current_user`; floor: any role | Velaris HR policy acks: retire policy. |
+| POST | `/hr/RESUME_EVIDENCE/alias_proposals` | `get_current_user`; floor: any role | Velaris HR resume evidence: alias proposals. |
+| POST | `/hr/RESUME_EVIDENCE/bias_audit` | `get_current_user`; floor: any role | Velaris HR resume evidence: bias audit. |
+| POST | `/hr/RESUME_EVIDENCE/get_evidence` | `get_current_user`; floor: any role | Velaris HR resume evidence: get evidence. |
+| POST | `/hr/RESUME_EVIDENCE/list_skills` | `get_current_user`; floor: any role | Velaris HR resume evidence: list skills. |
+| POST | `/hr/RESUME_EVIDENCE/match_requisition` | `get_current_user`; floor: any role | Velaris HR resume evidence: match requisition. |
+| POST | `/hr/RESUME_EVIDENCE/parse_resume` | `get_current_user`; floor: any role | Velaris HR resume evidence: parse resume. |
+| POST | `/hr/RESUME_EVIDENCE/propose_alias` | `get_current_user`; floor: any role | Velaris HR resume evidence: propose alias. |
+| POST | `/hr/RESUME_EVIDENCE/review_alias` | `get_current_user`; floor: any role | Velaris HR resume evidence: review alias. |
+| POST | `/hr/RESUME_EVIDENCE/unknown_skills` | `get_current_user`; floor: any role | Velaris HR resume evidence: unknown skills. |
+| POST | `/hr/SCREENING_FORMS/accept_submission` | `get_current_user`; floor: any role | Velaris HR screening forms: accept submission. |
+| POST | `/hr/SCREENING_FORMS/create_form` | `get_current_user`; floor: any role | Velaris HR screening forms: create form. |
+| POST | `/hr/SCREENING_FORMS/discard_submission` | `get_current_user`; floor: any role | Velaris HR screening forms: discard submission. |
+| POST | `/hr/SCREENING_FORMS/get_form` | `get_current_user`; floor: any role | Velaris HR screening forms: get form. |
+| POST | `/hr/SCREENING_FORMS/get_submission` | `get_current_user`; floor: any role | Velaris HR screening forms: get submission. |
+| POST | `/hr/SCREENING_FORMS/issue_candidate_token` | `get_current_user`; floor: any role | Velaris HR screening forms: issue candidate token. |
+| POST | `/hr/SCREENING_FORMS/list_forms` | `get_current_user`; floor: any role | Velaris HR screening forms: list forms. |
+| POST | `/hr/SCREENING_FORMS/pending_submissions` | `get_current_user`; floor: any role | Velaris HR screening forms: pending submissions. |
+| POST | `/hr/SCREENING_FORMS/process_withdrawal` | `get_current_user`; floor: any role | Velaris HR screening forms: process withdrawal. |
+| POST | `/hr/SCREENING_FORMS/public_routes` | `get_current_user`; floor: any role | Velaris HR screening forms: public routes. |
+| POST | `/hr/SCREENING_FORMS/publish_form` | `get_current_user`; floor: any role | Velaris HR screening forms: publish form. |
+| POST | `/hr/SCREENING_FORMS/sweep_submissions` | `get_current_user`; floor: any role | Velaris HR screening forms: sweep submissions. |
+| POST | `/hr/SCREENING_FORMS/unpublish_form` | `get_current_user`; floor: any role | Velaris HR screening forms: unpublish form. |
+| POST | `/hr/SCREENING_FORMS/withdrawal_requests` | `get_current_user`; floor: any role | Velaris HR screening forms: withdrawal requests. |
+| POST | `/hr/ZOHO_PAYROLL/get_cost_to_company` | `get_current_user`; floor: any role | Velaris HR zoho payroll: get cost to company. |
+| POST | `/hr/ZOHO_PAYROLL/get_payslip` | `get_current_user`; floor: any role | Velaris HR zoho payroll: get payslip. |
+| POST | `/hr/ZOHO_PAYROLL/get_statutory_deductions` | `get_current_user`; floor: any role | Velaris HR zoho payroll: get statutory deductions. |
+| POST | `/hr/ZOHO_PAYROLL/get_ytd_summary` | `get_current_user`; floor: any role | Velaris HR zoho payroll: get ytd summary. |
+| POST | `/hr/ZOHO_PEOPLE/get_attendance` | `get_current_user`; floor: any role | Velaris HR zoho people: get attendance. |
+| POST | `/hr/ZOHO_PEOPLE/get_attendance_summary` | `get_current_user`; floor: any role | Velaris HR zoho people: get attendance summary. |
+| POST | `/hr/ZOHO_PEOPLE/get_employees` | `get_current_user`; floor: any role | Velaris HR zoho people: get employees. |
+| POST | `/hr/ZOHO_PEOPLE/get_leave_summary` | `get_current_user`; floor: any role | Velaris HR zoho people: get leave summary. |
+| GET | `/mail/approvals` | `get_current_user`; floor: any role | Velaris mail approvals get. |
+| GET | `/mail/domains` | `get_current_user`; floor: any role | Velaris mail domains get. |
+| POST | `/mail/domains` | `get_current_user`; floor: any role | Velaris mail domain claim post. |
+| POST | `/mail/domains/verify` | `get_current_user`; floor: any role | Velaris mail domain verify post. |
+| GET | `/mail/mailboxes` | `get_current_user`; floor: any role | Velaris mail mailboxes get. |
+| POST | `/mail/mailboxes` | `get_current_user`; floor: any role | Velaris mail mailbox create post. |
+| DELETE | `/mail/mailboxes/{mb}` | `get_current_user`; floor: any role | Velaris mail mailbox erase delete. |
+| GET | `/mail/mailboxes/{mb}/accounts` | `get_current_user`; floor: any role | Velaris mail accounts get. |
+| POST | `/mail/mailboxes/{mb}/accounts` | `get_current_user`; floor: any role | Velaris mail account create post. |
+| DELETE | `/mail/mailboxes/{mb}/accounts/{aid}` | `get_current_user`; floor: any role | Velaris mail account delete delete. |
+| PUT | `/mail/mailboxes/{mb}/aliases` | `get_current_user`; floor: any role | Velaris mail mailbox aliases put. |
+| POST | `/mail/mailboxes/{mb}/assistant/action-items` | `get_current_user`; floor: any role | Velaris mail assistant action items post. |
+| POST | `/mail/mailboxes/{mb}/assistant/draft-reply` | `get_current_user`; floor: any role | Velaris mail assistant draft reply post. |
+| POST | `/mail/mailboxes/{mb}/assistant/summarise` | `get_current_user`; floor: any role | Velaris mail assistant summarise post. |
+| POST | `/mail/mailboxes/{mb}/assistant/triage` | `get_current_user`; floor: any role | Velaris mail assistant triage post. |
+| DELETE | `/mail/mailboxes/{mb}/delegates` | `get_current_user`; floor: any role | Velaris mail delegate remove delete. |
+| GET | `/mail/mailboxes/{mb}/delegates` | `get_current_user`; floor: any role | Velaris mail delegates get. |
+| PUT | `/mail/mailboxes/{mb}/delegates` | `get_current_user`; floor: any role | Velaris mail delegate add put. |
+| POST | `/mail/mailboxes/{mb}/drafts` | `get_current_user`; floor: any role | Velaris mail draft create post. |
+| DELETE | `/mail/mailboxes/{mb}/drafts/{did}` | `get_current_user`; floor: any role | Velaris mail draft delete delete. |
+| PUT | `/mail/mailboxes/{mb}/drafts/{did}` | `get_current_user`; floor: any role | Velaris mail draft update put. |
+| POST | `/mail/mailboxes/{mb}/drafts/{did}/submit` | `get_current_user`; floor: any role | Velaris mail submit post. |
+| GET | `/mail/mailboxes/{mb}/export` | `get_current_user`; floor: any role | Velaris mail export get. |
+| GET | `/mail/mailboxes/{mb}/folders` | `get_current_user`; floor: any role | Velaris mail folders get. |
+| POST | `/mail/mailboxes/{mb}/folders` | `get_current_user`; floor: any role | Velaris mail folder create post. |
+| PUT | `/mail/mailboxes/{mb}/legal-hold` | `get_current_user`; floor: any role | Velaris mail legal hold put. |
+| GET | `/mail/mailboxes/{mb}/messages` | `get_current_user`; floor: any role | Velaris mail messages get. |
+| DELETE | `/mail/mailboxes/{mb}/messages/{mid}` | `get_current_user`; floor: any role | Velaris mail message delete delete. |
+| GET | `/mail/mailboxes/{mb}/messages/{mid}` | `get_current_user`; floor: any role | Velaris mail message get. |
+| PATCH | `/mail/mailboxes/{mb}/messages/{mid}` | `get_current_user`; floor: any role | Velaris mail message update patch. |
+| GET | `/mail/mailboxes/{mb}/messages/{mid}/attachments/{sha}` | `get_current_user`; floor: any role | Velaris mail attachment get. |
+| POST | `/mail/mailboxes/{mb}/messages/{mid}/restore` | `get_current_user`; floor: any role | Velaris mail message restore post. |
+| PUT | `/mail/mailboxes/{mb}/quota` | `get_current_user`; floor: any role | Velaris mail mailbox quota put. |
+| GET | `/mail/mailboxes/{mb}/rules` | `get_current_user`; floor: any role | Velaris mail rules get. |
+| POST | `/mail/mailboxes/{mb}/rules` | `get_current_user`; floor: any role | Velaris mail rule create post. |
+| POST | `/mail/mailboxes/{mb}/rules/dry-run` | `get_current_user`; floor: any role | Velaris mail rule dry run post. |
+| DELETE | `/mail/mailboxes/{mb}/rules/{rid}` | `get_current_user`; floor: any role | Velaris mail rule delete delete. |
+| PUT | `/mail/mailboxes/{mb}/rules/{rid}` | `get_current_user`; floor: any role | Velaris mail rule update put. |
+| GET | `/mail/mailboxes/{mb}/settings` | `get_current_user`; floor: any role | Velaris mail mailbox settings get. |
+| PUT | `/mail/mailboxes/{mb}/settings` | `get_current_user`; floor: any role | Velaris mail mailbox settings set put. |
+| GET | `/mail/mailboxes/{mb}/submissions` | `get_current_user`; floor: any role | Velaris mail submissions get. |
+| POST | `/mail/mailboxes/{mb}/sync` | `get_current_user`; floor: any role | Velaris mail sync post. |
+| GET | `/mail/mailboxes/{mb}/threads/{tid}` | `get_current_user`; floor: any role | Velaris mail thread get. |
+| POST | `/mail/outbox/process` | `get_current_user`; floor: any role | Velaris mail outbox process post. |
+| POST | `/mail/retention/run` | `get_current_user`; floor: any role | Velaris mail retention run post. |
+| GET | `/mail/settings` | `get_current_user`; floor: any role | Velaris mail settings get. |
+| PUT | `/mail/settings` | `get_current_user`; floor: any role | Velaris mail settings set put. |
+| GET | `/mail/settings/dkim` | `get_current_user`; floor: any role | Velaris mail dkim get. |
+| GET | `/mail/submissions/{sid}` | `get_current_user`; floor: any role | Velaris mail submission get. |
+| POST | `/mail/submissions/{sid}/cancel` | `get_current_user`; floor: any role | Velaris mail submission cancel post. |
+| POST | `/mail/submissions/{sid}/decide` | `get_current_user`; floor: any role | Velaris mail submission decide post. |
+| GET | `/model-providers` | `get_current_user`; floor: any role | Velaris providers list get. |
+| POST | `/model-providers` | `get_current_user`; floor: member+ (viewer denied) | Velaris providers create post. |
+| GET | `/model-providers/usage` | `get_current_user`; floor: any role | Velaris providers usage get. |
+| DELETE | `/model-providers/{pid}` | `get_current_user`; floor: member+ (viewer denied) | Velaris providers delete delete. |
+| PUT | `/model-providers/{pid}` | `get_current_user`; floor: member+ (viewer denied) | Velaris providers update put. |
+| GET | `/model-providers/{pid}/models` | `get_current_user`; floor: any role | Velaris providers models get. |
+| POST | `/model-providers/{pid}/models/refresh` | `get_current_user`; floor: member+ (viewer denied) | Velaris providers models refresh post. |
+| POST | `/model-providers/{pid}/rotate` | `get_current_user`; floor: member+ (viewer denied) | Velaris providers rotate post. |
+| POST | `/model-providers/{pid}/test` | `get_current_user`; floor: member+ (viewer denied) | Velaris providers test post. |
+| POST | `/hr/INTERVIEW_RECORD/give_consent` | `get_current_user` | Velaris HR interview record: give consent. |
+| POST | `/hr/INTERVIEW_RECORD/register_audio_track` | `get_current_user` | Velaris HR interview record: register audio track. |
+| POST | `/hr/INTERVIEW_RECORD/transcribe_track` | `get_current_user` | Velaris HR interview record: transcribe track. |
+| POST | `/hr/INTERVIEW_RECORD/withdraw_my_consent` | `get_current_user` | Velaris HR interview record: withdraw my consent. |
+| POST | `/hr/INTERVIEW_SCHEDULER/hand_off_to_mail` | `get_current_user` | Velaris HR interview scheduler: hand off to mail. |
 
 ### `phases/p08_cicd/webhook.py`
 
