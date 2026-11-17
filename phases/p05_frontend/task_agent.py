@@ -24,7 +24,7 @@ from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
 from aether_os.phases.p05_frontend.design_brief import apply_brand_to_tailwind
 from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
 from aether_os.phases.utils import memory_hint
-from aether_os.phases.p05_frontend.safe_text import safe_display_name
+from aether_os.phases.p05_frontend.safe_text import check_entity_names, safe_display_name
 from aether_os.phases.p05_frontend.scaffold import (
     detect_domain,
     read_architecture,
@@ -143,6 +143,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     _cc_entities = _ir_data.get("entities", [])
                 except Exception as _cc_exc:
                     logger.warning("p05: cloud console IR load failed: %s", _cc_exc)
+            _bad_cc = check_entity_names(_cc_entities)
+            if _bad_cc:
+                return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=_bad_cc)
             _cc_services = data.get("services") or []
             _cc_project_name = safe_display_name(data.get("project_name", "Cloud Platform"), "Cloud Platform")
             _cc_dir = await generate_cloud_console(_cc_entities, _cc_services, _cc_project_name, output_dir)
@@ -218,6 +221,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 entities = _models_entities
 
         entities = resolve_entity_p67_fallback(data, entities)
+
+    bad_names = check_entity_names(entities)      # fail closed before any file is written (KAN-69 G5)
+    if bad_names:
+        logger.error("p05: refusing the spec: %s", bad_names)
+        return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=bad_names)
 
     # Robust autonomous mode detection
     is_autonomous = (

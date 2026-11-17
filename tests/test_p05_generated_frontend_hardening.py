@@ -331,3 +331,19 @@ def test_modal_and_login_forms_are_accessible(tmp_path, monkeypatch):
         assert 'htmlFor="login-email"' in login and 'id="login-email"' in login and 'htmlFor="login-password"' in login
         assert "admin@example.com" not in login
         assert not tsc_syntax_errors(root)
+
+
+@pytest.mark.parametrize("bad_table", ["patients'); alert(1); ('", "../../x", "a b", "1abc", "x-y"])
+def test_table_and_column_names_must_be_plain_identifiers(tmp_path, monkeypatch, bad_table):
+    # KAN-69 G5: table names went into TSX identifiers, route variables and paths of App.tsx unchecked
+    import asyncio
+    from types import SimpleNamespace
+    from aether_os.phases.p05_frontend import task_agent
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    for schema in ([{"table": bad_table, "columns": ["id"]}], [{"table": "ok", "columns": ["id", "na me"]}]):
+        pi = SimpleNamespace(input_data={"project_name": "Demo", "domain": "saas", "raw_input": "x",
+                                         "architecture_json": {"database_schema": schema}}, domain="saas", project_id="p")
+        out = tmp_path / "out"
+        result = asyncio.run(task_agent.run(pi, [], out))
+        assert result.success is False and "unsafe_name" in result.issues[0]
+        assert not (out / "src").exists()
