@@ -192,14 +192,14 @@ async def test_every_hr_method_is_404_on_the_generic_route_even_member_level_one
 
 async def test_generic_route_applies_the_same_body_guard_as_the_rows(http, velaris):
     for key in ("org_id", "reviewed_by", "tenant_id", "actor"):
-        r = await http.post("/velaris/agents/PAY/get", json={key: "x"})
+        r = await http.post("/velaris/agents/TACTICIAN/get", json={key: "x"})
         assert r.status_code == 400 and "sign-in" in r.json()["detail"], key
-    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["PAY.get"], "org_id": "other"})
+    r = await http.post("/velaris/flows", json={"task": "t", "tools": ["TACTICIAN.get"], "org_id": "other"})
     assert r.status_code == 400
     assert velaris.seen == []
-    assert (await http.post("/velaris/agents/PAY/get", json={"limit": 10**6, "q": "a"})).status_code == 200
+    assert (await http.post("/velaris/agents/TACTICIAN/get", json={"limit": 10**6, "q": "a"})).status_code == 200
     assert json.loads(velaris.seen[-1]["body"]) == {"limit": 200, "q": "a"}
-    assert (await http.post("/velaris/agents/PAY/get", json={"limit": "lots"})).status_code == 400
+    assert (await http.post("/velaris/agents/TACTICIAN/get", json={"limit": "lots"})).status_code == 400
     assert len(velaris.seen) == 1
 
 
