@@ -10,6 +10,7 @@ Contains generators for:
 from __future__ import annotations
 
 from aether_os.core.domain_ir import AetherType, DomainIR, IREntity
+from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields, is_user_entity  # noqa: F401
 from aether_os.phases.p04a_backend_codegen.ir_seed_generator import (  # noqa: F401  (re-exported for callers)
     _seed_value,
     _sort_entities_by_deps,
@@ -242,7 +243,7 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None, mul
     """
     # Build schema imports list
     schema_imports = []
-    for entity in ir.entities:
+    for entity in (e for e in ir.entities if not is_user_entity(e)):
         schema_imports.append(f"{entity.name}Create, {entity.name}Update")
 
     schema_import_line = f"from schemas import {', '.join(schema_imports)}" if schema_imports else ""
@@ -265,13 +266,13 @@ def generate_crud_py(ir: DomainIR, workflow_transitions: dict | None = None, mul
         "",
     ]
 
-    for entity in ir.entities:
+    for entity in (e for e in ir.entities if not is_user_entity(e)):
         role_map = _role_sets(ir, entity.name)
         entity_transitions = (workflow_transitions or {}).get(entity.name)
         lines.extend(_entity_router_with_rbac(entity, role_map, transitions=entity_transitions, multi_tenancy=multi_tenancy))
 
     # all_routers list — every entity gets included
-    router_vars = [f"{e.table}_router" for e in ir.entities]
+    router_vars = [f"{e.table}_router" for e in ir.entities if not is_user_entity(e)]
     lines.append(f"all_routers = [{', '.join(router_vars)}]")
     lines.append("")
 

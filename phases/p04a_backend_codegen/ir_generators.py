@@ -28,6 +28,8 @@ from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import (  # noqa
     validate_seed_dependencies,
 )
 
+from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields, is_user_entity
+
 # ---------------------------------------------------------------------------
 # models.py generator
 # ---------------------------------------------------------------------------
@@ -216,7 +218,7 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
 
     for entity in ir.entities:
         # Skip User — always emitted above from _USER_MODEL to avoid duplicate table
-        if entity.name == "User" or getattr(entity, "table", "") == "users":
+        if is_user_entity(entity):
             continue
         constraints = _sql_check_constraints(
             entity.name, ir.business_rules, {f.name for f in entity.fields} | {'id', 'created_at', 'updated_at'})
@@ -224,7 +226,8 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
         # Build performance indexes for commonly-queried field patterns
         perf_indexes = []
         table = entity.table
-        field_names = {f.name for f in entity.fields}
+        fields = client_fields(entity, multi_tenancy)
+        field_names = {f.name for f in fields}
         # created_at index — every time-range query benefits from this
         perf_indexes.append(
             f"        Index('ix_{table}_created_at', 'created_at')"
@@ -246,12 +249,12 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
             lines.append("    )")
         lines.append("")
         lines.append("    id = Column(Integer, primary_key=True, index=True)")
-        for f in entity.fields:
+        for f in fields:
             # Pass domain so column types respect domain pack constraints
             lines.append(_sa_column(f, domain=domain))
 
         # FIX 6: Add relationship fields
-        for f in entity.fields:
+        for f in fields:
             rel = _relationship_line(f)
             if rel:
                 lines.append(rel)
@@ -356,7 +359,7 @@ def _pydantic_validators(entity_name: str, rules: list) -> list:
     return validators
 
 
-def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
+def generate_schemas_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Generate complete schemas.py from DomainIR.
 
     domain: when set to a money domain (fintech/marketplace/erp), DECIMAL and
@@ -388,12 +391,14 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
     ])
 
     for entity in ir.entities:
+        if is_user_entity(entity):      # accounts are created by /auth/register only (role, password_hash)
+            continue
         name = entity.name
 
         fields_block_base = []
         fields_block_update = []
 
-        for f in entity.fields:
+        for f in client_fields(entity, multi_tenancy):
             ptype = _pydantic_type(f, domain=domain)
             if f.nullable:
                 default = " = None"
@@ -451,6 +456,6 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
     return "\n".join(lines)
 
 
-def ir_to_schemas(ir: DomainIR, domain: str = "") -> str:
+def ir_to_schemas(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Alias for generate_schemas_py to match v2 directive."""
-    return generate_schemas_py(ir, domain=domain)
+    return generate_schemas_py(ir, domain=domain, multi_tenancy=multi_tenancy)
