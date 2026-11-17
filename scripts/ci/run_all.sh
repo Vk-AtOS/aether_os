@@ -6,7 +6,8 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 fail=0
 step() { echo; echo "== $1"; shift; "$@" || { echo "FAILED: $*"; fail=1; }; }
-step "ruff"            ruff check . --select E9,F63,F7,F82
+step "ruff"            ruff check . --select F,E9,B904
+step "docs-vs-code" env PYTHONPATH="$(cd .. && pwd)" python3 scripts/ci/check_docs.py
 step "bandit"          bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'
 step "pip-audit"       bash scripts/ci/audit_deps.sh
 step "gitleaks"        bash scripts/ci/secret_scan.sh

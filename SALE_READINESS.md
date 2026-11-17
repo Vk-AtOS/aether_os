@@ -14,26 +14,26 @@ AetherOS is a 12-stage pipeline (`stages/s01_intake` to `stages/s12_specialist`)
 
 ## How these numbers were measured
 
-All numbers below were computed on 15 Nov 2026 at commit `e5c23fd`, from the repo root.
+All numbers below were recomputed on 17 Nov 2026 at r3/int `88659af` with `python scripts/ci/repo_stats.py` (file, line, commit and migration counts; test counts are carried over from the r2/int run and not re-run), from the repo root.
 
 | Metric | Value | Command |
 |---|---|---|
-| Git commits | 1237 | `git rev-list --count HEAD` |
-| Tracked Python files | 1141 | `git ls-files '*.py' \| wc -l` |
-| Python lines (tracked files) | 181935 | `git ls-files '*.py' \| xargs wc -l \| tail -1` |
-| Alembic migration files | 79 | `ls alembic/versions/*.py \| wc -l` |
+| Git commits | 1308 | `git rev-list --count HEAD` |
+| Tracked Python files | 1190 | `git ls-files '*.py' \| wc -l` |
+| Python lines (tracked files) | 185698 | `git ls-files '*.py' \| xargs wc -l \| tail -1` |
+| Alembic migration files | 84 | `ls alembic/versions/*.py \| wc -l` |
 | Gateway router files named `*_router.py` | 72 | `ls gateway/routers/*_router.py \| wc -l` |
 | All `.py` files in `gateway/routers/` | 76 | `ls gateway/routers/*.py \| wc -l` |
 | Route decorators in `gateway/routers/*.py` | 333 | `cat gateway/routers/*.py \| grep -cE "^\s*@\w*router\.(get\|post\|put\|patch\|delete\|websocket\|api_route)\("` |
 | Pipeline stages | 12 | `ls stages` (`s01` to `s12`) |
 | Phase directories | 50 | `ls -d phases/p*/ \| wc -l` |
-| Tracked Python files under `phases/` | 378 | `git ls-files 'phases/*.py' \| wc -l` |
-| Test files | 217 | `git ls-files tests \| grep -cE "test_.*\.py$"` |
+| Tracked Python files under `phases/` | 381 | `git ls-files 'phases/*.py' \| wc -l` |
+| Test files | 246 | `git ls-files tests \| grep -cE "test_.*\.py$"` |
 | Tests collected by pytest | 1954 | `PYTHONPATH=/Users/apple/Desktop/wt3/a_docs python3.11 -m pytest --collect-only -q tests` (collection only) |
 | `def test_` lines in `tests/` | 1641 | `grep -rhoE "^\s*(async )?def test_" tests \| wc -l` (lower than 1954 because parametrized tests expand) |
 | Frontend source files in `dashboard/src` | 209 | `git ls-files dashboard/src \| grep -cE "\.(tsx\|jsx\|ts\|js)$"` |
 | Benchmark prompt files | 10 | `ls benchmarks/prompts \| wc -l` |
-| Python files over 600 lines | 4 | `git ls-files '*.py' \| xargs wc -l \| awk '$1>600 && $2!="total"'` (`orchestrator/factory_pipeline.py` 1202, `phases/p05_frontend/code_writer.py` 5792, `phases/p05_frontend/helpers.py` 601, `phases/p08_cicd/task_agent.py` 607) |
+| Python files over 600 lines | 3 | `git ls-files '*.py' \| xargs wc -l \| awk '$1>600 && $2!="total"'` (`orchestrator/factory_pipeline.py` 1202, `phases/p05_frontend/code_writer.py` 5788 (both pre-approved), `core/models.py` 621; `scripts/ci/repo_stats.py` prints this list) |
 | `dashboard/src/pages/ProjectView.jsx` lines | 457 | `wc -l` |
 | Bare `except:` lines | 2 | `git ls-files '*.py' \| xargs grep -nE "^\s*except\s*:"` (both are inside prompt example text: `core/prompt_compiler.py:273`, `phases/p04a_backend_codegen/prompts.py:89`) |
 
