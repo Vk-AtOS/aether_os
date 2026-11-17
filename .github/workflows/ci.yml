@@ -72,6 +72,9 @@ jobs:
         # Pyflakes (F), syntax errors (E9) and B904 (raise ... from) are clean (KAN-59): zero tolerance.
         run: ruff check . --select F,E9,B904
 
+      - name: Docs match code (routes, paths, env vars, scripts named in the docs exist)
+        run: python scripts/ci/check_docs.py
+
       - name: Static security analysis (bandit, high severity)
         run: bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'
 
