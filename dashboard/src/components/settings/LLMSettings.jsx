@@ -329,8 +329,9 @@ export const BedrockPanel = ({
           {bedrockTestStatus === 'testing' ? 'Testing…'
             : bedrockTestStatus === 'ok' ? '✓ Connected'
             : bedrockTestStatus === 'fail' ? '✗ Failed'
-            : 'Test Bedrock'}
+            : 'Test platform Bedrock'}
         </button>
+        <span className="text-[10px] text-muted self-center">Tests the credentials the platform is deployed with, not the fields above.</span>
         <button
           onClick={onSave}
           disabled={bedrockSaveStatus === 'saving'}

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { hr, useHr, btn } from '../velaris/velarisApi';
 import { LoadView, Card, Table, SpecForm, Notice } from '../velaris/shared';
 import { useAct } from '../velaris/useAct';
-import { ReqSelect, Detail } from './hrParts';
+import { ReqSelect, Detail, ScreenLink } from './hrParts';
 import { inputClass } from '../prime/parts';
 
 // Evidence, not a score: quotes from the résumé, gaps, and the arithmetic. Velaris makes no ranking and neither do we.
@@ -65,6 +65,7 @@ const Resume = () => {
     { title: 'Parse this résumé?', message: 'The text is parsed into facts with source quotes and stored for this candidate. Unknown skill phrases are queued for review, never guessed.' });
   return (
     <div className="space-y-4">
+      <ScreenLink to="hiring-admin">The bias audit for a requisition is under Hiring intake admin.</ScreenLink>
       <Card title="Parse a résumé">
         <SpecForm submitLabel="Parse" busy={act.busy} onSubmit={parse} fields={[
           { name: 'candidate_id', label: 'Candidate id', type: 'text', required: true },

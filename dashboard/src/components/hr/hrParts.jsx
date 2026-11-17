@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useHr } from '../velaris/velarisApi';
 import { inputClass } from '../prime/parts';
@@ -57,3 +58,9 @@ export const ReqSelect = ({ value, onChange, label = 'Requisition' }) => {
     </select>
   );
 };
+
+// Points a tab at the admin screen that holds the actions this tab does not (KAN-144, KAN-145): one place per task,
+// reachable from where the person already is.
+export const ScreenLink = ({ to, children }) => (
+  <p className="text-xs text-muted">{children} <Link className="text-accent hover:underline" to={`/work/${to}`}>Open the screen</Link></p>
+);
