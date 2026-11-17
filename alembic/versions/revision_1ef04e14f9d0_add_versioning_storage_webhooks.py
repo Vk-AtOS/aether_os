@@ -12,7 +12,9 @@ import sqlalchemy as sa
 revision: str = 'revision_1ef04e14f9d0'
 down_revision: Union[str, None] = 'revision_09ddf4a23dc0'
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+# organisations is created on the sibling branch 4688c33ff6e8; without this an empty database replays this
+# revision first and the ALTER below fails (UndefinedTable).
+depends_on: Union[str, Sequence[str], None] = '4688c33ff6e8'
 
 def upgrade() -> None:
     # Add run_version to runs
