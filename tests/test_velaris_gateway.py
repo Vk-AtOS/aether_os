@@ -60,6 +60,8 @@ class FakeVelaris:
             return httpx.Response(200, json=self.agents)
         if p == "/agents/LOGISTA/apply":
             return httpx.Response(202, json={"kind": "act", "approval": "prime", "run": self.run})
+        if p == "/agents/TACTICIAN/huge":
+            return httpx.Response(200, json={"kind": "read", "result": "x" * (5 * 1024 * 1024)})
         if p == "/agents/TACTICIAN/get":
             return httpx.Response(200, json={"kind": "read", "result": {"ok": True}})
         if p == "/agents/TACTICIAN/secret":
@@ -400,3 +402,8 @@ async def test_generic_route_is_an_allow_list(http, velaris):
     r = await http.post("/velaris/flows", json={"task": "t", "tools": ["BRAND_NEW_AGENT.read_all"]})
     assert r.status_code == 400
     assert velaris.seen == []
+
+
+async def test_generic_route_refuses_an_oversized_answer(http, velaris):
+    # KAN-69 VP-7: the table proxies cap the answer at 4 MiB; the generic agent route had no cap
+    assert (await http.post("/velaris/agents/TACTICIAN/huge", json={})).status_code == 503

@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from aether_os.core.audit import chain as audit_chain
-from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavailable
+from aether_os.core.velaris.client import MAX_RESPONSE, Identity, VelarisClient, VelarisUnavailable
 from aether_os.core.velaris.identity import identity_for_user
 from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT, velaris_roles
 from aether_os.gateway.dependencies import get_current_user
@@ -44,10 +44,12 @@ POLL_MAX_S = 25.0
 SSE_MAX_S = 300.0
 CALL_TIMEOUT_S = 70.0           # Velaris gives a call up to 60 s
 MAX_LIMIT = 200                 # hard ceiling for a client-supplied page size (query or body "limit")
-MAX_RESPONSE = 4 * 1024 * 1024  # a JSON answer larger than this is refused instead of relayed to the browser
 # Body keys that would name WHO or WHICH ORGANISATION a call is for. The identity comes from the signed
 # assertion only (D7); a body that tries to override it is refused, never forwarded.
 FORBIDDEN_KEYS = frozenset({"org_id", "org", "tenant_id", "reviewed_by", "approved_by", "actor", "actor_id"})
+# Query names that would name WHO a call is for: refused like the body keys (KAN-69 VP-5), so a Velaris reader
+# that ever trusted one of them is not exposed through a forwarded query string.
+FORBIDDEN_QUERY = frozenset(FORBIDDEN_KEYS | {"user_id", "user", "as_user", "sub", "roles", "role"})
 _PARAM = re.compile(r"[A-Za-z0-9_.:@-]{1,128}\Z")
 _EMOJI = re.compile(r"[^/?#%\\\s]{1,32}\Z")
 _PASS_HEADERS = ("content-type", "content-disposition", "x-content-type-options", "cache-control",
@@ -189,7 +191,7 @@ async def call(who: Identity, action: str, method: str, path: str, *, body: byte
 
 def _check_param(name: str, value: str) -> str:
     ok = bool(_EMOJI.match(value)) if name == "emoji" else bool(_PARAM.match(value))
-    if not ok or ".." in value:
+    if not ok or ".." in value or not value.strip("."):     # "." and ".." are dot segments an HTTP client may collapse
         raise HTTPException(status_code=400, detail=f"Invalid {name}")
     return value
 
@@ -250,6 +252,8 @@ def _query(request: Request, route: Route) -> Tuple[str, float]:
     timeout = route.timeout or CALL_TIMEOUT_S
     out = []
     for k, v in items:
+        if k.lower() in FORBIDDEN_QUERY:
+            raise HTTPException(status_code=400, detail=f"{k} cannot be set here: it comes from your sign-in")
         if k == "limit":
             v = str(_clamp_limit(v))
         if k == "timeout" and route.kind == "poll":

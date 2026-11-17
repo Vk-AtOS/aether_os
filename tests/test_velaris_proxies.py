@@ -323,3 +323,11 @@ async def test_a_member_has_no_provider_role_and_a_viewer_cannot_act(http, velar
     n = len(velaris.seen)
     assert (await http.post("/model-providers", json={"id": "x", "kind": "ollama"})).status_code == 403
     assert len(velaris.seen) == n
+
+
+async def test_dot_segment_and_identity_query_names_are_refused(http, velaris):
+    # KAN-69 VP-6 and VP-5
+    assert (await http.get("/chat/files/%2e")).status_code == 400
+    assert (await http.get("/chat/files/abc?org=other")).status_code == 400
+    assert (await http.get("/chat/files/abc?as_user=u2")).status_code == 400
+    assert velaris.seen == []
