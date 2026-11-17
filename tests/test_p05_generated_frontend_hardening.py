@@ -90,7 +90,7 @@ def test_login_pages_print_no_credentials_and_one_token_key_is_used(tmp_path, mo
         assert "localStorage.getItem('token')" not in text, f
     assert keys <= {"auth_token", "auth_refresh_token"}, keys
     login = (root / "src" / "lib" / "api.ts").read_text()
-    assert "access_token: string; refresh_token: string" in login      # the login pages destructure both
+    assert "access_token: string; refresh_token: string" in login      # the API still returns both; pages keep only the access token
 
 
 def test_model_written_pages_are_told_to_use_the_api_client_and_the_shared_token(monkeypatch):
@@ -347,3 +347,12 @@ def test_table_and_column_names_must_be_plain_identifiers(tmp_path, monkeypatch,
         result = asyncio.run(task_agent.run(pi, [], out))
         assert result.success is False and "unsafe_name" in result.issues[0]
         assert not (out / "src").exists()
+
+
+def test_refresh_token_is_never_kept_in_browser_storage(tmp_path, monkeypatch):
+    # KAN-69 G10: the 7-day refresh token sat in localStorage, readable by any XSS
+    root = build_frontend(tmp_path, "saas", monkeypatch)
+    for f, text in sources(root):
+        assert "auth_refresh_token" not in text and "REFRESH_KEY" not in text, f
+        assert not re.search(r"setToken\([^)]*,", text), f
+    assert "HttpOnly" in (root / "src" / "lib" / "auth.ts").read_text()
