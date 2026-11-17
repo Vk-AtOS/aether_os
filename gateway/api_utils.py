@@ -50,7 +50,12 @@ def _get_cors_origins() -> list:
     """
     raw = os.environ.get("CORS_ORIGINS", "")
     if raw:
-        return [o.strip() for o in raw.split(",") if o.strip()]
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        # the app sends credentials: '*' with credentials makes the browser-facing rule "any site may read
+        # a signed-in user's responses" (KAN-69 F21), so refuse to start rather than run that way
+        if "*" in origins:
+            raise RuntimeError("CORS_ORIGINS must list explicit origins; '*' is not allowed (credentials are enabled)")
+        return origins
 
     # Default development origins
     return [
