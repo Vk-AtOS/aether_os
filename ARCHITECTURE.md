@@ -147,8 +147,8 @@ Whether the dashboard debounces saves and streams process output over SSE: not v
 ## Sandbox for generated code
 
 `core/sandbox/docker_backend.py`: each command runs in a Docker container with dropped capabilities, read-only
-root, resource limits and no network except for package installs; see `SECURITY.md`. `core/sandbox/guard.py` is
-only a regex filter.
+root, resource limits and no network except for package installs; see `SECURITY.md`. There is no host-side execution
+helper (the unused `guard.py`, `manager.py` and `python_tools.py` were removed, KAN-69 SC-05).
 
 ## Deployment
 
