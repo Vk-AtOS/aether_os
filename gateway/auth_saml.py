@@ -37,7 +37,7 @@ from sqlalchemy import select
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation, User
 from aether_os.gateway.auth import get_password_hash
-from aether_os.gateway.auth_refresh import issue_token_pair
+from aether_os.gateway.auth_oauth import _signin_redirect
 from aether_os.gateway.policy_guard import enforce_seat
 
 logger = logging.getLogger(__name__)
@@ -350,22 +350,5 @@ async def saml_callback(request: Request) -> RedirectResponse:
             status_code=302,
         )
 
-    if user.mfa_enabled:
-        from aether_os.gateway.auth_oauth import _signin_redirect
-        return await _signin_redirect(user, org)
-
-    _saml_claims = {
-        "sub": user.email, "user_id": user.id,
-        "org_id": org.id, "org_slug": org.slug,
-        "role": user.role, "plan": org.plan,
-    }
-    token, refresh = issue_token_pair(_saml_claims)
-    frontend = _frontend_url()
-    return RedirectResponse(
-        url=(
-            f"{frontend}/auth/callback"
-            f"?token={urllib.parse.quote(token)}"
-            f"&refresh_token={urllib.parse.quote(refresh)}"
-        ),
-        status_code=302,
-    )
+    # a one-time code, never a token in the URL (logs, history, Referer); same exchange as OAuth (KAN-69 F8)
+    return await _signin_redirect(user, org)
