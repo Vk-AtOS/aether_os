@@ -77,3 +77,16 @@ def test_oauth_state_survives_a_different_worker(gw, monkeypatch):
     state = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)["state"][0]
     assert not hasattr(auth_oauth, "_pending_states")
     assert redis.Redis.from_url(REDIS_URL, decode_responses=True).get(f"oauthstate:{state}") == "google"
+
+
+def test_oauth_callback_needs_the_cookie_of_the_browser_that_started_the_flow(gw, monkeypatch):
+    """KAN-69 F9: a valid state alone let an attacker's callback URL log a victim into the attacker's account."""
+    import urllib.parse
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "cid")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sec")
+    r = gw.client.get("/auth/oauth/google", follow_redirects=False)
+    state = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)["state"][0]
+    assert "httponly" in r.headers["set-cookie"].lower() and state in r.headers["set-cookie"]
+    gw.client.cookies.clear()                      # the victim's browser never started the flow
+    r = gw.client.get(f"/auth/oauth/google/callback?code=c&state={state}", follow_redirects=False)
+    assert "mismatch" in urllib.parse.unquote(r.headers["location"])
