@@ -56,7 +56,9 @@ if [[ -n "$DOMAIN" ]]; then
     echo "→ Configuring nginx domain: $DOMAIN"
     NGINX_CONF=/etc/nginx/sites-available/aetheros
     if [[ -f "$NGINX_CONF" ]]; then
-        sed -i -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/${PREVIEW_DOMAIN:-preview.$DOMAIN}/g" "$NGINX_CONF"
+        # connect-src: CSP_CONNECT_SRC overrides it; default as broad as before. Only CSP source characters survive.
+        CSP_CONNECT_SRC_CLEAN=$(printf '%s' "${CSP_CONNECT_SRC:-'self' https: wss: blob:}" | tr -cd "A-Za-z0-9:/.*' _-")
+        sed -i -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/${PREVIEW_DOMAIN:-preview.$DOMAIN}/g" -e "s|CSP_CONNECT_SRC_PLACEHOLDER|$CSP_CONNECT_SRC_CLEAN|g" "$NGINX_CONF"
         ln -sfn "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
         nginx -t && systemctl reload nginx || echo "⚠ nginx reload failed — check config"
     fi
