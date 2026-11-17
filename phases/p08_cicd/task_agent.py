@@ -131,6 +131,10 @@ on:
   pull_request:
     branches: [main, master]
 
+# least privilege: the repository default may be read-write (KAN-69 G8)
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend — Test & Lint
@@ -292,6 +296,8 @@ jobs:
                         "COPY requirements.txt* ./\n"
                         "RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true\n"
                         "COPY . .\n"
+                        "RUN useradd --system --create-home app && chown -R app /app\n"
+                        "USER app\n"
                         "EXPOSE 8000\n"
                         'CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]\n'
                     )
