@@ -68,8 +68,12 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)  # SEC-H1/FIX15: set on admin password reset
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking
+    # The Velaris employee record this sign-in IS (own leave, payslips, policies). Set by an org admin only; one
+    # employee record per sign-in per organisation (uq_users_org_velaris_employee).
+    velaris_employee_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
+    __table_args__ = (Index("uq_users_org_velaris_employee", "org_id", "velaris_employee_id", unique=True),)
 
 class PasswordHistory(Base):
     """Hashes of a user's previous passwords, so a change or reset cannot go back to a recent one."""

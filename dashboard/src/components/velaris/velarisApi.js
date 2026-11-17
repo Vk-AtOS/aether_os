@@ -66,3 +66,35 @@ export const btn = (kind = 'primary') => ({
   danger: 'px-3 py-1.5 border border-danger/50 text-danger hover:bg-danger/10 text-xs font-bold rounded-lg disabled:opacity-50 transition-colors',
 }[kind]);
 
+
+const urlOf = (c) => (c.hr ? `/hr/${c.hr[0]}/${c.hr[1]}` : c.agent ? `/velaris/agents/${c.agent[0]}/${c.agent[1]}` : c.path);
+
+const save = (name, data) => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// -> {pending, run, result}. Throws Error(plain message) with .down for 503.
+export const send = async (call, args = {}, { download } = {}) => {
+  const method = (call.method || 'post').toLowerCase();
+  if (call.hr && !download) return hr(call.hr[0], call.hr[1], args);
+  let res;
+  try {
+    res = await vc.request({ method, url: urlOf(call), data: method === 'get' || call.asQuery ? undefined : args, params: method === 'get' || call.asQuery ? args : undefined });
+  } catch (e) {
+    const err = new Error(vError(e));
+    err.down = isDown(e);
+    throw err;
+  }
+  if (res.status === 202) return { pending: true, run: res.data.run || null, result: null };
+  if (download) { save(download, res.data); return { pending: false, result: { saved: download } }; }
+  const body = res.data;
+  const result = call.agent || call.hr ? (body.result ?? {}) : body;
+  if (result && result.status && result.status !== 'ok' && (call.agent || call.hr)) {
+    throw new Error(result.reason || (result.errors || []).join('; ') || String(result.status).replace(/_/g, ' '));
+  }
+  return { pending: false, run: null, result };
+};
+

@@ -5,7 +5,7 @@ import re
 import pytest
 
 from aether_os.gateway.dependencies import get_current_user
-from aether_os.gateway.role_gate import ADMIN_ONLY, POLICY_GATED, VIEWER_MAY, _matches
+from aether_os.gateway.role_gate import ADMIN_ONLY, POLICY_GATED, VIEWER_EXACT, VIEWER_MAY, _matches
 
 MUTATING = ("POST", "PUT", "PATCH", "DELETE")
 
@@ -31,7 +31,7 @@ def test_viewer_cannot_mutate_anything_outside_the_self_service_allowlist(gw):
     viewer = gw.user_with_role("viewer", owner.org_id)
     checked = 0
     for method, path in _auth_routes(gw.app):
-        if _matches(path, VIEWER_MAY) or path in POLICY_GATED:
+        if _matches(path, VIEWER_MAY) or path in VIEWER_EXACT or path in POLICY_GATED:
             continue
         checked += 1
         resp = gw.client.request(method, _url(path), headers=viewer.auth, json={})
@@ -117,3 +117,12 @@ def test_member_cannot_edit_a_marketplace_profile(gw):
     r = gw.client.put("/marketplace/profiles/p-edit", headers=member.auth, json={"description": "inject"})
     assert r.status_code == 403
     assert gw.client.put("/marketplace/profiles/p-edit", headers=owner.auth, json={"description": "ok"}).status_code == 200
+
+
+def test_a_viewer_cannot_use_new_account_routes_only_its_own_two(gw):
+    """'/account' was a prefix entry: a viewer reached POST /account/import-codebase (organisation-wide profile)."""
+    owner = gw.register("gate4")
+    viewer = gw.user_with_role("viewer", owner.org_id)
+    r = gw.client.post("/account/import-codebase", headers=viewer.auth, json={"repo_url": "https://github.com/a/b"})
+    assert r.status_code == 403
+    assert gw.client.put("/account/preferences", headers=viewer.auth, json={}).status_code != 403

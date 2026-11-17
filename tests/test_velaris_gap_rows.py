@@ -138,7 +138,7 @@ async def test_identity_and_org_cannot_be_overridden_by_the_body(http, velaris):
         r = await http.post("/hr/LEAVE_MANAGEMENT/apply", json=body)
         assert r.status_code == 400 and "sign-in" in r.json()["detail"]
     assert velaris.seen == []
-    assert (await http.post("/hr/LEAVE_MANAGEMENT/apply", json={"from": "2026-01-01"})).status_code == 200
+    assert (await http.post("/hr/LEAVE_MANAGEMENT/apply", json={"employee_id": "emp-1", "from_date": "2026-01-01"})).status_code == 200
     assert velaris.seen[-1]["claims"]["org"] == ORG and velaris.seen[-1]["claims"]["sub"] == OWNER["user_id"]
 
 
@@ -159,7 +159,7 @@ async def test_each_row_has_a_timeout_and_slow_ones_get_more(http, velaris):
     assert all(r.timeout for r in HR_ROUTES)
     by = {r.path: r.timeout for r in HR_ROUTES}
     assert by["/PAYROLL_ENGINE/compute_bulk"] > by["/LEAVE_MANAGEMENT/get_balance"]
-    await http.post("/hr/LEAVE_MANAGEMENT/get_balance", json={})
+    await http.post("/hr/LEAVE_MANAGEMENT/get_balance", json={"employee_id": "emp-1", "year": 2026})
     assert velaris.seen[-1]["timeout"]["read"] == 30.0
 
 
@@ -240,6 +240,26 @@ async def test_velaris_down_is_503_on_new_routes(http, velaris):
     def boom(req):
         raise httpx.ConnectError("refused")
     velaris.reply = boom
-    for method, path in (("GET", "/velaris/flows/r1/verify"), ("POST", "/hr/LEAVE_MANAGEMENT/apply"),
+    for method, path in (("GET", "/velaris/flows/r1/verify"), ("POST", "/hr/ATS_CORE/list_requisitions"),
                          ("POST", "/mail/mailboxes/m1/sync"), ("GET", "/velaris/trace/verify")):
         assert (await http.request(method, path, json={})).status_code == 503, path
+
+
+async def test_own_record_rows_fill_the_linked_employee_and_refuse_when_not_linked(http, velaris, monkeypatch):
+    """A member's own-record call carries their LINKED employee record (users.velaris_employee_id), never a value of
+    their own choosing when none is sent; an unlinked sign-in is told so instead of reaching Velaris with no id."""
+    from aether_os.core.velaris.client import Identity
+
+    async def linked(_user):
+        return Identity(user_id="u1", org_id=ORG, org_role="member", employee_id="emp-9")
+    monkeypatch.setattr("aether_os.gateway.velaris_proxy.identity_for_user", linked)
+    n = len(velaris.seen)
+    r = await http.post("/hr/PAYROLL_ENGINE/get_payslip", json={"year": 2026, "month": 4})
+    assert r.status_code == 200 and len(velaris.seen) == n + 1
+    assert b'"employee_id":"emp-9"' in velaris.seen[-1]["body"].replace(b" ", b"")
+
+    async def unlinked(_user):
+        return Identity(user_id="u1", org_id=ORG, org_role="member", employee_id=None)
+    monkeypatch.setattr("aether_os.gateway.velaris_proxy.identity_for_user", unlinked)
+    r = await http.post("/hr/PAYROLL_ENGINE/get_payslip", json={"year": 2026, "month": 4})
+    assert r.status_code == 409 and "not linked" in r.json()["detail"] and len(velaris.seen) == n + 1

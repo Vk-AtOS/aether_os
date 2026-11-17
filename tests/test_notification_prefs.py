@@ -22,7 +22,9 @@ def test_default_is_everything_on_and_turning_an_event_off_hides_it(gw):
     _note(gw, org, org.user_id, "run_failed")
     got = gw.client.get("/notifications/preferences", headers=org.auth).json()["events"]
     assert {e["event"]: (e["in_app"], e["email"], e["source"]) for e in got} == {
-        "run_completed": (True, True, "default"), "run_failed": (True, True, "default")}
+        "run_completed": (True, True, "default"), "run_failed": (True, True, "default"),
+        "approval_needed": (True, True, "default"), "approval_expiring": (True, True, "default"),
+        "approval_expired": (True, True, "default")}
     assert _types(gw, org) == ["run_completed", "run_failed"]
     r = gw.client.put("/notifications/preferences", headers=org.auth, json={"event": "run_completed", "in_app": False})
     assert r.status_code == 200

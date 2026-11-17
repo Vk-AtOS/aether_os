@@ -33,7 +33,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from aether_os.core.audit import chain as audit_chain
 from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavailable
 from aether_os.core.velaris.identity import identity_for_user
-from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT
+from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT, velaris_roles
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,12 @@ class Route:
     max_body: int = MAX_JSON        # JSON body cap for this row
     empty_body: bytes = b""         # sent when the caller sends no body (agent calls want "{}")
     extra: Tuple[Tuple[str, str], ...] = ()   # fixed (name, value) pairs added to the ledger entry
+    needs: Optional[str] = None     # the Velaris role this row needs (velaris/mail, velaris/chat check it): refused
+                                    # here with a plain sentence when the caller's mapped roles do not hold it
+    query: str = ""                 # fixed query string Velaris wants on this row (its own confirmation word); a
+                                    # client-supplied query is not forwarded on such a row
+    self_id: bool = False           # the method takes employee_id: when the body has none, the caller's own linked
+                                    # employee record is used (never a value from another person's request)
 
 
 def _client() -> VelarisClient:
@@ -312,12 +318,22 @@ def _sse(who: Identity, request: Request, path: str, query: str, timeout: float)
     return start()
 
 
-def _parse_body(route: Route, body: bytes, detail: Dict[str, Any]) -> bytes:
+def _not_linked() -> HTTPException:
+    return HTTPException(status_code=409, detail="Your sign-in is not linked to an employee record yet. "
+                                                 "An owner or admin links it under Employee links.")
+
+
+def _parse_body(route: Route, body: bytes, detail: Dict[str, Any], who: Optional[Identity] = None) -> bytes:
     """Validate a JSON body against the row; returns the bytes to forward."""
+    own = who.employee_id if route.self_id and who is not None else None
     if not body:
         if route.confirm:
             raise HTTPException(status_code=422, detail=f"Type {route.confirm} to confirm this action")
-        return route.empty_body
+        if route.self_id and who is not None and not own:
+            raise _not_linked()
+        if not own:
+            return route.empty_body
+        body = b"{}"
     try:
         parsed = json.loads(body)
     except ValueError:
@@ -329,6 +345,10 @@ def _parse_body(route: Route, body: bytes, detail: Dict[str, Any]) -> bytes:
     if not isinstance(parsed, dict):
         return body
     changed = check_body(route, parsed)
+    if route.self_id and who is not None and parsed.get("employee_id") in (None, ""):
+        if not own:
+            raise _not_linked()
+        parsed["employee_id"], changed = own, True
     detail["fields"] = sorted(parsed)[:20]
     detail.update({k: str(parsed[k])[:80] for k in route.log if k in parsed})
     if not changed:
@@ -354,16 +374,21 @@ def _endpoint(route: Route, upstream: str) -> Any:
         who = await identity(user, acting=acting)
         if route.admin and who.org_role not in ADMIN_ROLES:
             raise HTTPException(status_code=403, detail="Only an organisation owner or admin can do this")
+        if route.needs and route.needs not in velaris_roles(who.org_role):
+            raise HTTPException(status_code=403, detail=f"This needs the {route.needs} role in Velaris, which your "
+                                                        "organisation role does not carry")
         params = {k: _check_param(k, str(v)) for k, v in request.path_params.items()}
         path = upstream + route.path.format(**params)
         query, timeout = _query(request, route)
+        if route.query:
+            query = route.query
         body, ctype = b"", None
         detail: Dict[str, Any] = {"params": params, **dict(route.extra)}
         if route.kind == "upload":
             body, ctype = await read_body(request, MAX_FILE), request.headers.get("content-type")
             detail["bytes"] = len(body)
         elif route.method in ("POST", "PUT", "PATCH") or route.confirm:
-            body = _parse_body(route, await read_body(request, route.max_body), detail)
+            body = _parse_body(route, await read_body(request, route.max_body), detail, who)
         if route.kind == "sse":
             return await _sse(who, request, path, query, timeout)
         run = call(who, route.action, route.method, path, body=body, query=query, content_type=ctype,

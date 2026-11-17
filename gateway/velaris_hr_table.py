@@ -20,57 +20,52 @@ SLOW_S = 70.0       # Velaris gives a call up to 60 s
 FAST_S = 30.0
 
 # agent -> methods. Order and grouping follow the dashboard screens.
-_OPEN = {   # reachable by any role that may act (Velaris enforces own-record rules and its own roles)
-    "ATS_CORE": "list_requisitions get_requisition create_requisition approve_requisition open_requisition "
-                "close_requisition pipeline get_application move_stage decision_log aggregate_counts "
-                "duplicate_review resolve_duplicate",
-    "RESUME_EVIDENCE": "get_evidence match_requisition unknown_skills alias_proposals propose_alias review_alias "
-                       "parse_resume list_skills",
-    "JOB_POSTINGS": "prepare_careers_posting get_posting approve_posting mark_posting_live take_down_posting "
-                    "prepare_pack approve_pack mark_pack_posted mark_pack_taken_down list_packs takedown_due",
-    "SCREENING_FORMS": "create_form publish_form unpublish_form list_forms get_form pending_submissions "
-                       "get_submission accept_submission discard_submission",
-    "INTERVIEW_SCHEDULER": "set_availability list_interviewers propose_slots book_interview reschedule_interview "
-                           "cancel_interview complete_interview list_bookings list_drafts approve_draft "
-                           "render_invitation",
-    "INTERVIEW_KIT": "list_questions get_kit create_kit assign_panel submit_scorecard scorecards agreement_report "
-                     "list_work_samples review_work_sample work_sample_reviews",
-    "OFFER_LETTERS": "list_offers get_offer render_offer create_offer submit_for_approval approve reject send_offer "
-                     "record_response withdraw_offer",
-    "ESIGN": "list_requests get_request verify create_request send_request void_request",
-    "ONBOARDING_FLOW": "list_templates list_cases case_status start_onboarding complete_task waive_task "
-                       "cancel_case get_identifiers get_form get_document check_aadhaar submit_identifier "
-                       "submit_form collect_document",
-    "EMPLOYEE_RECORDS": "list_employees get_employee employee_history start_exit complete_exit_task exit_status "
-                        "finalise_exit propose_conversion approve_conversion reject_conversion",
-    "POLICY_ACKS": "list_policies get_policy compliance_report publish_policy retire_policy pending_for_employee "
-                   "acknowledge",
-    # KAN-137 / KAN-138: self-service (own balance, own payslip). Velaris refuses another person's record.
+# Rows are checked against the real Velaris allow-list by tests/test_velaris_contract.py (agent, method, role, kind).
+# A row whose Velaris rule names roles (recruiter, hiring_manager, interviewer, hr_admin ...) is owner/admin here:
+# AetherOS maps owner and admin to hr_admin, which every one of those rules accepts, and nobody else holds them.
+_OPEN = {   # any role that may act; Velaris still limits a member to their own record
+    "OFFER_LETTERS": "list_offers get_offer render_offer approve reject",
+    "ESIGN": "list_requests get_request verify void_request",
+    "ONBOARDING_FLOW": "list_templates list_cases case_status complete_task get_identifiers get_form get_document "
+        "check_aadhaar submit_identifier submit_form collect_document",
+    "EMPLOYEE_RECORDS": "list_employees get_employee employee_history complete_exit_task exit_status",
+    "POLICY_ACKS": "list_policies get_policy compliance_report pending_for_employee acknowledge",
     "LEAVE_MANAGEMENT": "get_balance employee_history apply",
     "PAYROLL_ENGINE": "get_payslip get_statutory_deductions get_ytd_summary",
     "ZOHO_PAYROLL": "get_payslip get_statutory_deductions get_ytd_summary",
-    # KAN-148: the interviewer-facing methods. Candidate-facing consent and audio upload (KAN-74) stay out.
-    "INTERVIEW_RECORD": "create_session list_sessions issue_participant_token replay_pad evidence_view "
-                        "close_session mark_event",
 }
 _ADMIN = {  # owner/admin only
+    "ATS_CORE": "list_requisitions get_requisition create_requisition approve_requisition open_requisition "
+        "close_requisition pipeline get_application move_stage decision_log aggregate_counts "
+        "duplicate_review resolve_duplicate add_candidate add_application candidate_summary "
+        "candidate_contact withdraw_consent retention_due record_offer_outcome",
+    "RESUME_EVIDENCE": "get_evidence match_requisition unknown_skills alias_proposals propose_alias review_alias "
+        "parse_resume list_skills bias_audit",
+    "JOB_POSTINGS": "prepare_careers_posting get_posting approve_posting mark_posting_live take_down_posting "
+        "prepare_pack approve_pack mark_pack_posted mark_pack_taken_down list_packs takedown_due "
+        "get_company_profile set_company_profile resolve_tracking send_indexing_notification",
+    "SCREENING_FORMS": "create_form publish_form unpublish_form list_forms get_form pending_submissions get_submission "
+        "accept_submission discard_submission issue_candidate_token process_withdrawal "
+        "withdrawal_requests sweep_submissions public_routes",
+    "INTERVIEW_SCHEDULER": "set_availability list_interviewers propose_slots book_interview reschedule_interview "
+        "cancel_interview complete_interview list_bookings list_drafts approve_draft render_invitation "
+        "issue_schedule_token reminders mark_reminder_sent mark_no_show hand_off_to_mail",
+    "INTERVIEW_KIT": "list_questions get_kit create_kit assign_panel submit_scorecard scorecards agreement_report "
+        "list_work_samples review_work_sample work_sample_reviews add_question define_rubric "
+        "create_work_sample calibration_report",
+    "OFFER_LETTERS": "create_offer submit_for_approval send_offer record_response withdraw_offer list_templates "
+        "add_template compensation_preview revise_offer expire_due",
+    "ESIGN": "create_request send_request send_reminders process_due seal_request",
+    "ONBOARDING_FLOW": "start_onboarding waive_task cancel_case reminders_due",
+    "EMPLOYEE_RECORDS": "start_exit finalise_exit propose_conversion approve_conversion reject_conversion "
+        "retention_status retention_table workforce_aggregate change_record",
+    "POLICY_ACKS": "publish_policy retire_policy reminders_due",
+    "INTERVIEW_RECORD": "create_session list_sessions issue_participant_token replay_pad evidence_view close_session "
+        "mark_event give_consent withdraw_my_consent register_audio_track transcribe_track",
     "LEAVE_MANAGEMENT": "pending_approvals approve reject",
     "ZOHO_PEOPLE": "get_employees get_leave_summary get_attendance get_attendance_summary",
     "PAYROLL_ENGINE": "compute compute_bulk org_statutory_summary",
     "ZOHO_PAYROLL": "get_cost_to_company",
-    "OFFER_LETTERS": "list_templates add_template compensation_preview revise_offer expire_due",
-    "ESIGN": "send_reminders process_due seal_request",
-    "ONBOARDING_FLOW": "reminders_due",
-    "EMPLOYEE_RECORDS": "retention_status retention_table workforce_aggregate change_record",
-    "POLICY_ACKS": "reminders_due",
-    "ATS_CORE": "add_candidate add_application candidate_summary candidate_contact withdraw_consent "
-                "retention_due record_offer_outcome",
-    "JOB_POSTINGS": "get_company_profile set_company_profile resolve_tracking send_indexing_notification",
-    "SCREENING_FORMS": "issue_candidate_token process_withdrawal withdrawal_requests sweep_submissions "
-                       "public_routes",
-    "RESUME_EVIDENCE": "bias_audit",
-    "INTERVIEW_SCHEDULER": "issue_schedule_token reminders mark_reminder_sent mark_no_show",
-    "INTERVIEW_KIT": "add_question define_rubric create_work_sample calibration_report",
 }
 # (agent, method) -> typed word. Personal-data export and erasure: admin + ledger + typed confirmation (KAN-199).
 _CONFIRM: Dict[Tuple[str, str], str] = {
@@ -86,6 +81,14 @@ _SLOW = frozenset({("PAYROLL_ENGINE", "compute_bulk"), ("RESUME_EVIDENCE", "pars
                    ("SCREENING_FORMS", "sweep_submissions"), ("OFFER_LETTERS", "expire_due"),
                    ("ATS_CORE", "erase_candidates"), ("EMPLOYEE_RECORDS", "erase_subject"),
                    ("EMPLOYEE_RECORDS", "export_subject"), ("ATS_CORE", "export_candidate")})
+# Open rows that take employee_id for the caller's OWN record: when the body has none, the caller's linked employee
+# record (users.velaris_employee_id) is filled in. Someone else's id is still passed through; Velaris refuses it.
+_SELF = frozenset({("LEAVE_MANAGEMENT", "get_balance"), ("LEAVE_MANAGEMENT", "employee_history"),
+                   ("LEAVE_MANAGEMENT", "apply"), ("PAYROLL_ENGINE", "get_payslip"),
+                   ("PAYROLL_ENGINE", "get_statutory_deductions"), ("PAYROLL_ENGINE", "get_ytd_summary"),
+                   ("ZOHO_PAYROLL", "get_payslip"), ("ZOHO_PAYROLL", "get_statutory_deductions"),
+                   ("ZOHO_PAYROLL", "get_ytd_summary"), ("EMPLOYEE_RECORDS", "get_employee"),
+                   ("EMPLOYEE_RECORDS", "employee_history"), ("POLICY_ACKS", "pending_for_employee")})
 _BIG_BODY = frozenset({("ONBOARDING_FLOW", "collect_document")})   # a joiner's document travels inside the JSON
 
 
@@ -103,7 +106,7 @@ def _rows() -> Tuple[Route, ...]:
             ledger=True, admin=admin, confirm=_CONFIRM.get(key),
             timeout=SLOW_S if key in _SLOW else FAST_S,
             max_body=MAX_FILE if key in _BIG_BODY else 64 * 1024,
-            empty_body=b"{}", extra=(("agent", agent), ("method", method))))
+            empty_body=b"{}", self_id=key in _SELF, extra=(("agent", agent), ("method", method))))
     return tuple(rows)
 
 

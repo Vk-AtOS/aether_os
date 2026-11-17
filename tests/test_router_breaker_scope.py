@@ -166,7 +166,8 @@ async def test_council_uses_the_active_runs_org_when_none_is_passed(keys, fake_g
     assert fake_genai == ["google-org-a-key"]
 
 
-async def test_frontend_audit_council_sees_an_org_only_openrouter_key(keys):
+async def test_frontend_audit_council_sees_an_org_only_openrouter_key(keys, monkeypatch):
+    monkeypatch.setenv("ALLOW_COMMUNITY_LLM", "1")      # the council's models are :free: the operator opts in (data policy)
     await api_key_store.save_api_key("openrouter", ORG_A, "or-org-a-key")
     _current_org_id.set(ORG_A)
     await council.FrontendAuditCouncil().audit("export default function App() { return null }")

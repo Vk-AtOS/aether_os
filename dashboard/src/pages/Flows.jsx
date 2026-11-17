@@ -61,7 +61,7 @@ const Flows = () => {
         {act.view}
         <SpecForm submitLabel="Start" busy={act.busy} onSubmit={start} fields={[
           { name: 'task', label: 'Task', type: 'textarea', required: true },
-          { name: 'tools', label: 'Tools (AGENT.method, one per line)', type: 'list', required: true, help: tools.length ? `${tools.length} tools available. Export, erasure and HR methods are not available to flows.` : undefined }]} />
+          { name: 'tools', label: 'Tools a model may use', type: 'picker', options: tools, required: true, help: tools.length ? `${tools.length} tools available. Export, erasure and HR methods are not available to flows.` : undefined }]} />
       </Card>
       <Card title="Waiting for a decision">
         <LoadView q={pending} isEmpty={(d) => !(d.runs || d.pending || []).length} emptyText="No runs are waiting.">

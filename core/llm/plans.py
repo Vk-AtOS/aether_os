@@ -16,6 +16,7 @@ class PlanLimit:
     usd: float        # estimated provider spend per calendar month
 
 
+PLATFORM_ORG = "__platform__"   # the budget row platform-owned calls are charged to (no tenant)
 PLATFORM_PLAN = "platform"  # calls with no organisation (platform maintenance, learning jobs)
 
 PLAN_LIMITS = {

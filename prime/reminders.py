@@ -3,7 +3,7 @@
 sweep() is safe to run from every worker at once: each reminder and each expiry notice is
 CLAIMED with `UPDATE ... WHERE <column> IS NULL`, and only the worker whose UPDATE changed a
 row sends it, so a request is reminded once and its requester told once. An expired request
-is already fail-closed (approvals._state, _why_not); this only tells people. A failed
+is already fail-closed (approvals._state, _why_not); this only tells people. Each notice goes in-app and by e-mail (per the person's notification preferences). A failed
 notification is logged and not retried (the ledger entry records that it was due).
 """
 from __future__ import annotations
@@ -15,13 +15,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import select, update
 
 from aether_os.core.audit import chain as audit_chain
 from aether_os.core.db import get_session_factory
-from aether_os.core.models import User
+from aether_os.core import notification_prefs
 from aether_os.core.notifications.email import get_email_notifier
 from aether_os.prime.approvals import _now
+from aether_os.prime.inapp import notify_in_app, recipients as _recipients
 from aether_os.prime.authz import PRIME
 from aether_os.prime.models import PrimeRequest
 
@@ -38,18 +39,6 @@ async def _email(to: str, subject: str, text: str) -> bool:
     return await get_email_notifier().send(to, subject, f"<p>{text}</p>", text)
 
 
-async def _addresses(org_id: str, people: List[str]) -> List[str]:
-    """Emails of these people (ids or emails) in this organisation; unknown ones are skipped."""
-    wanted = [p for p in dict.fromkeys(people) if p and p != PRIME and not p.startswith("system:")]
-    if not wanted:
-        return []
-    async with get_session_factory()() as session:
-        rows = (await session.execute(select(User.email).where(
-            User.org_id == org_id, User.is_active == True,  # noqa: E712
-            or_(User.id.in_(wanted), User.email.in_([w.lower() for w in wanted]))))).scalars().all()
-    return sorted(set(rows))
-
-
 async def _claim(column: str, request_id: str, now: datetime, *extra: Any) -> bool:
     col = getattr(PrimeRequest, column)
     async with get_session_factory()() as session:
@@ -63,10 +52,14 @@ def _remind_due(row: PrimeRequest, now: datetime) -> bool:
     return row.expires_at - now <= min(REMIND_WITHIN, (row.expires_at - row.created_at) / 3)
 
 
-async def _tell(notify: Notify, org_id: str, people: List[str], subject: str, text: str) -> int:
+async def _tell(notify: Notify, org_id: str, people: List[str], event: str, subject: str, text: str) -> int:
+    """In-app notice and e-mail to each person, each channel unless that person switched the event off."""
+    await notify_in_app(org_id, people, event, subject, text)
     sent = 0
-    for to in await _addresses(org_id, people):
+    for uid, to in await _recipients(org_id, people):
         try:
+            if not await notification_prefs.allows(org_id, uid, event, "email"):
+                continue
             await notify(to, subject, text)
             sent += 1
         except Exception as e:
@@ -94,7 +87,7 @@ async def sweep(now: Optional[datetime] = None, notify: Notify = _email) -> Dict
             await audit_chain.append(actor=PRIME, action="prime.approval.reminder", payload={
                 "request_id": row.id, "org_id": row.org_id, "type": row.action_type,
                 "expires_at": row.expires_at.isoformat(), "minutes_left": left})
-            await _tell(notify, row.org_id, [row.on_behalf_of, row.deputy],
+            await _tell(notify, row.org_id, [row.on_behalf_of, row.deputy], "approval_expiring",
                         "Approval waiting: it expires soon",
                         f"A request to {row.action_type} is waiting for a decision and expires in "
                         f"{left} minutes. Open the Prime inbox to approve or reject it.")
@@ -104,7 +97,7 @@ async def sweep(now: Optional[datetime] = None, notify: Notify = _email) -> Dict
             await audit_chain.append(actor=PRIME, action="prime.approval.expire", payload={
                 "request_id": row.id, "org_id": row.org_id, "type": row.action_type,
                 "expired_at": row.expires_at.isoformat(), "requested_by": row.requested_by})
-            await _tell(notify, row.org_id, [row.requested_by, row.on_behalf_of],
+            await _tell(notify, row.org_id, [row.requested_by, row.on_behalf_of], "approval_expired",
                         "Approval expired: nothing was done",
                         f"Your request to {row.action_type} was not decided in time and has expired. "
                         "It was NOT carried out. Submit it again if it is still needed.")

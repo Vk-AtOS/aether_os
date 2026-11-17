@@ -17,16 +17,12 @@ import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
+from aether_os.core.security.git_remote import check_ssh_remote, ssh_command
 from aether_os.core.security.safe_http import UnsafeURL, check_url_shape, safe_request
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 # Only real remotes: ssh://host/path or scp-style user@host:path. No http(s)/git/file/local paths.
-_SSH_REMOTE = re.compile(r"^(ssh://[A-Za-z0-9._@-]+(:\d+)?/[^\s]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s:][^\s]*)$")
-
-
-def _ssh_url_ok(url: str) -> bool:
-    return bool(_SSH_REMOTE.match(url)) and not url.startswith("-") and ".." not in url.split("/")
 
 
 router = APIRouter(tags=["factory"])
@@ -139,19 +135,8 @@ async def import_existing_schema(
     connection_string = req.get("connection_string", "")
     if not connection_string:
         raise HTTPException(400, "connection_string required")
-    # Basic safety: only allow known drivers, reject file paths outside /tmp
-    allowed = ("postgresql://", "mysql+pymysql://", "mysql://", "sqlite:///")
-    if not any(connection_string.startswith(p) for p in allowed):
-        raise HTTPException(400, "Unsupported connection string format")
-
-    # SEC-C2: guard SQLite paths here too (defense in depth)
-    if connection_string.lower().startswith("sqlite:///"):
-        from aether_os.core.schema_importer import _validate_sqlite_path
-        try:
-            _validate_sqlite_path(connection_string)
-        except ValueError as ve:
-            raise HTTPException(400, str(ve)) from ve
-
+    # import_schema validates the PARSED url (driver allow-list, sqlite path, public host); a bad string is
+    # answered there with {"error", "tables": []}, so the check lives in one place.
     from aether_os.core.schema_importer import import_schema
     result = await import_schema(connection_string)
     return result
@@ -189,9 +174,14 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             raise HTTPException(status_code=422, detail=f"gitlab_url refused: {exc}") from exc
 
     # SSRF/injection: SSH URLs must be actual git remotes, not file:// or local paths
+    ssh_remote = None
     if rtype == "ssh":
-        if not _ssh_url_ok(url):
-            raise HTTPException(status_code=422, detail="SSH url must be ssh://host/path or user@host:path")
+        # one helper parses BOTH url forms and runs the shared public-address check (core/security/git_remote.py)
+        try:
+            ssh_remote = await asyncio.to_thread(check_ssh_remote, url)
+        except UnsafeURL as exc:
+            logger.warning("fetch-repo: ssh remote refused: %s", exc)
+            raise HTTPException(status_code=422, detail="That ssh remote is not allowed (it must be a public git host on port 22)") from None
 
     _KEY_FILES = {"readme.md", "readme.txt", "readme", "main.py", "app.py", "server.py",
                   "index.js", "index.ts", "main.ts", "package.json", "requirements.txt",
@@ -262,8 +252,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             with open(key_file, "w") as kf:
                 kf.write(ssh_key)
             os.chmod(key_file, 0o600)
-            # Gateway secrets must not reach git/ssh: minimal env only.
-            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmpdir, "GIT_SSH_COMMAND": f"ssh -i {key_file} -o StrictHostKeyChecking=no -o BatchMode=yes"}
+            # Gateway secrets must not reach git/ssh: minimal env only. The ssh command pins the address that passed the check.
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmpdir, "GIT_SSH_COMMAND": ssh_command(key_file, ssh_remote)}
             proc = await asyncio.create_subprocess_exec(
                 "git", "-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always",
                 "clone", "--depth=1", "--", url, clone_dir,
@@ -271,7 +261,8 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
             if proc.returncode != 0:
-                raise HTTPException(status_code=422, detail=f"Git clone failed: {stderr.decode()[:500]}")
+                logger.warning("fetch-repo: git clone failed (rc=%s): %s", proc.returncode, stderr.decode(errors="replace")[:500])
+                raise HTTPException(status_code=422, detail="Git clone failed. Check the address, the key and the access.")
             context_parts.append(f"Repository: {url} (SSH clone)")
             found = 0
             for root, _dirs, files in os.walk(clone_dir):

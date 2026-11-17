@@ -16,6 +16,10 @@ from aether_os.core.models import NotificationPref
 EVENTS = {
     "run_completed": "A build finished",
     "run_failed": "A build failed",
+    # Prime approvals (prime/reminders.py, prime/approvals.py): written as in-app Notification rows and e-mail.
+    "approval_needed": "A request is waiting for your decision",
+    "approval_expiring": "A request is about to expire",
+    "approval_expired": "A request expired without a decision",
 }
 ORG_DEFAULT = ""
 

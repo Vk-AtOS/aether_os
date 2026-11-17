@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Paperclip, Pin, MessageSquare, Pencil, Trash2, Smile, Bot } from 'lucide-react';
+import { Paperclip, Pin, MessageSquare, Pencil, Trash2, Smile, Bot, ShieldX } from 'lucide-react';
 import { when, btn } from '../velaris/velarisApi';
 
 const EMOJI = ['👍', '❤️', '😄', '🎉', '👀'];
@@ -15,7 +15,7 @@ const Reactions = ({ message, me, onReact }) => (
   </div>
 );
 
-const MessageItem = ({ m, me, pinned, canAdmin, onReact, onEdit, onDelete, onPin, onThread, onDownload, onTopic }) => {
+const MessageItem = ({ m, me, pinned, canAdmin, canErase, onReact, onEdit, onDelete, onErase, onPin, onThread, onDownload, onTopic }) => {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(m.body || '');
   const [picker, setPicker] = useState(false);
@@ -59,6 +59,7 @@ const MessageItem = ({ m, me, pinned, canAdmin, onReact, onEdit, onDelete, onPin
           <button aria-label={pinned ? 'Unpin' : 'Pin'} onClick={() => onPin(m, pinned)}><Pin className="w-3.5 h-3.5" /></button>
           {mine && <button aria-label="Edit message" onClick={() => setEditing(true)}><Pencil className="w-3.5 h-3.5" /></button>}
           {(mine || canAdmin) && <button aria-label="Delete message" onClick={() => onDelete(m)}><Trash2 className="w-3.5 h-3.5" /></button>}
+          {canErase && <button aria-label="Erase message (compliance)" onClick={() => onErase(m)}><ShieldX className="w-3.5 h-3.5 text-danger" /></button>}
         </div>
       )}
       {picker && (

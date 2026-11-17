@@ -75,7 +75,7 @@ class Identity:
     user_id: str
     org_id: str
     org_role: Optional[str]
-    employee_id: Optional[str] = None   # ponytail: AetherOS users have no linked employee record yet
+    employee_id: Optional[str] = None   # users.velaris_employee_id, set by an organisation admin (PUT /hr/links)
 
 
 def _b64(raw: bytes) -> str:

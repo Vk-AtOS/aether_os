@@ -5,55 +5,9 @@ import asyncio
 import logging
 from typing import Any, Dict
 
+from aether_os.core.security.db_url import validate_db_url
+
 logger = logging.getLogger(__name__)
-
-
-def _validate_sqlite_path(connection_string: str) -> None:
-    """SEC-C2: Reject SQLite paths that could read arbitrary local files.
-
-    Blocks absolute paths (e.g. sqlite:////etc/passwd) and directory
-    traversal sequences (e.g. sqlite:///../../.env) so this function
-    cannot be used as a local-file read primitive.
-    """
-    # Strip the 'sqlite:///' prefix (3 slashes = relative, 4 = absolute)
-    after_prefix = connection_string[len("sqlite:///"):]
-    # Root cause of the bypass: "file:/abs/path?uri=true" makes sqlite open an absolute path
-    # even though the string does not start with "/". Allow plain relative file names only.
-    if "?" in after_prefix or after_prefix.lower().startswith("file:") or ":" in after_prefix:
-        raise ValueError(
-            "SQLite connection string must be a plain relative path "
-            "(no URI form, no query string)"
-        )
-    if after_prefix.startswith("/"):
-        raise ValueError(
-            "SQLite connection string must use a relative path, "
-            "not an absolute path (SSRF/LFI prevention)"
-        )
-    if ".." in after_prefix.split("/"):
-        raise ValueError(
-            "SQLite connection string must not contain '..' path traversal "
-            "(SSRF/LFI prevention)"
-        )
-
-
-def _assert_public_host(connection_string: str) -> None:
-    """Raise ValueError unless the database host resolves only to public addresses."""
-    from sqlalchemy.engine import make_url
-    from aether_os.core.security.safe_http import UnsafeURL, resolve_public
-    try:
-        url = make_url(connection_string)
-    except Exception as exc:
-        raise ValueError(f"invalid connection string: {exc}") from exc
-    if not url.host:
-        raise ValueError("connection string has no host")
-    # Root cause of the bypass: query parameters such as host=, hostaddr= or unix_socket=
-    # override the URL host inside the driver, so the checked host is not the one connected to.
-    if set(url.query) - {"sslmode", "connect_timeout", "charset"}:
-        raise ValueError("connection string query parameters are not allowed")
-    try:
-        resolve_public(f"http://{url.host}:{url.port or 80}/")
-    except UnsafeURL as exc:
-        raise ValueError(f"database host rejected: {exc}") from exc
 
 
 async def import_schema(connection_string: str) -> Dict[str, Any]:
@@ -79,21 +33,13 @@ async def import_schema(connection_string: str) -> Dict[str, Any]:
 
     On error returns: {"error": str(e), "tables": []}
     """
-    # SEC-C2: validate SQLite paths before any I/O
-    if connection_string.lower().startswith("sqlite:///"):
-        try:
-            _validate_sqlite_path(connection_string)
-        except ValueError as ve:
-            logger.warning("[schema_importer] rejected unsafe SQLite path: %s", ve)
-            return {"error": str(ve), "tables": []}
-
-    # SSRF: the host is typed by the caller; never let it be the platform's own network.
-    if not connection_string.lower().startswith("sqlite"):
-        try:
-            await asyncio.to_thread(_assert_public_host, connection_string)
-        except ValueError as ve:
-            logger.warning("[schema_importer] rejected non-public database host: %s", ve)
-            return {"error": str(ve), "tables": []}
+    # Parse FIRST and decide on the parsed URL (core/security/db_url.py): string prefixes disagree with SQLAlchemy.
+    try:
+        url = await asyncio.to_thread(validate_db_url, connection_string)
+    except ValueError as ve:
+        logger.warning("[schema_importer] rejected connection string: %s", ve)
+        return {"error": str(ve), "tables": []}
+    connection_string = url
 
     try:
         result = await asyncio.wait_for(
@@ -110,22 +56,19 @@ async def import_schema(connection_string: str) -> Dict[str, Any]:
         return {"error": str(exc), "tables": []}
 
 
-async def _do_import(connection_string: str) -> Dict[str, Any]:
+async def _do_import(connection_string: Any) -> Dict[str, Any]:
     """Run the synchronous SQLAlchemy inspection in a thread pool."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_inspect, connection_string)
 
 
-def _sync_inspect(connection_string: str) -> Dict[str, Any]:
+def _sync_inspect(connection_string: Any) -> Dict[str, Any]:
     """Synchronous SQLAlchemy inspector — runs in thread pool."""
     from sqlalchemy import create_engine, inspect
 
     # Use a short connect_timeout where the driver supports it
     connect_args: dict = {}
-    cs_lower = connection_string.lower()
-    if cs_lower.startswith("postgresql"):
-        connect_args["connect_timeout"] = 8
-    elif cs_lower.startswith("mysql"):
+    if connection_string.get_backend_name() in ("postgresql", "mysql"):
         connect_args["connect_timeout"] = 8
 
     engine = create_engine(

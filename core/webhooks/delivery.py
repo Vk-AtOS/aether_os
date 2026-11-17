@@ -114,6 +114,19 @@ class WebhookDelivery:
 _delivery = WebhookDelivery()
 
 
+_tasks: set = set()
+_MAX_CONCURRENT = 50
+_slots: Optional[asyncio.Semaphore] = None
+
+
+async def _bounded_send(**kw: Any) -> bool:
+    global _slots
+    if _slots is None:
+        _slots = asyncio.Semaphore(_MAX_CONCURRENT)
+    async with _slots:
+        return await _delivery.send(**kw)
+
+
 async def deliver_event(
     org_id: str,
     event_type: str,
@@ -129,8 +142,10 @@ async def deliver_event(
 
     delivery_id = str(uuid.uuid4())
     for wh in webhooks:
-        asyncio.create_task(
-            _delivery.send(
+        # Keep a reference: the loop holds tasks weakly, so an unreferenced delivery can be garbage collected mid-retry
+        # (and the event is lost without a log line). The semaphore bounds how many deliveries run at once.
+        task = asyncio.create_task(
+            _bounded_send(
                 url=wh["url"],
                 secret=wh["secret"],
                 event_type=event_type,
@@ -138,6 +153,8 @@ async def deliver_event(
                 delivery_id=delivery_id,
             )
         )
+        _tasks.add(task)
+        task.add_done_callback(_tasks.discard)
 
 
 def _signing_secret(stored: Optional[str]) -> str:
