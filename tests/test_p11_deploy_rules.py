@@ -49,3 +49,11 @@ def test_network_is_not_internal(monkeypatch):
     asyncio.run(helpers.ensure_network())
     create = next(c for c in calls if "create" in c)
     assert "--internal" not in create and helpers.APP_NETWORK in create
+
+
+def test_p11_compose_has_no_default_secret_key(tmp_path):
+    # KAN-69: the generated compose defaulted SECRET_KEY to a placeholder identical in every app
+    from aether_os.phases.p11_deployment.writers import write_docker_compose
+    path = write_docker_compose(tmp_path, tmp_path)
+    text = path.read_text()
+    assert "SECRET_KEY: ${SECRET_KEY:?" in text and "changeme" not in text
