@@ -197,13 +197,33 @@ def create_access_token(
 
 # ── Token verification ─────────────────────────────────────────────────────────
 
+def _legacy_hs256_enabled() -> bool:
+    """Migration switch, OFF by default (KAN-69 F10): with it on, RS256 mode also accepts tokens signed with
+    AETHER_SECRET_KEY (HS256). The deploy files always inject that secret, so leaving this on means anyone
+    holding it can mint any user. Turn it on only for the window in which pre-RS256 sessions drain, then off."""
+    return os.environ.get("AETHER_ACCEPT_LEGACY_HS256_TOKENS", "").strip().lower() in ("1", "true", "yes")
+
+
+def _decode_legacy_hs256(token: str) -> Optional[Dict[str, Any]]:
+    hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
+    if not hs_secret:
+        return None
+    try:
+        payload = _jwt.decode(token, hs_secret, algorithms=[_ALG_HS256])
+        logger.warning("JWT decode: accepted legacy HS256 token (AETHER_ACCEPT_LEGACY_HS256_TOKENS is on)")
+        return payload
+    except _jwt.exceptions.PyJWTError as exc:
+        logger.warning("JWT decode: RS256 and legacy HS256 both failed: %s", exc)
+        return None
+
+
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Decode and verify a JWT. Returns None if expired or invalid.
 
     Uses the algorithm that was active when _load_rsa_keys() ran (RS256 in production,
     HS256 in CI/test environments where only AETHER_SECRET_KEY is set).  When in RS256
-    mode, also tries HS256 as a migration path for tokens issued before the upgrade.
+    mode, HS256 tokens are refused unless AETHER_ACCEPT_LEGACY_HS256_TOKENS is on (migration window).
     """
     verify_key = _get_verify_key()
     alg = get_algorithm()
@@ -213,24 +233,8 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         logger.warning("JWT decode: token expired")
         return None
     except _jwt.exceptions.PyJWTError:
-        if alg == _ALG_RS256:
-            # Token may have been issued under the old HS256 key — try migration path
-            hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
-            if hs_secret:
-                try:
-                    payload = _jwt.decode(token, hs_secret, algorithms=[_ALG_HS256])
-                    logger.info("JWT decode: accepted legacy HS256 token (migration window)")
-                    return payload
-                except _jwt.exceptions.ExpiredSignatureError:
-                    logger.warning("JWT decode: legacy HS256 token expired")
-                    return None
-                except _jwt.exceptions.PyJWTError as exc:
-                    logger.warning("JWT decode: RS256 and HS256 both failed — %s", exc)
-                    return None
-                except Exception as exc:
-                    logger.warning("JWT decode: unexpected error on HS256 fallback — %s", exc)
-                    return None
-            logger.warning("JWT decode: RS256 decode failed and no AETHER_SECRET_KEY for migration")
+        if alg == _ALG_RS256 and _legacy_hs256_enabled():
+            return _decode_legacy_hs256(token)
         return None
     except Exception as exc:
         logger.warning("JWT decode: unexpected error — %s", exc)

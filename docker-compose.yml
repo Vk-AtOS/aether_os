@@ -60,7 +60,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # nginx on the host is the only entry; Docker-published ports bypass ufw
     environment:
       DATABASE_URL: postgresql://aether_user:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/aether_os
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0
@@ -177,6 +177,7 @@ services:
   # Owner steps once (never automatic):
   #   mkdir -p secrets && openssl genpkey -algorithm ED25519 -out secrets/velaris_identity.pem
   #   openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_identity.pub.pem
+  #   openssl rand -base64 32 > secrets/vault.key && chmod 600 secrets/vault.key   (vault key; back it up apart from the data volume)
   #   put VELARIS_API_SECRET (openssl rand -hex 32) and the private key as VELARIS_IDENTITY_PRIVATE_KEY_PEM in .env
   velaris: &velaris
     profiles: ["velaris"]
@@ -196,8 +197,10 @@ services:
       VELARIS_API_HOST: 0.0.0.0
       VELARIS_API_SECRET: ${VELARIS_API_SECRET:?VELARIS_API_SECRET is required for the velaris profile}
       VELARIS_IDENTITY_PUBLIC_KEY: /run/identity/velaris_identity.pub.pem
+      VELARIS_VAULT_KEY_FILE: /run/vault/vault.key      # outside the data volume, so HR, mail and chat can be sealed
     volumes:
       - velaris_data:/data
+      - ./secrets/vault.key:/run/vault/vault.key:ro
       - ./secrets/velaris_identity.pub.pem:/run/identity/velaris_identity.pub.pem:ro
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py", "8730", "/readyz"]
@@ -220,8 +223,10 @@ services:
       VELARIS_PUBLIC_HOST: 0.0.0.0
       VELARIS_PUBLIC_TRUST_PROXY: "1"
       VELARIS_PUBLIC_CORS_ORIGINS: ${VELARIS_PUBLIC_CORS_ORIGINS:-}
+      VELARIS_VAULT_KEY_FILE: /run/vault/vault.key
     volumes:
       - velaris_data:/data
+      - ./secrets/vault.key:/run/vault/vault.key:ro
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py", "8731"]
       interval: 30s

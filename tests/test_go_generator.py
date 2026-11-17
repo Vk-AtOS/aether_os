@@ -445,3 +445,31 @@ class TestGoHelpers:
     def test_to_camel_kebab_case(self):
         from aether_os.phases.p04_backend.go_generator import _to_camel
         assert _to_camel("order-item") == "orderItem"
+
+
+# ── KAN-69 G3: generated Go and Node backends authenticate every route ─────────
+
+def test_generated_go_and_node_backends_deny_by_default(tmp_path):
+    # The Go and Node generators emitted routes with no authentication, and Node allowed every CORS origin.
+    # Source-text check only: no Go toolchain here, so `go build` of the output is UNVERIFIED.
+    from aether_os.phases.p04_backend.go_generator import generate_go_project
+    from aether_os.phases.p04_backend.node_generator import generate_node_project
+    go = asyncio.run(generate_go_project(_ENTITIES, "demo", tmp_path / "go"))
+    node = asyncio.run(generate_node_project(_ENTITIES, "demo", tmp_path / "node"))
+
+    main = (go / "main.go").read_text()
+    assert 'api.Use(middleware.RequireAuth())' in main
+    assert main.index("RequireAuth()") < main.index("Register")        # the group is guarded before any route is added
+    assert 'r.GET("/metrics", middleware.RequireAuth()' in main
+    auth = (go / "middleware" / "auth.go").read_text()
+    assert 'jwt.WithValidMethods' in auth and "len(s) < 32" in auth and "log.Fatalf" in auth
+    assert "ParseUnverified" not in auth
+
+    ts_auth = (node / "src" / "auth.ts").read_text()
+    index = (node / "src" / "index.ts").read_text()
+    assert "addHook('onRequest', requireAuth)" in index
+    assert index.index("addHook") < index.index("Routes, {")
+    assert "origin: true" not in index
+    assert "algorithms" in ts_auth and "jwt.verify" in ts_auth and "decode(" not in ts_auth
+    assert "throw new Error('Set JWT_SECRET" in ts_auth
+    assert "'/health'" in ts_auth

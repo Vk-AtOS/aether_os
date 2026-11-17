@@ -55,8 +55,8 @@ None. Valid reports may be credited in release notes if the reporter agrees.
 - JWT: RS256 when `AETHER_JWT_PRIVATE_KEY_B64` + `AETHER_JWT_PUBLIC_KEY_B64`, or the `_PATH` pair, are set
   (`gateway/auth.py:43-86`). With neither, it falls back to HS256 using `AETHER_SECRET_KEY` and logs a warning
   that this is not for production (`auth.py:88-95`). With no key at all it raises (`auth.py:97`). In RS256 mode,
-  `decode_access_token` also accepts an HS256 token signed with `AETHER_SECRET_KEY` if that variable is set (a
-  migration path, `auth.py:216-229`). Whether RS256 keys are set in production: not verified.
+  `decode_access_token` refuses HS256 tokens. Only while `AETHER_ACCEPT_LEGACY_HS256_TOKENS=1` (off by default,
+  migration window for pre-RS256 sessions) does it also accept HS256 tokens signed with `AETHER_SECRET_KEY`. Whether RS256 keys are set in production: not verified.
 - Access token lifetime 1 hour (`auth.py:188`). Refresh token lifetime 30 days (`auth.py:178`,
   `auth_refresh.py:35`).
 - Refresh tokens are single use and grouped in families. Replaying a spent refresh token revokes the whole

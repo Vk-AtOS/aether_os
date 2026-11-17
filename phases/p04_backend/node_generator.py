@@ -98,6 +98,41 @@ export const db = drizzle(client);
 """
 
 
+def generate_ts_auth() -> str:
+    """src/auth.ts: a JWT check on every request except /health (deny by default, KAN-69 G3)."""
+    return """import jwt from 'jsonwebtoken';
+import { FastifyReply, FastifyRequest } from 'fastify';
+
+// Exactly one signing algorithm is accepted: RS256 when JWT_PUBLIC_KEY is set, else HS256 with JWT_SECRET.
+// A missing or placeholder secret stops the server at start-up instead of leaving the API open.
+function loadKey(): { key: string; algorithms: jwt.Algorithm[] } {
+  const pub = process.env.JWT_PUBLIC_KEY;
+  if (pub) return { key: pub, algorithms: ['RS256'] };
+  const secret = process.env.JWT_SECRET ?? '';
+  if (secret.length < 32 || secret.startsWith('change-me')) {
+    throw new Error('Set JWT_SECRET (at least 32 characters) or JWT_PUBLIC_KEY');
+  }
+  return { key: secret, algorithms: ['HS256'] };
+}
+
+const { key, algorithms } = loadKey();
+const PUBLIC_PATHS = new Set(['/health']);
+
+export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
+  if (PUBLIC_PATHS.has(req.url.split('?')[0])) return;
+  const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
+  try {
+    if (!m) throw new Error('no token');
+    const claims = jwt.verify(m[1], key, { algorithms });
+    if (typeof claims === 'string' || !claims.sub || !claims.exp) throw new Error('bad claims');
+    (req as FastifyRequest & { user?: unknown }).user = claims;
+  } catch {
+    return reply.status(401).send({ error: 'unauthorized' });
+  }
+}
+"""
+
+
 def generate_ts_model(entity: Dict[str, Any]) -> str:
     table = entity.get("table", "item")
     pascal = _to_pascal(table)
@@ -218,12 +253,16 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+import {{ requireAuth }} from './auth';
 {imports}
 
 const fastify = Fastify({{ logger: true }});
 
 async function main() {{
-  await fastify.register(cors, {{ origin: true }});
+  // browsers only from the listed origins (CORS_ORIGINS, comma separated); none by default
+  const origins = (process.env.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+  await fastify.register(cors, {{ origin: origins }});
+  fastify.addHook('onRequest', requireAuth);
 
   fastify.get('/health', async () => ({{ status: 'ok', service: '{project_name}' }}));
 
@@ -354,7 +393,9 @@ CMD ["node", "dist/index.js"]
 def generate_env_example() -> str:
     return """PORT=8000
 DATABASE_URL=postgres://user:password@localhost:5432/appdb?sslmode=disable
+# at least 32 random characters (the server refuses to start otherwise), or set JWT_PUBLIC_KEY for RS256
 JWT_SECRET=change-me-in-production
+CORS_ORIGINS=
 """
 
 
@@ -375,6 +416,7 @@ async def generate_node_project(
     (backend_dir / "tsconfig.json").write_text(generate_tsconfig())
     (backend_dir / "vitest.config.ts").write_text(generate_vitest_config())
     (backend_dir / "src" / "db.ts").write_text(generate_ts_db())
+    (backend_dir / "src" / "auth.ts").write_text(generate_ts_auth())
     (backend_dir / ".env.example").write_text(generate_env_example())
     (backend_dir / "Dockerfile").write_text(generate_node_dockerfile())
     (backend_dir / "src" / "index.ts").write_text(generate_ts_index(entities, project_name))

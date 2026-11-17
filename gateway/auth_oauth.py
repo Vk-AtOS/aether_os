@@ -24,7 +24,7 @@ import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from aether_os.gateway.auth_refresh import oauth_code_pop, oauth_code_set, oauth_state_pop, oauth_state_set
@@ -39,6 +39,22 @@ async def _new_state(provider: str) -> str:
     state = secrets.token_urlsafe(32)
     await oauth_state_set(state, provider)
     return state
+
+
+# The state is also bound to the browser that started the flow by an HttpOnly cookie, so a callback URL an
+# attacker obtained cannot be replayed into a victim's browser (login CSRF, KAN-69 F9).
+_STATE_COOKIE = "aether_oauth_state"
+
+
+def _redirect_to_provider(url: str, state: str) -> RedirectResponse:
+    resp = RedirectResponse(url=url)
+    resp.set_cookie(_STATE_COOKIE, state, max_age=600, httponly=True, samesite="lax",
+                    secure=_base_url().startswith("https://"), path="/")
+    return resp
+
+
+def _state_is_ours(request: Request, state: Optional[str]) -> bool:
+    return bool(state) and secrets.compare_digest(request.cookies.get(_STATE_COOKIE, ""), state)
 
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -92,6 +108,12 @@ def _redirect_with_error(message: str) -> RedirectResponse:
     )
 
 
+async def _org_has_own_idp(session, org_id: str) -> bool:
+    from aether_os.core.models import SamlConfig
+    from sqlalchemy import select
+    return (await session.execute(select(SamlConfig.id).where(SamlConfig.org_id == org_id))).first() is not None
+
+
 async def _upsert_oauth_user(email: str):
     """Find or create User + Organisation for the given OAuth email. Returns (user, org)."""
     from aether_os.core.db import get_session_factory
@@ -110,6 +132,10 @@ async def _upsert_oauth_user(email: str):
         ).fetchone()
         if row:
             user, org = row
+            if await _org_has_own_idp(session, org.id):
+                # An org that runs its own SAML IdP controls which addresses exist in it; linking a Google or
+                # GitHub identity by email into it would hand that org's admins a way to capture accounts.
+                raise HTTPException(status_code=403, detail="Your organisation requires single sign-on")
             if not user.email_verified:
                 # Never auto-link an unverified local account: whoever pre-registered
                 # it may hold refresh tokens, API keys, MFA secrets or invites. The
@@ -171,18 +197,19 @@ async def google_login() -> RedirectResponse:
         "prompt": "select_account",
         "state": state,
     }
-    return RedirectResponse(url=_GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params))
+    return _redirect_to_provider(_GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params), state)
 
 
 @oauth_router.get("/google/callback", include_in_schema=False)
 async def google_callback(
+    request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
     state: Optional[str] = None,
 ) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "Google sign-in was cancelled")
-    if not state or not await oauth_state_pop(state, "google"):
+    if not _state_is_ours(request, state) or not await oauth_state_pop(state, "google"):
         logger.warning("Google OAuth callback: invalid or missing CSRF state")
         return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
@@ -247,18 +274,19 @@ async def github_login() -> RedirectResponse:
         "scope": "user:email",
         "state": state,
     }
-    return RedirectResponse(url=_GITHUB_AUTH_URL + "?" + urllib.parse.urlencode(params))
+    return _redirect_to_provider(_GITHUB_AUTH_URL + "?" + urllib.parse.urlencode(params), state)
 
 
 @oauth_router.get("/github/callback", include_in_schema=False)
 async def github_callback(
+    request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
     state: Optional[str] = None,
 ) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "GitHub sign-in was cancelled")
-    if not state or not await oauth_state_pop(state, "github"):
+    if not _state_is_ours(request, state) or not await oauth_state_pop(state, "github"):
         logger.warning("GitHub OAuth callback: invalid or missing CSRF state")
         return _redirect_with_error("OAuth state mismatch — please try signing in again")
 

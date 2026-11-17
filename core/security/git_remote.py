@@ -83,6 +83,32 @@ def check_ssh_remote(url: str) -> SshRemote:
     return SshRemote(host=host, port=port, address=addresses[0])
 
 
+def check_https_remote(url: str) -> str:
+    """The https counterpart of check_ssh_remote, for every clone or fetch of a user-supplied https URL: plain
+    https on port 443, no credentials in the URL, a strict host name, and every address it resolves to public
+    (the same safe_http.resolve_public check). Blocking (DNS): call from a thread. Returns the stripped URL.
+    Raises UnsafeURL. Unlike ssh the connection cannot be pinned to the checked address, so DNS rebinding between
+    this check and git's own lookup is a known residual; the allow-list callers add on top narrows it."""
+    url = (url or "").strip()
+    if not url or url.startswith("-") or len(url) > 1024 or any(c.isspace() or ord(c) < 32 for c in url):
+        raise UnsafeURL("not a git https remote")
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        raise UnsafeURL("invalid port") from None
+    if parts.scheme != "https" or parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        raise UnsafeURL("only plain https remotes without credentials are allowed")
+    if port not in (None, 443):
+        raise UnsafeURL(f"port {port} is not allowed for git over https")
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise UnsafeURL("the remote has no host")
+    _strict_host(host)
+    resolve_public(url)
+    return url
+
+
 def ssh_command(key_file: str, remote: SshRemote) -> str:
     """GIT_SSH_COMMAND that connects to the CHECKED address, trusts no user config and no proxy."""
     # GIT_SSH_COMMAND goes through a shell: every element is quoted, the address is an ipaddress-validated literal

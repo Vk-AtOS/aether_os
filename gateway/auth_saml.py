@@ -37,7 +37,7 @@ from sqlalchemy import select
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation, User
 from aether_os.gateway.auth import get_password_hash
-from aether_os.gateway.auth_refresh import issue_token_pair
+from aether_os.gateway.auth_oauth import _signin_redirect
 from aether_os.gateway.policy_guard import enforce_seat
 
 logger = logging.getLogger(__name__)
@@ -159,8 +159,9 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
                 raise HTTPException(status_code=403, detail="SAML identity does not belong to this organisation")
             if not user.is_active or user.deleted_at or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Account is deactivated")
-            if not user.email_verified:
-                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts.
+            if not user.email_verified and not idp_org_id:
+                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts. A per-org IdP may
+                # sign in its own org's members, which it provisioned unverified (below).
                 raise HTTPException(status_code=403, detail="Verify your email address before signing in with SSO")
             return user, org
         if idp_org_id:
@@ -170,15 +171,20 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
                 raise HTTPException(status_code=403, detail="Organisation not found")
             await enforce_seat(org.id, "saml")  # JIT provisioning must not exceed the plan's seats
             role = "member"
+            # The address is only asserted by that org's own IdP, which its admins control: it must not count
+            # as verified, or a later Google/GitHub sign-in of the real owner of that address would be linked
+            # into the attacker's org (KAN-69 F5).
+            verified = False
         else:
             slug = email.split("@")[0].lower().replace(".", "-") + "-" + secrets.token_hex(3)
             org = Organisation(id=str(uuid.uuid4()), name=email, slug=slug, plan="trial")
             session.add(org)
             role = "owner"
+            verified = True
         user = User(
             id=str(uuid.uuid4()), org_id=org.id, email=email,
             password_hash=get_password_hash(secrets.token_urlsafe(32)),
-            role=role, email_verified=True,
+            role=role, email_verified=verified,
         )
         session.add(user)
         await session.commit()
@@ -344,22 +350,5 @@ async def saml_callback(request: Request) -> RedirectResponse:
             status_code=302,
         )
 
-    if user.mfa_enabled:
-        from aether_os.gateway.auth_oauth import _signin_redirect
-        return await _signin_redirect(user, org)
-
-    _saml_claims = {
-        "sub": user.email, "user_id": user.id,
-        "org_id": org.id, "org_slug": org.slug,
-        "role": user.role, "plan": org.plan,
-    }
-    token, refresh = issue_token_pair(_saml_claims)
-    frontend = _frontend_url()
-    return RedirectResponse(
-        url=(
-            f"{frontend}/auth/callback"
-            f"?token={urllib.parse.quote(token)}"
-            f"&refresh_token={urllib.parse.quote(refresh)}"
-        ),
-        status_code=302,
-    )
+    # a one-time code, never a token in the URL (logs, history, Referer); same exchange as OAuth (KAN-69 F8)
+    return await _signin_redirect(user, org)

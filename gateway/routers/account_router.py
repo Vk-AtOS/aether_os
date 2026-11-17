@@ -20,6 +20,8 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
+from aether_os.core.models import User
 from aether_os.core.audit.deletion import ErasureIncomplete, erase_person
 from aether_os.gateway.auth_refresh import revoke_user_sessions
 from aether_os.gateway.dependencies import get_current_user
@@ -139,6 +141,19 @@ async def delete_account(user: Dict[str, Any] = _current_user()) -> Dict[str, st
     # End every session the user holds (all access and refresh tokens) first. If
     # that cannot be done (Redis down) this raises 503 and nothing is deleted, so
     # the user can retry — never a deleted account with live tokens.
+    # The last owner cannot leave: the organisation would have nobody who can manage billing, members or
+    # deletion (KAN-69 F23). Checked before anything is revoked or erased.
+    async with get_session_factory()() as session:
+        me = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if me is not None and me.role == "owner":
+            owners = (await session.execute(select(func.count()).select_from(User).where(
+                User.org_id == org_id, User.role == "owner", User.is_active.is_(True),
+                User.deleted_at.is_(None)))).scalar_one()
+            if owners <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="You are the last owner of this organisation. Make someone else an owner first.")
+
     await revoke_user_sessions(user_id)
 
     # Erase their email/IPs from the ledger BEFORE anonymising: the email is needed to
