@@ -152,3 +152,22 @@ def test_legacy_hashed_token_still_works_until_rotated(gw):
     gw.sql("UPDATE organisations SET scim_token_hash = ?, scim_token_lookup = NULL WHERE id = ?",
            (bcrypt.hashpw(token.encode(), bcrypt.gensalt()).decode(), org.org_id))
     assert gw.client.get("/scim/v2/Users", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+
+def test_wrong_tokens_cannot_burn_bcrypt_without_limit(gw, monkeypatch):
+    """KAN-69 F20: each wrong token cost a bcrypt compare per legacy org; the legacy path is now rate limited."""
+    import bcrypt
+    from aether_os.core import rate_limiter as rl
+    from aether_os.gateway.routers import scim_router
+    org = gw.register("scimflood")
+    gw.sql("UPDATE organisations SET scim_token_hash = ?, scim_token_lookup = NULL WHERE id = ?",
+           (bcrypt.hashpw(b"legacy-x", bcrypt.gensalt(4)).decode(), org.org_id))
+    monkeypatch.setattr(scim_router, "LEGACY_PER_MINUTE", 3)
+    rl._mem.windows.clear()
+    calls = []
+    monkeypatch.setattr(scim_router._bcrypt, "checkpw", lambda *a, **k: calls.append(1) or False)
+    codes = [gw.client.get("/scim/v2/Users", headers={"Authorization": f"Bearer wrong{i}"},
+                           ).status_code for i in range(6)]
+    assert codes[:3] == [401] * 3 and codes[3:] == [429] * 3 
+    legacy = gw.sql("SELECT COUNT(*) FROM organisations WHERE scim_token_lookup IS NULL AND scim_token_hash IS NOT NULL")[0][0]
+    assert len(calls) == 3 * legacy      # only the allowed attempts reached bcrypt
