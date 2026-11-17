@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import webbrowser
 from pathlib import Path
@@ -60,9 +61,14 @@ def _load_cfg() -> dict:
     return {}
 
 def _save_cfg(cfg: dict) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2))
-    CONFIG_FILE.chmod(0o600)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # created 0600 from the first byte (KAN-69 SC-07): write-then-chmod left the token readable in between
+    tmp = CONFIG_FILE.with_name(CONFIG_FILE.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(cfg, indent=2))
+    os.replace(tmp, CONFIG_FILE)
 
 def _require_cfg() -> dict:
     cfg = _load_cfg()
