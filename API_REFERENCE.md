@@ -602,6 +602,9 @@ Tags: notifications. Routes: 3.
 | GET | `/notifications/preferences` | `get_current_user`; floor: any role | Get preferences. |
 | PUT | `/notifications/preferences` | `get_current_user`; floor: any role | Put preferences. |
 | PUT | `/notifications/preferences/org` | `get_current_user`; floor: any role; handler checks role inline | Put org preferences. |
+| GET | `/notifications/quiet-hours` | `get_current_user`; floor: any role | Get the caller's quiet hours and the organisation default. |
+| PUT | `/notifications/quiet-hours` | `get_current_user`; floor: any role | Set the caller's quiet hours (IANA zone, may wrap midnight). |
+| PUT | `/notifications/quiet-hours/org` | `get_current_user`; floor: any role; handler checks role inline | Set the organisation's default quiet hours (admin). |
 
 ### `gateway/routers/notifications_router.py`
 

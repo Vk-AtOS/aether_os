@@ -28,7 +28,7 @@ def test_every_module_that_declares_a_table_is_registered_for_the_bootstrap():
         for path in (ROOT / top).rglob("*.py"):
             if re.search(r"^\s+__tablename__\s*=", path.read_text(errors="ignore"), re.M):
                 declaring.add(path.relative_to(ROOT).with_suffix("").as_posix().replace("/", "."))
-    declaring -= {"core.scim_models", "core.models_ops"}   # imported by core.models
+    declaring -= {"core.scim_models", "core.models_ops", "core.models_learning"}   # imported by core.models
     assert declaring <= set(schema_ddl.MODEL_MODULES), sorted(declaring - set(schema_ddl.MODEL_MODULES))
 
 
