@@ -93,7 +93,7 @@ async def health_zero_trust() -> Dict[str, Any]:
         return {
             "status": "degraded",
             "zero_trust": False,
-            "reason": str(exc),
+            "reason": "zero-trust probe failed",     # the exception text stays in the log (KAN-69 F15)
             "timestamp": time.time(),
         }
 
