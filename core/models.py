@@ -4,7 +4,8 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, Index, UniqueConstraint, false, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import event
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
 
@@ -70,6 +71,17 @@ class User(Base):
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
 
+class PasswordHistory(Base):
+    """Hashes of a user's previous passwords, so a change or reset cannot go back to a recent one."""
+    __tablename__ = "password_history"
+    __table_args__ = (Index("ix_password_history_user_created", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class APIKey(Base):
     __tablename__ = "api_keys"
 
@@ -77,6 +89,7 @@ class APIKey(Base):
     org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    scopes: Mapped[str] = mapped_column(String(100), nullable=False, default="read,write", server_default="read,write")  # comma list of read|write
     last_used_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -124,6 +137,7 @@ class Event(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     agent: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     action: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -136,6 +150,7 @@ class Snapshot(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -146,6 +161,7 @@ class PhaseCompletion(Base):
     __tablename__ = "phase_completions"
 
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), primary_key=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     phase_name: Mapped[str] = mapped_column(String(255), primary_key=True)
     status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     duration_s: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -166,6 +182,7 @@ class RunMetadata(Base):
     __tablename__ = "run_metadata"
 
     run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     priority: Mapped[str] = mapped_column(String(50), default="normal")
     updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
@@ -434,6 +451,7 @@ class RunSpec(Base):
     __tablename__ = "run_specs"
 
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     spec_type: Mapped[str] = mapped_column(String(32), primary_key=True)  # 'frontend' | 'backend'
     spec: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -526,6 +544,7 @@ class PipelineEvent(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
@@ -537,6 +556,7 @@ class LLMTrace(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=True, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     phase: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     task_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -557,6 +577,7 @@ class QuestionnaireSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     stage_id: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending|sent|completed|expired
     access_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
@@ -569,5 +590,28 @@ class QuestionnaireSession(Base):
     answers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── org_id of the run-owned tables ────────────────────────────────────────────
+# These rows belong to a run, and the run to an organisation. org_id is repeated on them so that
+# per-organisation queries, retention and row-level security do not need a join. Every write path
+# goes through the ORM, so the column is filled once, here, from the run (one lookup per run and
+# flush, the run is usually in the identity map already) instead of in each of the ~15 writers.
+_RUN_OWNED = (Event, Snapshot, PhaseCompletion, RunMetadata, RunSpec, PipelineEvent, LLMTrace, QuestionnaireSession)
+
+
+@event.listens_for(Session, "before_flush")
+def _fill_org_id_from_run(session: Session, flush_context, instances) -> None:
+    pending = [o for o in session.new if isinstance(o, _RUN_OWNED) and o.org_id is None and o.run_id]
+    if not pending:
+        return
+    orgs: dict = {}
+    with session.no_autoflush:
+        for obj in pending:
+            if obj.run_id not in orgs:
+                run = session.get(Run, obj.run_id)
+                orgs[obj.run_id] = run.org_id if run is not None else None
+            obj.org_id = orgs[obj.run_id]
+
 
 from . import scim_models  # noqa: E402,F401  registers scim_groups / scim_group_members with Base

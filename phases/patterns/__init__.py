@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -199,6 +200,14 @@ class PatternSelector:
                         parts.append(str(item))
         return " ".join(parts).lower()
 
+    @staticmethod
+    def _matches(pattern: "Pattern", text: str) -> bool:
+        """A trigger matches as a whole word (plural allowed), not inside another word: the old substring test
+        selected the websocket pattern for 'news'/'shows' (ws), file uploads for 'profile', rbac for 'controller'."""
+        return any(
+            re.search(rf"(?<![a-z0-9]){re.escape(t)}(?:s|es)?(?![a-z0-9])", text) for t in pattern.triggers
+        )
+
     def select(self) -> List[Pattern]:
         """Return patterns whose triggers match the domain IR content."""
         text = self._ir_text()
@@ -207,7 +216,7 @@ class PatternSelector:
         for factory in _SIMPLE_PATTERN_FACTORIES:
             try:
                 pattern = factory()
-                if any(trigger in text for trigger in pattern.triggers):
+                if self._matches(pattern, text):
                     selected.append(pattern)
                     logger.info("PatternSelector: selected '%s' (trigger match)", pattern.name)
             except Exception as exc:
@@ -217,7 +226,7 @@ class PatternSelector:
             try:
                 # Pass entity_map so patterns resolve names from the IR
                 pattern = factory(entity_map=self._entity_map or None)
-                if any(trigger in text for trigger in pattern.triggers):
+                if self._matches(pattern, text):
                     selected.append(pattern)
                     logger.info(
                         "PatternSelector: selected '%s' (trigger match, entity_map=%s)",

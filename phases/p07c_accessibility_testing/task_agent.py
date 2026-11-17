@@ -6,13 +6,14 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.domain_knowledge.loader import load_pack
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
 
 _AXE_SCRIPT = """
 const { chromium } = require('playwright');
-const { checkA11y, injectAxe } = require('axe-playwright');
+const { injectAxe } = require('axe-playwright');
 
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
@@ -20,26 +21,18 @@ const { checkA11y, injectAxe } = require('axe-playwright');
   try {
     await page.goto(process.argv[2] || 'http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
     await injectAxe(page);
-    const results = await checkA11y(page, null, { detailedReport: true, includedImpacts: ['critical', 'serious', 'moderate', 'minor'] }, true);
-    // checkA11y throws on violations; if we reach here, no violations
+    // axe.run returns violations/passes/incomplete. The old helper call had skipFailures=true,
+    // which never throws, so the script always reported 0 violations.
+    const tags = JSON.parse(process.argv[3] || '[]');
+    const r = await page.evaluate((t) => axe.run(document, t.length ? { runOnly: { type: 'tag', values: t } } : {}), tags);
     console.log(JSON.stringify({
-      violations: 0,
-      passes: 0,
-      incomplete: 0,
-      items: [],
+      violations: r.violations.length,
+      passes: r.passes.length,
+      incomplete: r.incomplete.length,
+      items: r.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
     }));
   } catch (e) {
-    // checkA11y throws an AxeResults error containing violations
-    if (e && e.violations) {
-      console.log(JSON.stringify({
-        violations: e.violations.length,
-        passes: (e.passes || []).length,
-        incomplete: (e.incomplete || []).length,
-        items: e.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
-      }));
-    } else {
-      console.log(JSON.stringify({ error: e.message || String(e) }));
-    }
+    console.log(JSON.stringify({ error: e.message || String(e) }));
   } finally {
     await browser.close();
   }
@@ -56,6 +49,17 @@ _WCAG_CHECKLIST = [
     {"id": "landmark-one-main", "description": "Page has main landmark", "impact": "moderate"},
     {"id": "page-has-heading-one", "description": "Page has h1 heading", "impact": "moderate"},
 ]
+
+
+_BASE_AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
+
+
+def axe_tags_for(domain: str) -> list:
+    """WCAG 2.1 AA always; the Section 508 ruleset too when the domain's compliance rules name it
+    (govtech, edtech): that is how the domain pack's "inject Section 508 into p07c" instruction is carried out."""
+    pack = load_pack(domain or "")
+    names = " ".join(f"{r.standard} {r.rule}" for r in (pack.compliance if pack else []))
+    return _BASE_AXE_TAGS + (["section508"] if "508" in names else [])
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
@@ -80,9 +84,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     frontend_port: int = data.get("frontend_port", 5173)
     frontend_url = data.get("frontend_url") or f"http://localhost:{frontend_port}"
 
+    tags = axe_tags_for(data.get("domain", ""))
     results: Dict = {
         "target": frontend_url,
-        "wcag_level": "WCAG 2.1 AA",
+        "wcag_level": "WCAG 2.1 AA" + (" + Section 508" if "section508" in tags else ""),
+        "axe_tags": tags,
         "checklist": _WCAG_CHECKLIST,
         "violations": 0,
         "passes": 0,
@@ -98,12 +104,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             await client.get(frontend_url)
 
         proc = await asyncio.create_subprocess_exec(
-            "node", str(axe_script), frontend_url,
+            "node", str(axe_script), frontend_url, json.dumps(tags),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
         axe_data = json.loads(stdout.decode().strip())
+        if "error" in axe_data or not isinstance(axe_data.get("violations"), int):
+            raise RuntimeError(axe_data.get("error") or "axe returned no violation count")
         results.update(axe_data)
         results["ran_axe"] = True
         logger.info("[p07c] axe done: %d violations, %d passes", axe_data.get("violations", 0), axe_data.get("passes", 0))
@@ -127,7 +135,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 logger.debug("p07c: ARIA scan failed for file %s (non-fatal): %s", f.name, exc)
         results["aria_issues"] = aria_issues[:10]
 
-    results["passed"] = results["violations"] == 0
+    # "No violations" is only a result when axe actually ran: a scan that did not run is not a pass.
+    results["passed"] = bool(results.get("ran_axe")) and results["violations"] == 0
     (output_dir / "a11y_results.json").write_text(json.dumps(results, indent=2))
 
     return TaskResult(

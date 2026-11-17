@@ -8,6 +8,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def _imports_os(tree: ast.Module) -> bool:
+    return any(isinstance(n, ast.Import) and any(a.name == "os" for a in n.names) for n in tree.body)
+
+
+def _after_future_imports(tree: ast.Module) -> int:
+    """Index after the docstring and `from __future__` imports (an import before them is a SyntaxError)."""
+    i = 0
+    for i, n in enumerate(tree.body):
+        is_doc = i == 0 and isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+        if not is_doc and not (isinstance(n, ast.ImportFrom) and n.module == "__future__"):
+            return i
+    return len(tree.body)
+
+
 class ASTSecurityPatcher(ast.NodeTransformer):
     """AST transformer to apply security patches."""
     
@@ -33,18 +47,14 @@ class ASTSecurityPatcher(ast.NodeTransformer):
 
     def patch_file(self, path: str):
         """Load, parse, apply AST patches, and write back to disk."""
-        try:
-            import astor  # optional dependency — only needed for AST-based patching
-        except ImportError as exc:
-            raise RuntimeError(
-                "astor is required for AST-based security patching. "
-                "Install it with: pip install astor"
-            ) from exc
         with open(path, "r") as f:
             source = f.read()
         tree = ast.parse(source)
         new_tree = self.visit(tree)
-        new_source = astor.to_source(new_tree)
+        if self.patches_applied and not _imports_os(new_tree):
+            # the patches call os.environ: without the import the patched module fails with NameError
+            new_tree.body.insert(_after_future_imports(new_tree), ast.parse("import os").body[0])
+        new_source = ast.unparse(ast.fix_missing_locations(new_tree)) + "\n"   # stdlib: astor was an optional install that made patching raise
         with open(path, "w") as f:
             f.write(new_source)
         logger.info("AST: patched file %s", path)
@@ -56,7 +66,7 @@ class ASTSecurityPatcher(ast.NodeTransformer):
                 if isinstance(node.value, ast.Constant):
                     # Replace hardcoded string
                     node.value = ast.parse(
-                        'os.environ.get("SECRET_KEY", __import__("secrets").token_hex(32))'
+                        'os.environ["SECRET_KEY"]'
                     ).body[0].value
                     self.patches_applied.append("secret_key_hardening")
                     logger.info("AST: patched hardcoded SECRET_KEY")

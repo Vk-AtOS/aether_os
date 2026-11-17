@@ -101,7 +101,7 @@ import stripe
 
 class StripeService:
     def __init__(self):
-        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
+        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
         self.webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
     async def create_payment_intent(self, amount: int, currency: str = "usd", metadata: dict = None):
@@ -120,6 +120,9 @@ class StripeService:
 
     async def handle_webhook(self, payload: bytes, sig: str):
         """Handle incoming Stripe events."""
+        if not self.webhook_secret:
+            # An empty secret still "verifies": anyone can sign a forged event with the empty key.
+            raise RuntimeError("STRIPE_WEBHOOK_SECRET is not set: refusing to process webhook events")
         try:
             event = stripe.Webhook.construct_event(payload, sig, self.webhook_secret)
             return event

@@ -90,10 +90,11 @@ streams:
         max_deliver: 5
         deliver_policy: all
 
-  # Dead-letter stream — receives messages that exceeded max_deliver
+  # Dead-letter stream — the generated client publishes a message here on its last failed delivery
+  # (JetStream itself only stops redelivering, the message would be lost)
   - name: {dlq_name}
     subjects:
-      - "{slug}.{entity_name}.dlq.>"
+      - "{slug}.dlq.{entity_name}.>"   # outside "{slug}.{entity_name}.>": JetStream refuses overlapping streams
     retention: limits
     max_msgs: 100000
     max_bytes: -1
@@ -123,10 +124,12 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 import nats
 from nats.aio.client import Client as NATSClient
 from nats.js import JetStreamContext
+from nats.js.api import AckPolicy, ConsumerConfig
 
 logger = logging.getLogger(__name__)
 
 _SLUG = os.environ.get("APP_SLUG", "app")
+_MAX_DELIVER = 5   # the same limit as the stream definition (max_deliver)
 
 # Subject pattern: {slug}.{entity}.{event_type}
 _SUBJECTS: Dict[str, str] = {
@@ -206,11 +209,25 @@ class QueueClient:
                 await handler(payload)
                 await msg.ack()
             except Exception as e:
-                logger.warning("queue: handler error subject=%s: %s", subject, e)
-                await msg.nak()
+                delivered = msg.metadata.num_delivered
+                if delivered >= _MAX_DELIVER:
+                    # JetStream only stops redelivering: park the message in the dead-letter stream.
+                    logger.error("queue: giving up on %s after %d deliveries: %s", subject, delivered, e)
+                    try:
+                        await self._js.publish(f"{_SLUG}.dlq.{entity}.{event_type}", msg.data,
+                                               headers={"error": str(e)[:200], "subject": subject})
+                        await msg.term()
+                    except Exception as dlq_exc:
+                        logger.error("queue: dead-letter publish failed, message stays unacked: %s", dlq_exc)
+                else:
+                    logger.warning("queue: handler error subject=%s delivery=%d: %s", subject, delivered, e)
+                    await msg.nak(delay=min(2 ** delivered, 60))   # back off: an immediate nak is a hot loop
 
         try:
-            await self._js.subscribe(subject, durable=durable, cb=_msg_handler)
+            await self._js.subscribe(
+                subject, durable=durable, cb=_msg_handler, manual_ack=True,
+                config=ConsumerConfig(max_deliver=_MAX_DELIVER, ack_wait=30, ack_policy=AckPolicy.EXPLICIT),
+            )
             logger.info("queue: subscribed to %s (durable=%s)", subject, durable)
         except Exception as e:
             logger.warning("queue: subscribe failed subject=%s: %s", subject, e)

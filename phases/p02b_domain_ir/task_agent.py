@@ -116,7 +116,8 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
     combined_result = p1  # single-pass: all four are the same dict
 
     # If the single call produced nothing, build a minimal stub from app_name
-    if not combined_result.get("entities"):
+    stub_used = not combined_result.get("entities")
+    if stub_used:
         logger.warning("p02b: LLM produced no entities — building stub IR")
         p1 = build_stub_ir(app_name)
         p2 = p3 = p4 = p1
@@ -189,9 +190,10 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
 
     return _TaskResult(
         output_path=str(ir_path),
-        confidence=1.0 if not errors else 0.85,
+        # A stub is one invented entity, not what the requester asked for: it must not look like a clean run.
+        confidence=0.3 if stub_used else (1.0 if not errors else 0.85),
         success=True,
-        issues=[],
+        issues=["Domain IR is a placeholder (the model returned no entities): generated app will be generic"] if stub_used else [],
         metadata={
             "domain": domain,
             "entity_count": entity_count,
@@ -201,6 +203,7 @@ async def run(phase_input: Any, memory_ctx: list, output_dir: Path) -> TaskResul
             "clarifying_questions": len(ir.clarifying_questions),
             "has_questions": has_questions,
             "clarifications_applied": applied_answers,
+            "stub_ir": stub_used,
             "pass_errors": errors,
             "domain_ir_path": str(ir_path),
             "domain_validation": _domain_report.as_dict(),

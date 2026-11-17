@@ -77,6 +77,16 @@ def _parse_file(path: Path) -> ast.Module | None:
 # VerificationReport assembly
 # ---------------------------------------------------------------------------
 
+# Said in every report, because "formal verification" reads as more than this is: each invariant is a
+# yes/no fact the AST scan extracted (a route has an auth dependency, a payment field is bounded, ...) and
+# Z3 only confirms that the fact is true. It is a static check of the generated source, not a proof about
+# runtime behaviour, and it can only be as right as the scan.
+_SCOPE_NOTE = (
+    "Static check of the generated source: each invariant is a boolean fact extracted from the AST, "
+    "and Z3 confirms the fact holds. It is not a proof of runtime behaviour."
+)
+
+
 def _build_report(
     all_results: list,
     project_name: str,
@@ -146,6 +156,7 @@ def _build_report(
         "overall_verdict": verdict,
         "confidence_score": confidence,
         "z3_solver_time_ms": run_time_ms,
+        "scope": _SCOPE_NOTE,
         "invariants_verified": verified,
         "invariants_failed": failed,
         "invariants_unverifiable": unverifiable,

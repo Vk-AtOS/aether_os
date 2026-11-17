@@ -32,11 +32,11 @@ from feature_flags.feature_flags import (
     set_rollout_percentage,
 )
 
-try:  # the generated backend's admin dependency (src/auth.py)
-    from src.auth import require_admin
+try:  # the generated backend's admin dependency (auth.py; main.py imports it by this plain name)
+    from auth import require_admin
 except ImportError:
     try:
-        from auth import require_admin
+        from src.auth import require_admin
     except ImportError:
         async def require_admin():
             # Fail closed: flag administration must never be reachable without admin auth.
