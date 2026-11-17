@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
+from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
 from aether_os.core.models import User as _User
 from aether_os.gateway.auth import get_password_hash
 from aether_os.gateway.auth_refresh import revoke_user_sessions
@@ -43,6 +44,7 @@ import secrets as _sec
 _FILTER_USERNAME = re.compile(r'^\s*userName\s+eq\s+"([^"]*)"\s*$', re.IGNORECASE)
 _FILTER_ANY = re.compile(r'^\s*(externalId)\s+eq\s+"[^"]*"\s*$', re.IGNORECASE)
 logger = logging.getLogger(__name__)
+LEGACY_PER_MINUTE = 30     # bcrypt compares of legacy (no sha256 lookup) tokens per client address per minute
 router = APIRouter(tags=["scim"])
 def _match_org_token(token: str, orgs) -> Optional[str]:
     """Blocking (bcrypt): run in a thread. Returns the org id whose SCIM token matches."""
@@ -109,10 +111,15 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
                     Organisation.scim_token_lookup.is_(None),
                     Organisation.scim_token_hash.isnot(None) | Organisation.scim_token.isnot(None))
             )).scalars().all()
-        # bcrypt is ~250 ms of CPU per compare: off the event loop, or one IdP sync stalls the worker.
+        # bcrypt is ~250 ms of CPU per compare per legacy org: bounded per client address, or a wrong token is a
+        # CPU-exhaustion tool (KAN-69 F20); and off the event loop, or one IdP sync stalls the worker.
+        if orgs and not await get_rate_limiter().allow(f"scim_legacy:{get_client_ip(request)}", LEGACY_PER_MINUTE, 60):
+            raise HTTPException(status_code=429, detail="SCIM: too many attempts", headers={"Retry-After": "60"})
         org_id = await asyncio.to_thread(_match_org_token, token, [(o.id, o.scim_token_hash, o.scim_token) for o in orgs])
         if org_id:
             return {"org_id": org_id, "role": "admin", "sub": "scim-provisioner"}
+    except HTTPException:
+        raise
     except Exception as exc:
         # Lookup failure is a denial, never a reason to try another credential type.
         logger.warning("SCIM per-org token lookup failed: %s", exc)
