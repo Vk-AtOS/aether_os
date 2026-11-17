@@ -43,6 +43,7 @@ from aether_os.core.velaris.roles import velaris_roles
 logger = logging.getLogger(__name__)
 
 MIN_SECRET_BYTES = 32
+MAX_RESPONSE = 4 * 1024 * 1024  # a JSON answer larger than this is refused instead of relayed to the browser
 ASSERTION_TTL_S = 60            # Velaris accepts at most 300
 DEFAULT_TIMEOUT_S = 30.0        # a Velaris call may itself take up to 60 s; callers may pass less
 
@@ -230,6 +231,9 @@ class VelarisClient:
             except httpx.HTTPError as e:
                 logger.warning("velaris unreachable: %s", type(e).__name__)
                 raise VelarisUnavailable("Velaris could not be reached") from None
+            if len(resp.content) > MAX_RESPONSE:     # the generic routes relay this to a browser: bounded (KAN-69 VP-7)
+                logger.warning("velaris answer of %d bytes refused", len(resp.content))
+                raise VelarisUnavailable("Velaris answered with more than the gateway relays")
             try:
                 data = resp.json()
             except ValueError:
