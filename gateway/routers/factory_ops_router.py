@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["factory"])
@@ -60,8 +61,9 @@ async def approve_action(
     req: ApproveRequest,
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Approve or deny a human-gated pipeline action via DecisionEngine."""
-    from aether_os.core.decisions.decision_engine import get_decision_engine
+    """Approve or deny a human-gated pipeline action via DecisionEngine (member or above)."""
+    from aether_os.core.decisions.decision_engine import AlreadyDecided, get_decision_engine
+    await enforce("decision.decide", user)
     engine = get_decision_engine()
     approved = req.decision in ("approve", "approved", "yes", True)
     try:
@@ -71,23 +73,19 @@ async def approve_action(
             approved=approved,
             choice=req.reason,
         )
-        return {
-            "ticket_id": ticket_id,
-            "decision":  "approved" if approved else "denied",
-            "decided_by": user.get("sub"),
-            "reason":    req.reason,
-            "timestamp": time.time(),
-            "status":    decision.status if decision else "resolved",
-        }
-    except LookupError:
-        # Decision not pending in engine — treat as already resolved
-        return {
-            "ticket_id": ticket_id,
-            "decision":  "approved" if approved else "denied",
-            "decided_by": user.get("sub"),
-            "timestamp": time.time(),
-            "status": "already_resolved",
-        }
+    except (LookupError, PermissionError):
+        # one answer for "no such id" and "another organisation's id": ids cannot be probed (KAN-69 F12)
+        raise HTTPException(status_code=404, detail="Decision not found") from None
+    except AlreadyDecided as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    return {
+        "ticket_id": ticket_id,
+        "decision":  "approved" if approved else "denied",
+        "decided_by": user.get("sub"),
+        "reason":    req.reason,
+        "timestamp": time.time(),
+        "status":    decision.status,
+    }
 
 
 @router.get("/templates")

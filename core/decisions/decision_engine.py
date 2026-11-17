@@ -146,7 +146,7 @@ class DecisionEngine:
         decision = await self._db_get(decision_id)
         if not decision or (run_id is not None and decision.run_id != run_id):
             raise LookupError(f"Decision {decision_id} not found")
-        if decision.org_id and decision.org_id != org_id:
+        if not decision.org_id or decision.org_id != org_id:     # an unowned decision belongs to nobody (KAN-69 F12)
             raise PermissionError("Decision belongs to a different org")
         if decision.status != "pending":
             raise AlreadyDecided(f"Decision {decision_id} is already {decision.status}")

@@ -67,3 +67,20 @@ def test_reject_really_denies_and_a_body_without_a_verdict_is_refused(gw):
     assert gw.client.post(f"{base}/{d2.id}/decide", headers=org.auth, json={"decision": "deny"}).json()["status"] == "denied"
     assert gw.client.post(f"{base}/{d3.id}/decide", headers=org.auth, json={}).status_code == 422
     assert gw.client.post(f"{base}/{d3.id}/decide", headers=org.auth, json={"decision": "approve"}).json()["status"] == "approved"
+
+
+def test_pipeline_approve_cannot_probe_ids_or_be_used_by_a_viewer_or_another_org(gw):
+    # KAN-69 F12: cross-org was an unhandled 500, an unknown id was 200, an empty-org decision was open to all
+    a, b = gw.register("apprvA"), gw.register("apprvB")
+    d = _make(a.org_id, _run(gw, a))
+    body = {"ticket_id": d.id, "decision": "approve"}
+    url = f"/pipeline/approve/{d.id}"
+    assert gw.client.post(url, headers=b.auth, json=body).status_code == 404            # other org
+    assert gw.client.post("/pipeline/approve/nope", headers=a.auth, json={**body, "ticket_id": "nope"}).status_code == 404
+    viewer = gw.user_with_role("viewer", a.org_id)
+    assert gw.client.post(url, headers=viewer.auth, json=body).status_code == 403
+    orphan = _make("", "run-x", "orphan")                                                # decision with no owner
+    assert gw.client.post(f"/pipeline/approve/{orphan.id}", headers=b.auth,
+                          json={**body, "ticket_id": orphan.id}).status_code == 404
+    assert gw.client.post(url, headers=a.auth, json=body).status_code == 200
+    assert gw.client.post(url, headers=a.auth, json=body).status_code == 409             # already decided
