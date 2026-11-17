@@ -159,8 +159,9 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
                 raise HTTPException(status_code=403, detail="SAML identity does not belong to this organisation")
             if not user.is_active or user.deleted_at or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Account is deactivated")
-            if not user.email_verified:
-                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts.
+            if not user.email_verified and not idp_org_id:
+                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts. A per-org IdP may
+                # sign in its own org's members, which it provisioned unverified (below).
                 raise HTTPException(status_code=403, detail="Verify your email address before signing in with SSO")
             return user, org
         if idp_org_id:
@@ -170,15 +171,20 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
                 raise HTTPException(status_code=403, detail="Organisation not found")
             await enforce_seat(org.id, "saml")  # JIT provisioning must not exceed the plan's seats
             role = "member"
+            # The address is only asserted by that org's own IdP, which its admins control: it must not count
+            # as verified, or a later Google/GitHub sign-in of the real owner of that address would be linked
+            # into the attacker's org (KAN-69 F5).
+            verified = False
         else:
             slug = email.split("@")[0].lower().replace(".", "-") + "-" + secrets.token_hex(3)
             org = Organisation(id=str(uuid.uuid4()), name=email, slug=slug, plan="trial")
             session.add(org)
             role = "owner"
+            verified = True
         user = User(
             id=str(uuid.uuid4()), org_id=org.id, email=email,
             password_hash=get_password_hash(secrets.token_urlsafe(32)),
-            role=role, email_verified=True,
+            role=role, email_verified=verified,
         )
         session.add(user)
         await session.commit()
