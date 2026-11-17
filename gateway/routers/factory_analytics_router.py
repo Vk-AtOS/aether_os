@@ -161,7 +161,10 @@ async def list_deployments(
     except Exception as _dep_exc:
         logger.debug("Deployments DB query failed: %s", _dep_exc)
 
-    # 2. List running Docker containers (best-effort — docker may not be in PATH inside container)
+    # 2. List running Docker containers (best-effort — docker may not be in PATH inside container).
+    # The daemon is shared by every organisation: only this caller's own runs' containers
+    # (aetheros-app-<first 8 chars of the run id>) may be shown (KAN-69 F7).
+    own_names = {f"aetheros-app-{d['run_id'][:8]}" for d in db_deployments}
     containers = []
     try:
         def _list():
@@ -175,6 +178,8 @@ async def list_deployments(
         for line in result.stdout.strip().split("\n"):
             if line:
                 parts = line.split("\t")
+                if parts[0] not in own_names:
+                    continue
                 containers.append({
                     "name":   parts[0] if len(parts) > 0 else "",
                     "ports":  parts[1] if len(parts) > 1 else "",
