@@ -2,9 +2,9 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, fireEvent, cleanup, render } from '@testing-library/react';
-import { ok, fail } from './helpers';
+import { ok, fail, settle } from './helpers';
 
-const api = vi.hoisted(() => ({ getNotificationPrefs: vi.fn(), setNotificationPref: vi.fn(), setOrgNotificationPref: vi.fn() }));
+const api = vi.hoisted(() => ({ getNotificationPrefs: vi.fn(), setNotificationPref: vi.fn(), setOrgNotificationPref: vi.fn(), getQuietHours: vi.fn(), setQuietHours: vi.fn() }));
 const role = vi.hoisted(() => ({ isAdmin: false }));
 vi.mock('../api', () => ({ api, default: api }));
 vi.mock('../hooks/useRole', () => ({ useRole: () => role }));
@@ -14,7 +14,7 @@ import NotificationPrefs from '../components/settings/NotificationPrefs';
 const events = (over = {}) => ({ events: [
   { event: 'run_completed', label: 'A build finished', in_app: true, email: true, source: 'default', ...over },
 ] });
-beforeEach(() => { cleanup(); vi.clearAllMocks(); role.isAdmin = false; });
+beforeEach(() => { cleanup(); vi.clearAllMocks(); role.isAdmin = false; api.getQuietHours.mockReturnValue(ok({ quiet_hours: null })); });
 
 describe('NotificationPrefs', () => {
   it('turning an event off in the bell sends only that channel', async () => {
@@ -37,5 +37,22 @@ describe('NotificationPrefs', () => {
     fireEvent.click(screen.getByText('Edit organisation default'));
     fireEvent.click(screen.getByLabelText('Organisation default: A build finished email'));
     expect((await screen.findByRole('alert')).textContent).toMatch(/owners\/admins/);
+  });
+
+  it('quiet hours load, save with the zone, and a server refusal is shown', async () => {
+    api.getNotificationPrefs.mockReturnValue(ok(events()));
+    api.getQuietHours.mockReturnValue(ok({ quiet_hours: { start: '21:00', end: '06:30', tz: 'Asia/Kolkata', source: 'user' } }));
+    api.setQuietHours.mockReturnValueOnce(ok({})).mockReturnValueOnce(fail(422, 'tz must be an IANA time zone'));
+    render(<NotificationPrefs />);
+    await settle();
+    expect(screen.getByLabelText('Quiet hours start').value).toBe('21:00');
+    fireEvent.click(screen.getByText('Save'));
+    await settle();
+    expect(api.setQuietHours).toHaveBeenCalledWith({ start: '21:00', end: '06:30', tz: 'Asia/Kolkata' });
+    expect(screen.getByRole('status').textContent).toBe('Saved.');
+    fireEvent.change(screen.getByLabelText('Quiet hours time zone'), { target: { value: 'Mars/Base' } });
+    fireEvent.click(screen.getByText('Save'));
+    await settle();
+    expect(screen.getByRole('alert').textContent).toMatch(/IANA/);
   });
 });
