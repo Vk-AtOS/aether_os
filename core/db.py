@@ -267,6 +267,15 @@ async def init_db() -> None:
         logger.info("PostgreSQL schema is at the Alembic head")
         return
     async with engine.begin() as conn:
+        if engine.dialect.name == "postgresql":
+            # The model declares a native vector column whenever the pgvector Python package is installed, so create_all needs the
+            # extension to exist first (it failed with 'type "vector" does not exist' on a fresh database). A refused CREATE
+            # EXTENSION is left for schema_ddl.apply to report; nothing is hidden here.
+            try:
+                async with conn.begin_nested():
+                    await conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
+            except Exception as e:
+                logger.warning("pgvector extension could not be created before create_all: %s", e)
         await conn.run_sync(Base.metadata.create_all)
         # Indexes, ledger triggers and pgvector: the same definitions the Alembic revisions use.
         await conn.run_sync(schema_ddl.apply)

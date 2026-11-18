@@ -43,6 +43,8 @@ def db_url():
     from aether_os.core import models  # noqa: F401  registers every table
     from aether_os.core.db import Base
     boot = create_engine(url)
+    with boot.begin() as c:
+        c.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))   # the model has a native vector column (pgvector image)
     Base.metadata.create_all(boot)
     boot.dispose()
     try:
