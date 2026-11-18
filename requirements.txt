@@ -15,7 +15,6 @@ alembic>=1.13.0
 # ── Auth ──────────────────────────────────────────────────────────────────────
 passlib[bcrypt]>=1.7.4
 PyJWT>=2.15.1
-python-jose[cryptography]>=3.3.0   # the generated apps and lambda authorizers import jose; tests execute that generated code
 cryptography>=50.0.0
 slowapi>=0.1.9
 python3-saml>=1.16.0

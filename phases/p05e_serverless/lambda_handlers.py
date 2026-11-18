@@ -28,7 +28,7 @@ def gen_authorizer() -> str:
         """API Gateway Lambda authorizer: allow only requests with a verified access token."""
         import os
 
-        from jose import JWTError, jwt
+        import jwt
 
         _PUBLIC_KEY = os.environ.get("JWT_PUBLIC_KEY", "")
 
@@ -46,7 +46,7 @@ def gen_authorizer() -> str:
                 raise Exception("Unauthorized")
             try:
                 claims = _claims(token)
-            except (JWTError, KeyError) as exc:
+            except (jwt.PyJWTError, KeyError) as exc:
                 raise Exception("Unauthorized") from exc
             if claims.get("type", "access") != "access" or not claims.get("sub"):
                 raise Exception("Unauthorized")
