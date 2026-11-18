@@ -111,3 +111,31 @@ def test_gate_reports_a_missing_page_instead_of_crashing(tmp_path):
     from aether_os.phases.p14_client_portal import gate
     out = asyncio.run(gate.validate(TaskResult(output_path=str(tmp_path / "none"), confidence=1.0, metadata={}, success=True), None))
     assert not out.passed and any("missing" in i for i in out.issues)
+
+
+def test_a_symlinked_portal_page_or_directory_is_never_written_through(tmp_path):
+    """The path check passed for a portal inside the project, but the page itself (or its directory) could be a symlink to a
+    file outside it: the enhancement read and wrote it by plain path. It now goes through safe_fs (O_NOFOLLOW)."""
+    import json
+    victim = tmp_path / "victim.html"
+    victim.write_text("<html><body><div>x</div>\n</div>\n</body></html>")
+    before = victim.read_text()
+    proj = tmp_path / "proj"
+    (proj / "p10_docs_delivery").mkdir(parents=True)
+    portal = proj / "p10_docs_delivery" / "portal"
+    portal.mkdir()
+    (portal / "client_portal.html").symlink_to(victim)                         # the page is a link out of the project
+    (proj / "p10_docs_delivery" / "consolidated.json").write_text(
+        json.dumps({"phases": {"client_portal": {"output_path": str(portal)}}}))
+    asyncio.run(task_agent.run(SimpleNamespace(input_data={"project_dir": str(proj), "quality_score": "9"}), [], proj / "p14"))
+    assert victim.read_text() == before
+
+    linked_dir = proj / "p10_docs_delivery" / "portal_link"                     # the directory is a link out of the project
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    (outside_dir / "client_portal.html").write_text(before)
+    linked_dir.symlink_to(outside_dir)
+    (proj / "p10_docs_delivery" / "consolidated.json").write_text(
+        json.dumps({"phases": {"client_portal": {"output_path": str(linked_dir)}}}))
+    asyncio.run(task_agent.run(SimpleNamespace(input_data={"project_dir": str(proj), "quality_score": "9"}), [], proj / "p14b"))
+    assert (outside_dir / "client_portal.html").read_text() == before

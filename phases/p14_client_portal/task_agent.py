@@ -3,6 +3,7 @@ import html
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
+from aether_os.core.run_app import safe_fs
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
@@ -37,11 +38,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         _p10_portal_path = _p10_portal.get("output_path", "")
         # the path comes from a JSON file: it must stay inside this project (never write elsewhere)
         _inside = bool(_p10_portal_path and project_dir and Path(_p10_portal_path).resolve().is_relative_to(project_dir.resolve()))
-        if _inside and Path(_p10_portal_path).exists():
-            # Portal already exists from p10 — reference it, optionally enhance
+        if _inside and safe_fs.is_real_dir(project_dir, Path(_p10_portal_path)):
+            # Portal already exists from p10 — reference it, optionally enhance. Every access goes through safe_fs relative to the
+            # run directory (O_NOFOLLOW at each component): a symlinked directory or page must not be read or written through.
             _existing_portal_dir = Path(_p10_portal_path)
             _portal_html = _existing_portal_dir / "client_portal.html"
-            if _portal_html.exists():
+            if safe_fs.stat_or_none(project_dir, _portal_html) is not None:
                 import logging as _ll
                 _ll.getLogger(__name__).info(
                     "[p14] Reusing p10-generated client portal at %s (Problem 80 dedup)",
@@ -52,7 +54,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 _council_verdict = phase_input.input_data.get("council_verdict", None)
                 if _quality_score or _council_verdict:
                     try:
-                        _html = _portal_html.read_text()
+                        _html = safe_fs.read_text_or_none(project_dir, _portal_html) or ""
                         _inject = ""
                         # the verdict is model-written text: escaped, and injected once (re-runs add nothing)
                         if _quality_score and "data-aether-quality" not in _html:
@@ -61,7 +63,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                             _inject += f'\n  <div class="card" data-aether-council><h2>Council Verdict</h2><p>{html.escape(str(_council_verdict))}</p></div>'
                         if _inject:
                             _html = _html.replace("</div>\n</body>", f"{_inject}\n  </div>\n</body>")
-                            _portal_html.write_text(_html)
+                            safe_fs.safe_write_text(project_dir, _portal_html, _html)
                     except Exception as exc:
                         logger.debug("p14: portal HTML enhancement failed (non-fatal): %s", exc)
                 return TaskResult(
