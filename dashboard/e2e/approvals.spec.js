@@ -5,21 +5,99 @@ import { signIn, stubApi } from './helpers';
 
 const PROVIDERS = { providers: [], kinds: ['openai_compatible'], presets: [] };
 const USAGE = { days: [] };
+// A stored provider as the API lists it: never the key, only has_key and the last four characters.
+const GW = { id: 'gw', kind: 'openai_compatible', base_url: 'https://llm.example.com/v1', enabled: true, free_pool: false,
+  has_key: true, key_last4: '6789', sensitivity_allowed: ['public'] };
 
-test('an admin adds a model provider and the key is sent in the body once', async ({ page }) => {
+// No input on the page holds `secret`, and it is nowhere in the markup.
+const expectSecretGone = async (page, secret) => {
+  expect(await page.content()).not.toContain(secret);
+  expect(await page.locator('input, textarea').evaluateAll((els, v) => els.filter((e) => e.value.includes(v)).length, secret)).toBe(0);
+};
+
+test('an admin adds a model provider: the key is sent once and never shown again', async ({ page }) => {
   await signIn(page, 'owner');
-  const calls = await stubApi(page, { 'GET /model-providers': PROVIDERS, 'GET /model-providers/usage': USAGE, 'POST /model-providers': { id: 'gw' } });
+  const KEY = 'sk-test-0123456789';
+  let providers = [];
+  const calls = await stubApi(page, {
+    'GET /model-providers': () => ({ ...PROVIDERS, providers }), 'GET /model-providers/usage': USAGE,
+    // What Velaris answers: the provider without its key, only that one exists and its last four characters.
+    'POST /model-providers': (req) => { providers = [{ ...GW, key_last4: req.postDataJSON().api_key.slice(-4) }]; return { id: 'gw' }; },
+  });
   await page.goto('settings');
   const form = page.getByRole('form', { name: 'Add provider' });
   await expect(form).toBeVisible();
   await form.getByLabel('Name').fill('gw');
   await form.getByLabel('Base URL').fill('https://llm.example.com/v1');
-  await form.getByLabel('API key').fill('sk-test-0123456789');
+  await expect(form.getByLabel('API key')).toHaveAttribute('type', 'password');
+  await form.getByLabel('API key').fill(KEY);
   await form.getByRole('button', { name: 'Add' }).click();
-  await expect.poll(() => calls.some((c) => c.key === 'POST /model-providers')).toBe(true);
-  const body = calls.find((c) => c.key === 'POST /model-providers').body;
-  expect(body.id).toBe('gw');
-  expect(body.base_url).toBe('https://llm.example.com/v1');
+  await expect(page.getByText('••••6789')).toBeVisible();            // saved: only the last four are shown
+  await expect(form.getByLabel('API key')).toHaveValue('');
+  await expectSecretGone(page, KEY);
+  const posts = calls.filter((c) => c.key === 'POST /model-providers');
+  expect(posts).toHaveLength(1);
+  expect(posts[0].body).toMatchObject({ id: 'gw', base_url: 'https://llm.example.com/v1', api_key: KEY });
+  expect(calls.filter((c) => JSON.stringify(c.body || '').includes(KEY))).toHaveLength(1);
+  await page.reload();                                               // and a fresh load has nothing to show either
+  await expect(page.getByText('••••6789')).toBeVisible();
+  await expectSecretGone(page, KEY);
+});
+
+test('a saved provider: test connection, rotate the key, disable, enable, delete', async ({ page }) => {
+  await signIn(page, 'owner');
+  let providers = [{ ...GW }];
+  let test = { ok: true, models: 3, latency_s: 0.2 };
+  const patch = (p) => { providers = providers.map((x) => ({ ...x, ...p })); return providers[0]; };
+  const calls = await stubApi(page, {
+    'GET /model-providers': () => ({ ...PROVIDERS, providers }), 'GET /model-providers/usage': USAGE,
+    'POST /model-providers/gw/test': () => test,
+    'POST /model-providers/gw/rotate': (req) => patch({ key_last4: req.postDataJSON().api_key.slice(-4) }),
+    'PUT /model-providers/gw': (req) => patch(req.postDataJSON()),
+    'DELETE /model-providers/gw': () => { providers = []; return { deleted: true }; },
+  });
+  const sent = (key) => calls.filter((c) => c.key === key).map((c) => c.body);
+  await page.goto('settings');
+  const row = page.getByRole('listitem').filter({ hasText: 'https://llm.example.com/v1' });
+  await expect(row.getByText('••••6789')).toBeVisible();
+
+  // Test connection: the result, and for a failure a fixed sentence, never the provider's own text.
+  await row.getByRole('button', { name: 'Test connection' }).click();
+  await expect(row.getByRole('status')).toHaveText('Working (3 models, 0.2s)');
+  test = { ok: false, error: 'key_rejected', detail: 'upstream said: bad key sk-old-6789' };
+  await row.getByRole('button', { name: 'Test connection' }).click();
+  await expect(row.getByRole('status')).toHaveText('The provider rejected the key.');
+  await expect(page.getByText('upstream said')).toHaveCount(0);
+
+  // Rotate: nothing to send without a new key; the new key goes out once and is not shown afterwards.
+  const NEW = 'sk-rotated-key-4321';
+  await expect(row.getByRole('button', { name: 'Rotate' })).toBeDisabled();
+  await expect(row.getByLabel('New key for gw')).toHaveAttribute('type', 'password');
+  await row.getByLabel('New key for gw').fill(NEW);
+  await row.getByRole('button', { name: 'Rotate' }).click();
+  await expect(row.getByText('••••4321')).toBeVisible();
+  await expect(row.getByLabel('New key for gw')).toHaveValue('');
+  await expectSecretGone(page, NEW);
+  expect(sent('POST /model-providers/gw/rotate')).toEqual([{ api_key: NEW }]);
+
+  // Disable, then enable again: the row follows what the server stored.
+  await row.getByRole('button', { name: 'Disable' }).click();
+  await expect(row.getByText('disabled', { exact: true })).toBeVisible();
+  await row.getByRole('button', { name: 'Enable' }).click();
+  await expect(row.getByText('disabled', { exact: true })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Disable' })).toBeVisible();
+  expect(sent('PUT /model-providers/gw')).toEqual([{ enabled: false }, { enabled: true }]);
+
+  // Delete asks first; cancelling deletes nothing.
+  await row.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(row).toBeVisible();
+  expect(sent('DELETE /model-providers/gw')).toHaveLength(0);
+  await row.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByText('No providers added yet.')).toBeVisible();
+  await expect(row).toHaveCount(0);
+  expect(sent('DELETE /model-providers/gw')).toHaveLength(1);
 });
 
 test('a member does not see the providers panel', async ({ page }) => {
