@@ -22,9 +22,9 @@ OUTPUTS:
   - sre_agent_path        : str  — path to SRE CronJob + runbooks
 
 SUB-STEPS (all run in parallel — they write to different directories):
-  1. [PARALLEL] p12a_feature_flags    — Unleash feature flag router + admin UI
-  2. [PARALLEL] p12b_ab_testing       — GrowthBook experiment framework
-  3. [PARALLEL] p13_app_memory        — mem0 memory layer + knowledge graph
+  1. [PARALLEL] p12a_feature_flags    — JSON-file feature flag router (percentage canary, rings); not Unleash
+  2. [PARALLEL] p12b_ab_testing       — self-contained experiment/variant template; not GrowthBook
+  3. [PARALLEL] p13_app_memory        — memory service: ChromaDB, else postgres text rows, else a JSON file; not mem0
   4. [PARALLEL] p16_iam               — OPA Rego policies + Keycloak realm JSON
   5. [PARALLEL] p18_billing_metering  — OpenMeter + Stripe billing scaffold
   6. [PARALLEL] p21_sre_agent         — K8s CronJob + failure classifier + runbooks
