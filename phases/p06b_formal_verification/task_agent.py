@@ -22,7 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import require_project_root
+from aether_os.core.run_app import safe_fs
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p06b_formal_verification.z3_permissions import check_project_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -45,25 +49,29 @@ def _find_py_files(project_dir: Path) -> List[Path]:
     We prioritise src/ and app/ subdirs where FastAPI routes typically live.
     """
     candidates: List[Path] = []
+    # The generated project is sandbox-written: walk it relative to the run dir, never through a link.
+    root = require_project_root(project_dir)
 
     for subdir in ["src", "app", "api", "routers", ""]:
-        target = project_dir / subdir if subdir else project_dir
-        if target.is_dir():
-            for py in sorted(target.rglob("*.py")):
-                if "__pycache__" not in py.parts and py not in candidates:
-                    candidates.append(py)
+        under = Path(subdir) if subdir else Path()
+        if not safe_fs.is_real_dir(root, under):
+            continue
+        for rel in safe_fs.walk_files(root, under, skip_dirs=("__pycache__", "node_modules", ".venv", ".git")):
+            py = root / rel
+            if py.suffix == ".py" and py not in candidates:
+                candidates.append(py)
 
     return candidates[:_MAX_FILES_TO_SCAN]
 
 
-def _parse_file(path: Path) -> ast.Module | None:
-    """Return parsed AST or None if the file is too large or has syntax errors."""
+def _parse_file(path: Path, root: Path) -> ast.Module | None:
+    """Return parsed AST or None if the file is too large, unreadable (a link, outside root) or has syntax errors."""
     try:
-        size = path.stat().st_size
-        if size > _MAX_FILE_SIZE_BYTES:
-            logger.debug("[p06b] skip large file %s (%d bytes)", path, size)
+        data = safe_fs.read_bytes_or_none(root, path.relative_to(root), _MAX_FILE_SIZE_BYTES + 1)
+        if data is None or len(data) > _MAX_FILE_SIZE_BYTES:
+            logger.debug("[p06b] skip unreadable or large file %s", path)
             return None
-        source = path.read_text(encoding="utf-8", errors="replace")
+        source = data.decode("utf-8", errors="replace")
         return ast.parse(source, filename=str(path))
     except SyntaxError as exc:
         logger.debug("[p06b] syntax error in %s: %s", path, exc)
@@ -82,9 +90,22 @@ def _parse_file(path: Path) -> ast.Module | None:
 # Z3 only confirms that the fact is true. It is a static check of the generated source, not a proof about
 # runtime behaviour, and it can only be as right as the scan.
 _SCOPE_NOTE = (
-    "Static check of the generated source: each invariant is a boolean fact extracted from the AST, "
-    "and Z3 confirms the fact holds. It is not a proof of runtime behaviour."
+    "Static check of the generated source, not a proof of runtime behaviour. INV-001..007: each invariant is a "
+    "boolean fact extracted from the AST and Z3 confirms the fact holds (a consistency check, not a proof of "
+    "the rule). INV-008/009: the permission rule the app enforces (services/permissions.py) is modelled "
+    "symbolically over every role, resource and action, including unseen ones, and the property itself is proved."
 )
+
+
+def _permission_results(project_dir: Path) -> list:
+    """INV-008/009 for the project's services/permissions.py; a bad run directory or a crash yields none."""
+    try:
+        return check_project_permissions(project_dir)
+    except SandboxViolation as exc:
+        logger.warning("[p06b] permission proof skipped: %s", exc)
+    except Exception as exc:
+        logger.warning("[p06b] permission proof failed: %s", exc)
+    return []
 
 
 def _build_report(
@@ -132,10 +153,10 @@ def _build_report(
             unverifiable.append(entry)
 
     # Overall verdict
-    if not z3_available or partial_reason:
+    if failed:
+        verdict = "FAIL"          # a proven violation is a FAIL even when the run was otherwise partial
+    elif not z3_available or partial_reason:
         verdict = "PARTIAL"
-    elif failed:
-        verdict = "FAIL"
     elif not verified and not unverifiable:
         verdict = "PARTIAL"  # No routes found — cannot claim PASS
     else:
@@ -213,9 +234,17 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         partial_reason = f"z3-solver not installed: {exc}"
         logger.warning("[p06b] Z3 unavailable — returning PARTIAL: %s", exc)
 
+    if project_dir is None or not project_dir.is_dir():
+        # Best-effort: scan output_dir itself (e.g., if called standalone)
+        project_dir = output_dir
+        logger.debug("[p06b] project_dir not provided; scanning output_dir %s", output_dir)
+
+    # The permission rule is proved with Z3 when present, else by exhaustive enumeration of its finite domain.
+    perm_results = _permission_results(project_dir)
+
     if not z3_available:
         report = _build_report(
-            all_results=[],
+            all_results=perm_results,
             project_name=project_name,
             domain=domain,
             total_files=0,
@@ -227,20 +256,19 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         return _write_and_return(report, output_dir, project_dir, partial_reason)
 
     # ── Locate generated files ────────────────────────────────────────────────
-    if project_dir is None or not project_dir.is_dir():
-        # Best-effort: scan output_dir itself (e.g., if called standalone)
-        project_dir = output_dir
-        logger.debug("[p06b] project_dir not provided; scanning output_dir %s", output_dir)
-
-    py_files = _find_py_files(project_dir)
+    try:
+        py_files = _find_py_files(project_dir)
+    except SandboxViolation as exc:
+        logger.warning("[p06b] refusing to scan %s: %s", project_dir, exc)
+        py_files = []
     logger.info("[p06b] scanning %d Python files in %s", len(py_files), project_dir)
 
     # ── Run Z3 verification ───────────────────────────────────────────────────
     from aether_os.phases.p06b_formal_verification.z3_encoder import Z3Encoder  # noqa: PLC0415
 
-    all_results = []
+    all_results = list(perm_results)
     for py_file in py_files:
-        module_ast = _parse_file(py_file)
+        module_ast = _parse_file(py_file, project_dir)
         if module_ast is None:
             continue
         try:
