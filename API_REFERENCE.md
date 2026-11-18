@@ -624,6 +624,7 @@ Tags: onboarding. Routes: 2.
 |---|---|---|---|
 | GET | `/onboarding` | `get_current_user`; floor: any role | Get onboarding. |
 | POST | `/onboarding/dismiss` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Dismiss onboarding. |
+| POST | `/onboarding/dpa` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Accept the DPA for the organisation (owner/admin; stored with user and time). |
 
 ### `gateway/routers/ops_status_router.py`
 
