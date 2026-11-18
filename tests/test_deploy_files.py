@@ -109,7 +109,7 @@ def test_ci_is_blocking_and_scans():
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     text = (ROOT / ".github/workflows/ci.yml").read_text()
     assert "|| true" not in text
-    for needle in ("pip-audit", "bandit", "gitleaks", "cov-fail-under", "postgres:15", "npm run build"):
+    for needle in ("pip-audit", "bandit", "gitleaks", "cov-fail-under", "pgvector/pgvector:pg15", "npm run build"):
         assert needle in text
     assert ci["permissions"] == {"contents": "read"}
 
