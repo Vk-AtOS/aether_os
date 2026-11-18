@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException, status
@@ -27,6 +28,10 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 logger = logging.getLogger(__name__)
+
+_HEARTBEAT_SECONDS = float(os.environ.get("WS_HEARTBEAT_SECONDS", "30"))
+_MAX_MESSAGE_BYTES = int(os.environ.get("WS_MAX_MESSAGE_BYTES", "65536"))
+_MAX_ROOM_CONNECTIONS = int(os.environ.get("WS_MAX_ROOM_CONNECTIONS", "200"))
 
 # OAuth2 scheme for WS auth (token passed as query param)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -98,25 +103,55 @@ def _room_key(claims: dict, room_id: str) -> str:
 
 @router.websocket("/{room_id}")
 async def websocket_endpoint(room_id: str, ws: WebSocket, token: str | None = None) -> None:
-    """WebSocket endpoint. Client connects with ?token=<access token> and receives room broadcasts."""
+    """WebSocket endpoint. Client connects with ?token=<access token> and receives room broadcasts.
+
+    Heartbeat: the server sends {"type": "ping"} after WS_HEARTBEAT_SECONDS of silence; the client
+    answers {"type": "pong"} (any message counts as alive). Two silent intervals in a row close the
+    connection (1001), so a dead peer never holds a slot. Messages over WS_MAX_MESSAGE_BYTES close it
+    (1009); a room holds at most WS_MAX_ROOM_CONNECTIONS (1013 when full).
+    """
     claims = _user_from_token(token)
     if claims is None:
         await ws.close(code=1008)       # policy violation: not signed in
         return
     room = _room_key(claims, room_id)
+    if manager.room_count(room) >= _MAX_ROOM_CONNECTIONS:
+        await ws.close(code=1013)       # try again later: the room is full
+        return
     await manager.connect(room, ws)
-    await ws.send_json({"type": "connected", "room": room_id, "members": manager.room_count(room)})
+    await ws.send_json({"type": "connected", "room": room_id, "members": manager.room_count(room),
+                        "heartbeat_seconds": _HEARTBEAT_SECONDS})
+    silent = 0.0
     try:
         while True:
-            data = await ws.receive_json()
+            try:
+                raw = await asyncio.wait_for(ws.receive_text(), timeout=_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                silent += _HEARTBEAT_SECONDS
+                if silent >= 2 * _HEARTBEAT_SECONDS:
+                    await ws.close(code=1001)       # no pong for two intervals: dead peer
+                    break
+                await ws.send_json({"type": "ping"})
+                continue
+            silent = 0.0
+            if len(raw) > _MAX_MESSAGE_BYTES:
+                await ws.close(code=1009)           # message too big
+                break
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                continue                            # not JSON: ignored, never broadcast
+            if isinstance(data, dict) and data.get("type") == "pong":
+                continue
             # Echo back with sender info; clients can also broadcast via HTTP POST
             await manager.broadcast(room, {"type": "message", "room": room_id, "data": data})
     except WebSocketDisconnect:
         await manager.disconnect(room, ws)
         await manager.broadcast(room, {"type": "left", "room": room_id})
+        return
     except Exception as exc:
         logger.warning("WS error in room %s: %s", room_id, exc)
-        await manager.disconnect(room, ws)
+    await manager.disconnect(room, ws)
 
 
 @router.post("/{room_id}/broadcast", status_code=200)
