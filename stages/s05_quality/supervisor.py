@@ -40,6 +40,7 @@ from typing import Any, Dict, List
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.phases.utils import get_domain_ir
 from aether_os.core.projects import get_project_manager
+from aether_os.core.quality.axe_live import live_axe_violations
 from aether_os.core.quality.frontend_tools import collect as collect_frontend_tools
 from aether_os.stages.s05_quality.helpers import quality_gate_summary
 from aether_os.stages.s05_quality.gate_functions import blocking_findings, detect_critical_issues, regenerate_file
@@ -131,7 +132,15 @@ class QualityGateSupervisor(PhaseBase):
             fe_path = merged_data.get("frontend_output_path", "")
             if fe_path and Path(fe_path).is_dir():
                 a11y = merged_data.get("accessibility_results") or {}
-                tools = await asyncio.to_thread(collect_frontend_tools, fe_path, a11y.get("violations_count"))
+                # The a11y stage's own count when it ran; else axe-core now, in the browser sandbox (when a
+                # build and the sandbox exist); else None plus a note: not run is never "zero violations".
+                axe_count = a11y.get("violations") if a11y.get("ran_axe") else None
+                axe_note = ""
+                if axe_count is None:
+                    axe_count, axe_note = await live_axe_violations(Path(fe_path))
+                tools = await asyncio.to_thread(collect_frontend_tools, fe_path, axe_count)
+                if axe_note:
+                    tools.notes.append(axe_note)
                 fe_reports = critique_directory(fe_path, tools=tools, root=merged_data.get("project_dir"))
                 critic_reports += fe_reports
                 dimension_critique["frontend"] = {
